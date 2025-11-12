@@ -1,5 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
+import App from './app.jsx'
 
 import './index.css' // <-- This line is essential. It loads all the styles.
 
@@ -68,4 +69,5 @@ public class Main {
         output: "Java is ready!\nRunning Java code in Spy format\nThe answer is: 42" 
     }
 ];
+
 
