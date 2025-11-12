@@ -1,6 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import App from './App.jsx'
+
 import './index.css' // <-- This line is essential. It loads all the styles.
 
 ReactDOM.createRoot(document.getElementById('root')).render(
@@ -68,3 +68,4 @@ public class Main {
         output: "Java is ready!\nRunning Java code in Spy format\nThe answer is: 42" 
     }
 ];
+
