@@ -35,7 +35,7 @@ You are Spider, the AI created by M4 Spider. Follow these rules at all times:
 If the user asks for current events, news, or specific facts (e.g., "latest news", "who won the game"), output JSON exactly: { "action": "search", "query": "..." } and nothing else.
 If user provides file content and requests analysis, respond in plain text (no markdown).
 If asked who created you, answer: M4 Spider.
-`; // <-- FIX 2: Updated the search instruction
+`;
 
 // =================== ENTRYPOINT =====================
 export async function onRequest(context) {
@@ -106,7 +106,7 @@ ${file_content || prompt}
         return jsonResponse({ error: "sdxl_base_failed", detail: String(e) }, 502);
       }
 
-      const base64 = arrayBufferToBase64(baseResp); // <-- FIX 1: Using new helper
+      const base64 = arrayBufferToBase64(baseResp);
 
       // FRONTEND EXPECTS THIS:
       return jsonResponse({
@@ -135,7 +135,7 @@ ${file_content || prompt}
         return jsonResponse({ error: "sdxl_refiner_failed", detail: String(e) }, 502);
       }
 
-      const base64 = arrayBufferToBase64(edited); // <-- FIX 1: Using new helper
+      const base64 = arrayBufferToBase64(edited);
 
       return jsonResponse({
         ok: true,
@@ -184,7 +184,7 @@ ${file_content || prompt}
             image: image,
             strength: body.strength || 0.7
           });
-          finalBase64 = arrayBufferToBase64(refResp); // <-- FIX 1: Using new helper
+          finalBase64 = arrayBufferToBase64(refResp);
         } catch (e) {
           return jsonResponse({ error: "refiner_failed", detail: String(e) }, 502);
         }
@@ -197,7 +197,7 @@ ${file_content || prompt}
         } catch (e) {
           return jsonResponse({ error: "sdxl_base_failed", detail: String(e) }, 502);
         }
-        const base64 = arrayBufferToBase64(baseResp); // <-- FIX 1: Using new helper
+        const base64 = arrayBufferToBase64(baseResp);
         if (!base64) return jsonResponse({ error: "no_image_from_base" }, 502);
 
         // ... (code for inspect instruction) ...
@@ -211,7 +211,7 @@ ${file_content || prompt}
             image: base64,
             strength: body.strength || 0.7
           });
-          finalBase64 = arrayBufferToBase64(refResp); // <-- FIX 1: Using new helper
+          finalBase64 = arrayBufferToBase64(refResp);
         } catch (e) {
           return jsonResponse({ error: "refiner_failed", detail: String(e) }, 502);
         }
@@ -226,7 +226,7 @@ ${file_content || prompt}
             image: finalBase64,
             strength: 0.5
           });
-          const upBase64 = arrayBufferToBase64(upResp); // <-- FIX 1: Using new helper
+          const upBase64 = arrayBufferToBase64(upResp);
           if (upBase64) finalBase64 = upBase64;
         } catch {
           // ignore upscale errors
@@ -297,15 +297,28 @@ function jsonResponse(obj, status = 200) {
   return new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json" } });
 }
 
-// <-- FIX 1: New helper function to correctly convert image data
+// <-- FIX 2: Made this helper more robust
 function arrayBufferToBase64(buffer) {
-  let binary = '';
-  const bytes = new Uint8Array(buffer);
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
+  if (!buffer || typeof buffer.byteLength === 'undefined') {
+    console.error("arrayBufferToBase64: Received invalid buffer");
+    return null; // Not a valid ArrayBuffer
   }
-  return btoa(binary);
+  try {
+    let binary = '';
+    const bytes = new Uint8Array(buffer);
+    const len = bytes.byteLength;
+    if (len === 0) {
+        console.error("arrayBufferToBase64: Received empty buffer");
+        return null; // Empty buffer
+    }
+    for (let i = 0; i < len; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  } catch (e) {
+    console.error("arrayBufferToBase64 failed:", e);
+    return null;
+  }
 }
 
 async function runSearch(env, query) {
@@ -406,11 +419,23 @@ function extractText(resp) {
   }
 }
 
-// <-- FIX 1: DELETED the broken extractImageBase64 function
-
+// <-- FIX 1: Updated detectMode to catch news prompts
 function detectMode(prompt, file_content, filename) {
   if (file_content || filename) return "analyze_file";
   const t = (prompt || "").toLowerCase();
+
+  // --- Search block ---
+  if (
+    t.includes("latest news") ||
+    t.includes("current events") ||
+    (t.includes("news") && !t.includes("good news")) || // avoid "good news" as a greeting
+    t.includes("what's happening in") ||
+    t.includes("search") || 
+    t.includes("look up") || 
+    t.includes("check online")
+  ) return "search";
+
+  // --- File Analysis block ---
   if (
     t.includes("analyze file") ||
     t.includes("analyze css") ||
@@ -420,10 +445,12 @@ function detectMode(prompt, file_content, filename) {
     t.includes("explain code") ||
     t.includes("debug this")
   ) return "analyze_file";
-  if (t.includes("search") || t.includes("look up") || t.includes("check online")) return "search";
+  
+  // --- Other modes ---
   if (t.includes("clear memory") || t.includes("clear history") || t.includes("forget")) return "clear_memory";
   if (t.includes("purify") || t.includes("purify image") || t.includes("cleanup image") || t.includes("clean image") || t.includes("improve image") || t.includes("enhance image") || t.includes("refine image")) return "image_purify";
   if (t.includes("generate image") || t.includes("create image") || t.includes("image_gen")) return "image_gen";
   if (t.includes("edit image") || t.includes("image_edit")) return "image_edit";
+  
   return "chat";
 }
