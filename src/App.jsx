@@ -2096,7 +2096,6 @@ export default function App() {
 // 🔥 SPIDER AI — Cloudflare GPT-120B + SDXL Integration (FINAL VERSION)
 const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat") => {
     try {
-        // Always hit your Cloudflare Function at /ai
         const res = await fetch("/ai", {
             method: "POST",
             headers: {
@@ -2115,9 +2114,10 @@ const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat") =>
 
         const contentType = res.headers.get("content-type");
 
-        // 🖼️ If SDXL returned an image
+        // 🖼️ IMAGE RESPONSE (PNG)
         if (contentType?.includes("image/")) {
             const blob = await res.blob();
+
             const base64_image = await new Promise((resolve) => {
                 const reader = new FileReader();
                 reader.onloadend = () => resolve(reader.result.split(",")[1]);
@@ -2127,11 +2127,11 @@ const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat") =>
             return {
                 base64_image,
                 text: payload.prompt || "",
-                model_used: "Stable Diffusion XL (Cloudflare Free Tier)"
+                model_used: "SDXL"
             };
         }
 
-        // 🧠 If GPT-120B returned JSON
+        // 🧠 TEXT RESPONSE (JSON)
         const data = await res.json();
 
         return {
@@ -2144,7 +2144,6 @@ const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat") =>
         };
 
     } catch (err) {
-        console.error("SPY_AI ERROR:", err);
         showModal("Spider AI Error", err.message);
         return { error: err.message };
     }
@@ -2876,4 +2875,5 @@ int main() {
         </>
     );
 }
+
 
