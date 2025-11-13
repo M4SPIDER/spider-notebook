@@ -2112,28 +2112,28 @@ const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat") =>
 
         const contentType = res.headers.get("content-type") || "";
 
-        // 🖼️ HANDLE SDXL IMAGES
+        // 🖼️ IMAGE (PNG)
         if (contentType.includes("image/")) {
             const blob = await res.blob();
 
-            const base64_image = await new Promise((resolve) => {
+            const base64 = await new Promise((resolve) => {
                 const reader = new FileReader();
                 reader.onloadend = () => resolve(reader.result.split(",")[1]);
                 reader.readAsDataURL(blob);
             });
 
             return {
-                text: "Image generated",
-                base64_image,
+                text: payload.prompt || "",
+                base64_image: base64,
                 model_used: "SDXL"
             };
         }
 
-        // 🧠 HANDLE EMPTY OR INVALID RESPONSE SAFELY
+        // 🧠 TEXT (JSON)
         const rawText = await res.text();
 
         if (!rawText || rawText.trim() === "") {
-            return { error: "Empty response from server." };
+            return { error: "Empty response from Spider AI backend." };
         }
 
         let data;
@@ -2143,19 +2143,28 @@ const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat") =>
             return { error: "Invalid JSON received from backend." };
         }
 
+        // 🕷️ Extract Cloudflare GPT-120B Output
+        let finalText = "";
+
+        try {
+            finalText =
+                data?.output?.[1]?.content?.[0]?.text ||  // main assistant response
+                data?.output?.[0]?.content?.[0]?.text ||  // fallback
+                data?.result ||                           // old model fallback
+                data?.response ||                         // your old format
+                data?.text ||                             // basic output
+                "";                                       // nothing
+        } catch {}
+
         return {
-            text:
-                data.output_text ||
-                data.response ||
-                data.text ||
-                "",
+            text: finalText,
             raw: data
         };
 
     } catch (err) {
         return { error: err.message };
     }
-}, [showModal]);
+}, []);
   
     
     // --- WebSocket Handlers (NEW) ---
@@ -2883,6 +2892,7 @@ int main() {
         </>
     );
 }
+
 
 
 
