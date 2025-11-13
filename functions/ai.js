@@ -1,4 +1,4 @@
-/ =================== SPIDER SYSTEM PROMPT =====================
+// =================== SPIDER SYSTEM PROMPT =====================
 
 const SPIDER_SYSTEM_PROMPT = `
 You are Spider, the AI created by M4 Spider. Follow these rules at all times:
