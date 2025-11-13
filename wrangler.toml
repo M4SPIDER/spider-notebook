@@ -6,4 +6,4 @@ compatibility_flags = ["nodejs_compat"]
 
 [[ai]]
 binding = "SPY_AI"
-model = "@cf/openai/gpt-4o-mini"
+model = "@cf/openai/gpt-oss-120b"
