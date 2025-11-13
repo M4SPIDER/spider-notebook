@@ -1,18 +1,21 @@
 // functions/ai.js
-// Single-file Spider AI (Classic Memory Edition, Smart Memory Filter)
-// Exports a single onRequest handler for Pages Functions / Cloudflare.
+// Spider AI — Classic Memory Edition + LLM-guided SDXL Purifier (Auto mode)
+// Single endpoint; keeps OG flow, adds image_purify pipeline (auto style detection).
 
-// Force edge runtime (helps ensure AI binding behaves as expected)
 export const config = { runtime: "edge" };
 
 // =================== CONFIG KEYS & MODELS =====================
 const HISTORY_KV_PREFIX = "chat:";
 const IMAGE_KV_PREFIX = "image:";
-const USAGE_KV_PREFIX = "usage:"; // reserved if you want quotas
+const USAGE_KV_PREFIX = "usage:";
+
 const SEARCH_MODEL = "@cf/web-search/seznam-supersearch";
 const DEFAULT_MODEL = "@cf/mistralai/mistral-small-3.1-24b-instruct";
 const SDXL_BASE = "@cf/stabilityai/stable-diffusion-xl-base-1.0";
 const SDXL_REFINER = "@cf/stabilityai/stable-diffusion-xl-refiner-1.0";
+
+// Purifier defaults
+const PURIFY_MAX_UPSCALE = 2; // allowed upscales: 1 (none) or 2 (2x). Keep safe by default.
 const MAX_HISTORY = 60;
 
 // =================== SYSTEM PROMPT (OG + Multilingual override) =====================
@@ -27,7 +30,7 @@ You are Spider, the AI created by M4 Spider. Follow these rules at all times:
 7. Maintain a witty, bold, confident personality.
 8. Never describe your abilities unless the user asks.
 9. Never mention model names, system roles, or tokens.
-10. Spider understands and can reply in any language, including Telugu, Hindi, Tamil, Kannada, Malayalam, Marathi, Gujarati, Bengali, Odia, Punjabi, Urdu and more. Spider must not state it only knows English or refuse to reply in a language when asked.
+10. Spider understands and can reply in any language. Spider must not state it only knows English.
 
 If user asks to "search", output JSON exactly: { "action": "search", "query": "..." } and nothing else.
 If user provides file content and requests analysis, respond in plain text (no markdown).
@@ -47,24 +50,20 @@ export async function onRequest(context) {
   const prompt = body.prompt || "";
   const file_content = body.file_content || "";
   const filename = body.filename || "";
-  const image = body.image || null;
-  const strength = typeof body.strength === "number" ? body.strength : (body.strength ? Number(body.strength) : 0.7);
-
-  // mode detection: explicit mode field preferred, else auto-detect
+  const image = body.image || null; // can be base64 or data URI
+  const requestedUpscale = Math.min(PURIFY_MAX_UPSCALE, Math.max(1, Number(body.upscale || 1)));
   const mode = (body.mode && String(body.mode)) || detectMode(prompt, file_content, filename);
 
-  // load history (best-effort)
+  // load history
   const kvKey = HISTORY_KV_PREFIX + userId;
   let history = [];
   try {
     const raw = await env.CHAT_KV.get(kvKey);
     if (raw) history = JSON.parse(raw);
-  } catch (e) {
-    history = [];
-  }
+  } catch (e) { history = []; }
 
   try {
-    // ---------- clear memory ----------
+    // clear memory
     if (mode === "clear_memory" || mode === "memory_clear") {
       try {
         await env.CHAT_KV.delete(kvKey);
@@ -74,7 +73,7 @@ export async function onRequest(context) {
       }
     }
 
-    // ---------- file analysis ----------
+    // file analysis
     if (mode === "analyze_file") {
       const analysisPrompt = `
 Analyze this file in plain text. No markdown, no bullets, no lists. Emojis allowed.
@@ -89,41 +88,36 @@ ${file_content || prompt}
         ],
         format: "messages"
       });
-
       const text = extractText(resp) || "No analysis produced.";
-      // append a short trace to history (assistant trace, filtered by memory filter)
       safeAppendHistory(env, kvKey, history, { role: "assistant", content: `[file_analysis:${filename || "unknown"}] ${text.slice(0,400)}` });
       return new Response(text, { headers: { "content-type": "text/plain" } });
     }
 
-    // ---------- image generation ----------
+    // standard image generation
     if (mode === "image_gen") {
       if (!prompt) return jsonResponse({ error: "no_prompt" }, 400);
       const enhanced = `${prompt}, full color, ultra high detail, cinematic lighting, hdr, volumetric light, photoreal, 8k clarity`;
-
       let baseResp;
       try {
         baseResp = await env.SPY_AI.run(SDXL_BASE, { prompt: enhanced });
       } catch (e) {
         return jsonResponse({ error: "sdxl_base_failed", detail: String(e) }, 502);
       }
-
       const base64 = extractImageBase64(baseResp);
       const imageId = `img_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
       const meta = { id: imageId, prompt: enhanced, createdAt: Date.now(), base64: base64 || null };
       try { await env.IMAGE_KV.put(IMAGE_KV_PREFIX + imageId, JSON.stringify(meta), { expirationTtl: 60*60*24*30 }); } catch {}
-
       safeAppendHistory(env, kvKey, history, { role: "assistant", content: `[image_created:${imageId}] ${enhanced}` });
       return jsonResponse({ imageId, base64: meta.base64 });
     }
 
-    // ---------- image edit ----------
+    // image edit
     if (mode === "image_edit") {
       if (!prompt || !image) return jsonResponse({ error: "missing_image_or_prompt" }, 400);
       const enhanced = `${prompt}, full color, ultra high detail, cinematic lighting, hdr`;
       let edited;
       try {
-        edited = await env.SPY_AI.run(SDXL_REFINER, { prompt: enhanced, image, strength });
+        edited = await env.SPY_AI.run(SDXL_REFINER, { prompt: enhanced, image, strength: body.strength || 0.7 });
       } catch (e) {
         return jsonResponse({ error: "sdxl_refiner_failed", detail: String(e) }, 502);
       }
@@ -135,7 +129,7 @@ ${file_content || prompt}
       return jsonResponse({ imageId, base64: meta.base64 });
     }
 
-    // ---------- search ----------
+    // search
     if (mode === "search") {
       if (!prompt) return jsonResponse({ error: "no_query" }, 400);
       const results = await runSearch(env, prompt);
@@ -154,13 +148,165 @@ ${file_content || prompt}
       return jsonResponse({ query: prompt, results, summary });
     }
 
-    // ---------- NORMAL CHAT (default) ----------
-    // Append user message to history (store user messages always)
-    if (prompt) {
-      history.push({ role: "user", content: prompt });
-    }
+    // ---------- IMAGE PURIFY PIPELINE (NEW) ----------
+    // mode: image_purify
+    // Accepts:
+    // - prompt (text prompt describing target)
+    // - image (optional) : if provided, purifier will refine/edit the provided image
+    // - upscale (1 or 2) : integer
+    // - style (optional): "realistic"|"cinematic"|"anime"|"auto"
+    //
+    // Behavior:
+    // - If image is provided: run LLM to produce a 'fixing prompt' for refiner and run SDXL_REFINER on input image.
+    // - If image is NOT provided: run LLM enhanced prompt -> SDXL_BASE -> inspect -> refine.
+    // - Auto style detection if style === "auto" or not provided.
+    // - Save result in IMAGE_KV and append short history trace.
 
-    // Build messages: system + trimmed recent history + current user prompt
+    if (mode === "image_purify") {
+      // validate
+      const styleInput = (body.style && String(body.style).toLowerCase()) || "auto";
+      const upscale = Math.min(PURIFY_MAX_UPSCALE, Math.max(1, Number(requestedUpscale || 1)));
+
+      // Step 0: LLM determines style if auto
+      let chosenStyle = styleInput;
+      if (styleInput === "auto" || !["realistic","cinematic","anime"].includes(styleInput)) {
+        // ask LLM to infer style intention quickly
+        try {
+          const styleResp = await env.SPY_AI.run(DEFAULT_MODEL, {
+            messages: [
+              { role: "system", content: SPIDER_SYSTEM_PROMPT },
+              { role: "user", content: `You are a style classifier. The user prompt is: "${prompt}". Choose one of: realistic, cinematic, anime. Output only the single word.` }
+            ],
+            format: "messages"
+          });
+          const txt = extractText(styleResp).trim().toLowerCase();
+          if (txt.includes("cinematic")) chosenStyle = "cinematic";
+          else if (txt.includes("anime") || txt.includes("styl")) chosenStyle = "anime";
+          else chosenStyle = "realistic";
+        } catch {
+          chosenStyle = "realistic";
+        }
+      }
+
+      // Step 1: LLM-enhanced initial prompt (brain pass)
+      const enhancerInstruction = `Rewrite the user prompt into a short, high-quality SDXL prompt for ${chosenStyle} purification. Add details for lighting, skin/texture, camera, and photography terms if relevant. Keep it one line. User prompt: ${prompt}`;
+      let enhancedPrompt = prompt;
+      try {
+        const enh = await env.SPY_AI.run(DEFAULT_MODEL, {
+          messages: [
+            { role: "system", content: SPIDER_SYSTEM_PROMPT },
+            { role: "user", content: enhancerInstruction }
+          ],
+          format: "messages"
+        });
+        const eTxt = extractText(enh).trim();
+        if (eTxt) enhancedPrompt = eTxt;
+      } catch {}
+
+      // If input image exists -> we will do refiner-first (edit pipeline)
+      let finalBase64 = null;
+      let imageId = `img_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+      if (image) {
+        // image provided: use LLM to produce refining instruction
+        const fixInstruction = `You are an image purification assistant. The user wants this image improved to be ${chosenStyle} and match this prompt: "${enhancedPrompt}". Provide a one-line instruction for the SDXL refiner describing exact fixes: skin/face/hands, remove noise, improve lighting, increase micro-detail, correct anatomy, sharpen edges. Keep under 120 characters.`;
+        let fixingPrompt = enhancedPrompt;
+        try {
+          const fix = await env.SPY_AI.run(DEFAULT_MODEL, {
+            messages: [
+              { role: "system", content: SPIDER_SYSTEM_PROMPT },
+              { role: "user", content: fixInstruction }
+            ],
+            format: "messages"
+          });
+          const fTxt = extractText(fix).trim();
+          if (fTxt) fixingPrompt = `${enhancedPrompt}. ${fTxt}`;
+        } catch {}
+
+        // run refiner with provided image
+        try {
+          const refResp = await env.SPY_AI.run(SDXL_REFINER, {
+            prompt: fixingPrompt,
+            image: image,
+            strength: body.strength || 0.7
+          });
+          finalBase64 = extractImageBase64(refResp);
+        } catch (e) {
+          // fallback: return error
+          return jsonResponse({ error: "refiner_failed", detail: String(e) }, 502);
+        }
+
+      } else {
+        // No input image: base -> inspect -> refine
+        // SDXL Base generation
+        let baseResp;
+        try {
+          baseResp = await env.SPY_AI.run(SDXL_BASE, { prompt: enhancedPrompt });
+        } catch (e) {
+          return jsonResponse({ error: "sdxl_base_failed", detail: String(e) }, 502);
+        }
+        const base64 = extractImageBase64(baseResp);
+        if (!base64) return jsonResponse({ error: "no_image_from_base" }, 502);
+
+        // Step 2: LLM inspects the base image and produces a fixing prompt
+        // We will give the LLM a short report style instruction — but we cannot pass binary image directly.
+        // We'll ask LLM to assume common issues and produce a fixing instruction.
+        const inspectInstruction = `You are an expert image editor. A base SDXL image was generated from prompt: "${enhancedPrompt}". Typical issues: noise, soft faces, hands, lighting. Produce a one-line fixing instruction to feed to an SDXL refiner to improve realism and clarity for ${chosenStyle}. Keep under 120 characters.`;
+        let fixingPrompt = enhancedPrompt;
+        try {
+          const fix = await env.SPY_AI.run(DEFAULT_MODEL, {
+            messages: [
+              { role: "system", content: SPIDER_SYSTEM_PROMPT },
+              { role: "user", content: inspectInstruction }
+            ],
+            format: "messages"
+          });
+          const fTxt = extractText(fix).trim();
+          if (fTxt) fixingPrompt = `${enhancedPrompt}. ${fTxt}`;
+        } catch {}
+
+        // Step 3: run refiner with base image
+        try {
+          const refResp = await env.SPY_AI.run(SDXL_REFINER, {
+            prompt: fixingPrompt,
+            image: base64,
+            strength: body.strength || 0.7
+          });
+          finalBase64 = extractImageBase64(refResp);
+        } catch (e) {
+          return jsonResponse({ error: "refiner_failed", detail: String(e) }, 502);
+        }
+      }
+
+      // Optional upscale: for safety we only support 2x via an extra refiner run with upscale hint
+      if (finalBase64 && upscale > 1) {
+        try {
+          const upPrompt = `Upscale and enhance micro-detail for ${chosenStyle}. Preserve natural textures and avoid artifacts.`;
+          const upResp = await env.SPY_AI.run(SDXL_REFINER, {
+            prompt: upPrompt,
+            image: finalBase64,
+            strength: 0.5
+          });
+          const upBase64 = extractImageBase64(upResp);
+          if (upBase64) finalBase64 = upBase64;
+        } catch {
+          // ignore upscale errors — keep finalBase64 as-is
+        }
+      }
+
+      // persist final image metadata
+      const meta = { id: imageId, prompt: enhancedPrompt, style: chosenStyle, createdAt: Date.now(), base64: finalBase64 || null };
+      try { await env.IMAGE_KV.put(IMAGE_KV_PREFIX + imageId, JSON.stringify(meta), { expirationTtl: 60*60*24*30 }); } catch {}
+
+      // append short history trace
+      safeAppendHistory(env, kvKey, history, { role: "assistant", content: `[image_purify:${imageId}] style=${chosenStyle}` });
+
+      return jsonResponse({ imageId, style: chosenStyle, base64: meta.base64 });
+    } // end image_purify
+
+    // ---------- NORMAL CHAT ----------
+    // Append user message to history
+    if (prompt) history.push({ role: "user", content: prompt });
+
     const recent = history.slice(-20).map(h => ({ role: h.role, content: h.content }));
     const messagesToAI = [
       { role: "system", content: SPIDER_SYSTEM_PROMPT },
@@ -175,7 +321,7 @@ ${file_content || prompt}
 
     let text = extractText(aiResp).trim();
 
-    // If assistant returned action: search JSON, handle it inline
+    // if assistant returns action search
     try {
       const parsed = JSON.parse(text);
       if (parsed?.action === "search" && parsed?.query) {
@@ -193,14 +339,11 @@ ${file_content || prompt}
         } catch {}
         text = summary || JSON.stringify({ query: parsed.query, results });
       }
-    } catch (_) {
-      // not JSON -> normal chat text
-    }
+    } catch (_) {}
 
-    // Save assistant reply to KV using smart filter (option B)
+    // persist assistant reply with smart filter
     safeAppendHistory(env, kvKey, history, { role: "assistant", content: text });
 
-    // Return assistant text (plain)
     return new Response(String(text), { headers: { "content-type": "text/plain" } });
 
   } catch (err) {
@@ -214,7 +357,6 @@ function jsonResponse(obj, status = 200) {
   return new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json" } });
 }
 
-// run search using SEARCH_MODEL
 async function runSearch(env, query) {
   try {
     const r = await env.SPY_AI.run(SEARCH_MODEL, { query });
@@ -224,27 +366,21 @@ async function runSearch(env, query) {
   }
 }
 
-// history trim and storage helper (safe append)
+// persisted history helper with smart filter (Option B)
 async function safeAppendHistory(env, kvKey, currentHistory, entry) {
   try {
-    // apply memory filter before storing assistant entries
     if (entry.role === "assistant") {
       if (!shouldSaveAssistantLine(entry.content)) {
-        // do not save this assistant line, but still push to in-memory history for context this request
+        // push into runtime history (so this request can reference it) but don't persist this assistant refusal
         currentHistory.push({ role: "assistant", content: entry.content });
-        // store but strip assistant lines? we skip persistence
         const trimmed = trimHistoryForStorage(currentHistory);
-        // persist only user messages and allowed assistant messages
         const filteredForKV = trimmed.filter(h => h.role !== "assistant" || shouldSaveAssistantLine(h.content));
         await env.CHAT_KV.put(kvKey, JSON.stringify(filteredForKV));
         return;
       }
     }
-
-    // default: append and persist trimmed history (ensuring allowed assistant lines remain)
     currentHistory.push(entry);
     const trimmed = trimHistoryForStorage(currentHistory);
-    // persist with filter applied
     const filteredForKV = trimmed.filter(h => h.role !== "assistant" || shouldSaveAssistantLine(h.content));
     await env.CHAT_KV.put(kvKey, JSON.stringify(filteredForKV));
   } catch (e) {
@@ -252,7 +388,6 @@ async function safeAppendHistory(env, kvKey, currentHistory, entry) {
   }
 }
 
-// trim history for storage: keep last MAX_HISTORY entries and truncate long content
 function trimHistoryForStorage(history) {
   const start = Math.max(0, history.length - MAX_HISTORY);
   return history.slice(start).map(m => {
@@ -261,57 +396,32 @@ function trimHistoryForStorage(history) {
   });
 }
 
-// Memory filter: Option B rules — do not save assistant messages that contain these refusal patterns
 function shouldSaveAssistantLine(text) {
   if (!text || typeof text !== "string") return true;
   const s = text.toLowerCase();
-
-  // patterns that indicate refusal/ignorance we don't want to persist
   const blacklist = [
-    "i don't know",
-    "i do not know",
-    "only english",
-    "i only know english",
-    "i cannot",
-    "i can't",
-    "i am unable",
-    "i'm unable",
-    "i refuse",
-    "i will not",
-    "i won't",
-    "sorry, i",
-    "apologies, i",
-    "i do not support",
-    "i do not speak",
-    "i only speak"
+    "i don't know","i do not know","only english","i only know english",
+    "i cannot","i can't","i am unable","i'm unable","i refuse","i will not","i won't",
+    "sorry, i","apologies, i","i do not support","i do not speak","i only speak"
   ];
-
-  for (const p of blacklist) {
-    if (s.includes(p)) return false;
-  }
-
-  // also avoid saving clearly empty assistant lines
+  for (const p of blacklist) if (s.includes(p)) return false;
   if (s.trim().length === 0) return false;
-
   return true;
 }
 
-// Universal extractor (old-style lookups preserved + new Cloudflare message format support)
+// extractor: robust for old + new Cloudflare output[] and fallback
 function extractText(resp) {
   try {
     if (!resp) return "";
-
-    // Keep original lookups (old style)
+    // safe tries
     try {
       const txt1 = resp?.output?.[1]?.content?.[0]?.text;
       if (txt1) return String(txt1).trim();
     } catch {}
-
     try {
       const txt2 = resp?.output?.[0]?.content?.[0]?.text;
       if (txt2) return String(txt2).trim();
     } catch {}
-
     if (resp?.output_text) return String(resp.output_text).trim();
     if (resp?.text) return String(resp.text).trim();
     if (resp?.result && typeof resp.result === "string") return String(resp.result).trim();
@@ -322,17 +432,11 @@ function extractText(resp) {
     if (Array.isArray(resp.output)) {
       for (const block of resp.output) {
         if (!block) continue;
-
-        // text directly on block
         if (block.text) return String(block.text).trim();
-
-        // block.content array
         if (Array.isArray(block.content)) {
-          // prefer type output_text
           for (const c of block.content) {
             if ((c.type === "output_text" || c.type === "text") && c.text) return String(c.text).trim();
           }
-          // fallback any text
           for (const c of block.content) {
             if (c.text) return String(c.text).trim();
           }
@@ -340,21 +444,17 @@ function extractText(resp) {
       }
     }
 
-    // response_text fallback
     if (resp?.response_text) return String(resp.response_text).trim();
 
-    // last resort: extract any "text":"..." from JSON string
     const flat = JSON.stringify(resp);
     const m = flat.match(/"text"\s*:\s*"([^"]+)"/);
     if (m && m[1]) return m[1];
-
     return "";
   } catch {
     return "";
   }
 }
 
-// extract image base64 from responses
 function extractImageBase64(resp) {
   try {
     const t = extractText(resp);
@@ -368,11 +468,9 @@ function extractImageBase64(resp) {
   }
 }
 
-// Basic mode detector (keeps old logic)
 function detectMode(prompt, file_content, filename) {
   if (file_content || filename) return "analyze_file";
   const t = (prompt || "").toLowerCase();
-
   if (
     t.includes("analyze file") ||
     t.includes("analyze css") ||
@@ -382,12 +480,10 @@ function detectMode(prompt, file_content, filename) {
     t.includes("explain code") ||
     t.includes("debug this")
   ) return "analyze_file";
-
-  if (t.includes("search") || t.includes("look up") || t.includes("check online"))
-    return "search";
-
-  if (t.includes("clear memory") || t.includes("clear history") || t.includes("forget"))
-    return "clear_memory";
-
+  if (t.includes("search") || t.includes("look up") || t.includes("check online")) return "search";
+  if (t.includes("clear memory") || t.includes("clear history") || t.includes("forget")) return "clear_memory";
+  if (t.includes("purify") || t.includes("purify image") || t.includes("cleanup image") || t.includes("clean image") || t.includes("improve image") || t.includes("enhance image") || t.includes("refine image")) return "image_purify";
+  if (t.includes("generate image") || t.includes("create image") || t.includes("image_gen")) return "image_gen";
+  if (t.includes("edit image") || t.includes("image_edit")) return "image_edit";
   return "chat";
 }
