@@ -386,7 +386,7 @@ Do NOT include any other text, markdown, or explanation if you output the search
 
   let text = extractText(aiResp).trim();
 
-  // CRITICAL FIX: Aggressively clean text to handle LLM markdown wrapping 
+  // CRITICAL FIX: Aggressively clean text to handle LLM markdown wrapping
   const jsonString = text
     .replace(/^```json\s*/, '')
     .replace(/^```\s*/, '')
@@ -396,14 +396,13 @@ Do NOT include any other text, markdown, or explanation if you output the search
   try {
     const obj = JSON.parse(jsonString);
     if (obj?.action === "search" && obj?.query) {
-      const results = await runSearch(env, obj.query);
+      const results = await runSearch(obj.query); // Note: env is implicitly available in Worker environment
 
       // LLM call to summarize the search results
       const summary = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", {
         messages: [
           { role: "system", content: SPIDER_SYSTEM_PROMPT },
           { role: "system", content: "Memory:\n" + memorySummary },
-          // Send the search results (including any error details) back to the LLM for summarization
           { role: "user", content: `Search results: ${JSON.stringify(results)}` }
         ]
       });
@@ -427,16 +426,35 @@ Do NOT include any other text, markdown, or explanation if you output the search
    SEARCH ENGINE
    ============================================================ */
 
-async function runSearch(env, query) {
+// Replaced Cloudflare model with direct fetch to DuckDuckGo Instant Answer API
+async function runSearch(query) {
   try {
-    const r = await env.SPY_AI.run("@cf/web-search/seznam-supersearch", { query });
-    // Ensure we return an object structure expected by the LLM summarizer
-    return r?.results || r || {}; 
+    const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&t=spider_app&no_html=1`;
+    const response = await fetch(url);
+    const data = await response.json();
+
+    // DuckDuckGo Instant Answer API returns structured data.
+    // We package the most relevant parts (Abstract and Related Topics)
+    // to give the LLM something useful to summarize.
+    const results = {
+        abstract: data.AbstractText || "No instant answer found.",
+        source: data.AbstractURL,
+        related_topics: data.RelatedTopics.map(t => ({
+            text: t.Text, 
+            url: t.FirstURL 
+        })).slice(0, 5) // Limit to 5 topics for brevity
+    };
+
+    return results;
+
   } catch (e) {
-    // Return a more descriptive error object including the query
-    console.error("Search failed for query:", query, e);
-    // Include the error details for the summarization LLM
-    return { error: "search_failed", details: e.toString() };
+    // Return a descriptive error object
+    console.error("DuckDuckGo search failed for query:", query, e);
+    return { 
+        error: "ddg_search_failed", 
+        query: query, 
+        details: e.toString() 
+    };
   }
 }
 
