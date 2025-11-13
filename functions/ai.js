@@ -90,7 +90,7 @@ async function verifyFirebaseToken(idToken) {
 }
 
 /* ============================================================
-   ROBUST SEARCH ENGINE - FIXED VERSION
+   ENHANCED SEARCH ENGINE - BETTER FALLBACKS
    ============================================================ */
 
 async function runSearch(query) {
@@ -102,7 +102,7 @@ async function runSearch(query) {
     
     const response = await fetch(ddgUrl, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
         'Accept': 'application/json'
       }
     });
@@ -112,15 +112,46 @@ async function runSearch(query) {
     }
 
     const data = await response.json();
-    console.log("DuckDuckGo API response received");
+    console.log("DuckDuckGo API response:", data);
+
+    // Check if we have meaningful content
+    const hasUsefulContent = 
+      (data.AbstractText && data.AbstractText.trim() !== "" && data.AbstractText !== "No abstract found.") ||
+      (data.Answer && data.Answer.trim() !== "") ||
+      (data.Definition && data.Definition.trim() !== "") ||
+      (data.Results && data.Results.length > 0) ||
+      (data.RelatedTopics && data.RelatedTopics.length > 0);
+
+    if (!hasUsefulContent) {
+      console.log("No useful content found in DuckDuckGo response");
+      
+      // Try alternative approach for future dates or specific queries
+      if (query.toLowerCase().includes("2025") || query.toLowerCase().includes("future")) {
+        return {
+          abstract: `I searched for "${query}" but this appears to be about future events that may not have confirmed information yet. For the most up-to-date information about future releases, check official sources like IMDb, movie studio announcements, or entertainment news sites.`,
+          source: "",
+          related_topics: [],
+          success: true,
+          note: "future_date_query"
+        };
+      }
+      
+      return {
+        abstract: `I searched for "${query}" but couldn't find specific instant results. This information might be better found on specialized websites or official sources.`,
+        source: "",
+        related_topics: [],
+        success: true,
+        note: "no_instant_results"
+      };
+    }
 
     // Parse the response safely
-    let abstract = "No instant answer found.";
+    let abstract = "No specific information available in search results.";
     let source = "";
     let related_topics = [];
 
     // Extract abstract text
-    if (data.AbstractText && data.AbstractText.trim() !== "") {
+    if (data.AbstractText && data.AbstractText.trim() !== "" && data.AbstractText !== "No abstract found.") {
       abstract = data.AbstractText;
       source = data.AbstractURL || "";
     } 
@@ -135,7 +166,7 @@ async function runSearch(query) {
     }
     // Fallback to Results field
     else if (data.Results && data.Results.length > 0) {
-      abstract = data.Results[0].Text || "Information found but no abstract available.";
+      abstract = data.Results[0].Text || "Information available but no detailed abstract.";
       source = data.Results[0].FirstURL || "";
     }
 
@@ -165,12 +196,22 @@ async function runSearch(query) {
   } catch (error) {
     console.error("❌ Search failed:", error.message);
     
-    // Fallback: Return a useful response even when search fails
+    // Smart fallback based on query type
+    if (query.toLowerCase().includes("movie") || query.toLowerCase().includes("2025")) {
+      return {
+        abstract: `For the latest information about movies in 2025, I recommend checking:\n• IMDb's upcoming releases section\n• Official movie studio announcements\n• Entertainment news sites like Variety or Deadline\n• Movie database websites\n\n2025 movie schedules are still being finalized and announced throughout 2024.`,
+        source: "",
+        related_topics: [],
+        success: false,
+        error: "future_movie_query"
+      };
+    }
+    
     return {
-      abstract: `I searched for "${query}" but couldn't retrieve live results at the moment. Please try again in a few moments.`,
+      abstract: `I searched for "${query}" but couldn't retrieve live results. For the most current information, try checking official sources or specialized websites related to your query.`,
       source: "",
       related_topics: [],
-      error: "search_service_temporarily_unavailable",
+      error: "search_service_unavailable",
       success: false
     };
   }
@@ -436,8 +477,23 @@ ${file_content || prompt}
      ============================================================ */
 
   const searchEnforcementInstruction = `
-You have access to a web search tool. When you need up-to-date information, respond ONLY with a single JSON object in the format: {"action": "search", "query": "your detailed search query"}
-Do NOT include any other text, markdown, or explanation if you output the search JSON. Otherwise, respond in the normal chat format.
+YOU HAVE REAL-TIME WEB SEARCH CAPABILITY. When users ask about current information, recent events, latest news, or up-to-date facts, you MUST use the search function.
+
+IMPORTANT SEARCH RULES:
+1. For time-sensitive queries (current movies, news, weather, recent events) - USE SEARCH
+2. For factual queries that might have changed recently - USE SEARCH  
+3. Respond ONLY with pure JSON when searching: {"action": "search", "query": "specific search terms"}
+4. Never say you don't have real-time data - you have search access
+5. Never mention browsing limitations - you can search the web
+
+EXAMPLES OF WHEN TO SEARCH:
+- "latest movies 2025" -> SEARCH
+- "current weather" -> SEARCH  
+- "recent news" -> SEARCH
+- "today's stock prices" -> SEARCH
+- "upcoming movie releases" -> SEARCH
+
+Your search queries will return live web results that you can use to answer.
 `;
 
   const aiResp = await env.SPY_AI.run(
@@ -453,6 +509,51 @@ Do NOT include any other text, markdown, or explanation if you output the search
   );
 
   let text = extractText(aiResp).trim();
+  console.log("🔄 AI Raw Response:", text);
+  console.log("📝 User Prompt:", prompt);
+
+  // Check if AI is refusing to search
+  if (text.includes("don't have real-time") || 
+      text.includes("can't browse") || 
+      text.includes("no internet") ||
+      text.includes("unable to access")) {
+    console.log("⚠️ AI is refusing to search - forcing search for time-sensitive query");
+    
+    // Force search for time-sensitive queries
+    const timeSensitiveKeywords = ['latest', 'current', 'recent', 'today', 'now', '2025', 'weather', 'news', 'update'];
+    const shouldForceSearch = timeSensitiveKeywords.some(keyword => 
+      prompt.toLowerCase().includes(keyword)
+    );
+    
+    if (shouldForceSearch) {
+      console.log("🔍 Forcing search for time-sensitive query");
+      const results = await runSearch(prompt);
+      
+      const summaryPrompt = `Based on these search results, answer the user's question about "${prompt}":\n\nSEARCH RESULTS:\n${JSON.stringify(results, null, 2)}`;
+      
+      const summary = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", {
+        messages: [
+          { role: "system", content: SPIDER_SYSTEM_PROMPT },
+          { role: "system", content: "Memory:\n" + memorySummary },
+          { role: "user", content: summaryPrompt }
+        ]
+      });
+      
+      text = extractText(summary);
+      
+      // Add search to memory
+      memory.push({ 
+        role: "system", 
+        content: `Searched for: ${prompt} - ${results.abstract.substring(0, 100)}...`,
+        ts: Date.now() 
+      });
+      await saveMemory(memory);
+      
+      return new Response(text, {
+        headers: { "content-type": "text/plain" }
+      });
+    }
+  }
 
   // CRITICAL FIX: Aggressively clean text to handle LLM markdown wrapping
   const jsonString = text
@@ -462,7 +563,6 @@ Do NOT include any other text, markdown, or explanation if you output the search
     .trim();
 
   // Debug logging
-  console.log("Raw AI response text:", text);
   console.log("JSON string attempt:", jsonString);
 
   try {
