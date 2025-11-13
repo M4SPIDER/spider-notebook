@@ -2109,29 +2109,38 @@ const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat") =>
             firebaseToken = await authUser.getIdToken();
         }
 
-        // Attach required fields to payload
         payload.device_id = deviceId;
         payload.firebase_token = firebaseToken;
 
-        // Send request
         const res = await fetch(endpoint, {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
         });
 
-        const data = await res.json();
+        // TRY JSON FIRST
+        let data = null;
+        try {
+            data = await res.json();
+        } catch {
+            // FALLBACK TO TEXT
+            const text = await res.text();
+            return {
+                ok: true,
+                text: text,
+                base64_image: null,
+                model_used: "",
+                sources: null
+            };
+        }
 
-        // Do NOT touch image logic
         const base64Image =
             data.base64_image ||
             data.base64 ||
             null;
 
         return {
-            ok: data.ok,
+            ok: data.ok ?? true,
             text: data.summary || data.text || "",
             base64_image: base64Image,
             model_used: data.model_used || "",
@@ -2869,6 +2878,7 @@ int main() {
         </>
     );
 }
+
 
 
 
