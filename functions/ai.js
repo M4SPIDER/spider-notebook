@@ -1,5 +1,8 @@
 // functions/ai.js
 // Spider AI backend — Cloudflare Pages Function
+export const config = {
+  runtime: "edge"
+};
 
 // =================== SPIDER SYSTEM PROMPT =====================
 const SPIDER_SYSTEM_PROMPT = `
