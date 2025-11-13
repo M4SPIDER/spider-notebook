@@ -95,54 +95,39 @@ ${file_content || prompt}
 
     // standard image generation
     if (mode === "image_gen") {
-  if (!prompt) return jsonResponse({ error: "no_prompt" }, 400);
+      if (!prompt) return jsonResponse({ error: "no_prompt" }, 400);
+      const enhanced = `${prompt}, full color, ultra high detail, cinematic lighting, hdr, volumetric light, photoreal, 8k clarity`;
+      let baseResp;
+      try {
+        baseResp = await env.SPY_AI.run(SDXL_BASE, { prompt: enhanced });
+      } catch (e) {
+        return jsonResponse({ error: "sdxl_base_failed", detail: String(e) }, 502);
+      }
+      const base64 = extractImageBase64(baseResp);
+      const imageId = `img_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+      const meta = { id: imageId, prompt: enhanced, createdAt: Date.now(), base64: base64 || null };
+      try { await env.IMAGE_KV.put(IMAGE_KV_PREFIX + imageId, JSON.stringify(meta), { expirationTtl: 60*60*24*30 }); } catch {}
+      safeAppendHistory(env, kvKey, history, { role: "assistant", content: `[image_created:${imageId}] ${enhanced}` });
+      return jsonResponse({ imageId, base64: meta.base64 });
+    }
 
-  const enhanced = `${prompt}, full color, ultra high detail, cinematic lighting, hdr, volumetric light, photoreal, 8k clarity`;
-
-  let baseResp;
-  try {
-    baseResp = await env.SPY_AI.run(SDXL_BASE, { prompt: enhanced });
-  } catch (e) {
-    return jsonResponse({ error: "sdxl_base_failed", detail: String(e) }, 502);
-  }
-
-  const base64 = extractImageBase64(baseResp);
-
-  // FRONTEND EXPECTS THIS:
-  return jsonResponse({
-    ok: true,
-    base64_image: base64 || null,
-    model_used: "sdxl",
-    prompt: enhanced
-  });
-}
     // image edit
- // ---- IMAGE EDIT ----
-if (mode === "image_edit") {
-  if (!prompt || !image) return jsonResponse({ error: "missing_image_or_prompt" }, 400);
-
-  const enhanced = `${prompt}, full color, ultra high detail, cinematic lighting, hdr`;
-
-  let edited;
-  try {
-    edited = await env.SPY_AI.run(SDXL_REFINER, {
-      prompt: enhanced,
-      image,
-      strength: body.strength || 0.7
-    });
-  } catch (e) {
-    return jsonResponse({ error: "sdxl_refiner_failed", detail: String(e) }, 502);
-  }
-
-  const base64 = extractImageBase64(edited);
-
-  return jsonResponse({
-    ok: true,
-    base64_image: base64 || null,
-    model_used: "sdxl-refiner",
-    prompt: enhanced
-  });
-}
+    if (mode === "image_edit") {
+      if (!prompt || !image) return jsonResponse({ error: "missing_image_or_prompt" }, 400);
+      const enhanced = `${prompt}, full color, ultra high detail, cinematic lighting, hdr`;
+      let edited;
+      try {
+        edited = await env.SPY_AI.run(SDXL_REFINER, { prompt: enhanced, image, strength: body.strength || 0.7 });
+      } catch (e) {
+        return jsonResponse({ error: "sdxl_refiner_failed", detail: String(e) }, 502);
+      }
+      const base64 = extractImageBase64(edited);
+      const imageId = `img_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+      const meta = { id: imageId, prompt: enhanced, createdAt: Date.now(), base64: base64 || null };
+      try { await env.IMAGE_KV.put(IMAGE_KV_PREFIX + imageId, JSON.stringify(meta), { expirationTtl: 60*60*24*30 }); } catch {}
+      safeAppendHistory(env, kvKey, history, { role: "assistant", content: `[image_edited:${imageId}] ${enhanced}` });
+      return jsonResponse({ imageId, base64: meta.base64 });
+    }
 
     // search
     if (mode === "search") {
