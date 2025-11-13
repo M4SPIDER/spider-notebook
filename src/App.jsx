@@ -1575,128 +1575,73 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
         event.target.value = null;
     };
 
-const handleSendMessage = async () => {
-    if (!message.trim() && activeAIMode !== 'image_gen' && activeAIMode !== 'file_analysis' && activeAIMode !== 'image_edit') 
-        return;
+    const handleSendMessage = async () => {
+        // Your existing handleSendMessage implementation
+        if (!message.trim() && activeAIMode !== 'image_gen' && activeAIMode !== 'file_analysis' && activeAIMode !== 'image_edit') return;
+        
+        const userMessage = { role: 'user', content: message, type: activeAIMode, uploadedFile, uploadedImage };
+        setChatHistory(prev => [...prev, userMessage]);
+        
+        setMessage('');
+        let apiUrl = '';
+        let apiPayload = {};
+        const formData = new FormData();
+        
+        try {
+            switch (activeAIMode) {
+                case 'chat':
+                    apiUrl = '/api/generate/text';
+                    apiPayload = { prompt: message };
+                    break;
 
-    const userMessage = { 
-        role: 'user', 
-        content: message, 
-        type: activeAIMode, 
-        uploadedFile, 
-        uploadedImage 
-    };
+                case 'file_analysis':
+                    if (!uploadedFile) { showModal('Error', 'Please use the (+) menu to upload a file first.'); return; }
+                    apiUrl = '/api/analyze/file';
+                    formData.append('file', uploadedFile);
+                    formData.append('prompt', message);
+                    apiPayload = formData;
+                    break;
+                    
+                case 'image_gen':
+                    apiUrl = '/api/generate/image';
+                    apiPayload = { prompt: message, aspect_ratio: aspectRatio };
+                    break;
 
-    setChatHistory(prev => [...prev, userMessage]);
-    setMessage('');
-
-    let apiPayload = {};
-
-    try {
-        // One universal endpoint now
-        const apiUrl = "/ai";
-
-        switch (activeAIMode) {
-
-            case "chat":
-                apiPayload = {
-                    prompt: message,
-                    mode: "chat"
-                };
-                break;
-
-            case "file_analysis":
-                if (!uploadedFile) {
-                    showModal('Error', 'Please use the (+) menu to upload a file first.');
+                case 'image_edit':
+                    if (!uploadedImage) { showModal('Error', 'Please use the (+) menu to upload an image first.'); return; }
+                    apiUrl = '/api/edit/image';
+                    formData.append('image', uploadedImage);
+                    formData.append('prompt', message);
+                    apiPayload = formData;
+                    break;
+                    
+                default:
+                    showModal('Error', 'Invalid AI mode selected.');
                     return;
-                }
-                apiPayload = {
-                    prompt: message,
-                    mode: "file_analysis",
-                    filename: uploadedFile.name || uploadedFile.file?.name || "file.txt",
-                    file_content: uploadedFile.base64
-                };
-                break;
+            }
+            
+            const result = await callFastAPI(apiUrl, apiPayload, activeAIMode);
+            
+            const assistantContent = { 
+                role: 'assistant', 
+                content: result.text || result.error || (result.base64_image ? 'Image generated successfully.' : 'Response received.'),
+                type: result.base64_image ? 'image' : 'text',
+                base64_image: result.base64_image,
+                sources: result.sources,
+                model_used: result.model_used
+            };
+            setChatHistory(prev => [...prev, assistantContent]);
 
-            case "image_gen":
-                apiPayload = {
-                    prompt: message,
-                    mode: "image_gen",
-                    aspect_ratio: aspectRatio
-                };
-                break;
-
-            case "image_edit":
-                if (!uploadedImage) {
-                    showModal('Error', 'Please use the (+) menu to upload an image first.');
-                    return;
-                }
-                apiPayload = {
-                    prompt: message,
-                    mode: "image_edit",
-                    filename: uploadedImage.name || uploadedImage.file?.name || "image.png",
-                    image: uploadedImage.base64,
-                    strength: 0.7,
-                    upscale: 1,
-                    style: "auto"
-                };
-                break;
-
-            case "image_purify":
-                if (!uploadedImage) {
-                    showModal('Error', 'Please upload an image first.');
-                    return;
-                }
-                apiPayload = {
-                    prompt: message,
-                    mode: "image_purify",
-                    filename: uploadedImage.name || uploadedImage.file?.name || "image.png",
-                    image: uploadedImage.base64,
-                    upscale: 2,
-                    style: "clean"
-                };
-                break;
-
-            default:
-                showModal('Error', 'Invalid AI mode selected.');
-                return;
+        } catch (error) {
+            console.error("API Call Error:", error);
+            const assistantError = { role: 'assistant', content: `[API ERROR] ${error.message || 'The AI service encountered an issue.'}`, type: 'text' };
+            setChatHistory(prev => [...prev, assistantError]);
+        } finally {
+            // Clean up file/image state after processing
+            if (activeAIMode === 'file_analysis') setUploadedFile(null);
+            if (activeAIMode === 'image_edit') setUploadedImage(null);
         }
-
-        // Call API
-        const result = await callFastAPI(apiUrl, apiPayload, activeAIMode);
-
-        // Normalize image/base64 output
-        const base64Image =
-            result?.base64_image ||
-            result?.base64 ||
-            result?.image ||
-            null;
-
-        const assistantContent = {
-            role: 'assistant',
-            content: base64Image 
-                ? "Image generated successfully." 
-                : (result.text || result.error || "Response received."),
-            type: base64Image ? "image" : "text",
-            base64_image: base64Image,
-            sources: result.sources || result.results || [],
-            model_used: result.model_used || result.model
-        };
-
-        setChatHistory(prev => [...prev, assistantContent]);
-
-    } catch (error) {
-        const assistantError = { 
-            role: 'assistant', 
-            content: `[API ERROR] ${error.message || "The AI service encountered an issue."}`, 
-            type: 'text' 
-        };
-        setChatHistory(prev => [...prev, assistantError]);
-    } finally {
-        if (activeAIMode === 'file_analysis') setUploadedFile(null);
-        if (activeAIMode === 'image_edit') setUploadedImage(null);
-    }
-};
+    };
 
     // ChatBubble component (keep your existing one)
     const ChatBubble = ({ message }) => {
@@ -2149,38 +2094,61 @@ export default function App() {
 // 🔥 UPDATED: Spider AI Cloudflare Integration
 // 🔥 SPIDER AI — Cloudflare GPT-120B + SDXL Integration (FINAL VERSION)
 // 🔥 SPIDER AI — Cloudflare GPT-120B + SDXL Integration (FINAL VERSION)
-// Updated callFastAPI: forwards the entire payload and normalizes responses
 const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat") => {
     try {
-        const res = await fetch(endpoint, {
+        const res = await fetch("/ai", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
             },
-            body: JSON.stringify(payload)
+            body: JSON.stringify({
+                prompt: payload.prompt || "",
+                system_instruction: payload.system_instruction || "",
+                mode: mode,
+                image: payload.image || null,
+                strength: payload.strength || 0.7
+            })
         });
 
-        const data = await res.json();
+        const contentType = res.headers.get("content-type") || "";
 
-        // Normalize image output
-        const base64Image =
-            data.base64_image ||
-            data.base64 ||
-            null;
+        // ---------------- IMAGE RESPONSE (PNG) ----------------
+        if (contentType.includes("image/")) {
+            const blob = await res.blob();
 
+            const base64 = await new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result.split(",")[1]);
+                reader.readAsDataURL(blob);
+            });
+
+            return {
+                text: payload.prompt || "",
+                base64_image: base64,
+                model_used: "SDXL"
+            };
+        }
+
+        // ---------------- TEXT RESPONSE ----------------
+        const rawText = await res.text();
+
+        if (!rawText || rawText.trim() === "") {
+            return { error: "Empty response from Spider AI." };
+        }
+
+        // Spider AI 2.0 always returns plain text from backend
+        // (search → summarized result, or direct answer)
         return {
-            ok: data.ok,
-            text: data.summary || data.text || "",
-            base64_image: base64Image,
-            model_used: data.model_used || "",
-            sources: data.sources || null
+            text: rawText,
+            raw: rawText
         };
 
     } catch (err) {
         return { error: err.message };
     }
 }, []);
-
+  
+    
     // --- WebSocket Handlers (NEW) ---
     // Helper function to append plain text to terminal output
     const appendToTerminal = (text, type = 'stdout') => {
@@ -2906,7 +2874,6 @@ int main() {
         </>
     );
 }
-
 
 
 
