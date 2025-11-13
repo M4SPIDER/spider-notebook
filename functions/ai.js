@@ -1,4 +1,6 @@
-// =================== SPIDER SYSTEM PROMPT =====================
+/* ============================================================
+   SPIDER AI — FULL VERSION WITH MEMORY SYSTEM (KV STORAGE)
+   ============================================================ */
 
 const SPIDER_SYSTEM_PROMPT = `
 You are Spider, the AI created by M4 Spider. Follow these rules at all times:
@@ -10,50 +12,30 @@ You are Spider, the AI created by M4 Spider. Follow these rules at all times:
 5. Always reply in plain text sentences.
 6. Start responses immediately without greetings unless the user asks.
 7. Maintain a witty, bold, confident personality.
-8. Never describe your abilities unless the user asks.
-9. Never mention model names, system roles, or tokens.
+8. Never mention model names, system roles, or tokens.
 
 SAVAGE MODE:
 If the user asks for a roast, savage reply, comeback, or wants attitude:
-- Use sharp humor.
-- Use bold confidence.
-- Use playful sarcasm.
-- Use emojis to enhance attitude 😈🔥😎
-- No slurs or harmful insults.
-- Roasts must be funny, clean, and clever.
+Use sharp humor, bold confidence, playful sarcasm, emojis 😈🔥😎.
+Never use harmful insults.
 
 CHAT MODE:
-If the user speaks normally, respond normally but still with Spider attitude.
+If user speaks normally, respond normally but still with Spider attitude.
 
 MODES:
-
 MODE 1 — NORMAL_CHAT
-Plain text replies with emojis allowed.
-
 MODE 2 — ACTION_SEARCH
-If user asks to look up something online or needs current information:
-Output EXACT JSON only:
-{
-  "action": "search",
-  "query": "<search terms>"
-}
-No other text.
-
 MODE 3 — FILE_ANALYZE
-Triggered when user provides file content or requests: analyze code, analyze css/js/html, explain file, debug file.
-Respond with plain text (emojis allowed).
-
-MODE 4 — IMAGE_GEN and IMAGE_EDIT handled externally.
+MODE 4 — IMAGE_GEN / IMAGE_EDIT
 
 IDENTITY:
 If user asks who created you, answer: M4 Spider.
-
-Do not break these rules.
 `;
 
 
-
-// =================== MAIN HANDLER =======================
+/* ============================================================
+   MAIN WORKER HANDLER
+   ============================================================ */
 
 export async function onRequest(context) {
   const request = context.request;
@@ -62,25 +44,51 @@ export async function onRequest(context) {
   let body = {};
   try { body = await request.json(); } catch (_) {}
 
-  const { 
-    prompt, 
-    mode, 
-    image, 
-    strength, 
-    file_content, 
-    filename 
-  } = body;
-
+  const { prompt, mode, image, strength, file_content, filename } = body;
   const currentMode = mode || detectMode(prompt, file_content, filename);
 
 
+  /* ============================================================
+     MEMORY SYSTEM (KV STORAGE)
+     ============================================================ */
 
-  // =================== FILE ANALYZER =======================
+  async function getMemory() {
+    try {
+      const data = await env.CHAT_KV.get("chat_memory");
+      return data ? JSON.parse(data) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  async function saveMemory(memory) {
+    try {
+      await env.CHAT_KV.put("chat_memory", JSON.stringify(memory));
+    } catch (_) {}
+  }
+
+  let memory = await getMemory();
+
+  if (prompt) memory.push({ role: "user", content: prompt });
+
+  if (memory.length > 20) {
+    memory = memory.slice(memory.length - 20);
+  }
+
+  await saveMemory(memory);
+
+  const memorySummary = memory
+    .map(m => `${m.role}: ${m.content}`)
+    .join("\n");
+
+
+  /* ============================================================
+     FILE ANALYZE MODE
+     ============================================================ */
 
   if (currentMode === "analyze_file") {
     const analysisPrompt = `
-Analyze this file in plain text. No markdown, no bullets, no lists. Emojis allowed.
-
+Analyze this file in plain text. No markdown. Emojis allowed.
 Filename: ${filename || "unknown"}
 Content:
 ${file_content || prompt}
@@ -89,6 +97,7 @@ ${file_content || prompt}
     const result = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", {
       messages: [
         { role: "system", content: SPIDER_SYSTEM_PROMPT },
+        { role: "system", content: "Memory:\n" + memorySummary },
         { role: "user", content: analysisPrompt }
       ]
     });
@@ -99,8 +108,9 @@ ${file_content || prompt}
   }
 
 
-
-  // =================== IMAGE GEN =======================
+  /* ============================================================
+     IMAGE GENERATION MODE
+     ============================================================ */
 
   if (currentMode === "image_gen") {
     const enhancedPrompt =
@@ -114,8 +124,9 @@ ${file_content || prompt}
   }
 
 
-
-  // =================== IMAGE EDIT =======================
+  /* ============================================================
+     IMAGE EDIT MODE
+     ============================================================ */
 
   if (currentMode === "image_edit") {
     const enhancedPrompt =
@@ -131,31 +142,30 @@ ${file_content || prompt}
   }
 
 
-
-  // =================== NORMAL CHAT + SEARCH =======================
+  /* ============================================================
+     NORMAL CHAT + SEARCH SUPPORT
+     ============================================================ */
 
   const aiResp = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", {
     messages: [
       { role: "system", content: SPIDER_SYSTEM_PROMPT },
+      { role: "system", content: "Memory:\n" + memorySummary },
       { role: "user", content: prompt }
     ]
   });
 
   const text = extractText(aiResp).trim();
 
-
-
-  // -------- Detect search action JSON --------
   try {
     const obj = JSON.parse(text);
-
     if (obj?.action === "search" && obj?.query) {
       const results = await runSearch(env, obj.query);
 
       const summary = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", {
         messages: [
           { role: "system", content: SPIDER_SYSTEM_PROMPT },
-          { role: "user", content: `Search results: ${JSON.stringify(results)}. Provide a plain text answer with emojis.` }
+          { role: "system", content: "Memory:\n" + memorySummary },
+          { role: "user", content: `Search results: ${JSON.stringify(results)}. Provide a plain text answer.` }
         ]
       });
 
@@ -166,16 +176,15 @@ ${file_content || prompt}
   } catch (_) {}
 
 
-
-  // -------- Normal chat fallback --------
   return new Response(text, {
     headers: { "content-type": "text/plain" }
   });
 }
 
 
-
-// =================== SEARCH ENGINE =======================
+/* ============================================================
+   SEARCH ENGINE
+   ============================================================ */
 
 async function runSearch(env, query) {
   try {
@@ -187,31 +196,32 @@ async function runSearch(env, query) {
 }
 
 
-
-// =================== UNIVERSAL TEXT EXTRACTOR =======================
+/* ============================================================
+   UNIVERSAL TEXT EXTRACTOR
+   ============================================================ */
 
 function extractText(resp) {
   try {
-    const txt1 = resp?.output?.[1]?.content?.[0]?.text;
-    if (txt1) return txt1.trim();
+    const t1 = resp?.output?.[1]?.content?.[0]?.text;
+    if (t1) return t1.trim();
 
-    const txt2 = resp?.output?.[0]?.content?.[0]?.text;
-    if (txt2) return txt2.trim();
+    const t2 = resp?.output?.[0]?.content?.[0]?.text;
+    if (t2) return t2.trim();
 
-    const txt3 = resp?.output_text;
-    if (txt3) return txt3.trim();
+    const t3 = resp?.output_text;
+    if (t3) return t3.trim();
 
-    const txt4 = resp?.text;
-    if (txt4) return txt4.trim();
+    const t4 = resp?.text;
+    if (t4) return t4.trim();
 
-    const txt5 = resp?.result;
-    if (txt5) return txt5.trim();
+    const t5 = resp?.result;
+    if (t5) return t5.trim();
 
-    const txt6 = resp?.choices?.[0]?.message?.content;
-    if (txt6) return txt6.trim();
+    const t6 = resp?.choices?.[0]?.message?.content;
+    if (t6) return t6.trim();
 
-    const txt7 = resp?.response;
-    if (txt7) return txt7.trim();
+    const t7 = resp?.response;
+    if (t7) return t7.trim();
 
     return "";
   } catch {
@@ -220,8 +230,9 @@ function extractText(resp) {
 }
 
 
-
-// =================== MODE DETECTOR =======================
+/* ============================================================
+   MODE DETECTOR
+   ============================================================ */
 
 function detectMode(prompt, file_content, filename) {
   if (file_content || filename) return "analyze_file";
@@ -238,8 +249,11 @@ function detectMode(prompt, file_content, filename) {
     t.includes("debug this")
   ) return "analyze_file";
 
-  if (t.includes("search") || t.includes("look up") || t.includes("check online"))
-    return "chat";
+  if (t.includes("generate image") || t.includes("image of"))
+    return "image_gen";
+
+  if (t.includes("edit image") || t.includes("modify image"))
+    return "image_edit";
 
   return "chat";
 }
