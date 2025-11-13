@@ -6,5 +6,10 @@ compatibility_flags = ["nodejs_compat"]
 
 [ai]
 binding = "SPY_AI"
-model = "@cf/openai/gpt-oss-120b"
+models = [
+    "@cf/mistralai/mistral-small-3.1-24b-instruct",
+    "@cf/stabilityai/stable-diffusion-xl-base-1.0",
+    "@cf/stabilityai/stable-diffusion-xl-refiner-1.0",
+    "@cf/web-search/seznam-supersearch"
+]
 
