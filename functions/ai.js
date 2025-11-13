@@ -1,5 +1,5 @@
 // functions/ai.js
-// Spider AI backend — Cloudflare Pages Function (handles only /api/* routes)
+// Spider AI backend — Cloudflare Pages Function
 
 // =================== SPIDER SYSTEM PROMPT =====================
 const SPIDER_SYSTEM_PROMPT = `
@@ -16,8 +16,7 @@ You are Spider, the AI created by M4 Spider. Follow these rules at all times:
 
 SAVAGE MODE:
 If the user asks for a roast, savage reply, comeback, or wants attitude:
-Use sharp humor, bold confidence, and playful sarcasm 😈🔥😎
-but no harmful insults.
+Use sharp humor, bold confidence, and playful sarcasm 😈🔥😎 but no harmful insults.
 
 CHAT MODE:
 If the user speaks normally, respond normally but with Spider attitude.
@@ -69,10 +68,12 @@ async function router(context) {
     if (method === "POST" && path === "/api/image") return handleImageGen(request, env);
     if (method === "POST" && path === "/api/file") return handleFileAnalyze(request, env);
     if (method === "POST" && path === "/api/memory/clear") return handleClearMemory(request, env);
+
     if (method === "GET" && path.startsWith("/api/image/")) {
       const id = path.split("/").pop();
       return handleImageFetch(id, env);
     }
+
     return new Response("Not found", { status: 404 });
   } catch (err) {
     return jsonResponse({ error: "internal_error", detail: String(err) }, 500);
@@ -90,15 +91,16 @@ async function handleChat(request, env) {
   if (!userMessage && frontendHistory.length === 0)
     return jsonResponse({ error: "no_message" }, 400);
 
-  // Load persistent history
   const kvKey = HISTORY_KV_PREFIX + userId;
+
+  // Load persistent history
   let persistentHistory = [];
   try {
     const raw = await env.CHAT_KV.get(kvKey);
     if (raw) persistentHistory = JSON.parse(raw);
   } catch {}
 
-  // Merge histories and append user message
+  // Merge histories
   const merged = mergeHistories(persistentHistory, frontendHistory);
   merged.push({ role: "user", content: userMessage });
 
@@ -119,8 +121,8 @@ async function handleChat(request, env) {
     }
   }
 
-  // Build messages
   const system = SPIDER_SYSTEM_PROMPT + (langBoost ? `\nNote: ${langBoost}` : "");
+
   const messagesToAI = [
     { role: "system", content: system },
     ...trimHistoryForModel(merged)
@@ -131,15 +133,20 @@ async function handleChat(request, env) {
   try {
     aiResp = await env.SPY_AI.run(chosenModel, {
       messages: messagesToAI,
-      stream: false
+      stream: false,
+      format: "messages"
     });
-  } catch (e) {
+  } catch {
     const fallback = chosenModel === DEFAULT_MODEL ? ULTRA_MODEL : DEFAULT_MODEL;
-    aiResp = await env.SPY_AI.run(fallback, { messages: messagesToAI, stream: false });
+    aiResp = await env.SPY_AI.run(fallback, {
+      messages: messagesToAI,
+      stream: false,
+      format: "messages"
+    });
     usageInfo.mode = fallback === ULTRA_MODEL ? "ultra" : "mistral";
   }
 
-  // ---- FIXED EMPTY RESPONSE HANDLING ----
+  // =================== FIXED EMPTY RESPONSE =====================
   let assistantText = extractText(aiResp).trim();
 
   if (!assistantText || assistantText.length < 2) {
@@ -149,11 +156,13 @@ async function handleChat(request, env) {
         {
           messages: [
             { role: "system", content: SPIDER_SYSTEM_PROMPT },
-            { role: "user", content: "Previous response was empty. Respond again in plain text. No markdown." }
+            { role: "user", content: "Previous reply was empty. Respond again in plain text." }
           ],
-          stream: false
+          stream: false,
+          format: "messages"
         }
       );
+
       assistantText = extractText(regen).trim();
     } catch {}
   }
@@ -161,20 +170,19 @@ async function handleChat(request, env) {
   if (!assistantText || assistantText.length < 2) {
     assistantText = "Spider is silent right now. Try again 😅";
   }
-  // ---- END FIX ----
 
-  // Save updated history
+  // =================== SAVE HISTORY =====================
   merged.push({ role: "assistant", content: assistantText });
-  const trimmedForStorage = trimHistoryForStorage(merged);
+  const trimmed = trimHistoryForStorage(merged);
 
   try {
-    await env.CHAT_KV.put(kvKey, JSON.stringify(trimmedForStorage));
+    await env.CHAT_KV.put(kvKey, JSON.stringify(trimmed));
   } catch {}
 
   return jsonResponse({
     text: assistantText,
     usageInfo,
-    history: trimmedForStorage
+    history: trimmed
   });
 }
 
@@ -182,11 +190,11 @@ async function handleChat(request, env) {
 async function handleSearch(request, env) {
   const body = await safeJson(request);
   const query = String(body.query || "").trim();
+
   if (!query) return jsonResponse({ error: "no_query" }, 400);
 
   const cacheKey = SEARCH_CACHE_PREFIX + hashKey(query);
 
-  // Check cache
   try {
     const cached = await env.CHAT_KV.get(cacheKey);
     if (cached) {
@@ -200,8 +208,8 @@ async function handleSearch(request, env) {
     }
   } catch {}
 
-  // Run search
   let searchResult = null;
+
   for (let i = 0; i < 2; i++) {
     try {
       searchResult = await env.SPY_AI.run(SEARCH_MODEL, { query });
@@ -213,42 +221,38 @@ async function handleSearch(request, env) {
 
   if (!searchResult) return jsonResponse({ error: "search_failed" }, 502);
 
-  const results = searchResult?.results || searchResult || {};
+  const results = searchResult.results || searchResult || {};
 
-  // Summarize with Spider tone
-  let summaryText = "";
+  let summary = "";
   try {
-    const summ = await env.SPY_AI.run(DEFAULT_MODEL, {
+    const sum = await env.SPY_AI.run(DEFAULT_MODEL, {
       messages: [
         { role: "system", content: SPIDER_SYSTEM_PROMPT },
-        { role: "user", content: `Search results: ${JSON.stringify(results)}. Summarize in plain text with emojis.` }
-      ]
+        { role: "user", content: `Summarize these results: ${JSON.stringify(results)}` }
+      ],
+      format: "messages"
     });
-    summaryText = extractText(summ);
+    summary = extractText(sum);
   } catch {}
 
-  // Cache it
   try {
     await env.CHAT_KV.put(
       cacheKey,
-      JSON.stringify({ results, summary: summaryText }),
+      JSON.stringify({ results, summary }),
       { expirationTtl: SEARCH_CACHE_TTL }
     );
   } catch {}
 
-  return jsonResponse({ query, results, summary: summaryText });
+  return jsonResponse({ query, results, summary });
 }
 
 // =================== IMAGE GENERATION =====================
 async function handleImageGen(request, env) {
   const body = await safeJson(request);
-  const userId = String(body.userId || "anon");
   const prompt = String(body.prompt || "").trim();
-  const strength = Number(body.strength || 0.7);
 
   if (!prompt) return jsonResponse({ error: "no_prompt" }, 400);
 
-  // Enhance prompt
   let enhanced = "";
   try {
     const enh = await env.SPY_AI.run(DEFAULT_MODEL, {
@@ -256,18 +260,16 @@ async function handleImageGen(request, env) {
         { role: "system", content: SPIDER_SYSTEM_PROMPT },
         {
           role: "user",
-          content: `Enhance the user prompt for photoreal SDXL generation. Keep one line. Add ultra detail and cinematic lighting. User prompt: ${prompt}`
+          content: `Enhance this prompt for SDXL generation: ${prompt}`
         }
-      ]
+      ],
+      format: "messages"
     });
-    enhanced = extractText(enh) || "";
+    enhanced = extractText(enh);
   } catch {}
 
-  if (!enhanced) {
-    enhanced = `${prompt}, full color, high detail, cinematic lighting`;
-  }
+  if (!enhanced) enhanced = prompt;
 
-  // SDXL base
   let baseResp;
   try {
     baseResp = await env.SPY_AI.run(SDXL_BASE, { prompt: enhanced });
@@ -277,14 +279,13 @@ async function handleImageGen(request, env) {
 
   let base64 = extractImageBase64(baseResp);
 
-  // Refiner
   let refined = base64;
   if (base64) {
     try {
       const ref = await env.SPY_AI.run(SDXL_REFINER, {
         prompt: enhanced,
         image: base64,
-        strength: Math.min(0.9, Math.max(0.2, strength))
+        format: "messages"
       });
       refined = extractImageBase64(ref) || refined;
     } catch {}
@@ -292,41 +293,29 @@ async function handleImageGen(request, env) {
 
   if (refined && refined.startsWith("data:")) refined = refined.split(",")[1];
 
-  // Store metadata
-  const imageId = `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const metadata = {
-    id: imageId,
+  const id = `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+  const meta = {
+    id,
     prompt: enhanced,
-    userId,
-    createdAt: Date.now(),
-    base64: refined
+    base64: refined,
+    createdAt: Date.now()
   };
 
   try {
-    await env.IMAGE_KV.put(IMAGE_KV_PREFIX + imageId, JSON.stringify(metadata), {
+    await env.IMAGE_KV.put(IMAGE_KV_PREFIX + id, JSON.stringify(meta), {
       expirationTtl: 60 * 60 * 24 * 30
     });
   } catch {}
 
-  return jsonResponse({ imageId, prompt: enhanced, base64: metadata.base64 });
-}
-
-// =================== IMAGE FETCH =====================
-async function handleImageFetch(id, env) {
-  try {
-    const raw = await env.IMAGE_KV.get(IMAGE_KV_PREFIX + id);
-    if (!raw) return jsonResponse({ error: "not_found" }, 404);
-    return jsonResponse(JSON.parse(raw));
-  } catch {
-    return jsonResponse({ error: "image_fetch_failed" }, 500);
-  }
+  return jsonResponse({ imageId: id, prompt: enhanced, base64: refined });
 }
 
 // =================== FILE ANALYSIS =====================
 async function handleFileAnalyze(request, env) {
   const body = await safeJson(request);
   const filename = body.filename || "unknown";
-  const content = body.file_content || body.content || "";
+  const content = body.file_content || "";
 
   if (!content) return jsonResponse({ error: "no_file_content" }, 400);
 
@@ -339,13 +328,14 @@ async function handleFileAnalyze(request, env) {
       messages: [
         { role: "system", content: SPIDER_SYSTEM_PROMPT },
         { role: "user", content: instruction }
-      ]
+      ],
+      format: "messages"
     });
   } catch {
     return jsonResponse({ error: "file_analysis_failed" }, 502);
   }
 
-  const text = extractText(analysis) || "No analysis produced.";
+  const text = extractText(analysis);
   return new Response(text, { headers: { "content-type": "text/plain" } });
 }
 
@@ -418,16 +408,15 @@ function trimHistoryForStorage(history) {
 
 async function checkAndUpdateUltraUsage(env, userId) {
   const now = new Date();
-  const dayKey = `${USAGE_KV_PREFIX}${userId}:${now.getUTCFullYear()}-${now.getUTCMonth() +
-    1}-${now.getUTCDate()}`;
+  const key = `${USAGE_KV_PREFIX}${userId}:${now.getUTCFullYear()}-${now.getUTCMonth() + 1}-${now.getUTCDate()}`;
 
   try {
-    const raw = await env.USAGE_KV.get(dayKey);
+    const raw = await env.USAGE_KV.get(key);
     let used = raw ? parseInt(raw, 10) : 0;
 
     if (used < ULTRA_DAILY_LIMIT) {
       used++;
-      await env.USAGE_KV.put(dayKey, String(used), {
+      await env.USAGE_KV.put(key, String(used), {
         expirationTtl: 60 * 60 * 24 * 2
       });
       return { allowed: true, used, remaining: ULTRA_DAILY_LIMIT - used };
@@ -439,24 +428,39 @@ async function checkAndUpdateUltraUsage(env, userId) {
   }
 }
 
-// =================== TEXT / IMAGE EXTRACTORS =====================
+// =================== UNIVERSAL TEXT EXTRACTOR =====================
 function extractText(resp) {
   try {
     if (!resp) return "";
+
+    // Direct fields
     if (typeof resp === "string") return resp;
     if (resp.output_text) return String(resp.output_text);
     if (resp.text) return String(resp.text);
-    if (resp.result) return String(resp.result);
     if (resp.response) return String(resp.response);
+    if (resp.response_text) return String(resp.response_text);
 
-    // Cloudflare output[] block
+    // result wrappers
+    if (resp.result?.message?.content) return String(resp.result.message.content);
+    if (resp.result?.response) return String(resp.result.response);
+
+    // choices format
+    if (resp.choices?.[0]?.message?.content)
+      return String(resp.choices[0].message.content);
+
+    if (resp.choices?.[0]?.text) return String(resp.choices[0].text);
+
+    // Cloudflare output blocks
     if (Array.isArray(resp.output)) {
       for (const block of resp.output) {
-        if (Array.isArray(block?.content)) {
+        if (block.text) return String(block.text);
+
+        if (Array.isArray(block.content)) {
           for (const c of block.content) {
             if ((c.type === "output_text" || c.type === "text") && c.text)
               return String(c.text);
           }
+
           for (const c of block.content) {
             if (c.text) return String(c.text);
           }
@@ -464,25 +468,26 @@ function extractText(resp) {
       }
     }
 
-    if (resp.choices?.[0]?.message?.content)
-      return String(resp.choices[0].message.content);
+    // Generic fallback — extract ANY "text": "..."
+    const flat = JSON.stringify(resp);
+    const m = flat.match(/"text"\s*:\s*"([^"]+)"/);
+    if (m) return m[1];
 
-    if (resp.choices?.[0]?.text) return String(resp.choices[0].text);
-
-    const s = JSON.stringify(resp);
-    return s.length > 2000 ? s.slice(0, 2000) + "..." : s;
+    return flat.slice(0, 2000);
   } catch {
     return "";
   }
 }
 
+// =================== IMAGE EXTRACTOR =====================
 function extractImageBase64(resp) {
   try {
     const t = extractText(resp);
     if (!t) return null;
     const s = t.trim();
     if (s.startsWith("data:image/")) return s.split(",")[1];
-    if (s.length > 200 && /^[A-Za-z0-9+/=\s]+$/.test(s)) return s.replace(/\s/g, "");
+    if (s.length > 200 && /^[A-Za-z0-9+/=\s]+$/.test(s))
+      return s.replace(/\s/g, "");
     return null;
   } catch {
     return null;
@@ -494,4 +499,3 @@ function detectIndic(text) {
   if (!text) return false;
   return /[\u0C00-\u0C7F\u0900-\u097F]/.test(text);
 }
-
