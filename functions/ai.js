@@ -90,7 +90,7 @@ ${file_content || prompt}
       });
       const text = extractText(resp) || "No analysis produced.";
       safeAppendHistory(env, kvKey, history, { role: "assistant", content: `[file_analysis:${filename || "unknown"}] ${text.slice(0,400)}` });
-      return new Response(text, { headers: { "content-type": "text/plain" } });
+      return jsonResponse({ ok: true, text: text, model_used: "default" }); // <-- FIX 1: Changed to jsonResponse
     }
 
     // standard image generation
@@ -359,10 +359,10 @@ if (mode === "image_edit") {
     // persist assistant reply with smart filter
     safeAppendHistory(env, kvKey, history, { role: "assistant", content: text });
 
-    return new Response(String(text), { headers: { "content-type": "text/plain" } });
+    return jsonResponse({ ok: true, text: String(text), model_used: "default" }); // <-- FIX 2: Changed to jsonResponse
 
   } catch (err) {
-    return new Response(String(err), { status: 500, headers: { "content-type": "text/plain" } });
+    return jsonResponse({ error: String(err) }, 500); // <-- FIX 3: Changed to jsonResponse
   }
 }
 
