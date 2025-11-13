@@ -1667,21 +1667,22 @@ const handleSendMessage = async () => {
 
         // Normalize image/base64 output
         const base64Image =
-            result?.base64_image ||
-            result?.base64 ||
-            result?.image ||
-            null;
+    result.base64_image ? result.base64_image :
+    result.base64 ? result.base64 :
+    null;
 
-        const assistantContent = {
-            role: 'assistant',
-            content: base64Image 
-                ? "Image generated successfully." 
-                : (result.text || result.error || "Response received."),
-            type: base64Image ? "image" : "text",
-            base64_image: base64Image,
-            sources: result.sources || result.results || [],
-            model_used: result.model_used || result.model
-        };
+const assistantContent = {
+    role: "assistant",
+    content: base64Image
+        ? "Image generated successfully."
+        : (result.text || result.error || "Response received."),
+    type: base64Image ? "image" : "text",
+    base64_image: base64Image,
+    sources: result.sources,
+    model_used: result.model_used || null
+};
+
+setChatHistory(prev => [...prev, assistantContent]);
 
         setChatHistory(prev => [...prev, assistantContent]);
 
@@ -2906,6 +2907,7 @@ int main() {
         </>
     );
 }
+
 
 
 
