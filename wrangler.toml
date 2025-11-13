@@ -4,16 +4,21 @@ pages_build_output_dir = "dist"
 compatibility_date = "2024-10-01"
 compatibility_flags = ["nodejs_compat"]
 
+# ========== AI BINDINGS (NEW CORRECT FORMAT) ==========
 [ai]
-binding = "SPY_AI"
-models = [
-    "@cf/mistralai/mistral-small-3.1-24b-instruct",
-    "@cf/openai/gpt-oss-120b",
-    "@cf/stabilityai/stable-diffusion-xl-base-1.0",
-    "@cf/stabilityai/stable-diffusion-xl-refiner-1.0",
-    "@cf/web-search/seznam-supersearch"
+bindings = [
+  { name = "SPY_AI" }
 ]
 
+models = [
+  "@cf/mistralai/mistral-small-3.1-24b-instruct",
+  "@cf/openai/gpt-oss-120b",
+  "@cf/stabilityai/stable-diffusion-xl-base-1.0",
+  "@cf/stabilityai/stable-diffusion-xl-refiner-1.0",
+  "@cf/web-search/seznam-supersearch"
+]
+
+# ========== KV NAMESPACES ==========
 [[kv_namespaces]]
 binding = "CHAT_KV"
 id = "eb2d69fd31ca4d89b04f2a694bc80501"
