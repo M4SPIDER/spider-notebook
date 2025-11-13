@@ -1575,73 +1575,128 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
         event.target.value = null;
     };
 
-    const handleSendMessage = async () => {
-        // Your existing handleSendMessage implementation
-        if (!message.trim() && activeAIMode !== 'image_gen' && activeAIMode !== 'file_analysis' && activeAIMode !== 'image_edit') return;
-        
-        const userMessage = { role: 'user', content: message, type: activeAIMode, uploadedFile, uploadedImage };
-        setChatHistory(prev => [...prev, userMessage]);
-        
-        setMessage('');
-        let apiUrl = '';
-        let apiPayload = {};
-        const formData = new FormData();
-        
-        try {
-            switch (activeAIMode) {
-                case 'chat':
-                    apiUrl = '/api/generate/text';
-                    apiPayload = { prompt: message };
-                    break;
+const handleSendMessage = async () => {
+    if (!message.trim() && activeAIMode !== 'image_gen' && activeAIMode !== 'file_analysis' && activeAIMode !== 'image_edit') 
+        return;
 
-                case 'file_analysis':
-                    if (!uploadedFile) { showModal('Error', 'Please use the (+) menu to upload a file first.'); return; }
-                    apiUrl = '/api/analyze/file';
-                    formData.append('file', uploadedFile);
-                    formData.append('prompt', message);
-                    apiPayload = formData;
-                    break;
-                    
-                case 'image_gen':
-                    apiUrl = '/api/generate/image';
-                    apiPayload = { prompt: message, aspect_ratio: aspectRatio };
-                    break;
-
-                case 'image_edit':
-                    if (!uploadedImage) { showModal('Error', 'Please use the (+) menu to upload an image first.'); return; }
-                    apiUrl = '/api/edit/image';
-                    formData.append('image', uploadedImage);
-                    formData.append('prompt', message);
-                    apiPayload = formData;
-                    break;
-                    
-                default:
-                    showModal('Error', 'Invalid AI mode selected.');
-                    return;
-            }
-            
-            const result = await callFastAPI(apiUrl, apiPayload, activeAIMode);
-            
-            const assistantContent = { 
-                role: 'assistant', 
-                content: result.text || result.error || (result.base64_image ? 'Image generated successfully.' : 'Response received.'),
-                type: result.base64_image ? 'image' : 'text',
-                base64_image: result.base64_image,
-                sources: result.sources,
-                model_used: result.model_used
-            };
-            setChatHistory(prev => [...prev, assistantContent]);
-
-        } catch (error) {
-            console.error("API Call Error:", error);
-            const assistantError = { role: 'assistant', content: `[API ERROR] ${error.message || 'The AI service encountered an issue.'}`, type: 'text' };
-            setChatHistory(prev => [...prev, assistantError]);
-        } finally {
-            // Clean up file/image state after processing
-            if (activeAIMode === 'file_analysis') setUploadedFile(null);
-            if (activeAIMode === 'image_edit') setUploadedImage(null);
-        }
+    const userMessage = { 
+        role: 'user', 
+        content: message, 
+        type: activeAIMode, 
+        uploadedFile, 
+        uploadedImage 
     };
+
+    setChatHistory(prev => [...prev, userMessage]);
+    setMessage('');
+
+    let apiPayload = {};
+
+    try {
+        // One universal endpoint now
+        const apiUrl = "/ai";
+
+        switch (activeAIMode) {
+
+            case "chat":
+                apiPayload = {
+                    prompt: message,
+                    mode: "chat"
+                };
+                break;
+
+            case "file_analysis":
+                if (!uploadedFile) {
+                    showModal('Error', 'Please use the (+) menu to upload a file first.');
+                    return;
+                }
+                apiPayload = {
+                    prompt: message,
+                    mode: "file_analysis",
+                    filename: uploadedFile.name || uploadedFile.file?.name || "file.txt",
+                    file_content: uploadedFile.base64
+                };
+                break;
+
+            case "image_gen":
+                apiPayload = {
+                    prompt: message,
+                    mode: "image_gen",
+                    aspect_ratio: aspectRatio
+                };
+                break;
+
+            case "image_edit":
+                if (!uploadedImage) {
+                    showModal('Error', 'Please use the (+) menu to upload an image first.');
+                    return;
+                }
+                apiPayload = {
+                    prompt: message,
+                    mode: "image_edit",
+                    filename: uploadedImage.name || uploadedImage.file?.name || "image.png",
+                    image: uploadedImage.base64,
+                    strength: 0.7,
+                    upscale: 1,
+                    style: "auto"
+                };
+                break;
+
+            case "image_purify":
+                if (!uploadedImage) {
+                    showModal('Error', 'Please upload an image first.');
+                    return;
+                }
+                apiPayload = {
+                    prompt: message,
+                    mode: "image_purify",
+                    filename: uploadedImage.name || uploadedImage.file?.name || "image.png",
+                    image: uploadedImage.base64,
+                    upscale: 2,
+                    style: "clean"
+                };
+                break;
+
+            default:
+                showModal('Error', 'Invalid AI mode selected.');
+                return;
+        }
+
+        // Call API
+        const result = await callFastAPI(apiUrl, apiPayload, activeAIMode);
+
+        // Normalize image/base64 output
+        const base64Image =
+            result?.base64_image ||
+            result?.base64 ||
+            result?.image ||
+            null;
+
+        const assistantContent = {
+            role: 'assistant',
+            content: base64Image 
+                ? "Image generated successfully." 
+                : (result.text || result.error || "Response received."),
+            type: base64Image ? "image" : "text",
+            base64_image: base64Image,
+            sources: result.sources || result.results || [],
+            model_used: result.model_used || result.model
+        };
+
+        setChatHistory(prev => [...prev, assistantContent]);
+
+    } catch (error) {
+        const assistantError = { 
+            role: 'assistant', 
+            content: `[API ERROR] ${error.message || "The AI service encountered an issue."}`, 
+            type: 'text' 
+        };
+        setChatHistory(prev => [...prev, assistantError]);
+    } finally {
+        if (activeAIMode === 'file_analysis') setUploadedFile(null);
+        if (activeAIMode === 'image_edit') setUploadedImage(null);
+    }
+};
 
     // ChatBubble component (keep your existing one)
     const ChatBubble = ({ message }) => {
@@ -2094,56 +2149,27 @@ export default function App() {
 // 🔥 UPDATED: Spider AI Cloudflare Integration
 // 🔥 SPIDER AI — Cloudflare GPT-120B + SDXL Integration (FINAL VERSION)
 // 🔥 SPIDER AI — Cloudflare GPT-120B + SDXL Integration (FINAL VERSION)
+// Updated callFastAPI: forwards the entire payload and normalizes responses
 const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat") => {
     try {
-        // 1. Unique device ID for anonymous memory
-        let deviceId = localStorage.getItem("spider_device_id");
-        if (!deviceId) {
-            deviceId = crypto.randomUUID();
-            localStorage.setItem("spider_device_id", deviceId);
-        }
-
-        // 2. Optional Firebase token (safe global lookup)
-        let firebaseToken = null;
-        const user = window.currentUser || window.firebaseUser || null;
-
-        if (user && typeof user.getIdToken === "function") {
-            firebaseToken = await user.getIdToken();
-        }
-
-        // 3. Attach to payload
-        payload.device_id = deviceId;
-        payload.firebase_token = firebaseToken;
-
-        // 4. Call backend
         const res = await fetch(endpoint, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+                "Content-Type": "application/json"
+            },
             body: JSON.stringify(payload)
         });
 
-        // Try JSON first
-        let data = null;
-        try {
-            data = await res.json();
-        } catch {
-            const text = await res.text();
-            return {
-                ok: true,
-                text: text,
-                base64_image: null,
-                model_used: "",
-                sources: null
-            };
-        }
+        const data = await res.json();
 
+        // Normalize image output
         const base64Image =
             data.base64_image ||
             data.base64 ||
             null;
 
         return {
-            ok: data.ok ?? true,
+            ok: data.ok,
             text: data.summary || data.text || "",
             base64_image: base64Image,
             model_used: data.model_used || "",
@@ -2154,8 +2180,7 @@ const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat") =>
         return { error: err.message };
     }
 }, []);
-  
-    
+
     // --- WebSocket Handlers (NEW) ---
     // Helper function to append plain text to terminal output
     const appendToTerminal = (text, type = 'stdout') => {
