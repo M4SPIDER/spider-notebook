@@ -13,15 +13,24 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
+    // Helper function for 405 responses
+    const methodNotAllowed = () => new Response("Method Not Allowed", { status: 405 });
+
     if (url.pathname === "/api/generate/text") {
+      // Explicitly require POST method for API calls
+      if (request.method !== "POST") return methodNotAllowed(); 
       return onRequest({ request, env, ctx, modeOverride: "chat" });
     }
 
     if (url.pathname === "/api/generate/image") {
+      // Explicitly require POST method for API calls
+      if (request.method !== "POST") return methodNotAllowed(); 
       return onRequest({ request, env, ctx, modeOverride: "image_gen" });
     }
 
     if (url.pathname === "/api/generate/file") {
+      // Explicitly require POST method for API calls
+      if (request.method !== "POST") return methodNotAllowed(); 
       return onRequest({ request, env, ctx, modeOverride: "analyze_file" });
     }
 
