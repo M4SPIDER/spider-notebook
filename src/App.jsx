@@ -2152,7 +2152,7 @@ export default function App() {
 // Updated callFastAPI: forwards the entire payload and normalizes responses
 const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat") => {
     try {
-        const res = await fetch("/ai", {
+        const res = await fetch(endpoint, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
@@ -2160,44 +2160,27 @@ const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat") =>
             body: JSON.stringify(payload)
         });
 
-        const contentType = res.headers.get("content-type") || "";
-        const isImage = contentType.includes("image/");
+        const data = await res.json();
 
-        // ---- If backend sends image directly ----
-        if (isImage) {
-            const blob = await res.blob();
+        // Normalize image output
+        const base64Image =
+            data.base64_image ||
+            data.base64 ||
+            null;
 
-            const base64 = await new Promise((resolve) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result.split(",")[1]);
-                reader.readAsDataURL(blob);
-            });
-
-            return {
-                base64_image: base64,
-                text: "",
-                model_used: "sdxl"
-            };
-        }
-
-        // ---- JSON response from backend ----
-        const json = await res.json().catch(() => null);
-
-        if (json) {
-            return {
-                text: json.text || "",
-                base64_image: json.base64_image || json.base64 || null,
-                model_used: json.model_used || null,
-                sources: json.sources || null
-            };
-        }
-
-        return { error: "Empty response from Spider AI." };
+        return {
+            ok: data.ok,
+            text: data.summary || data.text || "",
+            base64_image: base64Image,
+            model_used: data.model_used || "",
+            sources: data.sources || null
+        };
 
     } catch (err) {
         return { error: err.message };
     }
 }, []);
+
     // --- WebSocket Handlers (NEW) ---
     // Helper function to append plain text to terminal output
     const appendToTerminal = (text, type = 'stdout') => {
@@ -2923,6 +2906,7 @@ int main() {
         </>
     );
 }
+
 
 
 
