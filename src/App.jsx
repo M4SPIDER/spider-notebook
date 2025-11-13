@@ -2112,7 +2112,7 @@ const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat") =>
 
         const contentType = res.headers.get("content-type") || "";
 
-        // 🖼️ IMAGE (PNG)
+        // ---------------- IMAGE RESPONSE (PNG) ----------------
         if (contentType.includes("image/")) {
             const blob = await res.blob();
 
@@ -2129,36 +2129,18 @@ const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat") =>
             };
         }
 
-        // 🧠 TEXT (JSON)
+        // ---------------- TEXT RESPONSE ----------------
         const rawText = await res.text();
 
         if (!rawText || rawText.trim() === "") {
-            return { error: "Empty response from Spider AI backend." };
+            return { error: "Empty response from Spider AI." };
         }
 
-        let data;
-        try {
-            data = JSON.parse(rawText);
-        } catch (err) {
-            return { error: "Invalid JSON received from backend." };
-        }
-
-        // 🕷️ Extract Cloudflare GPT-120B Output
-        let finalText = "";
-
-        try {
-            finalText =
-                data?.output?.[1]?.content?.[0]?.text ||  // main assistant response
-                data?.output?.[0]?.content?.[0]?.text ||  // fallback
-                data?.result ||                           // old model fallback
-                data?.response ||                         // your old format
-                data?.text ||                             // basic output
-                "";                                       // nothing
-        } catch {}
-
+        // Spider AI 2.0 always returns plain text from backend
+        // (search → summarized result, or direct answer)
         return {
-            text: finalText,
-            raw: data
+            text: rawText,
+            raw: rawText
         };
 
     } catch (err) {
@@ -2892,6 +2874,7 @@ int main() {
         </>
     );
 }
+
 
 
 
