@@ -501,3 +501,4 @@ function detectMode(prompt, file_content, filename) {
   if (t.includes("generate image") || t.includes("create image") || t.includes("image_gen")) return "image_gen";
   if (t.includes("edit image") || t.includes("image_edit")) return "image_edit";
   return "chat";
+}
