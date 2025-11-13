@@ -2099,23 +2099,21 @@ const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat") =>
         const res = await fetch("/ai", {
             method: "POST",
             headers: {
-                "Content-Type": payload instanceof FormData ? undefined : "application/json"
+                "Content-Type": "application/json"
             },
-            body: payload instanceof FormData
-                ? payload
-                : JSON.stringify({
-                      prompt: payload.prompt || "",
-                      system_instruction: payload.system_instruction || "",
-                      mode: mode,
-                      image: payload.image || null,
-                      strength: payload.strength || 0.7
-                  })
+            body: JSON.stringify({
+                prompt: payload.prompt || "",
+                system_instruction: payload.system_instruction || "",
+                mode: mode,
+                image: payload.image || null,
+                strength: payload.strength || 0.7
+            })
         });
 
-        const contentType = res.headers.get("content-type");
+        const contentType = res.headers.get("content-type") || "";
 
-        // 🖼️ IMAGE RESPONSE (PNG)
-        if (contentType?.includes("image/")) {
+        // 🖼️ HANDLE SDXL IMAGES
+        if (contentType.includes("image/")) {
             const blob = await res.blob();
 
             const base64_image = await new Promise((resolve) => {
@@ -2125,14 +2123,25 @@ const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat") =>
             });
 
             return {
+                text: "Image generated",
                 base64_image,
-                text: payload.prompt || "",
                 model_used: "SDXL"
             };
         }
 
-        // 🧠 TEXT RESPONSE (JSON)
-        const data = await res.json();
+        // 🧠 HANDLE EMPTY OR INVALID RESPONSE SAFELY
+        const rawText = await res.text();
+
+        if (!rawText || rawText.trim() === "") {
+            return { error: "Empty response from server." };
+        }
+
+        let data;
+        try {
+            data = JSON.parse(rawText);
+        } catch (err) {
+            return { error: "Invalid JSON received from backend." };
+        }
 
         return {
             text:
@@ -2144,11 +2153,10 @@ const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat") =>
         };
 
     } catch (err) {
-        showModal("Spider AI Error", err.message);
         return { error: err.message };
     }
 }, [showModal]);
-        
+  
     
     // --- WebSocket Handlers (NEW) ---
     // Helper function to append plain text to terminal output
@@ -2875,5 +2883,6 @@ int main() {
         </>
     );
 }
+
 
 
