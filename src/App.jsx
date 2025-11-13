@@ -2096,57 +2096,52 @@ export default function App() {
 // 🔥 SPIDER AI — Cloudflare GPT-120B + SDXL Integration (FINAL VERSION)
 const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat") => {
     try {
-        const res = await fetch("/ai", {
+        // Generate / load unique device ID for per-device memory
+        let deviceId = localStorage.getItem("spider_device_id");
+        if (!deviceId) {
+            deviceId = crypto.randomUUID();
+            localStorage.setItem("spider_device_id", deviceId);
+        }
+
+        // Optional Firebase login token
+        let firebaseToken = null;
+        if (authUser && typeof authUser.getIdToken === "function") {
+            firebaseToken = await authUser.getIdToken();
+        }
+
+        // Attach required fields to payload
+        payload.device_id = deviceId;
+        payload.firebase_token = firebaseToken;
+
+        // Send request
+        const res = await fetch(endpoint, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
             },
-            body: JSON.stringify({
-                prompt: payload.prompt || "",
-                system_instruction: payload.system_instruction || "",
-                mode: mode,
-                image: payload.image || null,
-                strength: payload.strength || 0.7
-            })
+            body: JSON.stringify(payload)
         });
 
-        const contentType = res.headers.get("content-type") || "";
+        const data = await res.json();
 
-        // ---------------- IMAGE RESPONSE (PNG) ----------------
-        if (contentType.includes("image/")) {
-            const blob = await res.blob();
+        // Do NOT touch image logic
+        const base64Image =
+            data.base64_image ||
+            data.base64 ||
+            null;
 
-            const base64 = await new Promise((resolve) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result.split(",")[1]);
-                reader.readAsDataURL(blob);
-            });
-
-            return {
-                text: payload.prompt || "",
-                base64_image: base64,
-                model_used: "SDXL"
-            };
-        }
-
-        // ---------------- TEXT RESPONSE ----------------
-        const rawText = await res.text();
-
-        if (!rawText || rawText.trim() === "") {
-            return { error: "Empty response from Spider AI." };
-        }
-
-        // Spider AI 2.0 always returns plain text from backend
-        // (search → summarized result, or direct answer)
         return {
-            text: rawText,
-            raw: rawText
+            ok: data.ok,
+            text: data.summary || data.text || "",
+            base64_image: base64Image,
+            model_used: data.model_used || "",
+            sources: data.sources || null
         };
 
     } catch (err) {
         return { error: err.message };
     }
-}, []);
+}, [authUser]);
   
     
     // --- WebSocket Handlers (NEW) ---
@@ -2874,6 +2869,7 @@ int main() {
         </>
     );
 }
+
 
 
 
