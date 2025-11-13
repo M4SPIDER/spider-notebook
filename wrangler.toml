@@ -4,8 +4,9 @@ pages_build_output_dir = "dist"
 compatibility_date = "2024-10-01"
 compatibility_flags = ["nodejs_compat"]
 
-# ========== AI BINDINGS (NEW CORRECT FORMAT) ==========
+# ========== AI BINDINGS (FINAL FIXED) ==========
 [ai]
+type = "javascript"
 bindings = [
   { name = "SPY_AI" }
 ]
