@@ -367,7 +367,6 @@ ${file_content || prompt}
      NORMAL CHAT + SEARCH
      ============================================================ */
 
-  // ** FIX: Added strict instruction to force JSON output for search. **
   const searchEnforcementInstruction = `
 You have access to a web search tool. When you need up-to-date information, respond ONLY with a single JSON object in the format: {"action": "search", "query": "your detailed search query"}
 Do NOT include any other text, markdown, or explanation if you output the search JSON. Otherwise, respond in the normal chat format.
@@ -379,16 +378,25 @@ Do NOT include any other text, markdown, or explanation if you output the search
       messages: [
         { role: "system", content: SPIDER_SYSTEM_PROMPT },
         { role: "system", content: "Memory:\n" + memorySummary },
-        { role: "system", content: searchEnforcementInstruction }, // <- New Instruction
+        { role: "system", content: searchEnforcementInstruction }, 
         { role: "user", content: prompt }
       ]
     }
   );
 
-  const text = extractText(aiResp).trim();
+  let text = extractText(aiResp).trim();
+
+  // ** CRITICAL FIX: Aggressively clean text to handle LLM markdown wrapping **
+  // The LLM often wraps JSON in code fences (e.g., ```json{...}```) which causes JSON.parse to fail.
+  // We remove them before parsing.
+  const jsonString = text
+    .replace(/^```json\s*/, '')
+    .replace(/^```\s*/, '')
+    .replace(/\s*```$/, '')
+    .trim();
 
   try {
-    const obj = JSON.parse(text);
+    const obj = JSON.parse(jsonString);
     if (obj?.action === "search" && obj?.query) {
       const results = await runSearch(env, obj.query);
 
@@ -406,7 +414,8 @@ Do NOT include any other text, markdown, or explanation if you output the search
       });
     }
   } catch (_) {
-    // If JSON.parse fails, we fall through and return the raw text response.
+    // If JSON.parse fails (e.g., if the output was plain text, or cleaning failed), 
+    // we fall through and return the raw text response.
   }
 
   return new Response(text, {
