@@ -3,36 +3,55 @@
    Routing Wrapper + Unified AI Handler + Memory + Firebase
    ============================================================ */
 
-
 /* ============================================================
-   ROUTER WRAPPER (FIXED VERSION)
-   This new router *only* listens for POST requests on '/ai'
-   and passes everything to your main 'onRequest' handler.
+   ROUTER WRAPPER (FIXED)
+   Maps old endpoints to unified ai.js logic
    ============================================================ */
 
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    // 1. Check if the path is /ai
-    if (url.pathname === "/ai") {
-      
-      // 2. Make sure it's a POST request
-      if (request.method !== "POST") {
-        return new Response("Method Not Allowed", { status: 405 });
-      }
-
-      // 3. Let your main unified handler do the work
-      //    (It already knows how to read the 'mode' from the body)
-      //    NOTE: Removed modeOverride as onRequest will read 'mode' from the body
-      return onRequest({ request, env, ctx });
+    // Handle CORS preflight requests
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        }
+      });
     }
 
-    // 4. Everything else is Not Found
-    return new Response("Not Found", { status: 404 });
+    // Only allow POST requests for API endpoints
+    if (request.method !== 'POST') {
+      return new Response('Method Not Allowed', { 
+        status: 405,
+        headers: { 
+          'Allow': 'POST',
+          'Access-Control-Allow-Origin': '*'
+        }
+      });
+    }
+
+    if (url.pathname === "/api/generate/text") {
+      return onRequest({ request, env, ctx, modeOverride: "chat" });
+    }
+
+    if (url.pathname === "/api/generate/image") {
+      return onRequest({ request, env, ctx, modeOverride: "image_gen" });
+    }
+
+    if (url.pathname === "/api/generate/file") {
+      return onRequest({ request, env, ctx, modeOverride: "analyze_file" });
+    }
+
+    return new Response("Not Found", { 
+      status: 404,
+      headers: { 'Access-Control-Allow-Origin': '*' }
+    });
   }
 };
-
 
 /* ============================================================
    CONFIG
@@ -44,7 +63,6 @@ const MEMORY_TTL_DAYS = 30;
 const MEMORY_SUMMARY_TRIGGER = 30;
 const MEMORY_USER_KEY_PREFIX = "chat_memory:";
 const FIREBASE_PROJECT_ID = "m4-spider";
-
 
 /* ============================================================
    SPIDER SYSTEM PROMPT (POWERED PERSONALITY)
@@ -63,7 +81,6 @@ Strict rules:
 - If asked who built you → M4 Spider.
 `;
 
-
 /* ============================================================
    UTILS
    ============================================================ */
@@ -76,12 +93,20 @@ function uuidv4() {
 function jsonResponse(obj, status = 200) {
   return new Response(JSON.stringify(obj), {
     status,
-    headers: { "content-type": "application/json" }
+    headers: { 
+      "content-type": "application/json",
+      "Access-Control-Allow-Origin": "*"
+    }
   });
 }
 
 function imageResponse(bin) {
-  return new Response(bin, { headers: { "content-type": "image/png" } });
+  return new Response(bin, { 
+    headers: { 
+      "content-type": "image/png",
+      "Access-Control-Allow-Origin": "*"
+    } 
+  });
 }
 
 function extractText(ai) {
@@ -97,7 +122,6 @@ function extractText(ai) {
     return "";
   } catch { return ""; }
 }
-
 
 /* ============================================================
    SAFE FIREBASE TOKEN VERIFY (tokeninfo)
@@ -124,7 +148,6 @@ async function verifyFirebaseToken(idToken) {
   }
 }
 
-
 /* ============================================================
    MAIN HANDLER (UNIFIED AI)
    ============================================================ */
@@ -132,19 +155,21 @@ async function verifyFirebaseToken(idToken) {
 export async function onRequest(context) {
   const request = context.request;
   const env = context.env;
-  // modeOverride is no longer needed from the router
-  // const modeOverride = context.modeOverride || null; 
+  const modeOverride = context.modeOverride || null;
 
   let body = {};
-  try { body = await request.json(); } catch {}
+  try { 
+    if (request.method === 'POST') {
+      body = await request.json(); 
+    }
+  } catch {
+    return jsonResponse({ ok: false, error: "Invalid JSON body" }, 400);
+  }
 
-  // The 'mode' now comes from the JSON body sent by App.jsx
   const { prompt, mode, image, strength, file_content, filename } = body;
 
-  // Use the 'mode' from the body. Fallback to detection.
   let currentMode = mode || detectMode(prompt, file_content, filename);
-  // if (modeOverride) currentMode = modeOverride; // No longer needed
-
+  if (modeOverride) currentMode = modeOverride;
 
   /* ============================================================
      USER IDENTIFICATION (DEVICE + FIREBASE)
@@ -163,7 +188,6 @@ export async function onRequest(context) {
 
   const memoryKey = MEMORY_USER_KEY_PREFIX + userId;
 
-
   /* ============================================================
      MEMORY LOAD + TTL
      ============================================================ */
@@ -176,13 +200,16 @@ export async function onRequest(context) {
   }
 
   async function saveMemory(mem) {
-    try { await env.CHAT_KV.put(memoryKey, JSON.stringify(mem)); } catch {}
+    try { 
+      await env.CHAT_KV.put(memoryKey, JSON.stringify(mem)); 
+    } catch (e) {
+      console.error('Memory save error:', e);
+    }
   }
 
   let memory = await loadMemory();
   const cutoff = Date.now() - MEMORY_TTL_DAYS * 86400000;
   memory = memory.filter(m => (m.ts || 0) >= cutoff);
-
 
   /* ============================================================
      MEMORY COMPRESSION
@@ -224,7 +251,6 @@ ${older.map((m,i)=>`${i+1}. ${m.role}: ${m.content}`).join("\n")}
   }
 
   await saveMemory(memory);
-
 
   /* ============================================================
      MEMORY DELETE
@@ -275,7 +301,6 @@ ${older.map((m,i)=>`${i+1}. ${m.role}: ${m.content}`).join("\n")}
     });
   }
 
-
   /* ============================================================
      ADD USER MESSAGE TO MEMORY
      ============================================================ */
@@ -293,7 +318,6 @@ ${older.map((m,i)=>`${i+1}. ${m.role}: ${m.content}`).join("\n")}
       ? "summary: " + m.content
       : m.role + ": " + m.content.slice(0, 200))
     .join("\n");
-
 
   /* ============================================================
      FILE ANALYSIS MODE
@@ -323,7 +347,6 @@ ${file_content || prompt}
     });
   }
 
-
   /* ============================================================
      IMAGE GENERATION MODE
      ============================================================ */
@@ -338,11 +361,11 @@ ${file_content || prompt}
       );
 
       return imageResponse(img);
-    } catch {
+    } catch (e) {
+      console.error('Image gen error:', e);
       return jsonResponse({ ok: false, text: "Image generation failed." }, 500);
     }
   }
-
 
   /* ============================================================
      IMAGE EDIT MODE
@@ -358,11 +381,11 @@ ${file_content || prompt}
       );
 
       return imageResponse(img);
-    } catch {
+    } catch (e) {
+      console.error('Image edit error:', e);
       return jsonResponse({ ok: false, text: "Image editing failed." }, 500);
     }
   }
-
 
   /* ============================================================
      NORMAL CHAT + SMART SEARCH
@@ -377,7 +400,6 @@ ${file_content || prompt}
   });
 
   let output = extractText(ai).trim();
-
 
   /* ============================================================
      If model requested search (JSON)
@@ -399,14 +421,12 @@ ${file_content || prompt}
     }
   } catch {}
 
-
   return jsonResponse({
     ok: true,
     text: output,
     model_used: "mistral-24b"
   });
 }
-
 
 /* ============================================================
    SEARCH ENGINE
@@ -420,7 +440,6 @@ async function runSearch(env, query) {
     return { error: "search_failed" };
   }
 }
-
 
 /* ============================================================
    MODE DETECTOR
