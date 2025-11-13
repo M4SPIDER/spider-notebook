@@ -14,7 +14,18 @@ models = [
     "@cf/web-search/seznam-supersearch"
 ]
 
-[kv_namespaces]
-CHAT_KV = { binding = "CHAT_KV", id = "chatkv" }
-USAGE_KV = { binding = "USAGE_KV", id = "usagekv" }
-IMAGE_KV = { binding = "IMAGE_KV", id = "imagekv" }
+# ----------------------
+# KV NAMESPACES (using arrays)
+# ----------------------
+
+[[kv_namespaces]]
+binding = "CHAT_KV"
+id = "chatkv"
+
+[[kv_namespaces]]
+binding = "USAGE_KV"
+id = "usagekv"
+
+[[kv_namespaces]]
+binding = "IMAGE_KV"
+id = "imagekv"
