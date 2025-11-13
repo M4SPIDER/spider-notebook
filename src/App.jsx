@@ -1663,14 +1663,14 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
 
             const result = await callFastAPI(apiUrl, apiPayload, activeAIMode);
             
-            const assistantContent = { 
-                role: 'assistant', 
-                content: result.text || result.error || (result.base64_image ? 'Image generated successfully.' : 'Response received.'),
-                type: result.base64_image ? 'image' : 'text',
-                base64_image: result.base64_image,
-                sources: result.sources,
-                model_used: result.model_used
-            };
+            const assistantContent = {
+    role: 'assistant',
+    content: base64Image ? 'Image generated successfully.' : (result.text || result.error || 'Response received.'),
+    type: base64Image ? 'image' : 'text',
+    base64_image: base64Image,
+    sources: result.sources,
+    model_used: result.model_used
+};
             setChatHistory(prev => [...prev, assistantContent]);
 
         } catch (error) {
@@ -2924,4 +2924,5 @@ int main() {
         </>
     );
 }
+
 
