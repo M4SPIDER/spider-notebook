@@ -2091,75 +2091,65 @@ export default function App() {
     const hideModal = () => setIsModalOpen(false);
     
     // RENAMED AND UPDATED TO CONNECT TO FASTAPI
-    const callFastAPI = useCallback(async (endpoint, payload, mode) => {
-        showLoader();
-        
-        // IMPORTANT: Changed this to your domain
-        const FASTAPI_DOMAIN = "http://pym4spider.com"; 
-        const apiUrl = `${FASTAPI_DOMAIN}${endpoint}`;
-        
-        const isFormData = payload instanceof FormData;
-        const isImageMode = mode === 'image_gen' || mode === 'image_edit';
+// 🔥 UPDATED: Spider AI Cloudflare Integration
+// 🔥 SPIDER AI — Cloudflare GPT-120B + SDXL Integration (FINAL VERSION)
+// 🔥 SPIDER AI — Cloudflare GPT-120B + SDXL Integration (FINAL VERSION)
+const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat") => {
+    try {
+        // Always hit your Cloudflare Function at /ai
+        const res = await fetch("/ai", {
+            method: "POST",
+            headers: {
+                "Content-Type": payload instanceof FormData ? undefined : "application/json"
+            },
+            body: payload instanceof FormData
+                ? payload
+                : JSON.stringify({
+                      prompt: payload.prompt || "",
+                      system_instruction: payload.system_instruction || "",
+                      mode: mode,
+                      image: payload.image || null,
+                      strength: payload.strength || 0.7
+                  })
+        });
 
-        let headers = {};
-        if (!isFormData) {
-             // For text and JSON requests
-            headers['Content-Type'] = 'application/json';
+        const contentType = res.headers.get("content-type");
+
+        // 🖼️ If SDXL returned an image
+        if (contentType?.includes("image/")) {
+            const blob = await res.blob();
+            const base64_image = await new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result.split(",")[1]);
+                reader.readAsDataURL(blob);
+            });
+
+            return {
+                base64_image,
+                text: payload.prompt || "",
+                model_used: "Stable Diffusion XL (Cloudflare Free Tier)"
+            };
         }
-        
-        const fetchOptions = {
-            method: 'POST',
-            headers: headers,
-            body: isFormData ? payload : JSON.stringify(payload),
+
+        // 🧠 If GPT-120B returned JSON
+        const data = await res.json();
+
+        return {
+            text:
+                data.output_text ||
+                data.response ||
+                data.text ||
+                "",
+            raw: data
         };
 
-        for (let attempt = 1; attempt <= 3; attempt++) {
-            try {
-                const response = await fetch(apiUrl, fetchOptions);
-                
-                // MODIFIED: Updated error message
-                if (response.status === 404) {
-                    throw new Error(`API endpoint not found (${response.status}). Ensure the server at https://spym4spider.com is running and the endpoint '${endpoint}' is correct.`);
-                }
-
-                if (!response.ok) {
-                    const errorJson = await response.json();
-                    throw new Error(errorJson.detail || `HTTP error! Status: ${response.status}`);
-                }
-                
-                const result = await response.json(); 
-                hideLoader();
-                
-                // Successful result handling
-                if (isImageMode) {
-                    if (result.base64_image) {
-                        return { 
-                            base64_image: result.base64_image, 
-                            text: result.prompt, 
-                            model_used: result.model_used || "Imagen/Gemini Image Model" 
-                        };
-                    } else {
-                        throw new Error("Received success status but missing image data from server.");
-                    }
-                }
-                
-                // Text/Analysis results
-                return { 
-                    text: result.text || 'No text response received.', 
-                    sources: result.sources || [] 
-                };
-
-            } catch (error) {
-                console.error(`Attempt ${attempt} failed: ${error.message}`);
-                if (attempt === 3) { 
-                    hideLoader(); 
-                    showModal("API Error", `FastAPI Call Failed: ${error.message}`); 
-                    return { error: `Connection failed: ${error.message}` };
-                }
-                await new Promise(res => setTimeout(res, 1000 * attempt));
-            }
-        }
-    }, [showModal]); 
+    } catch (err) {
+        console.error("SPY_AI ERROR:", err);
+        showModal("Spider AI Error", err.message);
+        return { error: err.message };
+    }
+}, [showModal]);
+        
     
     // --- WebSocket Handlers (NEW) ---
     // Helper function to append plain text to terminal output
