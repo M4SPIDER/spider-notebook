@@ -2150,10 +2150,9 @@ export default function App() {
 // 🔥 SPIDER AI — Cloudflare GPT-120B + SDXL Integration (FINAL VERSION)
 // 🔥 SPIDER AI — Cloudflare GPT-120B + SDXL Integration (FINAL VERSION)
 // Updated callFastAPI: forwards the entire payload and normalizes responses
-const callFastAPI = useCallback(async (endpoint = "/ai", payload = {}, mode = "chat") => {
+const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat") => {
     try {
-        // send the whole payload as-is (so file_content, filename, image, etc. are preserved)
-        const res = await fetch(endpoint, {
+        const res = await fetch("/ai", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
@@ -2162,10 +2161,12 @@ const callFastAPI = useCallback(async (endpoint = "/ai", payload = {}, mode = "c
         });
 
         const contentType = res.headers.get("content-type") || "";
+        const isImage = contentType.includes("image/");
 
-        // IMAGE BINARY (PNG/JPEG) returned directly
-        if (contentType.includes("image/")) {
+        // ---- If backend sends image directly ----
+        if (isImage) {
             const blob = await res.blob();
+
             const base64 = await new Promise((resolve) => {
                 const reader = new FileReader();
                 reader.onloadend = () => resolve(reader.result.split(",")[1]);
@@ -2173,35 +2174,28 @@ const callFastAPI = useCallback(async (endpoint = "/ai", payload = {}, mode = "c
             });
 
             return {
-                ok: true,
-                type: "image",
                 base64_image: base64,
-                text: payload.prompt || "",
-                model_used: "SDXL"
+                text: "",
+                model_used: "sdxl"
             };
         }
 
-        // otherwise treat as text/JSON
-        const rawText = await res.text();
+        // ---- JSON response from backend ----
+        const json = await res.json().catch(() => null);
 
-        if (!rawText || rawText.trim() === "") {
-            return { ok: false, error: "Empty response from Spider AI." };
+        if (json) {
+            return {
+                text: json.text || "",
+                base64_image: json.base64_image || json.base64 || null,
+                model_used: json.model_used || null,
+                sources: json.sources || null
+            };
         }
 
-        // Try parse JSON (many endpoints return JSON: { imageId, base64, summary, results, ... })
-        try {
-            const parsed = JSON.parse(rawText);
-            // normalize known image fields
-            if (parsed.base64) parsed.base64_image = parsed.base64;
-            if (parsed.imageBase64) parsed.base64_image = parsed.imageBase64;
-            return { ok: true, ...parsed };
-        } catch (_) {
-            // plain text reply (chat)
-            return { ok: true, text: rawText };
-        }
+        return { error: "Empty response from Spider AI." };
 
     } catch (err) {
-        return { ok: false, error: err.message || String(err) };
+        return { error: err.message };
     }
 }, []);
     // --- WebSocket Handlers (NEW) ---
@@ -2929,6 +2923,7 @@ int main() {
         </>
     );
 }
+
 
 
 
