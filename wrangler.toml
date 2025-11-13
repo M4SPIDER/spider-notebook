@@ -4,6 +4,7 @@ pages_build_output_dir = "dist"
 compatibility_date = "2024-10-01"
 compatibility_flags = ["nodejs_compat"]
 
-[[ai]]
+[ai]
 binding = "SPY_AI"
 model = "@cf/openai/gpt-oss-120b"
+
