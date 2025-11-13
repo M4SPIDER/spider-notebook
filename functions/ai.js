@@ -18,10 +18,9 @@ If the user asks for a roast, savage reply, comeback, or wants attitude:
 - Use sharp humor.
 - Use bold confidence.
 - Use playful sarcasm.
-- Use emojis to boost attitude 😈🔥😎
-- No slurs, hate, or harmful insults.
+- Use emojis to enhance attitude 😈🔥😎
+- No slurs or harmful insults.
 - Roasts must be funny, clean, and clever.
-- No bullying.
 
 CHAT MODE:
 If the user speaks normally, respond normally but still with Spider attitude.
@@ -29,11 +28,11 @@ If the user speaks normally, respond normally but still with Spider attitude.
 MODES:
 
 MODE 1 — NORMAL_CHAT
-Direct plain-text replies with emojis allowed.
+Plain text replies with emojis allowed.
 
 MODE 2 — ACTION_SEARCH
-If the user asks to look up something online or needs current info:
-Return EXACT JSON only:
+If user asks to look up something online or needs current information:
+Output EXACT JSON only:
 {
   "action": "search",
   "query": "<search terms>"
@@ -41,8 +40,8 @@ Return EXACT JSON only:
 No other text.
 
 MODE 3 — FILE_ANALYZE
-Triggered when user asks: analyze CSS, JS, HTML, Python, file content, debug, explain code.
-Respond in plain text (emojis allowed).
+Triggered when user provides file content or requests: analyze code, analyze css/js/html, explain file, debug file.
+Respond with plain text (emojis allowed).
 
 MODE 4 — IMAGE_GEN and IMAGE_EDIT handled externally.
 
@@ -53,7 +52,8 @@ Do not break these rules.
 `;
 
 
-// =================== MAIN HANDLER =====================
+
+// =================== MAIN HANDLER =======================
 
 export async function onRequest(context) {
   const request = context.request;
@@ -74,9 +74,9 @@ export async function onRequest(context) {
   const currentMode = mode || detectMode(prompt, file_content, filename);
 
 
-  // =============================================================
-  // FILE ANALYZE MODE
-  // =============================================================
+
+  // =================== FILE ANALYZER =======================
+
   if (currentMode === "analyze_file") {
     const analysisPrompt = `
 Analyze this file in plain text. No markdown, no bullets, no lists. Emojis allowed.
@@ -99,9 +99,9 @@ ${file_content || prompt}
   }
 
 
-  // =============================================================
-  // IMAGE GENERATION MODE
-  // =============================================================
+
+  // =================== IMAGE GEN =======================
+
   if (currentMode === "image_gen") {
     const enhancedPrompt =
       `${prompt}, full color, ultra high detail, cinematic lighting, hdr, volumetric light, realistic rendering, 8k clarity`;
@@ -114,9 +114,9 @@ ${file_content || prompt}
   }
 
 
-  // =============================================================
-  // IMAGE EDIT MODE (REFINER)
-  // =============================================================
+
+  // =================== IMAGE EDIT =======================
+
   if (currentMode === "image_edit") {
     const enhancedPrompt =
       `${prompt}, full color, ultra high detail, cinematic lighting, hdr`;
@@ -131,9 +131,9 @@ ${file_content || prompt}
   }
 
 
-  // =============================================================
-  // NORMAL CHAT + SEARCH MODE
-  // =============================================================
+
+  // =================== NORMAL CHAT + SEARCH =======================
+
   const aiResp = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", {
     messages: [
       { role: "system", content: SPIDER_SYSTEM_PROMPT },
@@ -143,56 +143,85 @@ ${file_content || prompt}
 
   const text = extractText(aiResp).trim();
 
-  // ---------- Detect search JSON ----------
+
+
+  // -------- Detect search action JSON --------
   try {
     const obj = JSON.parse(text);
 
     if (obj?.action === "search" && obj?.query) {
       const results = await runSearch(env, obj.query);
 
-      const summaryResp = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", {
+      const summary = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", {
         messages: [
           { role: "system", content: SPIDER_SYSTEM_PROMPT },
-          { role: "user", content: `Search results: ${JSON.stringify(results)}. Provide a plain text answer with emojis allowed.` }
+          { role: "user", content: `Search results: ${JSON.stringify(results)}. Provide a plain text answer with emojis.` }
         ]
       });
 
-      return new Response(extractText(summaryResp), {
+      return new Response(extractText(summary), {
         headers: { "content-type": "text/plain" }
       });
     }
   } catch (_) {}
 
 
-  // ---------- Normal chat fallback ----------
+
+  // -------- Normal chat fallback --------
   return new Response(text, {
     headers: { "content-type": "text/plain" }
   });
 }
 
 
-// =================== SEARCH ENGINE =====================
+
+// =================== SEARCH ENGINE =======================
 
 async function runSearch(env, query) {
   try {
     const r = await env.SPY_AI.run("@cf/web-search/seznam-supersearch", { query });
     return r?.results || r || {};
-  } catch {
+  } catch (err) {
     return { error: "search_failed" };
   }
 }
 
 
-// =================== UTILITIES =====================
+
+// =================== UNIVERSAL TEXT EXTRACTOR =======================
 
 function extractText(resp) {
-  return (
-    resp?.output?.[1]?.content?.[0]?.text ||
-    resp?.output?.[0]?.content?.[0]?.text ||
-    resp?.text ||
-    ""
-  );
+  try {
+    const txt1 = resp?.output?.[1]?.content?.[0]?.text;
+    if (txt1) return txt1.trim();
+
+    const txt2 = resp?.output?.[0]?.content?.[0]?.text;
+    if (txt2) return txt2.trim();
+
+    const txt3 = resp?.output_text;
+    if (txt3) return txt3.trim();
+
+    const txt4 = resp?.text;
+    if (txt4) return txt4.trim();
+
+    const txt5 = resp?.result;
+    if (txt5) return txt5.trim();
+
+    const txt6 = resp?.choices?.[0]?.message?.content;
+    if (txt6) return txt6.trim();
+
+    const txt7 = resp?.response;
+    if (txt7) return txt7.trim();
+
+    return "";
+  } catch {
+    return "";
+  }
 }
+
+
+
+// =================== MODE DETECTOR =======================
 
 function detectMode(prompt, file_content, filename) {
   if (file_content || filename) return "analyze_file";
@@ -214,4 +243,3 @@ function detectMode(prompt, file_content, filename) {
 
   return "chat";
 }
-
