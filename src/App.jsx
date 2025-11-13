@@ -2103,16 +2103,19 @@ const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat") =>
             },
             body: JSON.stringify({
                 prompt: payload.prompt || "",
-                system_instruction: payload.system_instruction || "",
                 mode: mode,
                 image: payload.image || null,
-                strength: payload.strength || 0.7
+                strength: payload.strength || 0.7,
+                file_content: payload.file_content || null,
+                filename: payload.filename || null,
+                aspect_ratio: payload.aspect_ratio || "1:1",
+                history: payload.history || []
             })
         });
 
         const contentType = res.headers.get("content-type") || "";
 
-        // ---------------- IMAGE RESPONSE (PNG) ----------------
+        // ---------------- IMAGE RESPONSE ----------------
         if (contentType.includes("image/")) {
             const blob = await res.blob();
 
@@ -2136,17 +2139,19 @@ const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat") =>
             return { error: "Empty response from Spider AI." };
         }
 
-        // Spider AI 2.0 always returns plain text from backend
-        // (search → summarized result, or direct answer)
-        return {
-            text: rawText,
-            raw: rawText
-        };
+        // Try to parse JSON safely
+        try {
+            const parsed = JSON.parse(rawText);
+            return parsed;
+        } catch (_) {
+            return { text: rawText };
+        }
 
     } catch (err) {
         return { error: err.message };
     }
 }, []);
+
   
     
     // --- WebSocket Handlers (NEW) ---
@@ -2874,6 +2879,7 @@ int main() {
         </>
     );
 }
+
 
 
 
