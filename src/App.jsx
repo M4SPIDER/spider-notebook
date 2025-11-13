@@ -1662,16 +1662,25 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
     }
 
             const result = await callFastAPI(apiUrl, apiPayload, activeAIMode);
-            
-            const assistantContent = {
+            // Normalize image output
+const base64Image =
+    result.base64_image ||   // old format
+    result.base64 ||         // new backend format
+    null;
+
+const assistantContent = {
     role: 'assistant',
-    content: base64Image ? 'Image generated successfully.' : (result.text || result.error || 'Response received.'),
+    content: base64Image
+        ? 'Image generated successfully.'
+        : (result.text || result.error || 'Response received.'),
     type: base64Image ? 'image' : 'text',
     base64_image: base64Image,
     sources: result.sources,
     model_used: result.model_used
 };
-            setChatHistory(prev => [...prev, assistantContent]);
+
+setChatHistory(prev => [...prev, assistantContent]);
+
 
         } catch (error) {
             console.error("API Call Error:", error);
@@ -2924,5 +2933,6 @@ int main() {
         </>
     );
 }
+
 
 
