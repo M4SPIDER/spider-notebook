@@ -386,9 +386,7 @@ Do NOT include any other text, markdown, or explanation if you output the search
 
   let text = extractText(aiResp).trim();
 
-  // ** CRITICAL FIX: Aggressively clean text to handle LLM markdown wrapping **
-  // The LLM often wraps JSON in code fences (e.g., ```json{...}```) which causes JSON.parse to fail.
-  // We remove them before parsing.
+  // CRITICAL FIX: Aggressively clean text to handle LLM markdown wrapping 
   const jsonString = text
     .replace(/^```json\s*/, '')
     .replace(/^```\s*/, '')
@@ -405,6 +403,7 @@ Do NOT include any other text, markdown, or explanation if you output the search
         messages: [
           { role: "system", content: SPIDER_SYSTEM_PROMPT },
           { role: "system", content: "Memory:\n" + memorySummary },
+          // Send the search results (including any error details) back to the LLM for summarization
           { role: "user", content: `Search results: ${JSON.stringify(results)}` }
         ]
       });
@@ -414,8 +413,7 @@ Do NOT include any other text, markdown, or explanation if you output the search
       });
     }
   } catch (_) {
-    // If JSON.parse fails (e.g., if the output was plain text, or cleaning failed), 
-    // we fall through and return the raw text response.
+    // If JSON.parse fails, we fall through and return the raw text response.
   }
 
   return new Response(text, {
@@ -432,9 +430,13 @@ Do NOT include any other text, markdown, or explanation if you output the search
 async function runSearch(env, query) {
   try {
     const r = await env.SPY_AI.run("@cf/web-search/seznam-supersearch", { query });
-    return r?.results || r || {};
-  } catch {
-    return { error: "search_failed" };
+    // Ensure we return an object structure expected by the LLM summarizer
+    return r?.results || r || {}; 
+  } catch (e) {
+    // Return a more descriptive error object including the query
+    console.error("Search failed for query:", query, e);
+    // Include the error details for the summarization LLM
+    return { error: "search_failed", details: e.toString() };
   }
 }
 
