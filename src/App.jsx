@@ -2101,24 +2101,27 @@ const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat") =>
             headers: {
                 "Content-Type": "application/json"
             },
+
             body: JSON.stringify({
                 prompt: payload.prompt || "",
-                mode: mode,
-                image: payload.image || null,
+                mode: mode,                       // chat / file_analysis / image_gen / image_edit / image_purify / search
+                image: payload.image || null,     // base64 image for refine/edit
                 strength: payload.strength || 0.7,
                 file_content: payload.file_content || null,
                 filename: payload.filename || null,
                 aspect_ratio: payload.aspect_ratio || "1:1",
-                history: payload.history || []
+                history: payload.history || [],   // optional frontend history
+                upscale: payload.upscale || 1,    // for purifier
+                style: payload.style || "auto",   // realistic/cinematic/anime/auto
+                userId: payload.userId || "anon"
             })
         });
 
         const contentType = res.headers.get("content-type") || "";
 
-        // ---------------- IMAGE RESPONSE ----------------
+        // ------ IMAGE RESPONSE (binary or base64) ------
         if (contentType.includes("image/")) {
             const blob = await res.blob();
-
             const base64 = await new Promise((resolve) => {
                 const reader = new FileReader();
                 reader.onloadend = () => resolve(reader.result.split(",")[1]);
@@ -2126,25 +2129,26 @@ const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat") =>
             });
 
             return {
-                text: payload.prompt || "",
                 base64_image: base64,
+                type: "image",
+                text: payload.prompt || "",
                 model_used: "SDXL"
             };
         }
 
-        // ---------------- TEXT RESPONSE ----------------
+        // ------ TEXT / JSON RESPONSE ------
         const rawText = await res.text();
 
         if (!rawText || rawText.trim() === "") {
             return { error: "Empty response from Spider AI." };
         }
 
-        // Try to parse JSON safely
+        // Try JSON parse (search & image_purify return JSON)
         try {
             const parsed = JSON.parse(rawText);
-            return parsed;
+            return parsed;      // contains { imageId, base64, summary, results, etc }
         } catch (_) {
-            return { text: rawText };
+            return { text: rawText }; // normal chat
         }
 
     } catch (err) {
@@ -2879,6 +2883,7 @@ int main() {
         </>
     );
 }
+
 
 
 
