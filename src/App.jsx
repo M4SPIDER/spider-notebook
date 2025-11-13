@@ -2096,42 +2096,54 @@ export default function App() {
 // 🔥 SPIDER AI — Cloudflare GPT-120B + SDXL Integration (FINAL VERSION)
 const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat") => {
     try {
-        // Generate / load unique device ID for per-device memory
+        // 1. Unique device ID for anonymous memory
         let deviceId = localStorage.getItem("spider_device_id");
         if (!deviceId) {
             deviceId = crypto.randomUUID();
             localStorage.setItem("spider_device_id", deviceId);
         }
 
-        // Optional Firebase login token
+        // 2. Optional Firebase token (safe global lookup)
         let firebaseToken = null;
-        if (authUser && typeof authUser.getIdToken === "function") {
-            firebaseToken = await authUser.getIdToken();
+        const user = window.currentUser || window.firebaseUser || null;
+
+        if (user && typeof user.getIdToken === "function") {
+            firebaseToken = await user.getIdToken();
         }
 
-        // Attach required fields to payload
+        // 3. Attach to payload
         payload.device_id = deviceId;
         payload.firebase_token = firebaseToken;
 
-        // Send request
+        // 4. Call backend
         const res = await fetch(endpoint, {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
         });
 
-        const data = await res.json();
+        // Try JSON first
+        let data = null;
+        try {
+            data = await res.json();
+        } catch {
+            const text = await res.text();
+            return {
+                ok: true,
+                text: text,
+                base64_image: null,
+                model_used: "",
+                sources: null
+            };
+        }
 
-        // Do NOT touch image logic
         const base64Image =
             data.base64_image ||
             data.base64 ||
             null;
 
         return {
-            ok: data.ok,
+            ok: data.ok ?? true,
             text: data.summary || data.text || "",
             base64_image: base64Image,
             model_used: data.model_used || "",
@@ -2141,7 +2153,7 @@ const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat") =>
     } catch (err) {
         return { error: err.message };
     }
-}, [authUser]);
+}, []);
   
     
     // --- WebSocket Handlers (NEW) ---
@@ -2869,6 +2881,7 @@ int main() {
         </>
     );
 }
+
 
 
 
