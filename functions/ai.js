@@ -5,35 +5,30 @@
 
 
 /* ============================================================
-   ROUTER WRAPPER (VERY IMPORTANT)
-   Maps old endpoints to unified ai.js logic
+   ROUTER WRAPPER (FIXED VERSION)
+   This new router *only* listens for POST requests on '/ai'
+   and passes everything to your main 'onRequest' handler.
    ============================================================ */
 
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    // Helper function for 405 responses
-    const methodNotAllowed = () => new Response("Method Not Allowed", { status: 405 });
+    // 1. Check if the path is /ai
+    if (url.pathname === "/ai") {
+      
+      // 2. Make sure it's a POST request
+      if (request.method !== "POST") {
+        return new Response("Method Not Allowed", { status: 405 });
+      }
 
-    if (url.pathname === "/api/generate/text") {
-      // Explicitly require POST method for API calls
-      if (request.method !== "POST") return methodNotAllowed(); 
-      return onRequest({ request, env, ctx, modeOverride: "chat" });
+      // 3. Let your main unified handler do the work
+      //    (It already knows how to read the 'mode' from the body)
+      //    NOTE: Removed modeOverride as onRequest will read 'mode' from the body
+      return onRequest({ request, env, ctx });
     }
 
-    if (url.pathname === "/api/generate/image") {
-      // Explicitly require POST method for API calls
-      if (request.method !== "POST") return methodNotAllowed(); 
-      return onRequest({ request, env, ctx, modeOverride: "image_gen" });
-    }
-
-    if (url.pathname === "/api/generate/file") {
-      // Explicitly require POST method for API calls
-      if (request.method !== "POST") return methodNotAllowed(); 
-      return onRequest({ request, env, ctx, modeOverride: "analyze_file" });
-    }
-
+    // 4. Everything else is Not Found
     return new Response("Not Found", { status: 404 });
   }
 };
@@ -137,15 +132,18 @@ async function verifyFirebaseToken(idToken) {
 export async function onRequest(context) {
   const request = context.request;
   const env = context.env;
-  const modeOverride = context.modeOverride || null;
+  // modeOverride is no longer needed from the router
+  // const modeOverride = context.modeOverride || null; 
 
   let body = {};
   try { body = await request.json(); } catch {}
 
+  // The 'mode' now comes from the JSON body sent by App.jsx
   const { prompt, mode, image, strength, file_content, filename } = body;
 
+  // Use the 'mode' from the body. Fallback to detection.
   let currentMode = mode || detectMode(prompt, file_content, filename);
-  if (modeOverride) currentMode = modeOverride;
+  // if (modeOverride) currentMode = modeOverride; // No longer needed
 
 
   /* ============================================================
