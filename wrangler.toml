@@ -4,12 +4,9 @@ pages_build_output_dir = "dist"
 compatibility_date = "2024-10-01"
 compatibility_flags = ["nodejs_compat"]
 
-# ========== AI BINDINGS (FINAL FIXED) ==========
+# ========== AI BINDINGS (PAGES VERSION) ==========
 [ai]
-type = "javascript"
-bindings = [
-  { name = "SPY_AI" }
-]
+binding = "SPY_AI"
 
 models = [
   "@cf/mistralai/mistral-small-3.1-24b-instruct",
@@ -31,3 +28,4 @@ id = "42c39aaa0c06448d9bd91778b4db1e65"
 [[kv_namespaces]]
 binding = "IMAGE_KV"
 id = "190c52b0640040b7bdae6d2bbcacebfa"
+
