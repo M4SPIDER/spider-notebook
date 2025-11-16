@@ -1,9 +1,7 @@
 /* ============================================================
-SPIDER AI — BEAST EDITION V4 (FULL PATCHED BUILD)
-Split into Part 1/3, Part 2/3, Part 3/3
+SPIDER AI — BEAST EDITION V4.1 (FULL PATCHED BUILD)
+PART 1/3 — System Prompt + Trigger Setup
 ============================================================ */
-
-/* ========================= PART 1/3 ========================= */
 
 /* ===== CONFIG ===== */
 const MEMORY_MESSAGE_LIMIT = 40;
@@ -13,24 +11,24 @@ const MEMORY_SUMMARY_TRIGGER = 30;
 const MEMORY_USER_KEY_PREFIX = "chat_memory:";
 const FIREBASE_PROJECT_ID = "m4-spider";
 
-/* ===== TRIGGER WORD LISTS (transliteration-friendly) ===== */
+/* ===== TRIGGER WORD LISTS ===== */
 const TELUGU_TRIGGER_WORDS = [
   "ra","mama","bro","anna","macha","bossu","ayya","bayya",
   "em","enti","endi","emi","ente","ante","antega","le","avunu","kadhu",
   "ikkada","akkada","ekkada","ipudu","ipude","nenu","nuvvu","neeku","neetho",
-  "unnav","unna","unda","ekkadaunnav","ekada","unna"
+  "unnav","unna","unda","ekkadaunnav","ekada"
 ];
 
 const HINDI_TRIGGER_WORDS = [
-  "kaise","kaisa","kya","kyu","haan","nahi","theek","tum",
-  "aap","ho","mast","acha","badiya","bhai","bhaiya"
+  "kaise","kaisa","kya","kyu","haan","nahi","theek","tum","aap",
+  "mast","acha","badiya","bhai","bhaiya"
 ];
 
 const JAPANESE_TRIGGER_WORDS = ["konnichiwa","arigatou","ohayou","sayonara","kudasai"];
-const KOREAN_TRIGGER_WORDS = ["annyeong","gamsahabnida","annyeonghaseyo","kamsa"];
-const RUSSIAN_TRIGGER_WORDS = ["privet","spasibo","pochemu","kak dela","poka"];
+const KOREAN_TRIGGER_WORDS   = ["annyeong","gamsahabnida","annyeonghaseyo","kamsa"];
+const RUSSIAN_TRIGGER_WORDS  = ["privet","spasibo","kak","poka"];
 
-/* ===== BUILD REGEX FOR DETECTION ===== */
+/* ===== REGEX BUILDER ===== */
 function buildRegex(words) {
   const sorted = [...new Set(words)].sort((a,b)=>b.length - a.length);
   const escaped = sorted.map(w => w.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&"));
@@ -38,23 +36,26 @@ function buildRegex(words) {
   return new RegExp(pattern, "iu");
 }
 
-const TELUGU_TRIGGER_REGEX = buildRegex(TELUGU_TRIGGER_WORDS);
-const HINDI_TRIGGER_REGEX = buildRegex(HINDI_TRIGGER_WORDS);
+const TELUGU_TRIGGER_REGEX  = buildRegex(TELUGU_TRIGGER_WORDS);
+const HINDI_TRIGGER_REGEX   = buildRegex(HINDI_TRIGGER_WORDS);
 const JAPANESE_TRIGGER_REGEX = buildRegex(JAPANESE_TRIGGER_WORDS);
-const KOREAN_TRIGGER_REGEX = buildRegex(KOREAN_TRIGGER_WORDS);
-const RUSSIAN_TRIGGER_REGEX = buildRegex(RUSSIAN_TRIGGER_WORDS);
+const KOREAN_TRIGGER_REGEX   = buildRegex(KOREAN_TRIGGER_WORDS);
+const RUSSIAN_TRIGGER_REGEX  = buildRegex(RUSSIAN_TRIGGER_WORDS);
 
-/* ============================================================
-LANGUAGE TRAINING / SYSTEM PROMPT
-============================================================ */
+/* =========================
+   TELANGANA TRAINING BLOCK
+========================= */
 const TELANGANA_TRAINING_BLOCK =
 "TELANGANA DIALECT TRAINING:\n" +
-"- Use STRICT Telangana slang when triggered. No Andhra.\n" +
+"- Use STRICT Telangana slang when triggered.\n" +
 "- Prefer ra, anna, bossu, ayya, macha.\n" +
 "- Use unnav, ikkada, enti ra.\n" +
 "- Tone: bold, street, playful.\n" +
-"- Telugu replies must be English-letter transliteration.\n";
+"- Telugu replies must be English-letter transliteration only.\n";
 
+/* ============================================================
+   SYSTEM PROMPT
+============================================================ */
 const SPIDER_SYSTEM_PROMPT =
 "You are Spider, the AI created by M4 Spider.\n" +
 "GENERAL RULES:\n" +
@@ -65,151 +66,172 @@ const SPIDER_SYSTEM_PROMPT =
 "- Creator = M4 Spider.\n\n" +
 
 "LANGUAGE KNOWLEDGE:\n" +
-"- You know ALL major world languages: Hindi, Telugu, Tamil, Malayalam, Kannada, Marathi, Gujarati, Bengali, Odia, Punjabi, Nepali, Sanskrit, Arabic, Chinese, Japanese, Korean, Russian, Spanish, French, German, Italian, Portuguese, Turkish, Indonesian, Thai and more.\n" +
-"- When asked, always confidently confirm you speak that language.\n" +
-"- You automatically detect what language the user is speaking and reply in that language unless the user asks otherwise.\n" +
-"- Telugu replies must use English-letter transliteration, never native Telugu script.\n" +
-"- IMPORTANT: Do NOT guess Telugu slang based on tone. Only activate Telangana slang when code sets forceTeluguSlang = true AND detected language appears to be Telugu or contains transliterated Telugu words.\n\n" +
+"- You know all major world languages (Hindi, Telugu, Tamil, Kannada, Malayalam, Bengali, Gujarati, Marathi, Punjabi, Odia, Nepali, Sanskrit, Arabic, Chinese, Japanese, Korean, Russian, Spanish, French, German, Turkish, Italian, Indonesian, Thai and more).\n" +
+"- Reply in the user’s language automatically.\n" +
+"- Telugu replies must use English letters only.\n" +
+"- Never add automatic translations.\n" +
+"- Only provide a translation when the USER explicitly asks.\n\n" +
 
 "LANGUAGE SWITCH:\n" +
-"- Telugu mode triggers when transliterated Telugu words are detected (2+ triggers) or Telugu script is present.\n" +
-"- Hindi mode triggers when Devanagari script is present or 2+ Hindi trigger words are detected.\n" +
+"- Telugu mode triggers only when real Telugu words or transliterated Telugu appear (2+ triggers).\n" +
+"- Hindi mode triggers when Devanagari script or 2+ Hindi words.\n" +
 TELANGANA_TRAINING_BLOCK + "\n" +
 
 "SAVAGE MODE:\n" +
-"- If roast mode requested, reply bold & funny but non-offensive.\n\n" +
+"- Roast only when user asks.\n\n" +
 
 "EMOJI RULE:\n" +
-"- Always use emojis freely unless user says 'no emojis'.\n" +
-"- Use emojis that fit the mood.\n" +
+"- Use emojis naturally.\n" +
 "- Emoji Pack Part 1: 😎🔥🤣😂🤙😈🤌🕷️🕸️💀💣⚔️😃😅😉😛😍🤪😳🥵😨😣😔😓😞😧🫣😬🤐🙂😏😌🥹.\n" +
-"- Emoji Pack Part 2: 😗😚🙂‍↕️🤡🤮🤢👻👿🙌👐🫸🫳👋👊🖕👏🙏🤳🤝🙇💆🙋💁🙅🤷🤦🙍🙎.\n" +
-"- Emoji Pack Part 3: 🖥️💻🔌💉💊🧪⚙️🕕🕧🕙📅🔔🔒🚀✨💫🌪️🔥💥⚡🌈⭐☄️.\n" +
-"- Emoji Pack Part 4: 🦸🦹🕶️🎭🎯🎮🎧🎤📱📲💾🗄️🛰️📡🧠🫀🫁.\n" +
-"- Emoji Pack Part 5: 🇮🇳🇺🇸🇹🇱🇳🇨🇲🇷🇭🇲🇫🇯🇪🇦🇯🇵🇰🇷🇬🇧🇫🇷🇧🇷🇰🇵.\n" +
-"- Emoji Pack Part 6: 🦅🐍🐺🐯🦂🐉🦖🐗🐅🐆🦊🐒🐼🐨🦁.\n" +
-"- Emoji Pack Part 7: 🔧🔨⚙️🪛🪚🔩📐📏🧰💡🔦🧯🔭🧲🛠️.\n" +
-"- Emoji Pack Part 8: 🎵🎶🔊🔉🔈📣📢📯🎺🥁🎸🎷🎻🎹.\n" +
-"- Add emojis naturally in the middle or end of sentences.\n";
-/* ========================= PART 2/3 (UPDATED) ========================= */
+"- Part 2: 😗😚🙂‍↕️🤡🤮🤢👻👿🙌👐🫸🫳👋👊🖕👏🙏🤳🤝🙇💆🙋💁🙅🤷🤦🙍🙎.\n" +
+"- Part 3: 🖥️💻🔌💉💊🧪⚙️🕕🕧🕙📅🔔🔒🚀✨💫🌪️🔥💥⚡🌈⭐☄️.\n" +
+"- Part 4: 🦸🦹🕶️🎭🎯🎮🎧🎤📱📲💾🗄️🛰️📡🧠🫀🫁.\n" +
+"- Part 5: 🇮🇳🇺🇸🇯🇵🇰🇷🇬🇧🇫🇷🇧🇷🇰🇵🇷🇺.\n" +
+"- Part 6: 🦅🐍🐺🐯🦂🐉🦖🐗🐅🐆🦊🐒🐼🐨🦁.\n" +
+"- Part 7: 🔧🔨⚙️🪛🪚🔩📐📏🧰💡🔦🧯🔭🧲🛠️.\n" +
+"- Part 8: 🎵🎶🔊🔉🔈📣📢📯🎺🥁🎸🎷🎻🎹.\n";
+/* ============================================================
+SPIDER AI — BEAST EDITION V4.1
+PART 2/3 — Language Engine + Memory Safety
+============================================================ */
 
 /* ============================================================
-SAFE MEMORY DELETE (ONLY FROM USER PROMPT, EXACT COMMANDS)
+ SAFE MEMORY DELETE — ONLY ON EXACT USER COMMAND
 ============================================================ */
 function isMemoryDeleteCommand(userText) {
-  if (!userText || typeof userText !== 'string') return false;
+  if (!userText || typeof userText !== "string") return false;
 
   const t = userText.trim().toLowerCase();
 
-  // Only accept EXACT delete commands from the user's direct text
-  const exactCommands = [
+  const exact = [
     "delete memory",
     "delete memory all",
     "delete memory:all",
-    "delete memory: all",
     "clear memory",
     "reset memory",
     "memory clear",
     "memory reset"
   ];
 
-  return exactCommands.includes(t);
+  return exact.includes(t);
 }
 
 /* ============================================================
-LANGUAGE DETECTION UTILITIES
-1. Script detection (strongest signal)
-2. Transliteration trigger detection (fallback)
+ LANGUAGE DETECTION — SCRIPT > TRIGGERS > FALLBACK
 ============================================================ */
 function detectScriptLanguage(text) {
   if (!text) return null;
 
-  // Telugu script (U+0C00–U+0C7F)
-  if (/[\u0C00-\u0C7F]/.test(text)) return 'telugu';
+  // Telugu script
+  if (/[\u0C00-\u0C7F]/.test(text)) return "telugu";
 
   // Devanagari (Hindi)
-  if (/[\u0900-\u097F]/.test(text)) return 'hindi';
+  if (/[\u0900-\u097F]/.test(text)) return "hindi";
 
   // Cyrillic (Russian)
-  if (/[\u0400-\u04FF]/.test(text)) return 'russian';
+  if (/[\u0400-\u04FF]/.test(text)) return "russian";
 
   // Hangul (Korean)
-  if (/[\uAC00-\uD7A3]/.test(text)) return 'korean';
+  if (/[\uAC00-\uD7A3]/.test(text)) return "korean";
 
-  // CJK (Chinese/Japanese Kanji)
-  if (/[\u4E00-\u9FFF]/.test(text)) return 'cjk';
+  // CJK Unified (Chinese/Japanese)
+  if (/[\u4E00-\u9FFF]/.test(text)) return "cjk";
 
-  // Hiragana / Katakana (Japanese)
-  if (/[\u3040-\u309F\u30A0-\u30FF]/.test(text)) return 'japanese';
+  // Hiragana/Katakana
+  if (/[\u3040-\u309F\u30A0-\u30FF]/.test(text)) return "japanese";
 
   return null;
 }
 
 function detectLanguageByHeuristics(text) {
-  if (!text) return 'english';
+  if (!text) return "english";
 
   const script = detectScriptLanguage(text);
   if (script) {
-    // Japanese or Chinese share Kanji detection
-    if (script === 'cjk' || script === 'japanese') return 'chinese_or_japanese';
+    if (script === "cjk" || script === "japanese") return "japanese";
     return script;
   }
 
-  // Fallback to transliteration trigger matching
   const lower = text.toLowerCase();
   const words = lower.split(/\s+/);
 
-  let counts = { telugu: 0, hindi: 0, japanese: 0, korean: 0, russian: 0 };
+  let c = { telugu: 0, hindi: 0, japanese: 0, korean: 0, russian: 0 };
 
   for (const w of words) {
-    if (TELUGU_TRIGGER_REGEX.test(w)) counts.telugu++;
-    if (HINDI_TRIGGER_REGEX.test(w)) counts.hindi++;
-    if (JAPANESE_TRIGGER_REGEX.test(w)) counts.japanese++;
-    if (KOREAN_TRIGGER_REGEX.test(w)) counts.korean++;
-    if (RUSSIAN_TRIGGER_REGEX.test(w)) counts.russian++;
+    if (TELUGU_TRIGGER_REGEX.test(w)) c.telugu++;
+    if (HINDI_TRIGGER_REGEX.test(w)) c.hindi++;
+    if (JAPANESE_TRIGGER_REGEX.test(w)) c.japanese++;
+    if (KOREAN_TRIGGER_REGEX.test(w)) c.korean++;
+    if (RUSSIAN_TRIGGER_REGEX.test(w)) c.russian++;
   }
 
-  // Thresholds for detection
-  if (counts.telugu >= 2) return 'telugu';
-  if (counts.hindi >= 2) return 'hindi';
-  if (counts.japanese >= 1) return 'japanese';
-  if (counts.korean >= 1) return 'korean';
-  if (counts.russian >= 1) return 'russian';
+  if (c.telugu >= 2) return "telugu";
+  if (c.hindi >= 2) return "hindi";
+  if (c.japanese >= 1) return "japanese";
+  if (c.korean >= 1) return "korean";
+  if (c.russian >= 1) return "russian";
 
-  // Mini-inline hints for languages
-  if (/\b(konnichi|arigato|sayonara|ohayo)\b/.test(lower)) return 'japanese';
-  if (/\b(annyeong|gamsa|haseyo)\b/.test(lower)) return 'korean';
-  if (/\b(privet|spasibo|kak dela|poka)\b/.test(lower)) return 'russian';
+  // Fallback hints
+  if (/konnichi|arigato|ohayo|sayonara/.test(lower)) return "japanese";
+  if (/annyeong|haseyo|gamsa/.test(lower)) return "korean";
+  if (/privet|spasibo|kak dela|poka/.test(lower)) return "russian";
 
-  return 'english';
+  return "english";
 }
 
 /* ============================================================
-TELUGU SCRIPT → ENGLISH-LETTER TRANSLITERATION (fallback)
-Used ONLY if user typed *actual Telugu script*
+ TELUGU SCRIPT → English-Letter Transliteration
 ============================================================ */
 function simpleTeluguToLatin(s) {
   if (!s) return s;
 
   const map = {
-    'అ':'a','ఆ':'aa','ఇ':'i','ఈ':'ii','ఉ':'u','ఊ':'uu',
-    'ఎ':'e','ఏ':'ee','ఐ':'ai','ఒ':'o','ఓ':'oo',
-    'క':'k','ఖ':'kh','గ':'g','ఘ':'gh',
-    'చ':'ch','జ':'j',
-    'ట':'t','డ':'d','ణ':'n',
-    'త':'tha','థ':'th','ద':'da','ధ':'dha',
-    'ప':'pa','ఫ':'pha','బ':'ba','భ':'bha',
-    'మ':'ma','య':'ya','ర':'ra','ల':'la','వ':'va',
-    'స':'sa','హ':'ha',
-    'ం':'m','ఁ':'m','ు':'u','ా':'aa','ి':'i','ీ':'ii','ె':'e','ే':'ee','ో':'oo'
+    "అ":"a","ఆ":"aa","ఇ":"i","ఈ":"ii","ఉ":"u","ఊ":"uu",
+    "ఎ":"e","ఏ":"ee","ఐ":"ai","ఒ":"o","ఓ":"oo",
+    "క":"ka","ఖ":"kha","గ":"ga","ఘ":"gha",
+    "చ":"cha","జ":"ja",
+    "ట":"ta","డ":"da","త":"tha","థ":"th","ద":"dha","ధ":"dh",
+    "ప":"pa","ఫ":"pha","బ":"ba","భ":"bha",
+    "మ":"ma","య":"ya","ర":"ra","ల":"la","వ":"va",
+    "స":"sa","హ":"ha",
+    "ం":"m","ఁ":"m","ు":"u","ా":"aa","ి":"i","ీ":"ii","ె":"e","ే":"ee","ో":"oo"
   };
 
-  return s.split('').map(ch => map[ch] || ch).join('');
+  return s.split("").map(ch => map[ch] || ch).join("");
+}
+
+/* ============================================================
+ REMOVE AUTO-TRANSLATION (ONLY if user did NOT ask)
+============================================================ */
+function removeAutoTranslation(text, lastUserMessage = "") {
+  if (!text || typeof text !== "string") return text;
+
+  const ask = (lastUserMessage || "").toLowerCase();
+
+  // User explicitly asked for translation → keep everything
+  if (
+    ask.includes("translate") ||
+    ask.includes("translation") ||
+    ask.includes("meaning") ||
+    ask.includes("arth") ||
+    ask.includes("explain") ||
+    ask.includes("explanation") ||
+    ask.includes("hindi meaning") ||
+    ask.includes("telugu meaning") ||
+    ask.includes("isko hindi me") ||
+    ask.includes("isko english me") ||
+    ask.includes("btw what is the meaning")
+  ) {
+    return text;
+  }
+
+  // Remove autogenerated "(Translation: ...)" lines
+  return text.replace(/\(\s*translation\s*:[^)]+\)/ig, "").trim();
 }
 /* ========================= PART 3/3 ========================= */
 
 /* ============================================================
-MAIN HANDLER
+ MAIN HANDLER
 ============================================================ */
 export async function onRequest(context) {
   const request = context.request;
@@ -234,7 +256,7 @@ export async function onRequest(context) {
 
   const memoryKey = MEMORY_USER_KEY_PREFIX + userId;
 
-  // Safe delete
+  // Safe delete (only exact user commands)
   if (isMemoryDeleteCommand(prompt)) {
     try { await env.CHAT_KV.put(memoryKey, "[]"); } catch (_) {}
     return new Response("All memory cleared 😎🔥", {
@@ -405,6 +427,7 @@ export async function onRequest(context) {
 
   /* ============================================================
      FILE ANALYSIS MODE
+     (DO NOT TREAT FILE CONTENTS AS USER COMMANDS)
   ============================================================ */
   if (currentMode === "analyze_file") {
     const aPrompt =
@@ -425,9 +448,9 @@ export async function onRequest(context) {
       messages
     }).catch(()=>null);
 
-    return new Response(extractText(result || {}), {
-      headers: { "content-type": "text/plain" }
-    });
+    let out = extractText(result || {});
+    out = removeAutoTranslation(out, prompt || "");
+    return new Response(out, { headers: { "content-type": "text/plain" } });
   }
 
   /* ============================================================
@@ -484,6 +507,7 @@ export async function onRequest(context) {
   ).catch(()=>null);
 
   let text = extractText(aiResp || {}).trim();
+  text = removeAutoTranslation(text, prompt || "");
 
   // Handle JSON-style search call
   const jsonString = text
@@ -512,9 +536,9 @@ export async function onRequest(context) {
         { messages: sumMessages }
       ).catch(()=>null);
 
-      return new Response(extractText(summary || {}), {
-        headers: { "content-type": "text/plain" }
-      });
+      let out = extractText(summary || {});
+      out = removeAutoTranslation(out, prompt || "");
+      return new Response(out, { headers: { "content-type": "text/plain" } });
     }
   } catch (_) {
     // Not JSON — ignore
@@ -526,7 +550,7 @@ export async function onRequest(context) {
 }
 
 /* ============================================================
-SEARCH ENGINE (DuckDuckGo)
+ SEARCH ENGINE (DuckDuckGo)
 ============================================================ */
 async function runSearch(query) {
   const fetchWithTimeout = async (url, opts = {}, timeout = 4000) => {
@@ -619,7 +643,7 @@ async function runSearch(query) {
 }
 
 /* ============================================================
-EXTRACT TEXT FROM AI RESPONSES
+ EXTRACT TEXT FROM AI RESPONSES
 ============================================================ */
 function extractText(resp) {
   try {
@@ -683,7 +707,7 @@ function extractText(resp) {
 }
 
 /* ============================================================
-MODE DETECTOR
+ MODE DETECTOR
 ============================================================ */
 function detectMode(prompt, file_content, filename) {
   if (file_content || filename) return "analyze_file";
@@ -703,7 +727,7 @@ function detectMode(prompt, file_content, filename) {
 }
 
 /* ============================================================
-FIREBASE TOKEN VERIFIER
+ FIREBASE TOKEN VERIFIER
 ============================================================ */
 async function verifyFirebaseToken(idToken) {
   if (!idToken) return null;
@@ -764,5 +788,5 @@ async function verifyFirebaseToken(idToken) {
 }
 
 /* ============================================================
-END OF SPIDER AI BEAST EDITION V4
+ END OF SPIDER AI BEAST V4.1 (PART 3/3)
 ============================================================ */
