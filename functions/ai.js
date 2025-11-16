@@ -159,34 +159,55 @@ export async function onRequest(context) {
   const request = context.request;
   const env = context.env;
 
-let body = {};
+/* =============================================================
+   BODY PARSER — LARGE FILE SAFE VERSION
+   ============================================================= */
+
+let prompt = "";
+let mode = "";
+let filename = "";
+let file_content = "";
+let image = "";
+let strength = "";
 
 const contentType = request.headers.get("content-type") || "";
 
+// --- FORM DATA HANDLING (files, images, base64) ---
 if (contentType.includes("multipart/form-data")) {
     const form = await request.formData();
 
-    body = {
-        mode: form.get("mode"),
-        prompt: form.get("prompt"),
-        filename: form.get("filename"),
-        file_content: form.get("file_content")
-    };
+    mode = form.get("mode") || "chat";
+    prompt = form.get("prompt") || "";
+    filename = form.get("filename") || "";
 
-} else if (contentType.includes("application/json")) {
+    // Cloudflare fix: always convert to string
+    const rawContent = form.get("file_content");
+    file_content = rawContent ? rawContent.toString() : "";
+
+    // optional fields
+    image = form.get("image") || "";
+    strength = form.get("strength") || "";
+}
+
+// --- JSON BODY HANDLING ---
+else if (contentType.includes("application/json")) {
+    let body = {};
     try {
         body = await request.json();
     } catch (e) {
         body = {};
     }
-} else {
-    body = {};
+
+    prompt = body.prompt || "";
+    mode = body.mode || "chat";
+    filename = body.filename || "";
+    file_content = body.file_content || "";
+    image = body.image || "";
+    strength = body.strength || "";
 }
 
-
-  const { prompt, mode, image, strength, file_content, filename } = body;
-
-  let currentMode = mode || detectMode(prompt, file_content, filename);
+// auto detect mode
+let currentMode = mode || detectMode(prompt, file_content, filename);
 
   /* ================= USER IDENTIFICATION ===================== */
 
@@ -415,43 +436,51 @@ if (contentType.includes("multipart/form-data")) {
 
   /* ============================================================
      FILE ANALYSIS
-     ============================================================ */
-/* ============================================================
-   FILE ANALYSIS (FIXED - PROPER PARAMETER HANDLING)
-   ============================================================ */
+/* =============================================================
+   FILE ANALYSIS (FULLY FIXED)
+   ============================================================= */
+if (mode === "analyze_file") {
+    const safeName = filename || "unknown";
+    const safeContent = file_content || "";
 
-if (currentMode === "analyze_file") {
-  // FIX: Get parameters from request body with proper fallbacks
-  const receivedFilename = body.filename || filename || "unknown";
-  const receivedFileContent = body.file_content || file_content || "";
-  
-  console.log("File analysis - Filename:", receivedFilename);
-  console.log("File analysis - Content length:", receivedFileContent.length);
+    console.log("Analyzing:", safeName, "Size:", safeContent.length);
 
-  const aPrompt =
-    "Analyze this file:\n\nFilename: " + receivedFilename + "\nContent:\n" + receivedFileContent + "\n";
+    const analysisPrompt =
+      "Analyze this file:\n" +
+      "Filename: " + safeName + "\n" +
+      "Content:\n" +
+      safeContent + "\n";
 
-  const messages = [
-    { role: "system", content: SPIDER_SYSTEM_PROMPT }
-  ];
-  if (extraSystemInstructions.length) messages.push({ role: "system", content: extraSystemInstructions.join("\n") });
-  messages.push({ role: "system", content: "Memory:\n" + memorySummary });
-  messages.push({ role: "user", content: aPrompt });
+    const messages = [
+        { role: "system", content: SPIDER_SYSTEM_PROMPT },
+    ];
 
-  const result = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", { messages });
+    messages.push({
+        role: "system",
+        content: extraSystemInstructions.join("\n")
+    });
 
-  const responseText = extractText(result);
-  
-  // Return proper JSON format
-  return new Response(JSON.stringify({
-    text: responseText,
-    type: 'text',
-    model_used: 'mistral-small-3.1-24b-instruct',
-    sources: []
-  }), {
-    headers: { "content-type": "application/json" }
-  });
+    messages.push({
+        role: "user",
+        content: analysisPrompt
+    });
+
+    const result = await env.SPY_AI.run(
+        "@cf/mistralai/mistral-small-3.1-24b-instruct",
+        { messages }
+    );
+
+    const text = extractText(result);
+
+    return new Response(JSON.stringify({
+        text,
+        type: "text",
+        model_used: "mistral-small-3.1-24b-instruct"
+    }), {
+        headers: { "content-type": "application/json" }
+    });
 }
+
   /* ============================================================
      IMAGE GENERATION
      ============================================================ */
