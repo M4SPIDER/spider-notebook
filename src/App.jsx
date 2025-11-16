@@ -1640,6 +1640,46 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
     };
 
     // ---------- FIXED: Send message (file analysis fix) ----------
+async function sendToBackend(url, data, mode) {
+    // FILE ANALYSIS → ALWAYS FormData
+    if (mode === "analyze_file") {
+        const form = new FormData();
+        Object.entries(data).forEach(([key, value]) => {
+            if (value !== undefined && value !== null) {
+                form.append(key, value);
+            }
+        });
+
+        const res = await fetch(url, {
+            method: "POST",
+            body: form,
+        });
+
+        // Read response ONCE
+        const contentType = res.headers.get("content-type") || "";
+
+        if (contentType.includes("application/json")) {
+            return await res.json();
+        } else {
+            return { text: await res.text() };
+        }
+    }
+
+    // NORMAL CHAT + IMAGE GEN + IMAGE EDIT → JSON
+    const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+    });
+
+    const contentType = res.headers.get("content-type") || "";
+
+    if (contentType.includes("application/json")) {
+        return await res.json();
+    } else {
+        return { text: await res.text() };
+    }
+}
 const handleSendMessage = async () => {
     if (!message.trim() && !uploadedFile && !uploadedImage) return;
 
@@ -1651,45 +1691,48 @@ const handleSendMessage = async () => {
 
     let mode = selectedActiveMode || "chat";
 
-    // auto-select mode by upload
+    // Auto-switch modes
     if (fileCopy) mode = "analyze_file";
     if (imageCopy) mode = "image_edit";
-    if (!fileCopy && !imageCopy && selectedActiveMode === "image_gen") mode = "image_gen";
+    if (!fileCopy && !imageCopy && selectedActiveMode === "image_gen") {
+        mode = "image_gen";
+    }
 
-    // push user msg to chat
+    // Push user message into chat UI
     const userMessage = {
         role: "user",
         content: message,
         type: mode,
-        fileName: fileCopy ? fileCopy.name : undefined,
-        imageName: imageCopy ? imageCopy.name : undefined,
+        fileName: fileCopy?.name,
+        imageName: imageCopy?.name,
         ts: Date.now(),
     };
-    setChatHistory((prev) => [...prev, userMessage]);
+    setChatHistory(prev => [...prev, userMessage]);
     setMessage("");
 
     try {
         /* =====================================================
-           📌 FILE ANALYSIS MODE — Correct FormData Upload
+           1) FILE ANALYSIS MODE — TEXT + BASE64 SUPPORT
         ====================================================== */
         if (mode === "analyze_file" && fileCopy) {
             let fileContent;
 
-            // text files
-            if (
-                fileCopy.type.startsWith("text/") ||
+            // For text files
+            if (fileCopy.type.startsWith("text/") ||
                 fileCopy.name.endsWith(".txt") ||
+                fileCopy.name.endsWith(".py") ||
                 fileCopy.name.endsWith(".js") ||
                 fileCopy.name.endsWith(".jsx") ||
-                fileCopy.name.endsWith(".py") ||
                 fileCopy.name.endsWith(".html") ||
                 fileCopy.name.endsWith(".css") ||
                 fileCopy.name.endsWith(".json") ||
-                fileCopy.name.endsWith(".md")
-            ) {
+                fileCopy.name.endsWith(".md")) 
+            {
                 fileContent = await fileCopy.text();
-            } else {
-                // binary to base64
+            }
+
+            // For non-text → convert to base64
+            else {
                 fileContent = await new Promise((resolve, reject) => {
                     const reader = new FileReader();
                     reader.onload = () => resolve(reader.result.split(",")[1]);
@@ -1698,7 +1741,6 @@ const handleSendMessage = async () => {
                 });
             }
 
-            // send using FormData
             const res = await sendToBackend(
                 "/api/generate/text",
                 {
@@ -1712,17 +1754,17 @@ const handleSendMessage = async () => {
 
             const assistantMessage = {
                 role: "assistant",
-                content: res?.text || res,
+                content: res?.text || JSON.stringify(res),
                 type: "text",
                 ts: Date.now(),
             };
 
-            setChatHistory((prev) => [...prev, assistantMessage]);
+            setChatHistory(prev => [...prev, assistantMessage]);
             return;
         }
 
         /* =====================================================
-           🖼 IMAGE EDIT MODE
+           2) IMAGE EDIT MODE
         ====================================================== */
         if (mode === "image_edit" && imageCopy) {
             const base64Image = await new Promise((resolve, reject) => {
@@ -1753,12 +1795,12 @@ const handleSendMessage = async () => {
                 ts: Date.now(),
             };
 
-            setChatHistory((prev) => [...prev, assistantMessage]);
+            setChatHistory(prev => [...prev, assistantMessage]);
             return;
         }
 
         /* =====================================================
-           🎨 IMAGE GENERATION + NORMAL CHAT
+           3) NORMAL CHAT + IMAGE GENERATION
         ====================================================== */
         const res = await sendToBackend(
             "/api/generate/text",
@@ -1780,56 +1822,25 @@ const handleSendMessage = async () => {
             ts: Date.now(),
         };
 
-        setChatHistory((prev) => [...prev, assistantMessage]);
+        setChatHistory(prev => [...prev, assistantMessage]);
+
     } catch (error) {
         console.error("API ERROR:", error);
 
-        setChatHistory((prev) => [
-            ...prev,
-            {
-                role: "assistant",
-                content: `[API ERROR] ${error?.message || "Something went wrong."}`,
-                type: "text",
-                ts: Date.now(),
-            },
-        ]);
+        const assistantError = {
+            role: "assistant",
+            content: `[API ERROR] ${error?.message || "Something went wrong."}`,
+            type: "text",
+            ts: Date.now(),
+        };
+
+        setChatHistory(prev => [...prev, assistantError]);
     } finally {
         setUploadedFile(null);
         setUploadedImage(null);
         setIsLoading(false);
     }
 };
-async function sendToBackend(url, data, mode) {
-    if (mode === "analyze_file") {
-        const form = new FormData();
-        for (const [k, v] of Object.entries(data)) {
-            if (v !== undefined && v !== null) {
-                form.append(k, v);
-            }
-        }
-
-        const res = await fetch(url, {
-            method: "POST",
-            body: form,
-        });
-
-        // try JSON → fallback to text
-        try {
-            return await res.json();
-        } catch {
-            return { text: await res.text() };
-        }
-    }
-
-    // All other modes → JSON
-    const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-    });
-
-    return await res.json();
-}
 
     // ---------- Chat bubble ----------
     const ChatBubble = ({ message }) => {
@@ -3072,6 +3083,7 @@ int main() {
         </>
     );
 }
+
 
 
 
