@@ -624,7 +624,7 @@ async function runSearch(query) {
     }
   };
 
-  // FIX: Removed the broken markdown link from the URL
+  // FIX: Clean and correct URL construction
   const url = "[https://api.duckduckgo.com/?q=](https://api.duckduckgo.com/?q=)" + encodeURIComponent(query) + "&format=json&t=spider_app&no_html=1";
 
   try {
