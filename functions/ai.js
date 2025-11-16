@@ -159,8 +159,31 @@ export async function onRequest(context) {
   const request = context.request;
   const env = context.env;
 
-  let body = {};
-  try { body = await request.json(); } catch (_) {}
+let body = {};
+
+const contentType = request.headers.get("content-type") || "";
+
+if (contentType.includes("multipart/form-data")) {
+    const form = await request.formData();
+
+    body = {
+        mode: form.get("mode"),
+        prompt: form.get("prompt"),
+        filename: form.get("filename"),
+        file_content: form.get("file_content")
+    };
+
+} else if (contentType.includes("application/json")) {
+    try {
+        body = await request.json();
+    } catch (e) {
+        body = {};
+    }
+} else {
+    body = {};
+}
+
+const { prompt, mode, filename, file_content } = body;
 
   const { prompt, mode, image, strength, file_content, filename } = body;
 
