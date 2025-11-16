@@ -15,15 +15,19 @@ const FIREBASE_PROJECT_ID = "m4-spider";
 
 /* ===== TELUGU TRIGGER WORDS ===== */
 const TELUGU_TRIGGER_WORDS = [
-  "ra","mama","bro","anna","bhai","macha","bossu","babu","nanna","ayya",
-  "guru","machi","bhayya","mamma","pilla","raayya","oye","baaga","asalu","bayya",
+  "ra","anna","ayya","babu","nanna",
+  "pilla","raayya","oye","baaga","asalu",
   "em","enti","endi","emi","ente","ante","ante ga","le","avunu","kadhu",
-  "ikkada","akkada","ekkada","ipudu","ipude","nenu","nuvvu","neeku","neetho","mana",
-  "meeru","mee","emanna","emi le","emi ra","emi cheppav","yela","yela unnav","yela unnavra",
-  "em chesthunav","yela unnav","inka em","inka cheppu","inka em matter","em scene",
-  "scene enti","panulu emi","yem ayindi","chill mama","ayyayyo","ayyayyo mama","ayyo",
-  "le mama","anta ga","asalu","chusava","chusava mama","unda","unna","unnav",
-  "ekkada unnav","nuvvu ekkada","em ra","enti ra","em le","naa peru","mass ga"
+  "ikkada","akkada","ekkada","ipudu","ipude",
+  "nenu","nuvvu","neeku","neetho","mana",
+  "meeru","mee","emanna","emi le","emi ra","emi cheppav",
+  "yela","yela unnav","yela unnavra",
+  "em chesthunav","inka em","inka cheppu","inka em matter",
+  "em scene","scene enti","panulu emi","yem ayindi",
+  "ayyayyo","ayyo",
+  "unda","unna","unnav",
+  "ekkada unnav","nuvvu ekkada",
+  "naa peru","mass ga"
 ];
 
 // Build regex for detection
