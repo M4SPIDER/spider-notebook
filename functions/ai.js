@@ -394,25 +394,29 @@ export async function onRequest(context) {
   /* ============================================================
      FILE ANALYSIS
      ============================================================ */
+if (currentMode === "analyze_file") {
+  const aPrompt =
+    "Analyze this file:\n\nFilename: " + (filename || "unknown") + "\nContent:\n" + (file_content || prompt) + "\n";
 
-  if (currentMode === "analyze_file") {
-    const aPrompt =
-      "Analyze this file:\n\nFilename: " + (filename || "unknown") + "\nContent:\n" + (file_content || prompt) + "\n";
+  const messages = [
+    { role: "system", content: SPIDER_SYSTEM_PROMPT }
+  ];
+  if (extraSystemInstructions.length) messages.push({ role: "system", content: extraSystemInstructions.join("\n") });
+  messages.push({ role: "system", content: "Memory:\n" + memorySummary });
+  messages.push({ role: "user", content: aPrompt });
 
-    const messages = [
-      { role: "system", content: SPIDER_SYSTEM_PROMPT }
-    ];
-    if (extraSystemInstructions.length) messages.push({ role: "system", content: extraSystemInstructions.join("\n") });
-    messages.push({ role: "system", content: "Memory:\n" + memorySummary });
-    messages.push({ role: "user", content: aPrompt });
+  const result = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", { messages });
 
-    const result = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", { messages });
-
-    return new Response(extractText(result), {
-      headers: { "content-type": "text/plain" }
-    });
-  }
-
+  // FIXED: Return JSON instead of plain text
+  return new Response(JSON.stringify({
+    text: extractText(result),
+    type: 'text',
+    model_used: 'mistral-small-3.1-24b-instruct',
+    sources: []
+  }), {
+    headers: { "content-type": "application/json" }
+  });
+}
   /* ============================================================
      IMAGE GENERATION
      ============================================================ */
