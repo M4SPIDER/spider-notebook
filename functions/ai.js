@@ -1,5 +1,5 @@
 /* ============================================================
-   SPIDER AI — FULL VERSION (FINAL PATCHED)
+   SPIDER AI — FULL WORKING FILE (FINAL)
    Firebase Auth + Per-User Memory + TTL + Compression + Slang Mode
    ============================================================ */
 
@@ -11,11 +11,9 @@ const MEMORY_SUMMARY_TRIGGER = 30;
 const MEMORY_USER_KEY_PREFIX = "chat_memory:";
 const FIREBASE_PROJECT_ID = "m4-spider";
 
-
 /* ============================================================
-   SPIDER SYSTEM PROMPT (FULL UPDATED)
+   SPIDER SYSTEM PROMPT (SAFE - NO BACKTICKS INSIDE)
    ============================================================ */
-
 const SPIDER_SYSTEM_PROMPT = `
 You are Spider, the AI created by M4 Spider. Follow these rules at all times:
 
@@ -74,10 +72,8 @@ MEMORY RULES:
 END OF INSTRUCTIONS.
 `;
 
-
-
 /* ============================================================
-   FIREBASE TOKEN VERIFIER (unchanged)
+   FIREBASE TOKEN VERIFIER
    ============================================================ */
 
 async function verifyFirebaseToken(idToken) {
@@ -124,18 +120,16 @@ async function verifyFirebaseToken(idToken) {
     );
 
     if (!valid) return null;
+
     if (payload.aud !== FIREBASE_PROJECT_ID) return null;
-    if (payload.iss !== \`https://securetoken.google.com/${FIREBASE_PROJECT_ID}\`) return null;
+    if (payload.iss !== "https://securetoken.google.com/" + FIREBASE_PROJECT_ID) return null;
     if (payload.exp * 1000 < Date.now()) return null;
 
     return payload;
-
-  } catch {
+  } catch (err) {
     return null;
   }
 }
-
-
 
 /* ============================================================
    MAIN HANDLER
@@ -151,11 +145,9 @@ export async function onRequest(context) {
   const { prompt, mode, image, strength, file_content, filename } = body;
   const currentMode = mode || detectMode(prompt, file_content, filename);
 
-
   /* ================= USER IDENTIFICATION ===================== */
 
   let userId = "anon-default";
-
   if (body.user_preference_id) userId = body.user_preference_id.toString();
 
   if (body.firebase_token) {
@@ -164,7 +156,6 @@ export async function onRequest(context) {
   }
 
   const memoryKey = MEMORY_USER_KEY_PREFIX + userId;
-
 
   /* ============= MEMORY LOADING & CLEANUP ==================== */
 
@@ -185,14 +176,13 @@ export async function onRequest(context) {
   const cutoff = Date.now() - MEMORY_TTL_DAYS * 24 * 60 * 60 * 1000;
   memory = memory.filter(m => (m.ts || 0) >= cutoff);
 
-
   /* ============= MEMORY COMPRESSION FIX ====================== */
 
-  async function compressMemory(memory) {
-    if (memory.length < MEMORY_SUMMARY_TRIGGER) return memory;
+  async function compressMemory(memoryArr) {
+    if (memoryArr.length < MEMORY_SUMMARY_TRIGGER) return memoryArr;
 
     const keepRecent = Math.floor(MEMORY_TRIM_TARGET / 2);
-    const older = memory.slice(0, memory.length - keepRecent);
+    const older = memoryArr.slice(0, memoryArr.length - keepRecent);
 
     function shortPreview(s, max = 200) {
       if (!s) return "";
@@ -206,7 +196,7 @@ Summarize these messages in 3 short bullet points.
 Do NOT repeat lines verbatim. 
 Do NOT include assistant messages.
 
-${older.map((m,i)=>\`\${i+1}. \${m.role}: \${shortPreview(m.content,200)}\`).join("\n")}
+${older.map((m,i)=> (i+1) + ". " + m.role + ": " + shortPreview(m.content,200)).join("\n")}
 `;
 
     const res = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", {
@@ -220,18 +210,19 @@ ${older.map((m,i)=>\`\${i+1}. \${m.role}: \${shortPreview(m.content,200)}\`).joi
 
     return [
       { role: "system_summary", content: summary, ts: Date.now() },
-      ...memory.slice(-keepRecent)
+      ...memoryArr.slice(-keepRecent)
     ];
   }
 
-  if (memory.length >= MEMORY_SUMMARY_TRIGGER)
+  if (memory.length >= MEMORY_SUMMARY_TRIGGER) {
     memory = await compressMemory(memory);
+  }
 
-  if (memory.length > MEMORY_MESSAGE_LIMIT)
+  if (memory.length > MEMORY_MESSAGE_LIMIT) {
     memory = memory.slice(-MEMORY_MESSAGE_LIMIT);
+  }
 
   await saveMemory(memory);
-
 
   /* ============= DELETE MEMORY HANDLERS ====================== */
 
@@ -280,21 +271,20 @@ ${older.map((m,i)=>\`\${i+1}. \${m.role}: \${shortPreview(m.content,200)}\`).joi
     }
 
     const idx = parseInt(command);
-
     if (!isNaN(idx)) {
       if (idx >= 1 && idx <= memory.length) {
         memory.splice(idx - 1, 1);
         await saveMemory(memory);
         return new Response("Deleted memory entry.", { headers: { "content-type": "text/plain" } });
+      } else {
+        return new Response("Invalid memory index.", { headers: { "content-type": "text/plain" } });
       }
-      return new Response("Invalid memory index.", { headers: { "content-type": "text/plain" } });
     }
 
     memory = memory.filter(m => !m.content.toLowerCase().includes(command));
     await saveMemory(memory);
     return new Response("Deleted matching memory entries.", { headers: { "content-type": "text/plain" } });
   }
-
 
   /* ============= ADD NEW MEMORY (duplicate-safe) ============= */
 
@@ -313,11 +303,11 @@ ${older.map((m,i)=>\`\${i+1}. \${m.role}: \${shortPreview(m.content,200)}\`).joi
     }
   }
 
-  if (memory.length > MEMORY_MESSAGE_LIMIT)
+  if (memory.length > MEMORY_MESSAGE_LIMIT) {
     memory = memory.slice(-MEMORY_MESSAGE_LIMIT);
+  }
 
   await saveMemory(memory);
-
 
   /* ============= MEMORY SUMMARY FOR MODEL ==================== */
 
@@ -337,17 +327,10 @@ ${older.map((m,i)=>\`\${i+1}. \${m.role}: \${shortPreview(m.content,200)}\`).joi
     })
     .join("\n");
 
-
   /* ============= FILE ANALYSIS =============================== */
 
   if (currentMode === "analyze_file") {
-    const aPrompt = `
-Analyze this file:
-
-Filename: ${filename || "unknown"}
-Content:
-${file_content || prompt}
-`;
+    const aPrompt = "Analyze this file:\n\nFilename: " + (filename || "unknown") + "\nContent:\n" + (file_content || prompt) + "\n";
 
     const result = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", {
       messages: [
@@ -362,11 +345,10 @@ ${file_content || prompt}
     });
   }
 
-
   /* ============= IMAGE GENERATION ============================ */
 
   if (currentMode === "image_gen") {
-    const enhanced = `${prompt}, ultra detailed, cinematic lighting, hdr, 8k clarity`;
+    const enhanced = (prompt || "") + ", ultra detailed, cinematic lighting, hdr, 8k clarity";
 
     const img = await env.SPY_AI.run(
       "@cf/stabilityai/stable-diffusion-xl-base-1.0",
@@ -376,11 +358,10 @@ ${file_content || prompt}
     return new Response(img, { headers: { "content-type": "image/png" } });
   }
 
-
-  /* ============= IMAGE EDIT ============================ */
+  /* ============= IMAGE EDIT ================================= */
 
   if (currentMode === "image_edit") {
-    const enhanced = `${prompt}, detailed render, hdr, cinematic`;
+    const enhanced = (prompt || "") + ", detailed render, hdr, cinematic";
 
     const img = await env.SPY_AI.run(
       "@cf/stabilityai/stable-diffusion-xl-refiner-1.0",
@@ -390,14 +371,9 @@ ${file_content || prompt}
     return new Response(img, { headers: { "content-type": "image/png" } });
   }
 
-
   /* ============= NORMAL CHAT + SEARCH ========================= */
 
-  const searchInstruction = `
-If you need up-to-date information, reply ONLY with:
-{"action": "search", "query": "your search query"}
-No extra text.
-`;
+  const searchInstruction = 'If you need up-to-date information, reply ONLY with: {"action": "search", "query": "your search query"} No extra text.';
 
   const aiResp = await env.SPY_AI.run(
     "@cf/mistralai/mistral-small-3.1-24b-instruct",
@@ -406,7 +382,7 @@ No extra text.
         { role: "system", content: SPIDER_SYSTEM_PROMPT },
         { role: "system", content: "Memory:\n" + memorySummary },
         { role: "system", content: searchInstruction },
-        { role: "user", content: prompt }
+        { role: "user", content: prompt || "" }
       ]
     }
   );
@@ -422,7 +398,7 @@ No extra text.
 
   try {
     const obj = JSON.parse(jsonString);
-    if (obj && obj.action === "search" && typeof obj.query === "string" && obj.query.length < 300) {
+    if (obj && obj.action === "search" && typeof obj.query === "string" && obj.query.length > 1 && obj.query.length < 300) {
 
       const results = await runSearch(obj.query);
 
@@ -432,7 +408,7 @@ No extra text.
           messages: [
             { role: "system", content: SPIDER_SYSTEM_PROMPT },
             { role: "system", content: "Memory:\n" + memorySummary },
-            { role: "user", content: `Search results: ${JSON.stringify(results)}` }
+            { role: "user", content: "Search results: " + JSON.stringify(results) }
           ]
         }
       );
@@ -441,14 +417,14 @@ No extra text.
         headers: { "content-type": "text/plain" }
       });
     }
-  } catch (_) {}
+  } catch (_) {
+    // fallthrough to raw text response
+  }
 
   return new Response(text, {
     headers: { "content-type": "text/plain" }
   });
 }
-
-
 
 /* ============================================================
    SEARCH ENGINE (DuckDuckGo API)
@@ -456,13 +432,13 @@ No extra text.
 
 async function runSearch(query) {
   try {
-    const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&t=spider_app&no_html=1`;
+    const url = "https://api.duckduckgo.com/?q=" + encodeURIComponent(query) + "&format=json&t=spider_app&no_html=1";
     const response = await fetch(url);
     const data = await response.json();
 
     return {
       abstract: data.AbstractText || "No instant answer.",
-      source: data.AbstractURL,
+      source: data.AbstractURL || "",
       related_topics: (data.RelatedTopics || []).map(t => {
         if (t.Text && t.FirstURL) return { text: t.Text, url: t.FirstURL };
         const topic = t.Topics && t.Topics[0];
@@ -470,13 +446,10 @@ async function runSearch(query) {
         return { text: "", url: "" };
       }).filter(t => t.text).slice(0, 5)
     };
-
   } catch (e) {
     return { error: "ddg_failed", query, details: e.toString() };
   }
 }
-
-
 
 /* ============================================================
    TEXT EXTRACTOR (anti-repeat)
@@ -485,30 +458,36 @@ async function runSearch(query) {
 function extractText(resp) {
   try {
     let raw = "";
-    const v1 = resp?.output?.[1]?.content?.[0]?.text;
+    const v1 = resp && resp.output && resp.output[1] && resp.output[1].content && resp.output[1].content[0] && resp.output[1].content[0].text;
     if (v1) raw = v1;
 
-    const v2 = resp?.output?.[0]?.content?.[0]?.text;
+    const v2 = resp && resp.output && resp.output[0] && resp.output[0].content && resp.output[0].content[0] && resp.output[0].content[0].text;
     if (!raw && v2) raw = v2;
 
-    if (!raw && resp?.output_text) raw = resp.output_text;
-    if (!raw && resp?.text) raw = resp.text;
-    if (!raw && resp?.result) raw = resp.result;
-    if (!raw && resp?.choices?.[0]?.message?.content) raw = resp.choices[0].message.content;
-    if (!raw && resp?.response) raw = resp.response;
+    if (!raw && resp && resp.output_text) raw = resp.output_text;
+    if (!raw && resp && resp.text) raw = resp.text;
+    if (!raw && resp && resp.result) raw = resp.result;
+    if (!raw && resp && resp.choices && resp.choices[0] && resp.choices[0].message && resp.choices[0].message.content) raw = resp.choices[0].message.content;
+    if (!raw && resp && resp.response) raw = resp.response;
 
     raw = (raw || "").toString().trim();
 
-    // Remove repeated long blocks
+    // simple heuristic: remove extremely repeated blocks (word repeated > 3 times)
     raw = raw.replace(/(\b[\w\p{L}]{3,}\b)(?:[\s\S]*?\1){3,}/u, "$1");
 
+    // trim trailing incomplete fragments (best-effort)
+    if (raw && !/[.!?…]$/.test(raw)) {
+      const lastSpace = raw.lastIndexOf(" ");
+      if (lastSpace > raw.length - 40) {
+        raw = raw.slice(0, lastSpace);
+      }
+    }
+
     return raw.trim();
-  } catch {
+  } catch (e) {
     return "";
   }
 }
-
-
 
 /* ============================================================
    MODE DETECTOR
@@ -532,4 +511,4 @@ function detectMode(prompt, file_content, filename) {
     return "image_edit";
 
   return "chat";
-           }
+      }
