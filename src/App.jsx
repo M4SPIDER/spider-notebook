@@ -1640,7 +1640,7 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
     };
 
     // ---------- FIXED: Send message (file analysis fix) ----------
-   const handleSendMessage = async () => {
+const handleSendMessage = async () => {
     if (!message.trim() && !uploadedFile && !uploadedImage) return;
 
     setIsLoading(true);
@@ -1684,6 +1684,7 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
                     fileCopy.name.endsWith('.css') ||
                     fileCopy.name.endsWith('.md')) {
                     fileContent = await fileCopy.text();
+                    console.log("Text file content:", fileContent); // Log file content
                 }
                 // Handle binary files
                 else {
@@ -1700,6 +1701,7 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
                         reader.onerror = (err) => reject(new Error("FileReader error."));
                         reader.readAsDataURL(fileCopy);
                     });
+                    console.log("Binary file content (base64):", fileContent); // Log base64 content
                 }
             } catch (error) {
                 console.error("Error reading file:", error);
@@ -1718,9 +1720,11 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
                 prompt: message || `Analyze the contents of ${fileCopy.name}`,
                 mode: "analyze_file",
                 filename: fileCopy.name,
-                file_content: fileContent,
+                file_content: fileContent, // Ensure this is included
                 file_type: fileCopy.type
             };
+
+            console.log("API Payload:", apiPayload); // Log the API payload
 
             const result = await callFastAPI(apiUrl, apiPayload, mode);
 
@@ -3071,6 +3075,7 @@ int main() {
         </>
     );
 }
+
 
 
 
