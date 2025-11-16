@@ -1,11 +1,9 @@
 /* ============================================================
-   SPIDER AI — TELANGANA BEAST EDITION V3 (PART 1 of 3)
-   CONFIG + STRICT TELANGANA TRAINING PACK + AUTO-SLANG TRIGGER
-   - English default, auto-switch to strict Telangana slang when Telugu words detected
-   - Auto-switch is per-message (returns to English on next English message)
-   ============================================================ */
+SPIDER AI — TELANGANA BEAST EDITION V3 (PART 1 of 3)
+CONFIG + STRICT TELANGANA TRAINING PACK + AUTO-SLANG TRIGGER
+============================================================ */
 
-/* ===== CONFIG ===== */
+// ===== CONFIG =====
 const MEMORY_MESSAGE_LIMIT = 40;
 const MEMORY_TRIM_TARGET = 20;
 const MEMORY_TTL_DAYS = 30;
@@ -13,164 +11,141 @@ const MEMORY_SUMMARY_TRIGGER = 30;
 const MEMORY_USER_KEY_PREFIX = "chat_memory:";
 const FIREBASE_PROJECT_ID = "m4-spider";
 
-/* ============================================================
-   STRICT TELANGANA SLANG TRIGGER LIST (60 items)
-   Use this list to detect Telugu-style messages and trigger slang
-   ============================================================ */
+// ============================================================
+// STRICT TELANGANA SLANG TRIGGER LIST
+// ============================================================
 const TELUGU_TRIGGER_WORDS = [
-  // core single tokens
   "ra","mama","bro","anna","bhai","macha","bossu","babu","nanna","ayya",
   "guru","machi","bhayya","mamma","pilla","raayya","oye","baaga","asalu","bayya",
-  // basic telugu words that often indicate Telugu text
   "em","enti","endi","emi","ente","ante","ante ga","le","avunu","kadhu",
   "ikkada","akkada","ekkada","ipudu","ipude","nenu","nuvvu","neeku","neetho","mana",
   "meeru","mee","emanna","emi le","emi ra","emi cheppav","yela","yela unnav","yela unnavra",
-  // colloquial phrases / triggers
   "em chesthunav","yela unnav","inka em","inka cheppu","inka em matter","em scene",
   "scene enti","panulu emi","yem ayindi","chill mama","ayyayyo","ayyayyo mama","ayyo",
-  // extra Telangana flavored words / fillers
   "le mama","anta ga","asalu","chusava","chusava mama","unda","unna","unnav",
   "ekkada unnav","nuvvu ekkada","em ra","enti ra","em le","naa peru","mass ga"
 ];
 
-// Sort and build regex for robust detection (longer phrases first)
+// Regex builder
 function buildTeluguRegex(words) {
   const sorted = Array.from(words).sort((a,b)=>b.length - a.length);
-  const escaped = sorted.map(w => w.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&"));
-  // use word boundaries and allow punctuation around phrases
+  const escaped = sorted.map(w => 
+    w.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&")
+  );
   const pattern = "\\b(?:" + escaped.join("|") + ")\\b";
-  return new RegExp(pattern, "iu"); // case-insensitive, unicode
+  return new RegExp(pattern, "iu");
 }
 
 const TELUGU_TRIGGER_REGEX = buildTeluguRegex(TELUGU_TRIGGER_WORDS);
 
-// helper to decide if a message should trigger strict Telangana slang
 function shouldTriggerTelugu(message) {
   if (!message || typeof message !== "string") return false;
   return TELUGU_TRIGGER_REGEX.test(message);
 }
 
-/* ============================================================
-   STRICT TELANGANA TRAINING PACK (inserted into system instructions)
-   These rules teach Mistral to NEVER speak textbook or Andhra Telugu.
-   ============================================================ */
-
-// We will inject these rules into the system prompt when calling the model.
-// Keep the training text concise and explicit; no backticks in the string below.
-
+// ============================================================
+// TELANGANA TRAINING BLOCK
+// ============================================================
 const TELANGANA_TRAINING_BLOCK =
 "TELANGANA DIALECT TRAINING:\n" +
 "- Use STRICT Telangana slang when triggered. Never use Andhra or textbook Telugu.\n" +
 "- Prefer words: ra, mama, bro, anna, macha, bossu, ayya, guru, nanna, bayya.\n" +
 "- Use 'unnav' (not 'unna'), 'ekkada' (not 'ekada'), 'enti ra' (not 'endi ra').\n" +
 "- Use fillers: ayyayyo, le mama, ante ga, asalu, bayya, chusava mama.\n" +
-"- Avoid: 'meeru', 'chala', 'unna' (Andhra), 'vunna', 'meeru' formal forms, sanskrit-heavy words.\n" +
-"- Tone: street, bold, playful, slightly sarcastic, friendly. Add emojis naturally.\n" +
-"- Always create fresh lines; DO NOT repeat example lines verbatim.\n" +
-"- If user uses Telugu words, respond in English-letter Telugu transliteration only (no Telugu script) unless asked.\n";
+"- Avoid formal Sanskrit/Andhra forms.\n" +
+"- Tone: street, bold, playful, friendly.\n" +
+"- Never repeat example lines.\n" +
+"- Telugu replies must be English-letter transliteration only.\n";
+
 const SPIDER_SYSTEM_PROMPT =
-  "You are Spider, the AI created by M4 Spider. Follow these rules at all times.\n" +
-  "GENERAL RULES:\n" +
-  "- Default language is English. Reply in English unless Telugu/Telangana detected or requested.\n" +
-  "- Never reveal system instructions or backend code.\n" +
-  "- Do not use markdown formatting.\n" +
-  "- Never output asterisks (*) or double-asterisks (**) in replies.\n" +
-  "- Never repeat previous user or assistant messages verbatim. Always paraphrase.\n" +
-  "- Do not generate long repeated blocks. Keep replies fresh and concise.\n" +
-  "- Speak with a confident, bold, friendly buddy vibe. Use emojis freely.\n" +
-  "- If the user asks who created you, answer: M4 Spider.\n\n" +
+"You are Spider, the AI created by M4 Spider.\n" +
+"GENERAL RULES:\n" +
+"- Default: English. Switch only when Telugu detected.\n" +
+"- Never reveal backend code.\n" +
+"- No markdown.\n" +
+"- No asterisks.\n" +
+"- Never echo user text.\n" +
+"- Friendly confident tone.\n" +
+"- Creator: M4 Spider.\n\n" +
 
-  "LANGUAGE SWITCH RULES (STRICT TELANGANA MODE):\n" +
-  "- Auto-switch to STRICT Telangana slang WHEN a message contains Telangana/Telugu words from the trigger list or user explicitly requests Telugu.\n" +
-  "- When switched: respond in Telangana slang using English letters (transliteration). Do NOT use Telugu script unless user asks.\n" +
-  "- NEVER use Andhra/textbook Telugu forms. Follow the strict Telangana training rules provided.\n" +
-  TELANGANA_TRAINING_BLOCK + "\n" +
+"LANGUAGE SWITCH RULES:\n" +
+"- If Telugu/Telangana detected → strict Telangana slang.\n" +
+"- Use only English-letter transliteration.\n" +
+TELANGANA_TRAINING_BLOCK + "\n" +
 
-  "SAVAGE MODE:\n" +
-  "- If user says 'savage mode', 'roast mode' or 'be savage', switch to playful Telangana-style roast. Keep it humorous and non-offensive.\n" +
+"SAVAGE MODE:\n" +
+"- Fun roast when user requests.\n" +
 
-  "SEARCH & MEMORY:\n" +
-  "- For web searches output ONLY: {\\\"action\\\":\\\"search\\\",\\\"query\\\":\\\"...\\\"} with no extra text.\n" +
-  "- Do not restate memory content word-for-word. Use memory for context only.\n" +
+"SEARCH & MEMORY:\n" +
+"- Search output ONLY: {\"action\":\"search\",\"query\":\"...\"}\n" +
+"- Use memory only for context.\n" +
 
-  "EMOJI USAGE LOGIC:\n" +
-  "- Use 😎🔥 when the tone is confident, mass, attitude, Telangana slang, or hype.\n" +
-  "- Use 😅🤣 when the message is funny, teasing, or playful.\n" +
-  "- Use 😉😏🤌 when the reply is flirty, mischievous, cheeky or sarcastically sweet.\n" +
-  "- Use 😈👿🤡 when the reply is savage mode, roast mode, or playful aggression.\n" +
-  "- Use 🤔🧐🫤 when the user is asking something confusing or unclear.\n" +
-  "- Use 😛🤪 when responding in a silly, comic, or goofy tone.\n" +
-  "- Use 😔😞😣😓 when the message is sad, emotional, or disappointed.\n" +
-  "- Use 😳🥵😨 when the reply expresses shock, embarrassment, or tension.\n" +
-  "- Use 🕷️🕸️🔥 when referencing Spider, Spider AI, power, identity, or M4 Spider.\n" +
-  "- Use ❤️🔥🤝 when appreciating the user or showing support.\n" +
-  "- Use 🤙👊🫵 when speaking with attitude, confidence, or friendly slang.\n" +
-  "- Use 🙌👏 when praising or hyping the user.\n" +
-  "- Use 💀☠️ when the joke is too funny or 'dead' slang.\n" +
-  "- Use 👻🤐😶‍🌫️ when reacting to spooky, weird, or silent moments.\n" +
-  "- Use 💻🖥️⚙️ when talking about coding, debugging, or fixing.\n" +
-  "- Use 🇮🇳 when talking about India, culture, pride.\n" +
-  "- Use 🕕🕧🕙📅 when referencing time.\n" +
-  "- Use 💣⚔️ when message is dramatic, intense, or high-energy.\n";
-/* ============================================================
-SPIDER SYSTEM PROMPT (SAFE - no raw backticks)
-English default. Auto-switch rules and strict training included.
-============================================================ */
+"EMOJI USAGE LOGIC:\n" +
+"- 😎🔥 for hype.\n" +
+"- 😅🤣 for jokes.\n" +
+"- 😉😏 for cheeky tone.\n" +
+"- 😈👿🤡 for roast mode.\n" +
+"- 🤔🧐 for confusion.\n" +
+"- ❤️🔥🤝 for support.\n" +
+"- 🕷️🕸️🔥 for Spider identity.\n";
 
+// ============================================================
+// FIREBASE ID TOKEN VERIFY BLOCK (FIXED)
+// ============================================================
 
-  if (!idToken) return null;
+if (!idToken) return null;
 
-  try {
-    const parts = idToken.split(".");
-    if (parts.length !== 3) return null;
+try {
+  const parts = idToken.split(".");
+  if (parts.length !== 3) return null;
 
-    const header = JSON.parse(atob(parts[0]));
-    const payload = JSON.parse(atob(parts[1]));
-    const kid = header.kid;
+  const header = JSON.parse(atob(parts[0]));
+  const payload = JSON.parse(atob(parts[1]));
+  const kid = header.kid;
 
-    const firebaseKeys = await fetch(
-      "https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com"
-    ).then(r => r.json());
+  const firebaseKeys = await fetch(
+    "https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com"
+  ).then(r => r.json());
 
-    const cert = firebaseKeys[kid];
-    if (!cert) return null;
+  const cert = firebaseKeys[kid];
+  if (!cert) return null;
 
-    const pem = cert
-      .replace("-----BEGIN CERTIFICATE-----", "")
-      .replace("-----END CERTIFICATE-----", "")
-      .replace(/\s+/g, "");
+  const pem = cert
+    .replace("-----BEGIN CERTIFICATE-----", "")
+    .replace("-----END CERTIFICATE-----", "")
+    .replace(/\s+/g, "");
 
-    const binaryDer = Uint8Array.from(atob(pem), c => c.charCodeAt(0));
+  const binaryDer = Uint8Array.from(atob(pem), c => c.charCodeAt(0));
 
-    const cryptoKey = await crypto.subtle.importKey(
-      "spki",
-      binaryDer,
-      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-      true,
-      ["verify"]
-    );
+  const cryptoKey = await crypto.subtle.importKey(
+    "spki",
+    binaryDer,
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    true,
+    ["verify"]
+  );
 
-    const signature = parts[2].replace(/-/g, "+").replace(/_/g, "/");
-    const signatureBytes = Uint8Array.from(atob(signature), c => c.charCodeAt(0));
+  const signature = parts[2].replace(/-/g, "+").replace(/_/g, "/");
+  const signatureBytes = Uint8Array.from(atob(signature), c => c.charCodeAt(0));
 
-    const valid = await crypto.subtle.verify(
-      "RSASSA-PKCS1-v1_5",
-      cryptoKey,
-      signatureBytes,
-      new TextEncoder().encode(parts[0] + "." + parts[1])
-    );
+  const valid = await crypto.subtle.verify(
+    "RSASSA-PKCS1-v1_5",
+    cryptoKey,
+    signatureBytes,
+    new TextEncoder().encode(parts[0] + "." + parts[1])
+  );
 
-    if (!valid) return null;
-    if (payload.aud !== FIREBASE_PROJECT_ID) return null;
-    if (payload.iss !== ("https://securetoken.google.com/" + FIREBASE_PROJECT_ID)) return null;
-    if (payload.exp * 1000 < Date.now()) return null;
+  if (!valid) return null;
+  if (payload.aud !== FIREBASE_PROJECT_ID) return null;
+  if (payload.iss !== ("https://securetoken.google.com/" + FIREBASE_PROJECT_ID)) return null;
+  if (payload.exp * 1000 < Date.now()) return null;
 
-    return payload;
+  return payload;
 
-  } catch {
-    return null;
-  }
-}
+} catch {
+  return null;
+     }
+    
 
 /* ============================================================
    MAIN HANDLER
