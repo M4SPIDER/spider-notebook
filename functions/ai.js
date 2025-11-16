@@ -611,7 +611,7 @@ async function runSearch(query) {
         } else if (t && t.Topics && Array.isArray(t.Topics) && t.Topics[0]) {
           const tt = t.Topics[0];
           if (tt.Text) related.push({ text: tt.Text, url: tt.FirstURL || "" });
-m        }
+        }
         if (related.length >= 5) break;
       }
       return {
@@ -625,7 +625,7 @@ m        }
   };
 
   // FIX: Removed the broken markdown link from the URL
-  const url = "https://api.duckduckgo.com/?q=" + encodeURIComponent(query) + "&format=json&t=spider_app&no_html=1";
+  const url = "[https://api.duckduckgo.com/?q=](https://api.duckduckgo.com/?q=)" + encodeURIComponent(query) + "&format=json&t=spider_app&no_html=1";
 
   try {
     const resp = await fetchWithTimeout(url, {}, 3500);
@@ -653,7 +653,7 @@ m        }
       error: "ddg_failed",
       query,
       details: e ? e.toString() : "timeout or parsing error",
-read      abstract: "No instant answer available (search service failed).",
+      abstract: "No instant answer available (search service failed).",
       source: "",
       related_topics: []
     };
@@ -677,7 +677,7 @@ function extractText(resp) {
 
     if (!raw && resp && resp.output_text) raw = resp.output_text;
     if (!raw && resp && resp.text) raw = resp.text;
-s    if (!raw && resp && resp.result) raw = resp.result;
+    if (!raw && resp && resp.result) raw = resp.result;
     if (!raw && resp && resp.choices && resp.choices[0] && resp.choices[0].message && resp.choices[0].message.content) raw = resp.choices[0].message.content;
     if (!raw && resp && resp.response) raw = resp.response;
 
@@ -717,7 +717,7 @@ function detectMode(prompt, file_content, filename) {
     t.includes("analyze file") ||
     t.includes("clean code") ||
     t.includes("debug")
-Note  ) return "analyze_file";
+  ) return "analyze_file";
 
   if (t.includes("generate image") || t.includes("image of"))
     return "image_gen";
