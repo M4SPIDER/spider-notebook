@@ -1720,8 +1720,8 @@ const handleSendMessage = async () => {
         );
     };
 
-    const isImageMode = activeAIMode === 'image_gen' || activeAIMode === 'image_edit';
-    const isFileMode = activeAIMode === 'file_analysis';
+ const isImageMode = !!uploadedImage;
+const isFileMode = !!uploadedFile;
 
     const getModeText = () => {
         const modeMap = {
@@ -1840,7 +1840,7 @@ const handleSendMessage = async () => {
                             <button 
                                 onClick={handleSendMessage} 
                                 className="bg-[var(--spider-neon-blue)] text-black font-semibold px-4 py-2 rounded-md hover:opacity-90 transition duration-200 flex-shrink-0 h-10 flex items-center justify-center"
-                                disabled={!message.trim() && !isImageMode && !isFileMode}
+                                disabled={!message.trim() && !uploadedFile && !uploadedImage}
                             >
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
