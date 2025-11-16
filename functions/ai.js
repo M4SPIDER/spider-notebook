@@ -394,9 +394,20 @@ export async function onRequest(context) {
   /* ============================================================
      FILE ANALYSIS
      ============================================================ */
+/* ============================================================
+   FILE ANALYSIS (FIXED - PROPER PARAMETER HANDLING)
+   ============================================================ */
+
 if (currentMode === "analyze_file") {
+  // FIX: Get parameters from request body with proper fallbacks
+  const receivedFilename = body.filename || filename || "unknown";
+  const receivedFileContent = body.file_content || file_content || "";
+  
+  console.log("File analysis - Filename:", receivedFilename);
+  console.log("File analysis - Content length:", receivedFileContent.length);
+
   const aPrompt =
-    "Analyze this file:\n\nFilename: " + (filename || "unknown") + "\nContent:\n" + (file_content || prompt) + "\n";
+    "Analyze this file:\n\nFilename: " + receivedFilename + "\nContent:\n" + receivedFileContent + "\n";
 
   const messages = [
     { role: "system", content: SPIDER_SYSTEM_PROMPT }
@@ -407,9 +418,11 @@ if (currentMode === "analyze_file") {
 
   const result = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", { messages });
 
-  // FIXED: Return JSON instead of plain text
+  const responseText = extractText(result);
+  
+  // Return proper JSON format
   return new Response(JSON.stringify({
-    text: extractText(result),
+    text: responseText,
     type: 'text',
     model_used: 'mistral-small-3.1-24b-instruct',
     sources: []
