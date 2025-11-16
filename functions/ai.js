@@ -422,6 +422,9 @@ if (contentType.includes("multipart/form-data")) {
 /* ============================================================
    FILE ANALYSIS (FIXED - PROPER PARAMETER HANDLING)
    ============================================================ */
+/* ============================================================
+   FILE ANALYSIS (FIXED - PROPER PARAMETER HANDLING)
+   ============================================================ */
 if (currentMode === "analyze_file") {
   // Extract parameters from the request body with proper fallbacks
   const receivedFilename = body.filename || filename || "unknown";
@@ -434,6 +437,7 @@ if (currentMode === "analyze_file") {
 
   // Check if file content is empty
   if (!receivedFileContent || receivedFileContent.trim() === "") {
+    console.error("File content is empty or not provided.");
     return new Response(JSON.stringify({
       text: "I'm sorry, but I can't analyze the file since there's no content provided.",
       type: 'text',
@@ -458,6 +462,9 @@ if (currentMode === "analyze_file") {
 
   messages.push({ role: "system", content: "Memory:\n" + memorySummary });
   messages.push({ role: "user", content: aPrompt });
+
+  // Log the messages being sent to the AI model
+  console.log("Messages sent to AI model:", messages);
 
   // Call the AI model
   const result = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", { messages });
