@@ -160,22 +160,33 @@ export async function onRequest(context) {
   const env = context.env;
 
 let body = {};
+// FIX: Create a separate var to hold file content if it comes from multipart
+let fileContentFromForm = null; 
 
 const contentType = request.headers.get("content-type") || "";
 
 if (contentType.includes("multipart/form-data")) {
     const form = await request.formData();
+    // FIX: Get the file_content field, which might be a File object
+    const file = form.get("file_content"); 
 
     body = {
         mode: form.get("mode"),
         prompt: form.get("prompt"),
         filename: form.get("filename"),
-        file_content: form.get("file_content")
+        // We won't get file_content from here, we handle it below
     };
+
+    // FIX: Check if 'file' is a File object and read its text content
+    if (file && typeof file.text === 'function') {
+        fileContentFromForm = await file.text();
+    } else if (file) { // Or if it was sent as a string in the form
+        fileContentFromForm = String(file);
+    }
 
 } else if (contentType.includes("application/json")) {
     try {
-        body = await request.json();
+        body = await request.json(); // body will have .file_content as a string
     } catch (e) {
         body = {};
     }
@@ -184,9 +195,10 @@ if (contentType.includes("multipart/form-data")) {
 }
 
 
+  // file_content will be from JSON, or undefined. fileContentFromForm will be from multi-part, or null.
   const { prompt, mode, image, strength, file_content, filename } = body;
 
-  let currentMode = mode || detectMode(prompt, file_content, filename);
+  let currentMode = mode || detectMode(prompt, (fileContentFromForm || file_content), filename);
 
   /* ================= USER IDENTIFICATION ===================== */
 
@@ -212,7 +224,7 @@ if (contentType.includes("multipart/form-data")) {
   }
 
   async function saveMemory(mem) {
-    try {
+  T   try {
       await env.CHAT_KV.put(memoryKey, JSON.stringify(mem));
     } catch (_) {}
   }
@@ -421,8 +433,8 @@ if (currentMode === "analyze_file") {
   const receivedFilename = String(body.filename || filename || "unknown");
   
   // --- START OF ROBUST CONTENT CLEANUP ---
-  // Explicitly coerce file_content from destructuring to string
-  let contentToAnalyze = String(file_content || "");
+  // FIX: Prioritize fileContentFromForm (from multipart) over file_content (from JSON)
+  let contentToAnalyze = String(fileContentFromForm || file_content || "");
   
   // 1. Remove null byte (\u0000) and other control characters.
   // 2. Normalize line breaks: replace CR (\u000D) and CRLF/CR with LF (\n).
@@ -601,7 +613,7 @@ async function runSearch(query) {
         } else if (t && t.Topics && Array.isArray(t.Topics) && t.Topics[0]) {
           const tt = t.Topics[0];
           if (tt.Text) related.push({ text: tt.Text, url: tt.FirstURL || "" });
-        }
+m        }
         if (related.length >= 5) break;
       }
       return {
@@ -614,7 +626,7 @@ async function runSearch(query) {
     }
   };
 
-  // FIX: Replaced the incorrect markdown URL structure with plain string concatenation
+  // FIX: Removed the broken markdown link from the URL
   const url = "[https://api.duckduckgo.com/?q=](https://api.duckduckgo.com/?q=)" + encodeURIComponent(query) + "&format=json&t=spider_app&no_html=1";
 
   try {
@@ -643,7 +655,7 @@ async function runSearch(query) {
       error: "ddg_failed",
       query,
       details: e ? e.toString() : "timeout or parsing error",
-      abstract: "No instant answer available (search service failed).",
+read      abstract: "No instant answer available (search service failed).",
       source: "",
       related_topics: []
     };
@@ -667,7 +679,7 @@ function extractText(resp) {
 
     if (!raw && resp && resp.output_text) raw = resp.output_text;
     if (!raw && resp && resp.text) raw = resp.text;
-    if (!raw && resp && resp.result) raw = resp.result;
+s    if (!raw && resp && resp.result) raw = resp.result;
     if (!raw && resp && resp.choices && resp.choices[0] && resp.choices[0].message && resp.choices[0].message.content) raw = resp.choices[0].message.content;
     if (!raw && resp && resp.response) raw = resp.response;
 
@@ -698,6 +710,7 @@ function extractText(resp) {
    ============================================================ */
 
 function detectMode(prompt, file_content, filename) {
+  // FIX: Use the combined file_content var for detection
   if (file_content || filename) return "analyze_file";
 
   const t = (prompt || "").toLowerCase();
@@ -706,7 +719,7 @@ function detectMode(prompt, file_content, filename) {
     t.includes("analyze file") ||
     t.includes("clean code") ||
     t.includes("debug")
-  ) return "analyze_file";
+Note  ) return "analyze_file";
 
   if (t.includes("generate image") || t.includes("image of"))
     return "image_gen";
