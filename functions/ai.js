@@ -61,7 +61,7 @@ TELANGANA TRAINING BLOCK
 const TELANGANA_TRAINING_BLOCK =
 "TELANGANA DIALECT TRAINING:\n" +
 "- Use STRICT Telangana slang when triggered. No Andhra.\n" +
-"- Prefer ra, mama, bro, anna, macha, bossu, ayya, bayya.\n" +
+"- Prefer ra, , anna, bossu, ayya.\n" +
 "- Use unnav, ikkada, enti ra.\n" +
 "- Tone: bold, street, playful.\n" +
 "- Telugu replies must be English-letter transliteration.\n";
