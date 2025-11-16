@@ -419,30 +419,53 @@ if (contentType.includes("multipart/form-data")) {
 /* ============================================================
    FILE ANALYSIS (FIXED - PROPER PARAMETER HANDLING)
    ============================================================ */
-
+/* ============================================================
+   FILE ANALYSIS (FIXED - PROPER PARAMETER HANDLING)
+   ============================================================ */
 if (currentMode === "analyze_file") {
-  // FIX: Get parameters from request body with proper fallbacks
+  // Extract parameters from the request body with proper fallbacks
   const receivedFilename = body.filename || filename || "unknown";
   const receivedFileContent = body.file_content || file_content || "";
-  
+
+  // Log the received file content for debugging
   console.log("File analysis - Filename:", receivedFilename);
   console.log("File analysis - Content length:", receivedFileContent.length);
+  console.log("File analysis - Content preview:", receivedFileContent.substring(0, 200));
 
-  const aPrompt =
-    "Analyze this file:\n\nFilename: " + receivedFilename + "\nContent:\n" + receivedFileContent + "\n";
+  // Check if file content is empty
+  if (!receivedFileContent || receivedFileContent.trim() === "") {
+    return new Response(JSON.stringify({
+      text: "I'm sorry, but I can't analyze the file since there's no content provided.",
+      type: 'text',
+      model_used: 'mistral-small-3.1-24b-instruct',
+      sources: []
+    }), {
+      headers: { "content-type": "application/json" }
+    });
+  }
 
+  // Construct the prompt for file analysis
+  const aPrompt = `Analyze this file:\n\nFilename: ${receivedFilename}\nContent:\n${receivedFileContent}\n`;
+
+  // Prepare messages for the AI model
   const messages = [
     { role: "system", content: SPIDER_SYSTEM_PROMPT }
   ];
-  if (extraSystemInstructions.length) messages.push({ role: "system", content: extraSystemInstructions.join("\n") });
+
+  if (extraSystemInstructions.length) {
+    messages.push({ role: "system", content: extraSystemInstructions.join("\n") });
+  }
+
   messages.push({ role: "system", content: "Memory:\n" + memorySummary });
   messages.push({ role: "user", content: aPrompt });
 
+  // Call the AI model
   const result = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", { messages });
 
+  // Extract the response text
   const responseText = extractText(result);
-  
-  // Return proper JSON format
+
+  // Return the response in JSON format
   return new Response(JSON.stringify({
     text: responseText,
     type: 'text',
