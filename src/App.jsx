@@ -1703,16 +1703,25 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
                 }
 
                 const apiUrl = '/api/generate/text';
-                const apiPayload = {
-                    prompt: message || `Analyze the contents of ${fileCopy.name}`,
-                    mode: "analyze_file",
-                    filename: fileCopy.name,
-                    file_content: fileContent,
-                    file_type: fileCopy.type
-                };
-                
-                const result = await callFastAPI(apiUrl, apiPayload, mode);
+const apiPayload = {
+  prompt: message || `Analyze the contents of ${fileCopy.name}`,
+  mode: "analyze_file",
+  filename: fileCopy.name,
+  file_content: fileContent,
+  file_type: fileCopy.type
+};
 
+// Temporary direct fetch instead of callFastAPI
+const response = await fetch(apiUrl, {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify(apiPayload)
+});
+
+const result = await response.json();
+               
                 const assistantMessage = {
                     role: 'assistant',
                     content: result?.text || 'File analysis complete.',
@@ -3045,6 +3054,7 @@ int main() {
         </>
     );
 }
+
 
 
 
