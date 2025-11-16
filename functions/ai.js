@@ -56,6 +56,7 @@ const TELANGANA_TRAINING_BLOCK =
 /* ============================================================
    SYSTEM PROMPT
 ============================================================ */
+const SPIDER_SYSTEM_PROMPT =
 "You are Spider, the AI created by M4 Spider.\n" +
 "GENERAL RULES:\n" +
 "- Default English.\n" +
