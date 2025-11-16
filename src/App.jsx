@@ -1687,52 +1687,43 @@ const handleSendMessage = async () => {
 
     const fileCopy = uploadedFile;
     const imageCopy = uploadedImage;
-    const selectedActiveMode = activeAIMode;
+    const selectedMode = activeAIMode;
+    let mode = selectedMode || "chat";
 
-    let mode = selectedActiveMode || "chat";
-
-    // Auto-switch modes
     if (fileCopy) mode = "analyze_file";
     if (imageCopy) mode = "image_edit";
-    if (!fileCopy && !imageCopy && selectedActiveMode === "image_gen") {
-        mode = "image_gen";
-    }
+    if (!fileCopy && !imageCopy && selectedMode === "image_gen") mode = "image_gen";
 
-    // Push user message into chat UI
-    const userMessage = {
-        role: "user",
-        content: message,
-        type: mode,
-        fileName: fileCopy?.name,
-        imageName: imageCopy?.name,
-        ts: Date.now(),
-    };
-    setChatHistory(prev => [...prev, userMessage]);
+    // Push user message immediately
+    setChatHistory((prev) => [
+        ...prev,
+        {
+            role: "user",
+            content: message,
+            type: mode,
+            fileName: fileCopy?.name,
+            imageName: imageCopy?.name,
+            ts: Date.now(),
+        },
+    ]);
+
     setMessage("");
 
     try {
         /* =====================================================
-           1) FILE ANALYSIS MODE — TEXT + BASE64 SUPPORT
+           FILE ANALYSIS MODE — ALWAYS USE FORMDATA
         ====================================================== */
         if (mode === "analyze_file" && fileCopy) {
             let fileContent;
 
-            // For text files
-            if (fileCopy.type.startsWith("text/") ||
-                fileCopy.name.endsWith(".txt") ||
-                fileCopy.name.endsWith(".py") ||
-                fileCopy.name.endsWith(".js") ||
-                fileCopy.name.endsWith(".jsx") ||
-                fileCopy.name.endsWith(".html") ||
-                fileCopy.name.endsWith(".css") ||
-                fileCopy.name.endsWith(".json") ||
-                fileCopy.name.endsWith(".md")) 
-            {
+            // Read as normal text for code files
+            if (
+                fileCopy.type.startsWith("text/") ||
+                /\.(txt|js|jsx|ts|tsx|py|java|cpp|html|css|json|md)$/i.test(fileCopy.name)
+            ) {
                 fileContent = await fileCopy.text();
-            }
-
-            // For non-text → convert to base64
-            else {
+            } else {
+                // Binary file → base64
                 fileContent = await new Promise((resolve, reject) => {
                     const reader = new FileReader();
                     reader.onload = () => resolve(reader.result.split(",")[1]);
@@ -1741,30 +1732,43 @@ const handleSendMessage = async () => {
                 });
             }
 
-            const res = await sendToBackend(
-                "/api/generate/text",
+            // Prepare formData
+            const form = new FormData();
+            form.append("mode", "analyze_file");
+            form.append("prompt", message || "Analyze this file");
+            form.append("filename", fileCopy.name);
+
+            /* 🔥 MOST IMPORTANT FIX */
+            form.append("file_content", fileContent);
+
+            const res = await fetch("/api/generate/text", {
+                method: "POST",
+                body: form,
+            });
+
+            // backend returns JSON OR plain text → catch both
+            let result;
+            try {
+                result = await res.json();
+            } catch {
+                result = { text: await res.text() };
+            }
+
+            setChatHistory((prev) => [
+                ...prev,
                 {
-                    mode: "analyze_file",
-                    prompt: message || "Analyze this file",
-                    filename: fileCopy.name,
-                    file_content: fileContent,
+                    role: "assistant",
+                    content: result?.text || "Analysis complete.",
+                    type: "text",
+                    ts: Date.now(),
                 },
-                "analyze_file"
-            );
+            ]);
 
-            const assistantMessage = {
-                role: "assistant",
-                content: res?.text || JSON.stringify(res),
-                type: "text",
-                ts: Date.now(),
-            };
-
-            setChatHistory(prev => [...prev, assistantMessage]);
             return;
         }
 
         /* =====================================================
-           2) IMAGE EDIT MODE
+           IMAGE EDIT MODE
         ====================================================== */
         if (mode === "image_edit" && imageCopy) {
             const base64Image = await new Promise((resolve, reject) => {
@@ -1777,64 +1781,61 @@ const handleSendMessage = async () => {
             const res = await sendToBackend(
                 "/api/generate/text",
                 {
-                    prompt: message || "Edit this image",
                     mode: "image_edit",
+                    prompt: message || "Edit this image",
                     image: base64Image,
                     strength: 0.7,
                 },
                 "image_edit"
             );
 
-            const assistantMessage = {
-                role: "assistant",
-                content: res?.text || "Image edited.",
-                type: res?.base64_image ? "image" : "text",
-                base64_image: res?.base64_image,
-                sources: res?.sources,
-                model_used: res?.model_used,
-                ts: Date.now(),
-            };
+            setChatHistory((prev) => [
+                ...prev,
+                {
+                    role: "assistant",
+                    content: res?.text || "Image edited.",
+                    type: res?.base64_image ? "image" : "text",
+                    base64_image: res?.base64_image,
+                    ts: Date.now(),
+                },
+            ]);
 
-            setChatHistory(prev => [...prev, assistantMessage]);
             return;
         }
 
         /* =====================================================
-           3) NORMAL CHAT + IMAGE GENERATION
+           NORMAL CHAT / IMAGE GEN
         ====================================================== */
         const res = await sendToBackend(
             "/api/generate/text",
             {
-                prompt: message,
                 mode,
+                prompt: message,
                 aspect_ratio: mode === "image_gen" ? aspectRatio : undefined,
             },
             mode
         );
 
-        const assistantMessage = {
-            role: "assistant",
-            content: res?.text || "Response received.",
-            type: res?.base64_image ? "image" : "text",
-            base64_image: res?.base64_image,
-            sources: res?.sources,
-            model_used: res?.model_used,
-            ts: Date.now(),
-        };
-
-        setChatHistory(prev => [...prev, assistantMessage]);
-
-    } catch (error) {
-        console.error("API ERROR:", error);
-
-        const assistantError = {
-            role: "assistant",
-            content: `[API ERROR] ${error?.message || "Something went wrong."}`,
-            type: "text",
-            ts: Date.now(),
-        };
-
-        setChatHistory(prev => [...prev, assistantError]);
+        setChatHistory((prev) => [
+            ...prev,
+            {
+                role: "assistant",
+                content: res?.text || "Response received.",
+                type: res?.base64_image ? "image" : "text",
+                base64_image: res?.base64_image,
+                ts: Date.now(),
+            },
+        ]);
+    } catch (err) {
+        setChatHistory((prev) => [
+            ...prev,
+            {
+                role: "assistant",
+                content: `[API ERROR] ${err?.message || "Unknown error"}`,
+                type: "text",
+                ts: Date.now(),
+            },
+        ]);
     } finally {
         setUploadedFile(null);
         setUploadedImage(null);
@@ -3083,6 +3084,7 @@ int main() {
         </>
     );
 }
+
 
 
 
