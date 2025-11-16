@@ -1598,7 +1598,7 @@ case 'file_analysis':
 
     const textContent = await uploadedFile.text();
 
-    apiUrl = '/api/generate/text';   // backend has only one main endpoint
+    apiUrl = '/api/generate/text';  // This is correct for your backend
     apiPayload = {
         prompt: message,
         mode: "analyze_file",
@@ -2891,6 +2891,7 @@ int main() {
         </>
     );
 }
+
 
 
 
