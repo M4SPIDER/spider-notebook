@@ -1648,12 +1648,15 @@ const handleSendMessage = async () => {
     const fileCopy = uploadedFile;
     const imageCopy = uploadedImage;
     const selectedActiveMode = activeAIMode;
+
     let mode = selectedActiveMode || "chat";
 
+    // auto-select mode by upload
     if (fileCopy) mode = "analyze_file";
     if (imageCopy) mode = "image_edit";
     if (!fileCopy && !imageCopy && selectedActiveMode === "image_gen") mode = "image_gen";
 
+    // push user msg to chat
     const userMessage = {
         role: "user",
         content: message,
@@ -1662,24 +1665,23 @@ const handleSendMessage = async () => {
         imageName: imageCopy ? imageCopy.name : undefined,
         ts: Date.now(),
     };
-
     setChatHistory((prev) => [...prev, userMessage]);
     setMessage("");
 
     try {
         /* =====================================================
-           FILE ANALYSIS MODE (FORMDATA FIXED VERSION)
+           📌 FILE ANALYSIS MODE — Correct FormData Upload
         ====================================================== */
         if (mode === "analyze_file" && fileCopy) {
             let fileContent;
 
-            // For text-based files use .text()
+            // text files
             if (
                 fileCopy.type.startsWith("text/") ||
                 fileCopy.name.endsWith(".txt") ||
-                fileCopy.name.endsWith(".py") ||
                 fileCopy.name.endsWith(".js") ||
                 fileCopy.name.endsWith(".jsx") ||
+                fileCopy.name.endsWith(".py") ||
                 fileCopy.name.endsWith(".html") ||
                 fileCopy.name.endsWith(".css") ||
                 fileCopy.name.endsWith(".json") ||
@@ -1687,7 +1689,7 @@ const handleSendMessage = async () => {
             ) {
                 fileContent = await fileCopy.text();
             } else {
-                // For binaries, base64 convert
+                // binary to base64
                 fileContent = await new Promise((resolve, reject) => {
                     const reader = new FileReader();
                     reader.onload = () => resolve(reader.result.split(",")[1]);
@@ -1696,24 +1698,21 @@ const handleSendMessage = async () => {
                 });
             }
 
-            // ⛔ STOP sending JSON. Cloudflare blocks large JSON.
-            // ✅ Use FormData
-            const form = new FormData();
-            form.append("mode", "analyze_file");
-            form.append("prompt", message || `Analyze this file`);
-            form.append("filename", fileCopy.name);
-            form.append("file_content", fileContent);
-
-            const res = await fetch("/api/generate/text", {
-                method: "POST",
-                body: form,
-            });
-
-            const textResult = await res.text();
+            // send using FormData
+            const res = await sendToBackend(
+                "/api/generate/text",
+                {
+                    mode: "analyze_file",
+                    prompt: message || "Analyze this file",
+                    filename: fileCopy.name,
+                    file_content: fileContent,
+                },
+                "analyze_file"
+            );
 
             const assistantMessage = {
                 role: "assistant",
-                content: textResult,
+                content: res?.text || res,
                 type: "text",
                 ts: Date.now(),
             };
@@ -1723,7 +1722,7 @@ const handleSendMessage = async () => {
         }
 
         /* =====================================================
-           IMAGE EDIT MODE (works same as before)
+           🖼 IMAGE EDIT MODE
         ====================================================== */
         if (mode === "image_edit" && imageCopy) {
             const base64Image = await new Promise((resolve, reject) => {
@@ -1733,7 +1732,7 @@ const handleSendMessage = async () => {
                 reader.readAsDataURL(imageCopy);
             });
 
-            const res = await callFastAPI(
+            const res = await sendToBackend(
                 "/api/generate/text",
                 {
                     prompt: message || "Edit this image",
@@ -1741,7 +1740,7 @@ const handleSendMessage = async () => {
                     image: base64Image,
                     strength: 0.7,
                 },
-                mode
+                "image_edit"
             );
 
             const assistantMessage = {
@@ -1759,9 +1758,9 @@ const handleSendMessage = async () => {
         }
 
         /* =====================================================
-           IMAGE GEN + NORMAL CHAT
+           🎨 IMAGE GENERATION + NORMAL CHAT
         ====================================================== */
-        const res = await callFastAPI(
+        const res = await sendToBackend(
             "/api/generate/text",
             {
                 prompt: message,
@@ -1785,20 +1784,52 @@ const handleSendMessage = async () => {
     } catch (error) {
         console.error("API ERROR:", error);
 
-        const assistantError = {
-            role: "assistant",
-            content: `[API ERROR] ${error?.message || "Something went wrong."}`,
-            type: "text",
-            ts: Date.now(),
-        };
-
-        setChatHistory((prev) => [...prev, assistantError]);
+        setChatHistory((prev) => [
+            ...prev,
+            {
+                role: "assistant",
+                content: `[API ERROR] ${error?.message || "Something went wrong."}`,
+                type: "text",
+                ts: Date.now(),
+            },
+        ]);
     } finally {
         setUploadedFile(null);
         setUploadedImage(null);
         setIsLoading(false);
     }
 };
+async function sendToBackend(url, data, mode) {
+    if (mode === "analyze_file") {
+        const form = new FormData();
+        for (const [k, v] of Object.entries(data)) {
+            if (v !== undefined && v !== null) {
+                form.append(k, v);
+            }
+        }
+
+        const res = await fetch(url, {
+            method: "POST",
+            body: form,
+        });
+
+        // try JSON → fallback to text
+        try {
+            return await res.json();
+        } catch {
+            return { text: await res.text() };
+        }
+    }
+
+    // All other modes → JSON
+    const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+    });
+
+    return await res.json();
+}
 
     // ---------- Chat bubble ----------
     const ChatBubble = ({ message }) => {
@@ -3041,6 +3072,7 @@ int main() {
         </>
     );
 }
+
 
 
 
