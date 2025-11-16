@@ -1575,91 +1575,111 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
         event.target.value = null;
     };
 
-    const handleSendMessage = async () => {
-        // Your existing handleSendMessage implementation
-        if (!message.trim() && activeAIMode !== 'image_gen' && activeAIMode !== 'file_analysis' && activeAIMode !== 'image_edit') return;
-        
-        const userMessage = { role: 'user', content: message, type: activeAIMode, uploadedFile, uploadedImage };
-        setChatHistory(prev => [...prev, userMessage]);
-        
-        setMessage('');
-        let apiUrl = '';
-        let apiPayload = {};
-        const formData = new FormData();
-        
-        try {
-            switch (activeAIMode) {
-                case 'chat':
-                    apiUrl = '/api/generate/text';
-                    apiPayload = { prompt: message };
-                    break;
-case 'file_analysis':
-    if (!uploadedFile) { showModal('Error', 'Please upload a file first.'); return; }
+const handleSendMessage = async () => {
+    if (!message.trim() && !uploadedFile && !uploadedImage) return;
 
-    const textContent = await uploadedFile.text();
+    let mode = "chat";
+    if (uploadedFile) mode = "analyze_file";
+    else if (uploadedImage) mode = "image_edit";
 
-    apiUrl = '/api/generate/text';  // This is correct for your backend
-    apiPayload = {
-        prompt: message,
-        mode: "analyze_file",
-        filename: uploadedFile.name,
-        file_content: textContent
+    const userMessage = {
+        role: 'user',
+        content: message,
+        type: mode,
+        uploadedFile,
+        uploadedImage
     };
-    break;
 
-                case 'image_gen':
-                    apiUrl = '/api/generate/image';
-                    apiPayload = { prompt: message, aspect_ratio: aspectRatio };
-                    break;
+    setChatHistory(prev => [...prev, userMessage]);
+    setMessage('');
 
-               case 'image_edit':
-    if (!uploadedImage) { showModal('Error', 'Please upload an image first.'); return; }
+    let apiUrl = '';
+    let apiPayload = {};
 
-    const reader = new FileReader();
-    reader.onload = async () => {
-        const base64Image = reader.result.split(",")[1];
+    try {
+        // ---------------- FILE ANALYSIS ----------------
+        if (mode === "analyze_file") {
+            const textContent = await uploadedFile.text();
 
-        apiUrl = '/api/generate/text';
-        apiPayload = {
-            prompt: message,
-            mode: "image_edit",
-            image: base64Image,
-            strength: 0.7
+            apiUrl = '/api/generate/text';
+            apiPayload = {
+                prompt: message,
+                mode: "analyze_file",
+                filename: uploadedFile.name,
+                file_content: textContent
+            };
+        }
+
+        // ---------------- IMAGE EDIT ----------------
+        else if (mode === "image_edit") {
+            const reader = new FileReader();
+
+            reader.onload = async () => {
+                const base64Image = reader.result.split(",")[1];
+
+                apiUrl = '/api/generate/text';
+                apiPayload = {
+                    prompt: message,
+                    mode: "image_edit",
+                    image: base64Image,
+                    strength: 0.7
+                };
+
+                const result = await callFastAPI(apiUrl, apiPayload, mode);
+
+                const assistantMessage = {
+                    role: 'assistant',
+                    content: result.text || 'Image edited.',
+                    type: result.base64_image ? 'image' : 'text',
+                    base64_image: result.base64_image,
+                    sources: result.sources,
+                    model_used: result.model_used
+                };
+
+                setChatHistory(prev => [...prev, assistantMessage]);
+            };
+
+            reader.readAsDataURL(uploadedImage);
+            setUploadedImage(null);
+            return;
+        }
+
+        // ---------------- NORMAL CHAT ----------------
+        else {
+            apiUrl = '/api/generate/text';
+            apiPayload = { prompt: message, mode: "chat" };
+        }
+
+        // ---------------- SEND REQUEST ----------------
+        const result = await callFastAPI(apiUrl, apiPayload, mode);
+
+        const assistantMessage = {
+            role: 'assistant',
+            content: result.text || 'Response received.',
+            type: result.base64_image ? 'image' : 'text',
+            base64_image: result.base64_image,
+            sources: result.sources,
+            model_used: result.model_used
         };
 
-        sendRequest(apiUrl, apiPayload); // call your API here
-    };
-    reader.readAsDataURL(uploadedImage);
-    return; // stop normal flow
+        setChatHistory(prev => [...prev, assistantMessage]);
 
-                default:
-                    showModal('Error', 'Invalid AI mode selected.');
-                    return;
-            }
-            
-            const result = await callFastAPI(apiUrl, apiPayload, activeAIMode);
-            
-            const assistantContent = { 
-                role: 'assistant', 
-                content: result.text || result.error || (result.base64_image ? 'Image generated successfully.' : 'Response received.'),
-                type: result.base64_image ? 'image' : 'text',
-                base64_image: result.base64_image,
-                sources: result.sources,
-                model_used: result.model_used
-            };
-            setChatHistory(prev => [...prev, assistantContent]);
+    } catch (error) {
+        console.error('API ERROR:', error);
 
-        } catch (error) {
-            console.error("API Call Error:", error);
-            const assistantError = { role: 'assistant', content: `[API ERROR] ${error.message || 'The AI service encountered an issue.'}`, type: 'text' };
-            setChatHistory(prev => [...prev, assistantError]);
-        } finally {
-            // Clean up file/image state after processing
-            if (activeAIMode === 'file_analysis') setUploadedFile(null);
-            if (activeAIMode === 'image_edit') setUploadedImage(null);
-        }
-    };
+        const assistantError = {
+            role: 'assistant',
+            content: `[API ERROR] ${error.message || 'Something went wrong.'}`,
+            type: 'text'
+        };
 
+        setChatHistory(prev => [...prev, assistantError]);
+
+    } finally {
+        setUploadedFile(null);
+        setUploadedImage(null);
+    }
+};
     // ChatBubble component (keep your existing one)
     const ChatBubble = ({ message }) => {
         const bubbleClasses = message.role === 'user' 
@@ -2891,6 +2911,7 @@ int main() {
         </>
     );
 }
+
 
 
 
