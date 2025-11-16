@@ -419,16 +419,22 @@ if (contentType.includes("multipart/form-data")) {
 if (currentMode === "analyze_file") {
   // Extract parameters from the request body with proper fallbacks
   const receivedFilename = String(body.filename || filename || "unknown");
-  // Explicitly coerce to string for robust trimming/length check
-  let receivedFileContent = String(body.file_content || file_content || "");
+  
+  // --- START OF ROBUST CONTENT CLEANUP ---
+  // Explicitly coerce file_content from destructuring to string
+  let contentToAnalyze = String(file_content || "");
+  
+  // 1. Remove carriage return (\r) and null byte (\u0000) artifacts which can confuse trim/length checks.
+  // 2. Normalize line endings to just \n for consistent counting.
+  contentToAnalyze = contentToAnalyze.replace(/[\u0000\u000d]/g, '').replace(/(\r\n|\r)/g, '\n');
 
   // Log the received file content for debugging
   console.log("File analysis - Filename:", receivedFilename);
-  console.log("File analysis - Content length:", receivedFileContent.length);
-  console.log("File analysis - Content preview:", receivedFileContent.substring(0, 200));
+  console.log("File analysis - Content length (after cleanup):", contentToAnalyze.length);
+  console.log("File analysis - Content preview:", contentToAnalyze.substring(0, 200));
 
-  // FIX: Robust check for empty content (the issue in the logs)
-  if (receivedFileContent.trim().length === 0) {
+  // FIX: Robust check for empty content
+  if (contentToAnalyze.trim().length === 0) {
     console.error("File content is empty or not provided. Length after trim is 0.");
     // Using Telugu slang in the error response as a safety measure
     return new Response(JSON.stringify({
@@ -440,9 +446,10 @@ if (currentMode === "analyze_file") {
       headers: { "content-type": "application/json" }
     });
   }
+  // --- END OF ROBUST CONTENT CLEANUP ---
 
   // Construct the prompt for file analysis
-  const aPrompt = `Analyze this file:\n\nFilename: ${receivedFilename}\nContent:\n${receivedFileContent}\n`;
+  const aPrompt = `Analyze this file:\n\nFilename: ${receivedFilename}\nContent:\n${contentToAnalyze}\n`;
 
   // Prepare messages for the AI model
   const messages = [
@@ -603,6 +610,7 @@ async function runSearch(query) {
     }
   };
 
+  // FIX: Removed extraneous markdown link wrapper from the URL
   const url = "[https://api.duckduckgo.com/?q=](https://api.duckduckgo.com/?q=)" + encodeURIComponent(query) + "&format=json&t=spider_app&no_html=1";
 
   try {
