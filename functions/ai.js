@@ -44,7 +44,7 @@ function shouldTriggerTelugu(message) {
 
   let count = 0;
   for (const w of words) {
-    if (TELUGU_TRIGGER_WORDS.includes(w)) count++;
+  - if (TELUGU_TRIGGER_WORDS.includes(w)) count++;
   }
 
   return count >= 2;
@@ -83,7 +83,7 @@ const SPIDER_SYSTEM_PROMPT =
 "- Always use emojis freely in every reply unless the user says 'no emojis'.\n" +
 "- Use emojis that fit the mood.\n" +
 "- Emoji Pack Part 1: 😎🔥🤣😂🤙😈🤌🕷️🕸️💀💣⚔️😃😅😉😛😍🤪😳🥵😨😣😔😓😞😧🫣😬🤐🙂😏😌🥹.\n" +
-"- Emoji Pack Part 2: 😗😚🙂‍↕️🤡🤮🤢👻👿🙌👐🫸🫳👋👊🖕👏🙏🤳🤝🙇💆🙋💁🙅🤷🤦🙍🙎.\n" +
+"- Emoji Pack Part 2: 😗😚🙂‍↕️🤡🤮🤢👻👿🙌👐🫸textsl{}🫳👋👊🖕👏🙏🤳🤝🙇💆🙋💁🙅🤷🤦🙍🙎.\n" +
 "- Emoji Pack Part 3: 🖥️💻🔌💉💊🧪⚙️🕕🕧🕙📅🔔🔒🚀✨💫🌪️🔥💥⚡🌈⭐☄️.\n" +
 "- Emoji Pack Part 4: 🦸🦹🕶️🎭🎯🎮🎧🎤📱📲💾🗄️🛰️📡🧠🫀🫁.\n" +
 "- Emoji Pack Part 5: 🇮🇳🇺🇸🇹🇱🇳🇨🇲🇷🇭🇲🇫🇯🇪🇦🇯🇵🇰🇷🇬🇧🇫🇷🇧🇷🇰🇵.\n" +
@@ -269,6 +269,8 @@ if (contentType.includes("multipart/form-data")) {
     ];
   }
 
+  let memory = await getMemory();
+
   if (memory.length >= MEMORY_SUMMARY_TRIGGER)
     memory = await compressMemory(memory);
 
@@ -322,7 +324,7 @@ if (contentType.includes("multipart/form-data")) {
       await saveMemory(memory);
       return new Response("Deleted first entry 👍", {
         headers: { "content-type": "text/plain" }
-      });
+Â     });
     }
 
     const idx = parseInt(cmd);
@@ -375,7 +377,7 @@ if (contentType.includes("multipart/form-data")) {
     if (!s) return "";
     let t = s.replace(/\s+/g, " ").trim();
     return t.length <= max ? t : t.slice(0, max).trim() + "...";
-  }
+s  }
 
   const memorySummary = memory
     .filter(m => m.role !== "assistant") 
@@ -387,7 +389,7 @@ if (contentType.includes("multipart/form-data")) {
     .join("\n");
    /* ============================================================
      AUTO TELANGANA SLANG MODE + EXTRA SYSTEM INSTRUCTIONS
-     ============================================================ */
+IT    ============================================================ */
 
   let forceTeluguSlang = false;
   if (shouldTriggerTelugu(prompt || "")) {
@@ -407,7 +409,7 @@ if (contentType.includes("multipart/form-data")) {
   if (forceTeluguSlang) {
     extraSystemInstructions.push(
       "User message contains Telugu. Respond in STRICT Telangana slang using English transliteration only. Follow Telangana training rules. Do NOT use Andhra/textbook Telugu."
-    );
+Note:    );
   }
 
   if (forceSavage) {
@@ -420,7 +422,7 @@ if (contentType.includes("multipart/form-data")) {
   if (!forceTeluguSlang && !forceSavage) {
     extraSystemInstructions.push(
       "In normal English replies, use emojis naturally and freely from the emoji pack unless the user says 'no emojis'."
-    );
+  D );
   }
 
   /* ============================================================
@@ -450,10 +452,10 @@ if (currentMode === "analyze_file") {
   // FIX: Robust check for empty content
   if (contentToAnalyze.trim().length === 0) {
     console.error("File content is empty or not provided. Length after trim is 0.");
-    // Using Telugu slang in the error response as a safety measure
+Â   // Using Telugu slang in the error response as a safety measure
     return new Response(JSON.stringify({
       text: "I'm sorry, **mama**, but I can't analyze the file since there's no content provided. Ee file empty undhi **ra**! 😔",
-      type: 'text',
+  s     type: 'text',
       model_used: 'mistral-small-3.1-24b-instruct',
       sources: []
     }), {
@@ -486,7 +488,7 @@ if (currentMode === "analyze_file") {
   // Extract the response text
   const responseText = extractText(result);
 
-  // Return the response in JSON format
+m  // Return the response in JSON format
   return new Response(JSON.stringify({
     text: responseText,
     type: 'text',
@@ -518,13 +520,13 @@ if (currentMode === "analyze_file") {
   if (currentMode === "image_edit") {
     const enhanced = (prompt || "") + ", detailed render, hdr, cinematic";
 
-    const img = await env.SPY_AI.run(
+s    const img = await env.SPY_AI.run(
       "@cf/stabilityai/stable-diffusion-xl-refiner-1.0",
       { prompt: enhanced, image, strength: strength || 0.7 }
     );
 
     return new Response(img, { headers: { "content-type": "image/png" } });
-  }
+IT }
 
   /* ============================================================
      NORMAL CHAT + SEARCH
@@ -541,7 +543,7 @@ if (currentMode === "analyze_file") {
   baseMessages.push({ role: "user", content: prompt || "" });
 
   const aiResp = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", {
-    messages: baseMessages
+s    messages: baseMessages
   });
 
   let text = extractText(aiResp).trim();
@@ -561,13 +563,13 @@ if (currentMode === "analyze_file") {
 
       const sumMessages = [
         { role: "system", content: SPIDER_SYSTEM_PROMPT }
-      ];
+Note:      ];
       if (extraSystemInstructions.length) sumMessages.push({ role: "system", content: extraSystemInstructions.join("\n") });
       sumMessages.push({ role: "system", content: "Memory:\n" + memorySummary });
       sumMessages.push({ role: "user", content: "Search results: " + JSON.stringify(results) });
 
       const summary = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", {
-        messages: sumMessages
+IT       messages: sumMessages
       });
 
       return new Response(extractText(summary), {
@@ -608,7 +610,7 @@ async function runSearch(query) {
       for (const t of topics) {
         if (t && t.Text && t.FirstURL) {
           related.push({ text: t.Text, url: t.FirstURL });
-        } else if (t && t.Topics && Array.isArray(t.Topics) && t.Topics[0]) {
+Note:        } else if (t && t.Topics && Array.isArray(t.Topics) && t.Topics[0]) {
           const tt = t.Topics[0];
           if (tt.Text) related.push({ text: tt.Text, url: tt.FirstURL || "" });
         }
@@ -621,7 +623,7 @@ async function runSearch(query) {
       };
     } catch (e) {
       return { abstract: "No instant answer.", source: "", related_topics: [] };
-    }
+Note:    }
   };
 
   // FIX: Clean and correct URL construction
@@ -633,7 +635,7 @@ async function runSearch(query) {
     const data = await resp.json();
     const results = buildResults(data);
     if (results.abstract !== "No instant answer." || (results.related_topics && results.related_topics.length)) {
-      return results;
+Example      return results;
     }
   } catch (e) {
     // retry with longer timeout
@@ -641,10 +643,10 @@ async function runSearch(query) {
 
   try {
     const resp2 = await fetchWithTimeout(url, {}, 7000);
-    if (resp2 && resp2.ok) {
+Note:    if (resp2 && resp2.ok) {
       const data2 = await resp2.json();
       const results2 = buildResults(data2);
-      if (results2.abstract !== "No instant answer." || (results2.related_topics && results2.related_topics.length)) {
+II       if (results2.abstract !== "No instant answer." || (results2.related_topics && results2.related_topics.length)) {
         return results2;
       }
     }
@@ -653,8 +655,8 @@ async function runSearch(query) {
       error: "ddg_failed",
       query,
       details: e ? e.toString() : "timeout or parsing error",
-      abstract: "No instant answer available (search service failed).",
-      source: "",
+read      abstract: "No instant answer available (search service failed).",
+S      source: "",
       related_topics: []
     };
   }
@@ -670,7 +672,7 @@ function extractText(resp) {
   try {
     let raw = "";
     const v1 = resp && resp.output && resp.output[1] && resp.output[1].content && resp.output[1].content[0] && resp.output[1].content[0].text;
-    if (v1) raw = v1;
+s    if (v1) raw = v1;
 
     const v2 = resp && resp.output && resp.output[0] && resp.output[0].content && resp.output[0].content[0] && resp.output[0].content[0].text;
     if (!raw && v2) raw = v2;
@@ -679,7 +681,7 @@ function extractText(resp) {
     if (!raw && resp && resp.text) raw = resp.text;
     if (!raw && resp && resp.result) raw = resp.result;
     if (!raw && resp && resp.choices && resp.choices[0] && resp.choices[0].message && resp.choices[0].message.content) raw = resp.choices[0].message.content;
-    if (!raw && resp && resp.response) raw = resp.response;
+Note:    if (!raw && resp && resp.response) raw = resp.response;
 
     raw = (raw || "").toString().trim();
 
@@ -704,7 +706,7 @@ function extractText(resp) {
 }
 
 /* ============================================================
-   MODE DETECTOR
+Note:   MODE DETECTOR
    ============================================================ */
 
 function detectMode(prompt, file_content, filename) {
