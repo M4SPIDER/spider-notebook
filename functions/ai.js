@@ -90,62 +90,63 @@ TELANGANA_TRAINING_BLOCK + "\n" +
 "- 🕷️🕸️🔥 for Spider identity.\n";
 
 // ============================================================
-// FIREBASE ID TOKEN VERIFY BLOCK (FIXED)
+// FIREBASE ID TOKEN VERIFY FUNCTION (wrapped & safe for ESM)
 // ============================================================
+async function verifyFirebaseToken(idToken) {
 
-if (!idToken) return null;
+  if (!idToken) return null;
 
-try {
-  const parts = idToken.split(".");
-  if (parts.length !== 3) return null;
+  try {
+    const parts = idToken.split(".");
+    if (parts.length !== 3) return null;
 
-  const header = JSON.parse(atob(parts[0]));
-  const payload = JSON.parse(atob(parts[1]));
-  const kid = header.kid;
+    const header = JSON.parse(atob(parts[0]));
+    const payload = JSON.parse(atob(parts[1]));
+    const kid = header.kid;
 
-  const firebaseKeys = await fetch(
-    "https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com"
-  ).then(r => r.json());
+    const firebaseKeys = await fetch(
+      "https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com"
+    ).then(r => r.json());
 
-  const cert = firebaseKeys[kid];
-  if (!cert) return null;
+    const cert = firebaseKeys[kid];
+    if (!cert) return null;
 
-  const pem = cert
-    .replace("-----BEGIN CERTIFICATE-----", "")
-    .replace("-----END CERTIFICATE-----", "")
-    .replace(/\s+/g, "");
+    const pem = cert
+      .replace("-----BEGIN CERTIFICATE-----", "")
+      .replace("-----END CERTIFICATE-----", "")
+      .replace(/\s+/g, "");
 
-  const binaryDer = Uint8Array.from(atob(pem), c => c.charCodeAt(0));
+    const binaryDer = Uint8Array.from(atob(pem), c => c.charCodeAt(0));
 
-  const cryptoKey = await crypto.subtle.importKey(
-    "spki",
-    binaryDer,
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-    true,
-    ["verify"]
-  );
+    const cryptoKey = await crypto.subtle.importKey(
+      "spki",
+      binaryDer,
+      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+      true,
+      ["verify"]
+    );
 
-  const signature = parts[2].replace(/-/g, "+").replace(/_/g, "/");
-  const signatureBytes = Uint8Array.from(atob(signature), c => c.charCodeAt(0));
+    const signature = parts[2].replace(/-/g, "+").replace(/_/g, "/");
+    const signatureBytes = Uint8Array.from(atob(signature), c => c.charCodeAt(0));
 
-  const valid = await crypto.subtle.verify(
-    "RSASSA-PKCS1-v1_5",
-    cryptoKey,
-    signatureBytes,
-    new TextEncoder().encode(parts[0] + "." + parts[1])
-  );
+    const valid = await crypto.subtle.verify(
+      "RSASSA-PKCS1-v1_5",
+      cryptoKey,
+      signatureBytes,
+      new TextEncoder().encode(parts[0] + "." + parts[1])
+    );
 
-  if (!valid) return null;
-  if (payload.aud !== FIREBASE_PROJECT_ID) return null;
-  if (payload.iss !== ("https://securetoken.google.com/" + FIREBASE_PROJECT_ID)) return null;
-  if (payload.exp * 1000 < Date.now()) return null;
+    if (!valid) return null;
+    if (payload.aud !== FIREBASE_PROJECT_ID) return null;
+    if (payload.iss !== ("https://securetoken.google.com/" + FIREBASE_PROJECT_ID)) return null;
+    if (payload.exp * 1000 < Date.now()) return null;
 
-  return payload;
+    return payload;
 
-} catch {
-  return null;
-     }
-    
+  } catch {
+    return null;
+  }
+}
 
 /* ============================================================
    MAIN HANDLER
@@ -367,8 +368,9 @@ export async function onRequest(context) {
     extraSystemInstructions.push(
       "Savage mode enabled. Use playful Telangana-style roast. Be humorous, bold, not offensive."
     );
-}
-/* ============================================================
+  }
+
+  /* ============================================================
      FILE ANALYSIS
      ============================================================ */
 
@@ -557,7 +559,6 @@ async function runSearch(query) {
 /* ============================================================
    TEXT EXTRACTOR (anti-repeat, robust)
    ============================================================ */
-
 function extractText(resp) {
   try {
     let raw = "";
@@ -620,6 +621,6 @@ function detectMode(prompt, file_content, filename) {
 }
 
 /* ============================================================
-   END OF PART 3 — FULL FILE ASSEMBLED (Parts 1 → 2 → 3)
+   END OF FILE
    Deploy now. If Cloudflare returns an error, paste the exact error text.
    ============================================================ */
