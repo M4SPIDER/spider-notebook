@@ -6,10 +6,10 @@ FULL EMOJI SYSTEM ENABLED
 ============================================================ */
 
 /* ===== CONFIG ===== */
-const MEMORY_MESSAGE_LIMIT = 40;
-const MEMORY_TRIM_TARGET = 20;
+const MEMORY_MESSAGE_LIMIT = 200;
+const MEMORY_TRIM_TARGET = 200;
 const MEMORY_TTL_DAYS = 30;
-const MEMORY_SUMMARY_TRIGGER = 30;
+const MEMORY_SUMMARY_TRIGGER = 300;
 const MEMORY_USER_KEY_PREFIX = "chat_memory:";
 const FIREBASE_PROJECT_ID = "m4-spider";
 
