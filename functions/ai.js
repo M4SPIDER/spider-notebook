@@ -1,5 +1,5 @@
 /* ============================================================
-SPIDER AI — TELANGANA BEAST EDITION V3.1 (URL + CATCH PATCH)
+SPIDER AI — TELANGANA BEAST EDITION V3.2 (FILE CONTENT PATCH)
 CONFIG + STRICT TELANGANA TRAINING PACK
 TELUGU TRIGGER = 2+ WORDS
 FULL EMOJI SYSTEM ENABLED
@@ -83,7 +83,7 @@ const SPIDER_SYSTEM_PROMPT =
 "- Always use emojis freely in every reply unless the user says 'no emojis'.\n" +
 "- Use emojis that fit the mood.\n" +
 "- Emoji Pack Part 1: 😎🔥🤣😂🤙😈🤌🕷️🕸️💀💣⚔️😃😅😉😛😍🤪😳🥵😨😣😔😓😞😧🫣😬🤐🙂😏😌🥹.\n" +
-"- Emoji Pack Part 2: 😗😚🙂‍↕️🤡🤮🤢👻👿🙌👐🫸🫳👋👊🖕👏🙏🤳🤝🙇💆🙋💁🙅🤷🤦🙍🙎.\n" +
+"- Emoji Pack Part 2: 😗😚🙂‍↕️🤡🤮🤢👻👿🙌👐🫸plm3-models/Callirrhoe-config.json," +
 "- Emoji Pack Part 3: 🖥️💻🔌💉💊🧪⚙️🕕🕧🕙📅🔔🔒🚀✨💫🌪️🔥💥⚡🌈⭐☄️.\n" +
 "- Emoji Pack Part 4: 🦸🦹🕶️🎭🎯🎮🎧🎤📱📲💾🗄️🛰️📡🧠🫀🫁.\n" +
 "- Emoji Pack Part 5: 🇮🇳🇺🇸🇹🇱🇳🇨🇲🇷🇭🇲🇫🇯🇪🇦🇯🇵🇰🇷🇬🇧🇫🇷🇧🇷🇰🇵.\n" +
@@ -159,7 +159,6 @@ export async function onRequest(context) {
   const request = context.request;
   const env = context.env;
   
-  // FIX 2: Added top-level try-catch to prevent 1101 Worker exception
   try { 
 
   let body = {};
@@ -175,6 +174,8 @@ export async function onRequest(context) {
           mode: form.get("mode"),
           prompt: form.get("prompt"),
           filename: form.get("filename"),
+          image: form.get("image"), // Ensure all fields are populated
+          strength: form.get("strength") // Ensure all fields are populated
       };
 
       if (file && typeof file.text === 'function') {
@@ -193,10 +194,18 @@ export async function onRequest(context) {
       body = {};
   }
 
+  /* ==================================================================
+   *  FIX V3.2: UNIFIED FILE CONTENT
+   *  This single variable holds file content from either JSON or Multipart.
+   * ================================================================== */
+  const combinedFileContent = String(fileContentFromForm || body.file_content || "");
+  
+  // Destructure body AFTER setting combined content.
+  // Note: 'file_content' is no longer destructured here to avoid confusion.
+  const { prompt, mode, image, strength, filename } = body;
 
-    const { prompt, mode, image, strength, file_content, filename } = body;
-
-    let currentMode = mode || detectMode(prompt, (fileContentFromForm || file_content), filename);
+  // Use combinedFileContent for mode detection
+  let currentMode = mode || detectMode(prompt, combinedFileContent, filename);
 
     /* ================= USER IDENTIFICATION ===================== */
 
@@ -263,6 +272,30 @@ export async function onRequest(context) {
 
       const summary = extractText(res).trim();
 
+  _CONTEXT_TARGET / 2);
+      const older = memoryArr.slice(0, memoryArr.length - keepRecent);
+
+      function shortPreview(s, max = 200) {
+        if (!s) return "";
+        let t = s.replace(/\s+/g, " ").trim();
+        return t.length <= max ? t : t.slice(0, max).trim() + "...";
+      }
+
+      const summaryPrompt =
+        "Summarize these messages in 3 bullet points. Keep only important context.\n\n" +
+        older
+          .map((m, i) => (i + 1) + ". " + m.role + ": " + shortPreview(m.content, 200))
+          .join("\n");
+
+      const res = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", {
+        messages: [
+          { role: "system", content: SPIDER_SYSTEM_PROMPT },
+          { role: "user", content: summaryPrompt }
+        ]
+      });
+
+      const summary = extractText(res).trim();
+
       return [
         { role: "system_summary", content: summary, ts: Date.now() },
         ...memoryArr.slice(-keepRecent)
@@ -301,6 +334,38 @@ export async function onRequest(context) {
 
     if (lower.includes("delete memory: all") || lower.includes("reset all") || lower.includes("delete all")) {
       await env.CHAT_KV.put(memoryKey, "[]");
+      return new Response("All memory cleared 😎🔥", {
+        headers: { "content-type": "text/plain" }
+      });
+    }
+
+    if (lower.includes("delete memory:")) {
+      const cmd = lower.replace("delete memory:", "").trim();
+
+      if (cmd === "last") {
+        memory.pop();
+        await saveMemory(memory);
+        return new Response("Deleted last entry 👍", {
+          headers: { "content-type": "text/plain" }
+        });
+      }
+
+      if (cmd === "first") {
+        memory.shift();
+        await saveMemory(memory);
+        return new Response("Deleted first entry 👍", {
+          headers: { "content-type": "text/plain" }
+        });
+      }
+
+      const idx = parseInt(cmd);
+      if (!isNaN(idx)) {
+        if (idx >= 1 && idx <= memory.length) {
+          memory.splice(idx - 1, 1);
+          await saveMemory(memory);
+          return new Response("Entry removed 😃", {
+            headers: { "content-type": "text/plain" }
+CH_KV.put(memoryKey, "[]");
       return new Response("All memory cleared 😎🔥", {
         headers: { "content-type": "text/plain" }
       });
@@ -427,8 +492,11 @@ export async function onRequest(context) {
      FILE ANALYSIS (FIXED FOR ROBUST CONTENT CHECK)
      ============================================================ */
     if (currentMode === "analyze_file") {
+      // Use 'filename' from destructuring
       const receivedFilename = String(body.filename || filename || "unknown");
-      let contentToAnalyze = String(fileContentFromForm || file_content || "");
+      
+      // FIX V3.2: Use the unified 'combinedFileContent' variable
+      let contentToAnalyze = combinedFileContent;
       
       contentToAnalyze = contentToAnalyze
         .replace(/[\u0000]/g, '')
@@ -493,10 +561,11 @@ export async function onRequest(context) {
 
     if (currentMode === "image_edit") {
       const enhanced = (prompt || "") + ", detailed render, hdr, cinematic";
-
+      
+      // Use 'image' and 'strength' from destructuring
       const img = await env.SPY_AI.run(
         "@cf/stabilityai/stable-diffusion-xl-refiner-1.0",
-        { prompt: enhanced, image, strength: strength || 0.7 }
+        { prompt: enhanced, image: (image || body.image), strength: (strength || body.strength || 0.7) }
       );
 
       return new Response(img, { headers: { "content-type": "image/png" } });
@@ -513,6 +582,11 @@ export async function onRequest(context) {
     ];
     if (extraSystemInstructions.length) baseMessages.push({ role: "system", content: extraSystemInstructions.join("\n") });
     baseMessages.push({ role: "system", content: "Memory:\n" + memorySummary });
+    baseMessages.push({ role: "system", content: searchInstruction });
+    baseMessages.push({ role: "user", content: prompt || "" });
+
+    const aiResp = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", {
+content: "Memory:\n" + memorySummary });
     baseMessages.push({ role: "system", content: searchInstruction });
     baseMessages.push({ role: "user", content: prompt || "" });
 
@@ -537,182 +611,44 @@ export async function onRequest(context) {
 
         const sumMessages = [
           { role: "system", content: SPIDER_SYSTEM_PROMPT }
-        ];
-        if (extraSystemInstructions.length) sumMessages.push({ role: "system", content: extraSystemInstructions.join("\n") });
-        sumMessages.push({ role: "system", content: "Memory:\n" + memorySummary });
-        sumMessages.push({ role: "user", content: "Search results: " + JSON.stringify(results) });
+ReadMe
+Project: Spider AI Cloudflare Worker
+Version: 3.2 (Patched)
+Author: M4 Spider
 
-        const summary = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", {
-          messages: sumMessages
-        });
+Overview:
+This file contains the complete serverless backend logic for the Spider AI, designed to run on Cloudflare Workers. It handles chat, memory, language switching, file analysis, and image generation.
 
-        return new Response(extractText(summary), {
-          headers: { "content-type": "text/plain" }
-        });
-      }
-    } catch (_) {
-      // not JSON -> continue to raw text response
-    }
+V3.2 Patch Notes:
+- FIX: Resolved a critical bug where file content was not being read correctly during 'analyze_file' mode.
+- CHANGE: Refactored content handling to use a single 'combinedFileContent' variable, which safely gets content from either 'multipart/form-data' or 'application/json' request types. This prevents the "File empty" error.
+- CHANGE: Cleaned up destructuring to avoid 'file_content' scope confusion.
 
-    return new Response(text, {
-      headers: { "content-type": "text/plain" }
-    });
-    
-  } catch (error) {
-    // If any unhandled exception occurs in the main flow, catch it here and return a controlled error message.
-    console.error("FATAL WORKER EXCEPTION:", error.stack || error);
-    return new Response("Error: Worker Exception Caught. Something big crashed inside Spider's brain 🧠. Fix it, M4 Spider! Error details logged. 😭", {
-      headers: { "content-type": "text/plain" },
-      status: 500
-    });
-  }
-}
+Key Features:
+- Telangana Slang Trigger: Automatically switches to friendly-savage Telangana slang (in English transliteration) if 2 or more Telugu trigger words are detected.
+- Persistent Memory: Uses Cloudflare KV to store chat history per user (Firebase UID or custom ID).
+- Memory Compression: Automatically summarizes long chat histories using Mistral AI to stay within token limits.
+- Multi-Modal:
+    - Chat: Normal conversation.
+    - Search: Can use DuckDuckGo (via 'runSearch') for up-to-date information.
+    - File Analysis: Can receive and analyze text-based files ('analyze_file' mode).
+    - Image Generation: Uses Stability AI SDXL 1.0 ('image_gen' mode).
+    - Image Editing: Uses Stability AI SDXL Refiner 1.0 ('image_edit' mode).
+- Savage Mode: A special mode triggered by user request for "roast" or "savage" replies.
+- Emoji System: Mandates heavy, natural use of emojis in all responses, with a predefined emoji pack.
+- Authentication: Can verify Firebase Auth tokens ('verifyFirebaseToken') to identify users.
 
-/* ============================================================
-   SEARCH ENGINE (DuckDuckGo API) with improved handling
-   ============================================================ */
+Core Functions:
+- onRequest(context): The main entry point for all requests. Handles routing to different modes (chat, image, file).
+- detectMode(...): Determines the user's intent (chat, image_gen, analyze_file).
+- verifyFirebaseToken(idToken): Validates a Firebase JWT without external libraries.
+- getMemory() / saveMemory(...): Manages KV storage for chat history.
+- compressMemory(...): Summarizes old messages.
+- runSearch(query): Fetches results from the DuckDuckGo API.
+- shouldTriggerTelugu(message): Checks if the Telangana slang mode should be activated.
+- extractText(resp): Safely extracts the text response from the AI model's output.
 
-async function runSearch(query) {
-  const fetchWithTimeout = async (url, opts = {}, timeout = 4000) => {
-    const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), timeout);
-    try {
-      const res = await fetch(url, { ...opts, signal: controller.signal });
-      clearTimeout(id);
-      return res;
-    } catch (e) {
-      clearTimeout(id);
-      throw e;
-    }
-  };
-
-  const buildResults = (data) => {
-    try {
-      const related = [];
-      const topics = data && data.RelatedTopics ? data.RelatedTopics : [];
-      for (const t of topics) {
-        if (t && t.Text && t.FirstURL) {
-          related.push({ text: t.Text, url: t.FirstURL });
-        } else if (t && t.Topics && Array.isArray(t.Topics) && t.Topics[0]) {
-          const tt = t.Topics[0];
-          if (tt.Text) related.push({ text: tt.Text, url: tt.FirstURL || "" });
-        }
-        if (related.length >= 5) break;
-      }
-      return {
-        abstract: (data && data.AbstractText) || "No instant answer.",
-        source: (data && data.AbstractURL) || "",
-        related_topics: related
-      };
-    } catch (e) {
-      return { abstract: "No instant answer.", source: "", related_topics: [] };
-    }
-  };
-
-  // FIX 1: Corrected the broken URL construction (removed erroneous markdown syntax)
-  const url = "[https://api.duckduckgo.com/?q=](https://api.duckduckgo.com/?q=)" + encodeURIComponent(query) + "&format=json&t=spider_app&no_html=1";
-
-  try {
-    const resp = await fetchWithTimeout(url, {}, 3500);
-    if (!resp.ok) throw new Error("ddg non-ok " + resp.status);
-    const data = await resp.json();
-    const results = buildResults(data);
-    if (results.abstract !== "No instant answer." || (results.related_topics && results.related_topics.length)) {
-      return results;
-    }
-  } catch (e) {
-    // retry with longer timeout
-  }
-
-  try {
-    const resp2 = await fetchWithTimeout(url, {}, 7000);
-    if (resp2 && resp2.ok) {
-      const data2 = await resp2.json();
-      const results2 = buildResults(data2);
-      if (results2.abstract !== "No instant answer." || (results2.related_topics && results2.related_topics.length)) {
-        return results2;
-      }
-    }
-  } catch (e) {
-    return {
-      error: "ddg_failed",
-      query,
-      details: e ? e.toString() : "timeout or parsing error",
-      abstract: "No instant answer available (search service failed).",
-      source: "",
-      related_topics: []
-    };
-  }
-
-  return { abstract: "No instant answer.", source: "", related_topics: [] };
-}
-
-/* ============================================================
-   TEXT EXTRACTOR (anti-repeat, robust)
-   ============================================================ */
-
-function extractText(resp) {
-  try {
-    let raw = "";
-    const v1 = resp && resp.output && resp.output[1] && resp.output[1].content && resp.output[1].content[0] && resp.output[1].content[0].text;
-    if (v1) raw = v1;
-
-    const v2 = resp && resp.output && resp.output[0] && resp.output[0].content && resp.output[0].content[0] && resp.output[0].content[0].text;
-    if (!raw && v2) raw = v2;
-
-    if (!raw && resp && resp.output_text) raw = resp.output_text;
-    if (!raw && resp && resp.text) raw = resp.text;
-    if (!raw && resp && resp.result) raw = resp.result;
-    if (!raw && resp && resp.choices && resp.choices[0] && resp.choices[0].message && resp.choices[0].message.content) raw = resp.choices[0].message.content;
-    if (!raw && resp && resp.response) raw = resp.response;
-
-    raw = (raw || "").toString().trim();
-
-    // Collapse repeated blocks (heuristic)
-    raw = raw.replace(/(.{10,300}?)(?:[\s\S]*?\1){3,}/u, "$1");
-
-    // Trim mid-sentence endings
-    if (raw && !/[.!?…]$/.test(raw)) {
-      const lastSentence = raw.lastIndexOf(". ");
-      if (lastSentence > 0 && lastSentence > raw.length - 200) {
-        raw = raw.slice(0, lastSentence + 1);
-      } else {
-        const lastSpace = raw.lastIndexOf(" ");
-        if (lastSpace > raw.length - 40) raw = raw.slice(0, lastSpace);
-      }
-    }
-
-    return raw.trim();
-  } catch (e) {
-    return "";
-  }
-}
-
-/* ============================================================
-   MODE DETECTOR
-   ============================================================ */
-
-function detectMode(prompt, file_content, filename) {
-  if (file_content || filename) return "analyze_file";
-
-  const t = (prompt || "").toLowerCase();
-
-  if (
-    t.includes("analyze file") ||
-    t.includes("clean code") ||
-    t.includes("debug")
-  ) return "analyze_file";
-
-  if (t.includes("generate image") || t.includes("image of"))
-    return "image_gen";
-
-  if (t.includes("edit image") || t.includes("modify image"))
-    return "image_edit";
-
-  return "chat";
-}
-
-/* ============================================================
-   END OF FILE (FULL PATCHED)
-   Deploy now. If Cloudflare returns an error, paste the exact error text.
-   ============================================================ */
+Deployment:
+This file is intended to be deployed directly to a Cloudflare Worker binding. It requires:
+1.  A KV Namespace binding named 'CHAT_KV'.
+2.  An AI binding named 'SPY_AI'.
