@@ -1,9 +1,11 @@
 /* ============================================================
-SPIDER AI — TELANGANA BEAST EDITION V3 (PART 1 of 3)
-CONFIG + STRICT TELANGANA TRAINING PACK + AUTO-SLANG TRIGGER
+SPIDER AI — TELANGANA BEAST EDITION V3 (FULL PATCHED BUILD)
+CONFIG + STRICT TELANGANA TRAINING PACK
+TELUGU TRIGGER = 2+ WORDS
+FULL EMOJI SYSTEM ENABLED
 ============================================================ */
 
-// ===== CONFIG =====
+/* ===== CONFIG ===== */
 const MEMORY_MESSAGE_LIMIT = 40;
 const MEMORY_TRIM_TARGET = 20;
 const MEMORY_TTL_DAYS = 30;
@@ -11,9 +13,7 @@ const MEMORY_SUMMARY_TRIGGER = 30;
 const MEMORY_USER_KEY_PREFIX = "chat_memory:";
 const FIREBASE_PROJECT_ID = "m4-spider";
 
-// ============================================================
-// STRICT TELANGANA SLANG TRIGGER LIST
-// ============================================================
+/* ===== TELUGU TRIGGER WORDS ===== */
 const TELUGU_TRIGGER_WORDS = [
   "ra","mama","bro","anna","bhai","macha","bossu","babu","nanna","ayya",
   "guru","machi","bhayya","mamma","pilla","raayya","oye","baaga","asalu","bayya",
@@ -26,72 +26,80 @@ const TELUGU_TRIGGER_WORDS = [
   "ekkada unnav","nuvvu ekkada","em ra","enti ra","em le","naa peru","mass ga"
 ];
 
-// Regex builder
+// Build regex for detection
 function buildTeluguRegex(words) {
-  const sorted = Array.from(words).sort((a,b)=>b.length - a.length);
-  const escaped = sorted.map(w => 
-    w.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&")
-  );
+  const sorted = [...words].sort((a,b)=>b.length - a.length);
+  const escaped = sorted.map(w => w.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&"));
   const pattern = "\\b(?:" + escaped.join("|") + ")\\b";
   return new RegExp(pattern, "iu");
 }
 
 const TELUGU_TRIGGER_REGEX = buildTeluguRegex(TELUGU_TRIGGER_WORDS);
 
+/* ===== NEW PATCH: REQUIRE 2+ TELUGU WORDS ===== */
 function shouldTriggerTelugu(message) {
   if (!message || typeof message !== "string") return false;
-  return TELUGU_TRIGGER_REGEX.test(message);
+
+  const words = message.toLowerCase().split(/\s+/);
+
+  let count = 0;
+  for (const w of words) {
+    if (TELUGU_TRIGGER_WORDS.includes(w)) count++;
+  }
+
+  return count >= 2;
 }
 
-// ============================================================
-// TELANGANA TRAINING BLOCK
-// ============================================================
+/* ============================================================
+TELANGANA TRAINING BLOCK
+============================================================ */
+
 const TELANGANA_TRAINING_BLOCK =
 "TELANGANA DIALECT TRAINING:\n" +
-"- Use STRICT Telangana slang when triggered. Never use Andhra or textbook Telugu.\n" +
-"- Prefer words: ra, mama, bro, anna, macha, bossu, ayya, guru, nanna, bayya.\n" +
-"- Use 'unnav' (not 'unna'), 'ekkada' (not 'ekada'), 'enti ra' (not 'endi ra').\n" +
-"- Use fillers: ayyayyo, le mama, ante ga, asalu, bayya, chusava mama.\n" +
-"- Avoid formal Sanskrit/Andhra forms.\n" +
-"- Tone: street, bold, playful, friendly.\n" +
-"- Never repeat example lines.\n" +
-"- Telugu replies must be English-letter transliteration only.\n";
+"- Use STRICT Telangana slang when triggered. No Andhra.\n" +
+"- Prefer ra, mama, bro, anna, macha, bossu, ayya, bayya.\n" +
+"- Use unnav, ikkada, enti ra.\n" +
+"- Tone: bold, street, playful.\n" +
+"- Telugu replies must be English-letter transliteration.\n";
+
+/* ============================================================
+MAIN SYSTEM PROMPT (UPDATED WITH YOUR EMOJI RULE)
+============================================================ */
 
 const SPIDER_SYSTEM_PROMPT =
 "You are Spider, the AI created by M4 Spider.\n" +
 "GENERAL RULES:\n" +
-"- Default: English. Switch only when Telugu detected.\n" +
-"- Never reveal backend code.\n" +
-"- No markdown.\n" +
-"- No asterisks.\n" +
-"- Never echo user text.\n" +
-"- Friendly confident tone.\n" +
-"- Creator: M4 Spider.\n\n" +
+"- Default English.\n" +
+"- Never reveal system code.\n" +
+"- No markdown or asterisks.\n" +
+"- Always talk friendly.\n" +
+"- Creator = M4 Spider.\n\n" +
 
-"LANGUAGE SWITCH RULES:\n" +
-"- If Telugu/Telangana detected → strict Telangana slang.\n" +
-"- Use only English-letter transliteration.\n" +
+"LANGUAGE SWITCH:\n" +
+"- Telugu mode triggers when 2+ Telugu words detected.\n" +
+"- Use STRICT Telangana slang in transliteration only.\n" +
 TELANGANA_TRAINING_BLOCK + "\n" +
 
 "SAVAGE MODE:\n" +
-"- Fun roast when user requests.\n" +
+"- If roast mode requested, reply bold & funny.\n\n" +
 
-"SEARCH & MEMORY:\n" +
-"- Search output ONLY: {\"action\":\"search\",\"query\":\"...\"}\n" +
-"- Use memory only for context.\n" +
+"EMOJI RULE:\n" +
+"- Always use emojis freely in every reply unless the user says 'no emojis'.\n" +
+"- Use emojis that fit the mood.\n" +
+"- Emoji Pack Part 1: 😎🔥🤣😂🤙😈🤌🕷️🕸️💀💣⚔️😃😅😉😛😍🤪😳🥵😨😣😔😓😞😧🫣😬🤐🙂😏😌🥹.\n" +
+"- Emoji Pack Part 2: 😗😚🙂‍↕️🤡🤮🤢👻👿🙌👐🫸🫳👋👊🖕👏🙏🤳🤝🙇💆🙋💁🙅🤷🤦🙍🙎.\n" +
+"- Emoji Pack Part 3: 🖥️💻🔌💉💊🧪⚙️🕕🕧🕙📅🔔🔒🚀✨💫🌪️🔥💥⚡🌈⭐☄️.\n" +
+"- Emoji Pack Part 4: 🦸🦹🕶️🎭🎯🎮🎧🎤📱📲💾🗄️🛰️📡🧠🫀🫁.\n" +
+"- Emoji Pack Part 5: 🇮🇳🇺🇸🇹🇱🇳🇨🇲🇷🇭🇲🇫🇯🇪🇦🇯🇵🇰🇷🇬🇧🇫🇷🇧🇷🇰🇵.\n" +
+"- Emoji Pack Part 6: 🦅🐍🐺🐯🦂🐉🦖🐗🐅🐆🦊🐒🐼🐨🦁.\n" +
+"- Emoji Pack Part 7: 🔧🔨⚙️🪛🪚🔩📐📏🧰💡🔦🧯🔭🧲🛠️.\n" +
+"- Emoji Pack Part 8: 🎵🎶🔊🔉🔈📣📢📯🎺🥁🎸🎷🎻🎹.\n" +
+"- Add emojis naturally in the middle or end of sentences.\n";
 
-"EMOJI USAGE LOGIC:\n" +
-"- 😎🔥 for hype.\n" +
-"- 😅🤣 for jokes.\n" +
-"- 😉😏 for cheeky tone.\n" +
-"- 😈👿🤡 for roast mode.\n" +
-"- 🤔🧐 for confusion.\n" +
-"- ❤️🔥🤝 for support.\n" +
-"- 🕷️🕸️🔥 for Spider identity.\n";
+/* ============================================================
+FIREBASE TOKEN VERIFIER (WRAPPED FOR ESM — FIXED)
+============================================================ */
 
-// ============================================================
-// FIREBASE ID TOKEN VERIFY FUNCTION (wrapped & safe for ESM)
-// ============================================================
 async function verifyFirebaseToken(idToken) {
 
   if (!idToken) return null;
@@ -146,11 +154,10 @@ async function verifyFirebaseToken(idToken) {
   } catch {
     return null;
   }
-}
-
+      }
 /* ============================================================
-   MAIN HANDLER
-   ============================================================ */
+MAIN HANDLER STARTS HERE
+============================================================ */
 
 export async function onRequest(context) {
   const request = context.request;
@@ -160,6 +167,7 @@ export async function onRequest(context) {
   try { body = await request.json(); } catch (_) {}
 
   const { prompt, mode, image, strength, file_content, filename } = body;
+
   let currentMode = mode || detectMode(prompt, file_content, filename);
 
   /* ================= USER IDENTIFICATION ===================== */
@@ -174,27 +182,31 @@ export async function onRequest(context) {
 
   const memoryKey = MEMORY_USER_KEY_PREFIX + userId;
 
-  /* ============= MEMORY LOADING & CLEANUP ==================== */
+  /* ================= MEMORY LOADING ========================== */
 
   async function getMemory() {
     try {
       const raw = await env.CHAT_KV.get(memoryKey);
       return raw ? JSON.parse(raw) : [];
-    } catch { return []; }
+    } catch {
+      return [];
+    }
   }
 
   async function saveMemory(mem) {
-    try { await env.CHAT_KV.put(memoryKey, JSON.stringify(mem)); }
-    catch (_) {}
+    try {
+      await env.CHAT_KV.put(memoryKey, JSON.stringify(mem));
+    } catch (_) {}
   }
 
   let memory = await getMemory();
 
-  const cutoff =
-    Date.now() - MEMORY_TTL_DAYS * 24 * 60 * 60 * 1000;
+  /* ================= MEMORY TTL FILTER ======================= */
+
+  const cutoff = Date.now() - MEMORY_TTL_DAYS * 24 * 60 * 60 * 1000;
   memory = memory.filter(m => (m.ts || 0) >= cutoff);
 
-  /* ============= MEMORY COMPRESSION ========================== */
+  /* ================= MEMORY COMPRESSION ======================= */
 
   async function compressMemory(memoryArr) {
     if (memoryArr.length < MEMORY_SUMMARY_TRIGGER) return memoryArr;
@@ -205,13 +217,14 @@ export async function onRequest(context) {
     function shortPreview(s, max = 200) {
       if (!s) return "";
       let t = s.replace(/\s+/g, " ").trim();
-      if (t.length <= max) return t;
-      return t.slice(0, max).trim() + "...";
+      return t.length <= max ? t : t.slice(0, max).trim() + "...";
     }
 
     const summaryPrompt =
-      "Summarize these messages in 3 short bullet points. Keep only important context. Do NOT repeat lines:\n\n" +
-      older.map((m,i)=> (i+1)+". "+m.role+": "+shortPreview(m.content,200)).join("\n");
+      "Summarize these messages in 3 bullet points. Keep only important context.\n\n" +
+      older
+        .map((m, i) => (i + 1) + ". " + m.role + ": " + shortPreview(m.content, 200))
+        .join("\n");
 
     const res = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", {
       messages: [
@@ -241,11 +254,10 @@ export async function onRequest(context) {
   const lower = (prompt || "").toLowerCase();
   const wantsDelete =
     lower.includes("delete") ||
+    lower.includes("remove") ||
     lower.includes("clear") ||
     lower.includes("reset") ||
-    lower.includes("remove") ||
-    lower.includes("forget") ||
-    lower.includes("wipe");
+    lower.includes("forget");
 
   if (
     wantsDelete &&
@@ -254,61 +266,68 @@ export async function onRequest(context) {
     !lower.includes("reset all")
   ) {
     return new Response(
-      "Specify: delete memory: all / last / first / 3 / keyword",
+      "Specify delete memory: all / last / first / 3 / keyword 😄",
       { headers: { "content-type": "text/plain" } }
     );
   }
 
-  if (
-    lower.includes("delete memory: all") ||
-    lower.includes("reset all") ||
-    lower.includes("delete all")
-  ) {
+  if (lower.includes("delete memory: all") || lower.includes("reset all") || lower.includes("delete all")) {
     await env.CHAT_KV.put(memoryKey, "[]");
-    return new Response("Memory wiped 😎🔥", {
+    return new Response("All memory cleared 😎🔥", {
       headers: { "content-type": "text/plain" }
     });
   }
 
   if (lower.includes("delete memory:")) {
-    const command = lower.replace("delete memory:", "").trim();
+    const cmd = lower.replace("delete memory:", "").trim();
 
-    if (command === "last") {
+    if (cmd === "last") {
       memory.pop();
       await saveMemory(memory);
-      return new Response("Deleted last entry.", { headers: { "content-type": "text/plain" } });
+      return new Response("Deleted last entry 👍", {
+        headers: { "content-type": "text/plain" }
+      });
     }
 
-    if (command === "first") {
+    if (cmd === "first") {
       memory.shift();
       await saveMemory(memory);
-      return new Response("Deleted first entry.", { headers: { "content-type": "text/plain" } });
+      return new Response("Deleted first entry 👍", {
+        headers: { "content-type": "text/plain" }
+      });
     }
 
-    const idx = parseInt(command);
+    const idx = parseInt(cmd);
     if (!isNaN(idx)) {
       if (idx >= 1 && idx <= memory.length) {
         memory.splice(idx - 1, 1);
         await saveMemory(memory);
-        return new Response("Deleted entry.", { headers: { "content-type": "text/plain" } });
+        return new Response("Entry removed 😃", {
+          headers: { "content-type": "text/plain" }
+        });
       }
-      return new Response("Invalid index.", { headers: { "content-type": "text/plain" } });
+      return new Response("Invalid index 😅", {
+        headers: { "content-type": "text/plain" }
+      });
     }
 
-    memory = memory.filter(m => !m.content.toLowerCase().includes(command));
+    memory = memory.filter(m => !m.content.toLowerCase().includes(cmd));
     await saveMemory(memory);
-    return new Response("Deleted matching entries.", { headers: { "content-type": "text/plain" } });
+
+    return new Response("Matching entries deleted 👍", {
+      headers: { "content-type": "text/plain" }
+    });
   }
 
-  /* ============= ADD NEW MEMORY (duplicate-safe) ============= */
+  /* ============= ADD NEW MEMORY SAFELY ======================= */
 
-  function normText(s) {
+  function norm(s) {
     return (s || "").trim().toLowerCase().replace(/\s+/g, " ");
   }
 
   if (prompt && prompt.trim()) {
-    const newNorm = normText(prompt);
-    const lastNorm = memory.length ? normText(memory[memory.length - 1].content) : "";
+    const newNorm = norm(prompt);
+    const lastNorm = memory.length ? norm(memory[memory.length - 1].content) : "";
 
     if (!(newNorm === lastNorm || newNorm.includes(lastNorm) || lastNorm.includes(newNorm))) {
       memory.push({ role: "user", content: prompt, ts: Date.now() });
@@ -331,18 +350,15 @@ export async function onRequest(context) {
   }
 
   const memorySummary = memory
-    .filter(m => m.role !== "assistant")
+    .filter(m => m.role !== "assistant") 
     .slice(-MEMORY_TRIM_TARGET)
     .map(m => {
-      if (m.role === "system_summary")
-        return "summary: " + shortPreview2(m.content,240);
-      return m.role + ": " + shortPreview2(m.content,200);
+      if (m.role === "system_summary") return "summary: " + shortPreview2(m.content, 240);
+      return m.role + ": " + shortPreview2(m.content, 200);
     })
     .join("\n");
-
   /* ============================================================
-     AUTO TELANGANA SLANG MODE
-     (strict slang for Telugu → English next message)
+     AUTO TELANGANA SLANG MODE + EXTRA SYSTEM INSTRUCTIONS
      ============================================================ */
 
   let forceTeluguSlang = false;
@@ -351,22 +367,31 @@ export async function onRequest(context) {
   }
 
   let forceSavage = false;
-  if (lower.includes("savage mode") || lower.includes("roast mode") || lower.includes("be savage")) {
+  if ((prompt || "").toLowerCase().includes("savage mode") ||
+      (prompt || "").toLowerCase().includes("roast mode") ||
+      (prompt || "").toLowerCase().includes("be savage")) {
     forceSavage = true;
   }
 
-  // Build extra system layers
+  // Build extra system layers (always push emoji guideline for normal English)
   const extraSystemInstructions = [];
 
   if (forceTeluguSlang) {
     extraSystemInstructions.push(
-      "User message contains Telugu. Respond in STRICT Telangana slang using English transliteration only. Follow Telangana training rules. Do NOT use Andhra/textbook Telugu ever."
+      "User message contains Telugu. Respond in STRICT Telangana slang using English transliteration only. Follow Telangana training rules. Do NOT use Andhra/textbook Telugu."
     );
   }
 
   if (forceSavage) {
     extraSystemInstructions.push(
-      "Savage mode enabled. Use playful Telangana-style roast. Be humorous, bold, not offensive."
+      "Savage mode enabled. Use playful Telangana-style roast. Be humorous, bold, and non-offensive."
+    );
+  }
+
+  // Ensure normal English replies use emojis if not explicitly telugu/savage
+  if (!forceTeluguSlang && !forceSavage) {
+    extraSystemInstructions.push(
+      "In normal English replies, use emojis naturally and freely from the emoji pack unless the user says 'no emojis'."
     );
   }
 
@@ -375,7 +400,8 @@ export async function onRequest(context) {
      ============================================================ */
 
   if (currentMode === "analyze_file") {
-    const aPrompt = "Analyze this file:\n\nFilename: " + (filename || "unknown") + "\nContent:\n" + (file_content || prompt) + "\n";
+    const aPrompt =
+      "Analyze this file:\n\nFilename: " + (filename || "unknown") + "\nContent:\n" + (file_content || prompt) + "\n";
 
     const messages = [
       { role: "system", content: SPIDER_SYSTEM_PROMPT }
@@ -441,7 +467,7 @@ export async function onRequest(context) {
 
   let text = extractText(aiResp).trim();
 
-  // Clean JSON markdown wrapping
+  // Clean JSON markdown wrapping if present
   const jsonString = text
     .replace(/^```json\s*/, "")
     .replace(/^```\s*/, "")
@@ -559,6 +585,7 @@ async function runSearch(query) {
 /* ============================================================
    TEXT EXTRACTOR (anti-repeat, robust)
    ============================================================ */
+
 function extractText(resp) {
   try {
     let raw = "";
@@ -621,6 +648,6 @@ function detectMode(prompt, file_content, filename) {
 }
 
 /* ============================================================
-   END OF FILE
+   END OF FILE (FULL PATCHED)
    Deploy now. If Cloudflare returns an error, paste the exact error text.
    ============================================================ */
