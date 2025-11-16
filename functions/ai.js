@@ -210,6 +210,10 @@ PART 3/3 — MAIN CHAT ENGINE + MEMORY + ALL OPERATIONS
 SPIDER AI — CLEAN EDITION V3
 PART 3/3 — MAIN CHAT ENGINE + MEMORY + ALL OPERATIONS
 ============================================================ */
+/* ============================================================
+SPIDER AI — CLEAN EDITION V3 — FIXED
+PART 3/3 — MAIN CHAT ENGINE (UNICODE SAFE)
+============================================================ */
 
 export async function onRequest(context) {
   const request = context.request;
@@ -237,9 +241,9 @@ export async function onRequest(context) {
   if (normal) toneEmojiPack = SAVAGE_EMOJIS;
 
   /* ============================================================
-  TELUGU MODE
+  TELUGU MODE — ONLY IF TELUGU SCRIPT PRESENT
   ============================================================= */
-  const teluguMode = isTeluguMode(prompt);
+  const teluguMode = containsTeluguScript(prompt);
 
   /* ============================================================
   FILE ANALYSIS
@@ -275,13 +279,13 @@ export async function onRequest(context) {
   MAIN CHAT + AUTO SEARCH
   ============================================================= */
 
-  // Build base messages
+  // Base messages
   let messages = [
     { role: "system", content: SPIDER_SYSTEM_PROMPT },
     { role: "user", content: prompt }
   ];
 
-  // Auto-search detection
+  // Auto-search conditions
   const needsSearch =
     prompt.toLowerCase().includes("who is") ||
     prompt.toLowerCase().includes("what is") ||
@@ -291,42 +295,49 @@ export async function onRequest(context) {
     prompt.toLowerCase().includes("info about");
 
   let searchResults = null;
+
   if (needsSearch) {
     searchResults = await runSearch(prompt);
   }
 
-  // Add search data to the model input
+  // Inject search results into LLM
   if (searchResults && searchResults.abstract) {
     messages.push({
       role: "assistant",
       content:
-        "Here is some info from search:\n" +
+        "Search result:\n" +
         searchResults.abstract +
-        "\nMore: " + (searchResults.related || []).join(" | ")
+        "\nRelated: " + (searchResults.related || []).join(" | ")
     });
   }
 
-  // Run Mistral
+  // Run Mistral 24B
   const model = "@cf/mistralai/mistral-small-3.1-24b-instruct";
 
   const resp = await env.SPY_AI.run(model, { messages }).catch(() => null);
   let text = extractText(resp || "");
 
-  // Remove any auto translation
+  // Remove auto translation
   text = removeAutoTranslation(text);
 
   /* ============================================================
   TELUGU FINAL CLEANUP
   ============================================================= */
   if (teluguMode) {
-    // Remove Telugu script (we only want English transliteration)
+    // Remove Telugu script from model output (keep English transliteration)
     text = text.replace(/[\u0C00-\u0C7F]+/g, "");
   }
 
   /* ============================================================
-  SOFT MODE + SAVAGE EMOJI INJECTION
+  EMOJI INSERTION (UNICODE SAFE — FIXED)
   ============================================================= */
-  text += " " + toneEmojiPack.split("").sort(() => Math.random() - 0.5)[0];
+  const emojis = [...toneEmojiPack.matchAll(/[\p{Emoji_Presentation}\p{Emoji}\u200d]+/gu)]
+    .map(x => x[0]);
+
+  if (emojis.length > 0) {
+    const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
+    text += " " + randomEmoji;
+  }
 
   /* ============================================================
   FINAL RESPONSE
@@ -336,9 +347,10 @@ export async function onRequest(context) {
   });
 }
 
-/* ------------------------------------------------------------
-SMALL TEXT EXTRACTOR (SAFE)
------------------------------------------------------------- */
+
+/* ============================================================
+SAFE TEXT EXTRACTOR
+============================================================ */
 function extractText(resp) {
   try {
     if (resp.output_text) return resp.output_text;
