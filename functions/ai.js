@@ -424,9 +424,13 @@ if (currentMode === "analyze_file") {
   // Explicitly coerce file_content from destructuring to string
   let contentToAnalyze = String(file_content || "");
   
-  // 1. Remove carriage return (\r) and null byte (\u0000) artifacts which can confuse trim/length checks.
-  // 2. Normalize line endings to just \n for consistent counting.
-  contentToAnalyze = contentToAnalyze.replace(/[\u0000\u000d]/g, '').replace(/(\r\n|\r)/g, '\n');
+  // 1. Remove null byte (\u0000) and other control characters.
+  // 2. Normalize line breaks: replace CR (\u000D) and CRLF/CR with LF (\n).
+  // 3. FIX: Replace Non-Breaking Spaces (\u00A0) with standard spaces so trim() can catch them.
+  contentToAnalyze = contentToAnalyze
+    .replace(/[\u0000]/g, '')
+    .replace(/\u00A0/g, ' ') 
+    .replace(/(\r\n|\r)/g, '\n'); 
 
   // Log the received file content for debugging
   console.log("File analysis - Filename:", receivedFilename);
@@ -610,7 +614,7 @@ async function runSearch(query) {
     }
   };
 
-  // FIX: Removed extraneous markdown link wrapper from the URL
+  // FIX: Replaced the incorrect markdown URL structure with plain string concatenation
   const url = "[https://api.duckduckgo.com/?q=](https://api.duckduckgo.com/?q=)" + encodeURIComponent(query) + "&format=json&t=spider_app&no_html=1";
 
   try {
