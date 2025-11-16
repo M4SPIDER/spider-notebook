@@ -1641,29 +1641,41 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
 
     // ---------- FIXED: Send message (file analysis fix) ----------
 async function sendToBackend(url, data, mode) {
-    // FILE ANALYSIS → ALWAYS FormData
+    // FILE ANALYSIS → FormData only
     if (mode === "analyze_file") {
         const form = new FormData();
-        Object.entries(data).forEach(([key, value]) => {
-            if (value !== undefined && value !== null) {
-                form.append(key, value);
-            }
+        Object.entries(data).forEach(([k, v]) => {
+            if (v !== undefined && v !== null) form.append(k, v);
         });
 
-        const res = await fetch(url, {
-            method: "POST",
-            body: form,
-        });
+        const res = await fetch(url, { method: "POST", body: form });
 
-        // Read response ONCE
-        const contentType = res.headers.get("content-type") || "";
+        // SINGLE READ FIX
+        const text = await res.text();
 
-        if (contentType.includes("application/json")) {
-            return await res.json();
-        } else {
-            return { text: await res.text() };
+        try {
+            return JSON.parse(text);
+        } catch {
+            return { text };
         }
     }
+
+    // NORMAL CHAT / IMAGE GEN / EDIT → JSON payload
+    const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+    });
+
+    // SINGLE READ FIX
+    const text = await res.text();
+
+    try {
+        return JSON.parse(text);
+    } catch {
+        return { text };
+    }
+}
 
     // NORMAL CHAT + IMAGE GEN + IMAGE EDIT → JSON
     const res = await fetch(url, {
@@ -3084,6 +3096,7 @@ int main() {
         </>
     );
 }
+
 
 
 
