@@ -183,7 +183,6 @@ if (contentType.includes("multipart/form-data")) {
     body = {};
 }
 
-const { prompt, mode, filename, file_content } = body;
 
   const { prompt, mode, image, strength, file_content, filename } = body;
 
