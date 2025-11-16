@@ -1640,220 +1640,169 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
     };
 
     // ---------- FIXED: Send message (file analysis fix) ----------
-async function sendToBackend(url, data, mode) {
-    // FILE ANALYSIS → FormData only
-    if (mode === "analyze_file") {
-        const form = new FormData();
-        Object.entries(data).forEach(([k, v]) => {
-            if (v !== undefined && v !== null) form.append(k, v);
-        });
+    const handleSendMessage = async () => {
+        if (!message.trim() && !uploadedFile && !uploadedImage) return;
 
-        const res = await fetch(url, { method: "POST", body: form });
+        setIsLoading(true);
 
-        // SINGLE READ FIX
-        const text = await res.text();
+        // capture current state into local variables so clearing state later won't break us
+        const fileCopy = uploadedFile;
+        const imageCopy = uploadedImage;
+        const selectedActiveMode = activeAIMode; // preserve current activeAIMode
+        let mode = selectedActiveMode || "chat";
 
-        try {
-            return JSON.parse(text);
-        } catch {
-            return { text };
-        }
-    }
+        // prioritize explicit uploads
+        if (fileCopy) mode = "analyze_file";
+        if (imageCopy) mode = "image_edit";
+        // keep image_gen if user explicitly set it
+        if (!fileCopy && !imageCopy && selectedActiveMode === 'image_gen') mode = 'image_gen';
 
-    // NORMAL CHAT / IMAGE GEN / EDIT → JSON payload
-    const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-    });
-
-    // SINGLE READ FIX
-    const text = await res.text();
-
-    try {
-        return JSON.parse(text);
-    } catch {
-        return { text };
-    }
-}
-
-    // NORMAL CHAT + IMAGE GEN + IMAGE EDIT → JSON
-    const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-    });
-
-    const contentType = res.headers.get("content-type") || "";
-
-    if (contentType.includes("application/json")) {
-        return await res.json();
-    } else {
-        return { text: await res.text() };
-    }
-}
-const handleSendMessage = async () => {
-    if (!message.trim() && !uploadedFile && !uploadedImage) return;
-
-    setIsLoading(true);
-
-    const fileCopy = uploadedFile;
-    const imageCopy = uploadedImage;
-    const selectedMode = activeAIMode;
-    let mode = selectedMode || "chat";
-
-    if (fileCopy) mode = "analyze_file";
-    if (imageCopy) mode = "image_edit";
-    if (!fileCopy && !imageCopy && selectedMode === "image_gen") mode = "image_gen";
-
-    // Push user message immediately
-    setChatHistory((prev) => [
-        ...prev,
-        {
-            role: "user",
+        // build a serializable user message (no File objects)
+        const userMessage = {
+            role: 'user',
             content: message,
             type: mode,
-            fileName: fileCopy?.name,
-            imageName: imageCopy?.name,
-            ts: Date.now(),
-        },
-    ]);
+            fileName: fileCopy ? fileCopy.name : undefined,
+            imageName: imageCopy ? imageCopy.name : undefined,
+            ts: Date.now()
+        };
 
-    setMessage("");
+        setChatHistory(prev => [...prev, userMessage]);
+        setMessage('');
 
-    try {
-        /* =====================================================
-           FILE ANALYSIS MODE — ALWAYS USE FORMDATA
-        ====================================================== */
-        if (mode === "analyze_file" && fileCopy) {
-            let fileContent;
+        try {
+            // FILE ANALYSIS - FIXED: Proper file content handling
+            if (mode === "analyze_file" && fileCopy) {
+                let fileContent;
+                
+                // Handle different file types appropriately
+                if (fileCopy.type.startsWith('text/') || 
+                    fileCopy.name.endsWith('.txt') || 
+                    fileCopy.name.endsWith('.py') ||
+                    fileCopy.name.endsWith('.js') ||
+                    fileCopy.name.endsWith('.html') ||
+                    fileCopy.name.endsWith('.css') ||
+                    fileCopy.name.endsWith('.md')) {
+                    // Text files - read as text
+                    fileContent = await fileCopy.text();
+                } else {
+                    // Binary files - read as base64
+                    fileContent = await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                            try {
+                                const base64 = reader.result.split(",")[1];
+                                resolve(base64);
+                            } catch (e) {
+                                reject(e);
+                            }
+                        };
+                        reader.onerror = (err) => reject(err);
+                        reader.readAsDataURL(fileCopy);
+                    });
+                }
 
-            // Read as normal text for code files
-            if (
-                fileCopy.type.startsWith("text/") ||
-                /\.(txt|js|jsx|ts|tsx|py|java|cpp|html|css|json|md)$/i.test(fileCopy.name)
-            ) {
-                fileContent = await fileCopy.text();
-            } else {
-                // Binary file → base64
-                fileContent = await new Promise((resolve, reject) => {
+                const apiUrl = '/api/generate/text';
+                const apiPayload = {
+                    prompt: message || `Analyze the contents of ${fileCopy.name}`,
+                    mode: "analyze_file",
+                    filename: fileCopy.name,
+                    file_content: fileContent,
+                    file_type: fileCopy.type
+                };
+                
+                const result = await callFastAPI(apiUrl, apiPayload, mode);
+
+                const assistantMessage = {
+                    role: 'assistant',
+                    content: result?.text || 'File analysis complete.',
+                    type: result?.base64_image ? 'image' : 'text',
+                    base64_image: result?.base64_image,
+                    sources: result?.sources,
+                    model_used: result?.model_used,
+                    ts: Date.now()
+                };
+                setChatHistory(prev => [...prev, assistantMessage]);
+            }
+
+            // IMAGE EDIT
+            else if (mode === "image_edit" && imageCopy) {
+                const base64Image = await new Promise((resolve, reject) => {
                     const reader = new FileReader();
-                    reader.onload = () => resolve(reader.result.split(",")[1]);
-                    reader.onerror = reject;
-                    reader.readAsDataURL(fileCopy);
+                    reader.onload = () => {
+                        try {
+                            const b = reader.result.split(",")[1];
+                            resolve(b);
+                        } catch (e) {
+                            reject(e);
+                        }
+                    };
+                    reader.onerror = (err) => reject(err);
+                    reader.readAsDataURL(imageCopy);
                 });
-            }
 
-            // Prepare formData
-            const form = new FormData();
-            form.append("mode", "analyze_file");
-            form.append("prompt", message || "Analyze this file");
-            form.append("filename", fileCopy.name);
-
-            /* 🔥 MOST IMPORTANT FIX */
-            form.append("file_content", fileContent);
-
-            const res = await fetch("/api/generate/text", {
-                method: "POST",
-                body: form,
-            });
-
-            // backend returns JSON OR plain text → catch both
-            let result;
-            try {
-                result = await res.json();
-            } catch {
-                result = { text: await res.text() };
-            }
-
-            setChatHistory((prev) => [
-                ...prev,
-                {
-                    role: "assistant",
-                    content: result?.text || "Analysis complete.",
-                    type: "text",
-                    ts: Date.now(),
-                },
-            ]);
-
-            return;
-        }
-
-        /* =====================================================
-           IMAGE EDIT MODE
-        ====================================================== */
-        if (mode === "image_edit" && imageCopy) {
-            const base64Image = await new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = () => resolve(reader.result.split(",")[1]);
-                reader.onerror = reject;
-                reader.readAsDataURL(imageCopy);
-            });
-
-            const res = await sendToBackend(
-                "/api/generate/text",
-                {
-                    mode: "image_edit",
+                const apiUrl = '/api/generate/text';
+                const apiPayload = {
                     prompt: message || "Edit this image",
+                    mode: "image_edit",
                     image: base64Image,
-                    strength: 0.7,
-                },
-                "image_edit"
-            );
+                    strength: 0.7
+                };
+                const result = await callFastAPI(apiUrl, apiPayload, mode);
 
-            setChatHistory((prev) => [
-                ...prev,
-                {
-                    role: "assistant",
-                    content: res?.text || "Image edited.",
-                    type: res?.base64_image ? "image" : "text",
-                    base64_image: res?.base64_image,
-                    ts: Date.now(),
-                },
-            ]);
+                const assistantMessage = {
+                    role: 'assistant',
+                    content: result?.text || 'Image edited.',
+                    type: result?.base64_image ? 'image' : 'text',
+                    base64_image: result?.base64_image,
+                    sources: result?.sources,
+                    model_used: result?.model_used,
+                    ts: Date.now()
+                };
+                setChatHistory(prev => [...prev, assistantMessage]);
+            }
 
-            return;
+            // IMAGE GEN or CHAT
+            else {
+                const apiUrl = '/api/generate/text';
+                const apiPayload = { 
+                    prompt: message, 
+                    mode,
+                    aspect_ratio: mode === 'image_gen' ? aspectRatio : undefined
+                };
+                const result = await callFastAPI(apiUrl, apiPayload, mode);
+
+                const assistantMessage = {
+                    role: 'assistant',
+                    content: result?.text || 'Response received.',
+                    type: result?.base64_image ? 'image' : 'text',
+                    base64_image: result?.base64_image,
+                    sources: result?.sources,
+                    model_used: result?.model_used,
+                    ts: Date.now()
+                };
+                setChatHistory(prev => [...prev, assistantMessage]);
+            }
+        } catch (error) {
+            console.error('API ERROR:', error);
+            const assistantError = {
+                role: 'assistant',
+                content: `[API ERROR] ${error?.message || 'Something went wrong.'}`,
+                type: 'text',
+                ts: Date.now()
+            };
+            setChatHistory(prev => [...prev, assistantError]);
+        } finally {
+            // Clear uploads only AFTER result is processed
+            try {
+                setUploadedFile(null);
+                setUploadedImage(null);
+                setIsLoading(false);
+            } catch (e) {
+                // ignore
+            }
         }
-
-        /* =====================================================
-           NORMAL CHAT / IMAGE GEN
-        ====================================================== */
-        const res = await sendToBackend(
-            "/api/generate/text",
-            {
-                mode,
-                prompt: message,
-                aspect_ratio: mode === "image_gen" ? aspectRatio : undefined,
-            },
-            mode
-        );
-
-        setChatHistory((prev) => [
-            ...prev,
-            {
-                role: "assistant",
-                content: res?.text || "Response received.",
-                type: res?.base64_image ? "image" : "text",
-                base64_image: res?.base64_image,
-                ts: Date.now(),
-            },
-        ]);
-    } catch (err) {
-        setChatHistory((prev) => [
-            ...prev,
-            {
-                role: "assistant",
-                content: `[API ERROR] ${err?.message || "Unknown error"}`,
-                type: "text",
-                ts: Date.now(),
-            },
-        ]);
-    } finally {
-        setUploadedFile(null);
-        setUploadedImage(null);
-        setIsLoading(false);
-    }
-};
+    };
 
     // ---------- Chat bubble ----------
     const ChatBubble = ({ message }) => {
@@ -3096,11 +3045,6 @@ int main() {
         </>
     );
 }
-
-
-
-
-
 
 
 
