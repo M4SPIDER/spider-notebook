@@ -1640,169 +1640,165 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
     };
 
     // ---------- FIXED: Send message (file analysis fix) ----------
-    const handleSendMessage = async () => {
-        if (!message.trim() && !uploadedFile && !uploadedImage) return;
+const handleSendMessage = async () => {
+    if (!message.trim() && !uploadedFile && !uploadedImage) return;
 
-        setIsLoading(true);
+    setIsLoading(true);
 
-        // capture current state into local variables so clearing state later won't break us
-        const fileCopy = uploadedFile;
-        const imageCopy = uploadedImage;
-        const selectedActiveMode = activeAIMode; // preserve current activeAIMode
-        let mode = selectedActiveMode || "chat";
+    const fileCopy = uploadedFile;
+    const imageCopy = uploadedImage;
+    const selectedActiveMode = activeAIMode;
+    let mode = selectedActiveMode || "chat";
 
-        // prioritize explicit uploads
-        if (fileCopy) mode = "analyze_file";
-        if (imageCopy) mode = "image_edit";
-        // keep image_gen if user explicitly set it
-        if (!fileCopy && !imageCopy && selectedActiveMode === 'image_gen') mode = 'image_gen';
+    if (fileCopy) mode = "analyze_file";
+    if (imageCopy) mode = "image_edit";
+    if (!fileCopy && !imageCopy && selectedActiveMode === "image_gen") mode = "image_gen";
 
-        // build a serializable user message (no File objects)
-        const userMessage = {
-            role: 'user',
-            content: message,
-            type: mode,
-            fileName: fileCopy ? fileCopy.name : undefined,
-            imageName: imageCopy ? imageCopy.name : undefined,
-            ts: Date.now()
-        };
+    const userMessage = {
+        role: "user",
+        content: message,
+        type: mode,
+        fileName: fileCopy ? fileCopy.name : undefined,
+        imageName: imageCopy ? imageCopy.name : undefined,
+        ts: Date.now(),
+    };
 
-        setChatHistory(prev => [...prev, userMessage]);
-        setMessage('');
+    setChatHistory((prev) => [...prev, userMessage]);
+    setMessage("");
 
-        try {
-            // FILE ANALYSIS - FIXED: Proper file content handling
-            if (mode === "analyze_file" && fileCopy) {
-                let fileContent;
-                
-                // Handle different file types appropriately
-                if (fileCopy.type.startsWith('text/') || 
-                    fileCopy.name.endsWith('.txt') || 
-                    fileCopy.name.endsWith('.py') ||
-                    fileCopy.name.endsWith('.js') ||
-                    fileCopy.name.endsWith('.html') ||
-                    fileCopy.name.endsWith('.css') ||
-                    fileCopy.name.endsWith('.md')) {
-                    // Text files - read as text
-                    fileContent = await fileCopy.text();
-                } else {
-                    // Binary files - read as base64
-                    fileContent = await new Promise((resolve, reject) => {
-                        const reader = new FileReader();
-                        reader.onload = () => {
-                            try {
-                                const base64 = reader.result.split(",")[1];
-                                resolve(base64);
-                            } catch (e) {
-                                reject(e);
-                            }
-                        };
-                        reader.onerror = (err) => reject(err);
-                        reader.readAsDataURL(fileCopy);
-                    });
-                }
+    try {
+        /* =====================================================
+           FILE ANALYSIS MODE (FORMDATA FIXED VERSION)
+        ====================================================== */
+        if (mode === "analyze_file" && fileCopy) {
+            let fileContent;
 
-                const apiUrl = '/api/generate/text';
-                const apiPayload = {
-                    prompt: message || `Analyze the contents of ${fileCopy.name}`,
-                    mode: "analyze_file",
-                    filename: fileCopy.name,
-                    file_content: fileContent,
-                    file_type: fileCopy.type
-                };
-                
-                const result = await callFastAPI(apiUrl, apiPayload, mode);
-
-                const assistantMessage = {
-                    role: 'assistant',
-                    content: result?.text || 'File analysis complete.',
-                    type: result?.base64_image ? 'image' : 'text',
-                    base64_image: result?.base64_image,
-                    sources: result?.sources,
-                    model_used: result?.model_used,
-                    ts: Date.now()
-                };
-                setChatHistory(prev => [...prev, assistantMessage]);
+            // For text-based files use .text()
+            if (
+                fileCopy.type.startsWith("text/") ||
+                fileCopy.name.endsWith(".txt") ||
+                fileCopy.name.endsWith(".py") ||
+                fileCopy.name.endsWith(".js") ||
+                fileCopy.name.endsWith(".jsx") ||
+                fileCopy.name.endsWith(".html") ||
+                fileCopy.name.endsWith(".css") ||
+                fileCopy.name.endsWith(".json") ||
+                fileCopy.name.endsWith(".md")
+            ) {
+                fileContent = await fileCopy.text();
+            } else {
+                // For binaries, base64 convert
+                fileContent = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result.split(",")[1]);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(fileCopy);
+                });
             }
 
-            // IMAGE EDIT
-            else if (mode === "image_edit" && imageCopy) {
-                const base64Image = await new Promise((resolve, reject) => {
-                    const reader = new FileReader();
-                    reader.onload = () => {
-                        try {
-                            const b = reader.result.split(",")[1];
-                            resolve(b);
-                        } catch (e) {
-                            reject(e);
-                        }
-                    };
-                    reader.onerror = (err) => reject(err);
-                    reader.readAsDataURL(imageCopy);
-                });
+            // ⛔ STOP sending JSON. Cloudflare blocks large JSON.
+            // ✅ Use FormData
+            const form = new FormData();
+            form.append("mode", "analyze_file");
+            form.append("prompt", message || `Analyze this file`);
+            form.append("filename", fileCopy.name);
+            form.append("file_content", fileContent);
 
-                const apiUrl = '/api/generate/text';
-                const apiPayload = {
+            const res = await fetch("/api/generate/text", {
+                method: "POST",
+                body: form,
+            });
+
+            const textResult = await res.text();
+
+            const assistantMessage = {
+                role: "assistant",
+                content: textResult,
+                type: "text",
+                ts: Date.now(),
+            };
+
+            setChatHistory((prev) => [...prev, assistantMessage]);
+            return;
+        }
+
+        /* =====================================================
+           IMAGE EDIT MODE (works same as before)
+        ====================================================== */
+        if (mode === "image_edit" && imageCopy) {
+            const base64Image = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result.split(",")[1]);
+                reader.onerror = reject;
+                reader.readAsDataURL(imageCopy);
+            });
+
+            const res = await callFastAPI(
+                "/api/generate/text",
+                {
                     prompt: message || "Edit this image",
                     mode: "image_edit",
                     image: base64Image,
-                    strength: 0.7
-                };
-                const result = await callFastAPI(apiUrl, apiPayload, mode);
+                    strength: 0.7,
+                },
+                mode
+            );
 
-                const assistantMessage = {
-                    role: 'assistant',
-                    content: result?.text || 'Image edited.',
-                    type: result?.base64_image ? 'image' : 'text',
-                    base64_image: result?.base64_image,
-                    sources: result?.sources,
-                    model_used: result?.model_used,
-                    ts: Date.now()
-                };
-                setChatHistory(prev => [...prev, assistantMessage]);
-            }
-
-            // IMAGE GEN or CHAT
-            else {
-                const apiUrl = '/api/generate/text';
-                const apiPayload = { 
-                    prompt: message, 
-                    mode,
-                    aspect_ratio: mode === 'image_gen' ? aspectRatio : undefined
-                };
-                const result = await callFastAPI(apiUrl, apiPayload, mode);
-
-                const assistantMessage = {
-                    role: 'assistant',
-                    content: result?.text || 'Response received.',
-                    type: result?.base64_image ? 'image' : 'text',
-                    base64_image: result?.base64_image,
-                    sources: result?.sources,
-                    model_used: result?.model_used,
-                    ts: Date.now()
-                };
-                setChatHistory(prev => [...prev, assistantMessage]);
-            }
-        } catch (error) {
-            console.error('API ERROR:', error);
-            const assistantError = {
-                role: 'assistant',
-                content: `[API ERROR] ${error?.message || 'Something went wrong.'}`,
-                type: 'text',
-                ts: Date.now()
+            const assistantMessage = {
+                role: "assistant",
+                content: res?.text || "Image edited.",
+                type: res?.base64_image ? "image" : "text",
+                base64_image: res?.base64_image,
+                sources: res?.sources,
+                model_used: res?.model_used,
+                ts: Date.now(),
             };
-            setChatHistory(prev => [...prev, assistantError]);
-        } finally {
-            // Clear uploads only AFTER result is processed
-            try {
-                setUploadedFile(null);
-                setUploadedImage(null);
-                setIsLoading(false);
-            } catch (e) {
-                // ignore
-            }
+
+            setChatHistory((prev) => [...prev, assistantMessage]);
+            return;
         }
-    };
+
+        /* =====================================================
+           IMAGE GEN + NORMAL CHAT
+        ====================================================== */
+        const res = await callFastAPI(
+            "/api/generate/text",
+            {
+                prompt: message,
+                mode,
+                aspect_ratio: mode === "image_gen" ? aspectRatio : undefined,
+            },
+            mode
+        );
+
+        const assistantMessage = {
+            role: "assistant",
+            content: res?.text || "Response received.",
+            type: res?.base64_image ? "image" : "text",
+            base64_image: res?.base64_image,
+            sources: res?.sources,
+            model_used: res?.model_used,
+            ts: Date.now(),
+        };
+
+        setChatHistory((prev) => [...prev, assistantMessage]);
+    } catch (error) {
+        console.error("API ERROR:", error);
+
+        const assistantError = {
+            role: "assistant",
+            content: `[API ERROR] ${error?.message || "Something went wrong."}`,
+            type: "text",
+            ts: Date.now(),
+        };
+
+        setChatHistory((prev) => [...prev, assistantError]);
+    } finally {
+        setUploadedFile(null);
+        setUploadedImage(null);
+        setIsLoading(false);
+    }
+};
 
     // ---------- Chat bubble ----------
     const ChatBubble = ({ message }) => {
@@ -3045,6 +3041,7 @@ int main() {
         </>
     );
 }
+
 
 
 
