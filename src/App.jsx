@@ -1302,25 +1302,48 @@ const SpiderNotebookApp = ({
 
 
 // --- NEW Plus Menu Component (For AI Chat App) ---
-const PlusMenu = ({ 
-    setActiveAIMode, 
-    fileInputRef, 
-    imageInputRef, 
-}) => {
-    const [isMenuOpen, setIsMenuOpen] = useState(false);
-    
-    // Helper function to handle mode switching and file/image selection
-    const handleMenuItemClick = (mode, ref) => {
-        setActiveAIMode(mode);
-        setIsMenuOpen(false); // Close menu
-        
-        // If a ref is provided (for upload modes), trigger click immediately
-        if (ref) {
-            // Use setTimeout to ensure the React state update for activeAIMode completes
-            // before we fire the native file dialog, ensuring the mode is ready for the response.
-            setTimeout(() => ref.current?.click(), 0);
-        }
-    };
+const PlusMenu = ({ fileInputRef, imageInputRef }) => {
+    const [open, setOpen] = useState(false);
+
+    return (
+        <div className="relative">
+            <button 
+                onClick={() => setOpen(!open)}
+                className="bg-[var(--spider-light)] text-white px-3 py-2 rounded-md h-10 flex items-center justify-center hover:opacity-90"
+            >
+                +
+            </button>
+
+            {open && (
+                <div className="absolute bottom-12 right-0 bg-[var(--spider-dark)] border border-[var(--spider-light)] rounded-md shadow-lg w-40 p-2 z-50">
+
+                    {/* Upload File */}
+                    <button
+                        onClick={() => {
+                            setOpen(false);
+                            fileInputRef.current?.click();
+                        }}
+                        className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm"
+                    >
+                        📄 Upload File
+                    </button>
+
+                    {/* Upload Image */}
+                    <button
+                        onClick={() => {
+                            setOpen(false);
+                            imageInputRef.current?.click();
+                        }}
+                        className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm"
+                    >
+                        🖼 Upload Image
+                    </button>
+
+                </div>
+            )}
+        </div>
+    );
+};
 
     // Menu Item list
     const menuItems = [
@@ -1837,7 +1860,6 @@ const getModeText = () => {
                                 fileInputRef={fileInputRef}
                                imageInputRef={imageInputRef}
                                    />
-
                             {/* Send Button */}
                             <button 
                                 onClick={handleSendMessage} 
