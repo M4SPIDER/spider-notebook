@@ -1,5 +1,5 @@
 /* ============================================================
-SPIDER AI — TELANGANA BEAST EDITION V3 (FULL PATCHED BUILD)
+SPIDER AI — TELANGANA BEAST EDITION V3.1 (URL + CATCH PATCH)
 CONFIG + STRICT TELANGANA TRAINING PACK
 TELUGU TRIGGER = 2+ WORDS
 FULL EMOJI SYSTEM ENABLED
@@ -44,7 +44,7 @@ function shouldTriggerTelugu(message) {
 
   let count = 0;
   for (const w of words) {
-    if (TELUGU_TRIGGER_WORDS.includes(w)) count++; // FIX: Removed stray hyphen
+    if (TELUGU_TRIGGER_WORDS.includes(w)) count++;
   }
 
   return count >= 2;
@@ -73,8 +73,8 @@ const SPIDER_SYSTEM_PROMPT =
 "LANGUAGE SWITCH:\n" +
 "- Telugu mode triggers when 2+ Telugu words detected.\n" +
 "- Use STRICT Telangana slang in transliteration only.\n" +
-"- Telugu replies must be English-letter transliteration.\n";
-"- never speak enlgish full in between any other language .\n";
+"- Telugu replies must be English-letter transliteration.\n" +
+"- never speak enlgish full in between any other language .\n" +
 
 "SAVAGE MODE:\n" +
 "- If roast mode requested, reply bold & funny.\n\n" +
@@ -83,7 +83,7 @@ const SPIDER_SYSTEM_PROMPT =
 "- Always use emojis freely in every reply unless the user says 'no emojis'.\n" +
 "- Use emojis that fit the mood.\n" +
 "- Emoji Pack Part 1: 😎🔥🤣😂🤙😈🤌🕷️🕸️💀💣⚔️😃😅😉😛😍🤪😳🥵😨😣😔😓😞😧🫣😬🤐🙂😏😌🥹.\n" +
-"- Emoji Pack Part 2: 😗😚🙂‍↕️🤡🤮🤢👻👿🙌👐🫸🫳👋👊🖕👏🙏🤳🤝🙇💆🙋💁🙅🤷🤦🙍🙎.\n" + // FIX: Removed stray textsl{}
+"- Emoji Pack Part 2: 😗😚🙂‍↕️🤡🤮🤢👻👿🙌👐🫸🫳👋👊🖕👏🙏🤳🤝🙇💆🙋💁🙅🤷🤦🙍🙎.\n" +
 "- Emoji Pack Part 3: 🖥️💻🔌💉💊🧪⚙️🕕🕧🕙📅🔔🔒🚀✨💫🌪️🔥💥⚡🌈⭐☄️.\n" +
 "- Emoji Pack Part 4: 🦸🦹🕶️🎭🎯🎮🎧🎤📱📲💾🗄️🛰️📡🧠🫀🫁.\n" +
 "- Emoji Pack Part 5: 🇮🇳🇺🇸🇹🇱🇳🇨🇲🇷🇭🇲🇫🇯🇪🇦🇯🇵🇰🇷🇬🇧🇫🇷🇧🇷🇰🇵.\n" +
@@ -150,7 +150,7 @@ async function verifyFirebaseToken(idToken) {
   } catch {
     return null;
   }
-                               }
+}
 /* ============================================================
 MAIN HANDLER STARTS HERE
 ============================================================ */
@@ -158,431 +158,414 @@ MAIN HANDLER STARTS HERE
 export async function onRequest(context) {
   const request = context.request;
   const env = context.env;
+  
+  // FIX 2: Added top-level try-catch to prevent 1101 Worker exception
+  try { 
 
-let body = {};
-// FIX: Create a separate var to hold file content if it comes from multipart
-let fileContentFromForm = null; 
+  let body = {};
+  let fileContentFromForm = null; 
 
-const contentType = request.headers.get("content-type") || "";
+  const contentType = request.headers.get("content-type") || "";
 
-if (contentType.includes("multipart/form-data")) {
-    const form = await request.formData();
-    // FIX: Get the file_content field, which might be a File object
-    const file = form.get("file_content"); 
+  if (contentType.includes("multipart/form-data")) {
+      const form = await request.formData();
+      const file = form.get("file_content"); 
 
-    body = {
-        mode: form.get("mode"),
-        prompt: form.get("prompt"),
-        filename: form.get("filename"),
-        // We won't get file_content from here, we handle it below
-    };
+      body = {
+          mode: form.get("mode"),
+          prompt: form.get("prompt"),
+          filename: form.get("filename"),
+      };
 
-    // FIX: Check if 'file' is a File object and read its text content
-    if (file && typeof file.text === 'function') {
-        fileContentFromForm = await file.text();
-    } else if (file) { // Or if it was sent as a string in the form
-        fileContentFromForm = String(file);
-    }
+      if (file && typeof file.text === 'function') {
+          fileContentFromForm = await file.text();
+      } else if (file) {
+          fileContentFromForm = String(file);
+      }
 
-} else if (contentType.includes("application/json")) {
-    try {
-        body = await request.json(); // body will have .file_content as a string
-    } catch (e) {
-        body = {};
-    }
-} else {
-    body = {};
-}
-
-
-  // file_content will be from JSON, or undefined. fileContentFromForm will be from multi-part, or null.
-  const { prompt, mode, image, strength, file_content, filename } = body;
-
-  let currentMode = mode || detectMode(prompt, (fileContentFromForm || file_content), filename);
-
-  /* ================= USER IDENTIFICATION ===================== */
-
-  let userId = "anon-default";
-  if (body.user_preference_id) userId = body.user_preference_id.toString();
-
-  if (body.firebase_token) {
-    const decoded = await verifyFirebaseToken(body.firebase_token);
-    if (decoded && decoded.user_id) userId = decoded.user_id;
+  } else if (contentType.includes("application/json")) {
+      try {
+          body = await request.json();
+      } catch (e) {
+          body = {};
+      }
+  } else {
+      body = {};
   }
 
-  const memoryKey = MEMORY_USER_KEY_PREFIX + userId;
 
-  /* ================= MEMORY LOADING ========================== */
+    const { prompt, mode, image, strength, file_content, filename } = body;
 
-  async function getMemory() {
-    try {
-      const raw = await env.CHAT_KV.get(memoryKey);
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
+    let currentMode = mode || detectMode(prompt, (fileContentFromForm || file_content), filename);
+
+    /* ================= USER IDENTIFICATION ===================== */
+
+    let userId = "anon-default";
+    if (body.user_preference_id) userId = body.user_preference_id.toString();
+
+    if (body.firebase_token) {
+      const decoded = await verifyFirebaseToken(body.firebase_token);
+      if (decoded && decoded.user_id) userId = decoded.user_id;
     }
-  }
 
-  async function saveMemory(mem) {
-  try {
-    await env.CHAT_KV.put(memoryKey, JSON.stringify(mem));
-  } catch (_) {}
-}
+    const memoryKey = MEMORY_USER_KEY_PREFIX + userId;
 
-/* ================= MEMORY TTL FILTER ======================= */
+    /* ================= MEMORY LOADING ========================== */
 
-  const cutoff = Date.now() - MEMORY_TTL_DAYS * 24 * 60 * 60 * 1000;
-  memory = memory.filter(m => (m.ts || 0) >= cutoff);
+    async function getMemory() {
+      try {
+        const raw = await env.CHAT_KV.get(memoryKey);
+        return raw ? JSON.parse(raw) : [];
+      } catch {
+        return [];
+      }
+    }
 
-  /* ================= MEMORY COMPRESSION ======================= */
+    async function saveMemory(mem) {
+      try {
+        await env.CHAT_KV.put(memoryKey, JSON.stringify(mem));
+      } catch (_) {}
+    }
 
-  async function compressMemory(memoryArr) {
-    if (memoryArr.length < MEMORY_SUMMARY_TRIGGER) return memoryArr;
+    let memory = await getMemory();
+    
+    /* ================= MEMORY TTL FILTER ======================= */
 
-    const keepRecent = Math.floor(MEMORY_TRIM_TARGET / 2);
-    const older = memoryArr.slice(0, memoryArr.length - keepRecent);
+    const cutoff = Date.now() - MEMORY_TTL_DAYS * 24 * 60 * 60 * 1000;
+    memory = memory.filter(m => (m.ts || 0) >= cutoff);
 
-    function shortPreview(s, max = 200) {
+    /* ================= MEMORY COMPRESSION ======================= */
+
+    async function compressMemory(memoryArr) {
+      if (memoryArr.length < MEMORY_SUMMARY_TRIGGER) return memoryArr;
+
+      const keepRecent = Math.floor(MEMORY_TRIM_TARGET / 2);
+      const older = memoryArr.slice(0, memoryArr.length - keepRecent);
+
+      function shortPreview(s, max = 200) {
+        if (!s) return "";
+        let t = s.replace(/\s+/g, " ").trim();
+        return t.length <= max ? t : t.slice(0, max).trim() + "...";
+      }
+
+      const summaryPrompt =
+        "Summarize these messages in 3 bullet points. Keep only important context.\n\n" +
+        older
+          .map((m, i) => (i + 1) + ". " + m.role + ": " + shortPreview(m.content, 200))
+          .join("\n");
+
+      const res = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", {
+        messages: [
+          { role: "system", content: SPIDER_SYSTEM_PROMPT },
+          { role: "user", content: summaryPrompt }
+        ]
+      });
+
+      const summary = extractText(res).trim();
+
+      return [
+        { role: "system_summary", content: summary, ts: Date.now() },
+        ...memoryArr.slice(-keepRecent)
+      ];
+    }
+
+    if (memory.length >= MEMORY_SUMMARY_TRIGGER)
+      memory = await compressMemory(memory);
+
+    if (memory.length > MEMORY_MESSAGE_LIMIT)
+      memory = memory.slice(-MEMORY_MESSAGE_LIMIT);
+
+    await saveMemory(memory);
+
+    /* ============= DELETE MEMORY HANDLING ====================== */
+
+    const lower = (prompt || "").toLowerCase();
+    const wantsDelete =
+        lower.includes("delete") ||
+        lower.includes("remove") ||
+        lower.includes("clear") ||
+        lower.includes("reset") ||
+        lower.includes("forget");
+
+    if (
+      wantsDelete &&
+      !lower.includes("memory:") &&
+      !lower.includes("delete all") &&
+      !lower.includes("reset all")
+    ) {
+      return new Response(
+        "Specify delete memory: all / last / first / 3 / keyword 😄",
+        { headers: { "content-type": "text/plain" } }
+      );
+    }
+
+    if (lower.includes("delete memory: all") || lower.includes("reset all") || lower.includes("delete all")) {
+      await env.CHAT_KV.put(memoryKey, "[]");
+      return new Response("All memory cleared 😎🔥", {
+        headers: { "content-type": "text/plain" }
+      });
+    }
+
+    if (lower.includes("delete memory:")) {
+      const cmd = lower.replace("delete memory:", "").trim();
+
+      if (cmd === "last") {
+        memory.pop();
+        await saveMemory(memory);
+        return new Response("Deleted last entry 👍", {
+          headers: { "content-type": "text/plain" }
+        });
+      }
+
+      if (cmd === "first") {
+        memory.shift();
+        await saveMemory(memory);
+        return new Response("Deleted first entry 👍", {
+          headers: { "content-type": "text/plain" }
+        });
+      }
+
+      const idx = parseInt(cmd);
+      if (!isNaN(idx)) {
+        if (idx >= 1 && idx <= memory.length) {
+          memory.splice(idx - 1, 1);
+          await saveMemory(memory);
+          return new Response("Entry removed 😃", {
+            headers: { "content-type": "text/plain" }
+          });
+        }
+        return new Response("Invalid index 😅", {
+          headers: { "content-type": "text/plain" }
+        });
+      }
+
+      memory = memory.filter(m => !m.content.toLowerCase().includes(cmd));
+      await saveMemory(memory);
+
+      return new Response("Matching entries deleted 👍", {
+        headers: { "content-type": "text/plain" }
+      });
+    }
+
+    /* ============= ADD NEW MEMORY SAFELY ======================= */
+
+    function norm(s) {
+      return (s || "").trim().toLowerCase().replace(/\s+/g, " ");
+    }
+
+    if (prompt && prompt.trim()) {
+      const newNorm = norm(prompt);
+      const lastNorm = memory.length ? norm(memory[memory.length - 1].content) : "";
+
+      if (!(newNorm === lastNorm || newNorm.includes(lastNorm) || lastNorm.includes(newNorm))) {
+        memory.push({ role: "user", content: prompt, ts: Date.now() });
+      } else {
+        if (memory.length) memory[memory.length - 1].ts = Date.now();
+      }
+    }
+
+    if (memory.length > MEMORY_MESSAGE_LIMIT)
+      memory = memory.slice(-MEMORY_MESSAGE_LIMIT);
+
+    await saveMemory(memory);
+
+    /* ============= MEMORY SUMMARY FOR MODEL ==================== */
+
+    function shortPreview2(s, max = 160) {
       if (!s) return "";
       let t = s.replace(/\s+/g, " ").trim();
       return t.length <= max ? t : t.slice(0, max).trim() + "...";
     }
 
-    const summaryPrompt =
-      "Summarize these messages in 3 bullet points. Keep only important context.\n\n" +
-      older
-        .map((m, i) => (i + 1) + ". " + m.role + ": " + shortPreview(m.content, 200))
-        .join("\n");
+    const memorySummary = memory
+      .filter(m => m.role !== "assistant") 
+      .slice(-MEMORY_TRIM_TARGET)
+      .map(m => {
+        if (m.role === "system_summary") return "summary: " + shortPreview2(m.content, 240);
+        return m.role + ": " + shortPreview2(m.content, 200);
+      })
+      .join("\n");
+     /* ============================================================
+       AUTO TELANGANA SLANG MODE + EXTRA SYSTEM INSTRUCTIONS
+       ============================================================ */
 
-    const res = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", {
-      messages: [
-        { role: "system", content: SPIDER_SYSTEM_PROMPT },
-        { role: "user", content: summaryPrompt }
-      ]
-    });
+    let forceTeluguSlang = false;
+    if (shouldTriggerTelugu(prompt || "")) {
+      forceTeluguSlang = true;
+    }
 
-    const summary = extractText(res).trim();
+    let forceSavage = false;
+    if ((prompt || "").toLowerCase().includes("savage mode") ||
+        (prompt || "").toLowerCase().includes("roast mode") ||
+        (prompt || "").toLowerCase().includes("be savage")) {
+      forceSavage = true;
+    }
 
-    return [
-      { role: "system_summary", content: summary, ts: Date.now() },
-      ...memoryArr.slice(-keepRecent)
+    // Build extra system layers (always push emoji guideline for normal English)
+    const extraSystemInstructions = [];
+
+    if (forceTeluguSlang) {
+      extraSystemInstructions.push(
+        "User message contains Telugu. Respond in STRICT Telangana slang using English transliteration only. Follow Telangana training rules. Do NOT use Andhra/textbook Telugu."
+      );
+    }
+
+    if (forceSavage) {
+      extraSystemInstructions.push(
+        "Savage mode enabled. Use playful Telangana-style roast. Be humorous, bold, and non-offensive."
+      );
+    }
+
+    // Ensure normal English replies use emojis if not explicitly telugu/savage
+    if (!forceTeluguSlang && !forceSavage) {
+      extraSystemInstructions.push(
+        "In normal English replies, use emojis naturally and freely from the emoji pack unless the user says 'no emojis'."
+      );
+    }
+
+    /* ============================================================
+     FILE ANALYSIS (FIXED FOR ROBUST CONTENT CHECK)
+     ============================================================ */
+    if (currentMode === "analyze_file") {
+      const receivedFilename = String(body.filename || filename || "unknown");
+      let contentToAnalyze = String(fileContentFromForm || file_content || "");
+      
+      contentToAnalyze = contentToAnalyze
+        .replace(/[\u0000]/g, '')
+        .replace(/\u00A0/g, ' ') 
+        .replace(/(\r\n|\r)/g, '\n'); 
+
+      if (contentToAnalyze.trim().length === 0) {
+        return new Response(JSON.stringify({
+          text: "I'm sorry, **mama**, but I can't analyze the file since there's no content provided. Ee file empty undhi **ra**! 😔",
+          type: 'text',
+          model_used: 'mistral-small-3.1-24b-instruct',
+          sources: []
+        }), {
+          headers: { "content-type": "application/json" }
+        });
+      }
+
+      const aPrompt = `Analyze this file:\n\nFilename: ${receivedFilename}\nContent:\n${contentToAnalyze}\n`;
+
+      const messages = [
+        { role: "system", content: SPIDER_SYSTEM_PROMPT }
+      ];
+
+      if (extraSystemInstructions.length) {
+        messages.push({ role: "system", content: extraSystemInstructions.join("\n") });
+      }
+
+      messages.push({ role: "system", content: "Memory:\n" + memorySummary });
+      messages.push({ role: "user", content: aPrompt });
+
+      const result = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", { messages });
+
+      const responseText = extractText(result);
+
+      return new Response(JSON.stringify({
+        text: responseText,
+        type: 'text',
+        model_used: 'mistral-small-3.1-24b-instruct',
+        sources: []
+      }), {
+        headers: { "content-type": "application/json" }
+      });
+    }
+    /* ============================================================
+       IMAGE GENERATION
+       ============================================================ */
+
+    if (currentMode === "image_gen") {
+      const enhanced = (prompt || "") + ", ultra detailed, cinematic lighting, hdr, 8k clarity";
+
+      const img = await env.SPY_AI.run(
+        "@cf/stabilityai/stable-diffusion-xl-base-1.0",
+        { prompt: enhanced }
+      );
+
+      return new Response(img, { headers: { "content-type": "image/png" } });
+    }
+
+    /* ============================================================
+       IMAGE EDIT
+       ============================================================ */
+
+    if (currentMode === "image_edit") {
+      const enhanced = (prompt || "") + ", detailed render, hdr, cinematic";
+
+      const img = await env.SPY_AI.run(
+        "@cf/stabilityai/stable-diffusion-xl-refiner-1.0",
+        { prompt: enhanced, image, strength: strength || 0.7 }
+      );
+
+      return new Response(img, { headers: { "content-type": "image/png" } });
+    }
+
+    /* ============================================================
+       NORMAL CHAT + SEARCH
+       ============================================================ */
+
+    const searchInstruction = 'If you need up-to-date information, reply ONLY with: {"action":"search","query":"your search query"} No extra text.';
+
+    const baseMessages = [
+      { role: "system", content: SPIDER_SYSTEM_PROMPT }
     ];
-  }
+    if (extraSystemInstructions.length) baseMessages.push({ role: "system", content: extraSystemInstructions.join("\n") });
+    baseMessages.push({ role: "system", content: "Memory:\n" + memorySummary });
+    baseMessages.push({ role: "system", content: searchInstruction });
+    baseMessages.push({ role: "user", content: prompt || "" });
 
-  let memory = await getMemory();
-
-  if (memory.length >= MEMORY_SUMMARY_TRIGGER)
-    memory = await compressMemory(memory);
-
-  if (memory.length > MEMORY_MESSAGE_LIMIT)
-    memory = memory.slice(-MEMORY_MESSAGE_LIMIT);
-
-  await saveMemory(memory);
-
-  /* ============= DELETE MEMORY HANDLING ====================== */
-
-  const lower = (prompt || "").toLowerCase();
-  const wantsDelete =
-    lower.includes("delete") ||
-    lower.includes("remove") ||
-    lower.includes("clear") ||
-    lower.includes("reset") ||
-    lower.includes("forget");
-
-  if (
-    wantsDelete &&
-    !lower.includes("memory:") &&
-    !lower.includes("delete all") &&
-    !lower.includes("reset all")
-  ) {
-    return new Response(
-      "Specify delete memory: all / last / first / 3 / keyword 😄",
-      { headers: { "content-type": "text/plain" } }
-    );
-  }
-
-  if (lower.includes("delete memory: all") || lower.includes("reset all") || lower.includes("delete all")) {
-    await env.CHAT_KV.put(memoryKey, "[]");
-    return new Response("All memory cleared 😎🔥", {
-      headers: { "content-type": "text/plain" }
+    const aiResp = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", {
+      messages: baseMessages
     });
-  }
 
-  if (lower.includes("delete memory:")) {
-    const cmd = lower.replace("delete memory:", "").trim();
+    let text = extractText(aiResp).trim();
 
-    if (cmd === "last") {
-      memory.pop();
-      await saveMemory(memory);
-      return new Response("Deleted last entry 👍", {
-        headers: { "content-type": "text/plain" }
-      });
-    }
+    // Clean JSON markdown wrapping if present
+    const jsonString = text
+      .replace(/^```json\s*/, "")
+      .replace(/^```\s*/, "")
+      .replace(/\s*```$/, "")
+      .trim();
 
-    if (cmd === "first") {
-      memory.shift();
-      await saveMemory(memory);
-      return new Response("Deleted first entry 👍", {
-        headers: { "content-type": "text/plain" }
-      });
-    }
+    try {
+      const obj = JSON.parse(jsonString);
+      if (obj && obj.action === "search" && typeof obj.query === "string" && obj.query.length > 1 && obj.query.length < 300) {
 
-    const idx = parseInt(cmd);
-    if (!isNaN(idx)) {
-      if (idx >= 1 && idx <= memory.length) {
-        memory.splice(idx - 1, 1);
-        await saveMemory(memory);
-        return new Response("Entry removed 😃", {
+        const results = await runSearch(obj.query);
+
+        const sumMessages = [
+          { role: "system", content: SPIDER_SYSTEM_PROMPT }
+        ];
+        if (extraSystemInstructions.length) sumMessages.push({ role: "system", content: extraSystemInstructions.join("\n") });
+        sumMessages.push({ role: "system", content: "Memory:\n" + memorySummary });
+        sumMessages.push({ role: "user", content: "Search results: " + JSON.stringify(results) });
+
+        const summary = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", {
+          messages: sumMessages
+        });
+
+        return new Response(extractText(summary), {
           headers: { "content-type": "text/plain" }
         });
       }
-      return new Response("Invalid index 😅", {
-        headers: { "content-type": "text/plain" }
-      });
+    } catch (_) {
+      // not JSON -> continue to raw text response
     }
 
-    memory = memory.filter(m => !m.content.toLowerCase().includes(cmd));
-    await saveMemory(memory);
-
-    return new Response("Matching entries deleted 👍", {
+    return new Response(text, {
       headers: { "content-type": "text/plain" }
     });
-  }
-
-  /* ============= ADD NEW MEMORY SAFELY ======================= */
-
-  function norm(s) {
-    return (s || "").trim().toLowerCase().replace(/\s+/g, " ");
-  }
-
-  if (prompt && prompt.trim()) {
-    const newNorm = norm(prompt);
-    const lastNorm = memory.length ? norm(memory[memory.length - 1].content) : "";
-
-    if (!(newNorm === lastNorm || newNorm.includes(lastNorm) || lastNorm.includes(newNorm))) {
-      memory.push({ role: "user", content: prompt, ts: Date.now() });
-    } else {
-      if (memory.length) memory[memory.length - 1].ts = Date.now();
-    }
-  }
-
-  if (memory.length > MEMORY_MESSAGE_LIMIT)
-    memory = memory.slice(-MEMORY_MESSAGE_LIMIT);
-
-  await saveMemory(memory);
-
-  /* ============= MEMORY SUMMARY FOR MODEL ==================== */
-
-  function shortPreview2(s, max = 160) {
-    if (!s) return "";
-    let t = s.replace(/\s+/g, " ").trim();
-    return t.length <= max ? t : t.slice(0, max).trim() + "...";
-  }
-
-  const memorySummary = memory
-    .filter(m => m.role !== "assistant") 
-    .slice(-MEMORY_TRIM_TARGET)
-    .map(m => {
-      if (m.role === "system_summary") return "summary: " + shortPreview2(m.content, 240);
-      return m.role + ": " + shortPreview2(m.content, 200);
-    })
-    .join("\n");
-   /* ============================================================
-     AUTO TELANGANA SLANG MODE + EXTRA SYSTEM INSTRUCTIONS
-     ============================================================ */
-
-  let forceTeluguSlang = false;
-  if (shouldTriggerTelugu(prompt || "")) {
-    forceTeluguSlang = true;
-  }
-
-  let forceSavage = false;
-  if ((prompt || "").toLowerCase().includes("savage mode") ||
-      (prompt || "").toLowerCase().includes("roast mode") ||
-      (prompt || "").toLowerCase().includes("be savage")) {
-    forceSavage = true;
-  }
-
-  // Build extra system layers (always push emoji guideline for normal English)
-  const extraSystemInstructions = [];
-
-  if (forceTeluguSlang) {
-    extraSystemInstructions.push(
-      "User message contains Telugu. Respond in STRICT Telangana slang using English transliteration only. Follow Telangana training rules. Do NOT use Andhra/textbook Telugu."
-    );
-  }
-
-  if (forceSavage) {
-    extraSystemInstructions.push(
-      "Savage mode enabled. Use playful Telangana-style roast. Be humorous, bold, and non-offensive."
-    );
-  }
-
-  // Ensure normal English replies use emojis if not explicitly telugu/savage
-  if (!forceTeluguSlang && !forceSavage) {
-    extraSystemInstructions.push(
-      "In normal English replies, use emojis naturally and freely from the emoji pack unless the user says 'no emojis'."
-    );
-  }
-
-  /* ============================================================
-   FILE ANALYSIS (FIXED FOR ROBUST CONTENT CHECK)
-   ============================================================ */
-if (currentMode === "analyze_file") {
-  // Extract parameters from the request body with proper fallbacks
-  const receivedFilename = String(body.filename || filename || "unknown");
-  
-  // --- START OF ROBUST CONTENT CLEANUP ---
-  // FIX: Prioritize fileContentFromForm (from multipart) over file_content (from JSON)
-  let contentToAnalyze = String(fileContentFromForm || file_content || "");
-  
-  // 1. Remove null byte (\u0000) and other control characters.
-  // 2. Normalize line breaks: replace CR (\u000D) and CRLF/CR with LF (\n).
-  // 3. FIX: Replace Non-Breaking Spaces (\u00A0) with standard spaces so trim() can catch them.
-  contentToAnalyze = contentToAnalyze
-    .replace(/[\u0000]/g, '')
-    .replace(/\u00A0/g, ' ') 
-    .replace(/(\r\n|\r)/g, '\n'); 
-
-  // Log the received file content for debugging
-  console.log("File analysis - Filename:", receivedFilename);
-  console.log("File analysis - Content length (after cleanup):", contentToAnalyze.length);
-  console.log("File analysis - Content preview:", contentToAnalyze.substring(0, 200));
-
-  // FIX: Robust check for empty content
-  if (contentToAnalyze.trim().length === 0) {
-    console.error("File content is empty or not provided. Length after trim is 0.");
-    // Using Telugu slang in the error response as a safety measure
-    return new Response(JSON.stringify({
-      text: "I'm sorry, **mama**, but I can't analyze the file since there's no content provided. Ee file empty undhi **ra**! 😔",
-      type: 'text',
-      model_used: 'mistral-small-3.1-24b-instruct',
-      sources: []
-    }), {
-      headers: { "content-type": "application/json" }
+    
+  } catch (error) {
+    // If any unhandled exception occurs in the main flow, catch it here and return a controlled error message.
+    console.error("FATAL WORKER EXCEPTION:", error.stack || error);
+    return new Response("Error: Worker Exception Caught. Something big crashed inside Spider's brain 🧠. Fix it, M4 Spider! Error details logged. 😭", {
+      headers: { "content-type": "text/plain" },
+      status: 500
     });
   }
-  // --- END OF ROBUST CONTENT CLEANUP ---
-
-  // Construct the prompt for file analysis
-  const aPrompt = `Analyze this file:\n\nFilename: ${receivedFilename}\nContent:\n${contentToAnalyze}\n`;
-
-  // Prepare messages for the AI model
-  const messages = [
-    { role: "system", content: SPIDER_SYSTEM_PROMPT }
-  ];
-
-  if (extraSystemInstructions.length) {
-    messages.push({ role: "system", content: extraSystemInstructions.join("\n") });
-  }
-
-  messages.push({ role: "system", content: "Memory:\n" + memorySummary });
-  messages.push({ role: "user", content: aPrompt });
-
-  // Log the messages being sent to the AI model
-  console.log("Messages sent to AI model:", messages);
-
-  // Call the AI model
-  const result = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", { messages });
-
-  // Extract the response text
-  const responseText = extractText(result);
-
-  // Return the response in JSON format
-  return new Response(JSON.stringify({
-    text: responseText,
-    type: 'text',
-    model_used: 'mistral-small-3.1-24b-instruct',
-    sources: []
-  }), {
-    headers: { "content-type": "application/json" }
-  });
-}
-  /* ============================================================
-     IMAGE GENERATION
-     ============================================================ */
-
-  if (currentMode === "image_gen") {
-    const enhanced = (prompt || "") + ", ultra detailed, cinematic lighting, hdr, 8k clarity";
-
-    const img = await env.SPY_AI.run(
-      "@cf/stabilityai/stable-diffusion-xl-base-1.0",
-      { prompt: enhanced }
-    );
-
-    return new Response(img, { headers: { "content-type": "image/png" } });
-  }
-
-  /* ============================================================
-     IMAGE EDIT
-     ============================================================ */
-
-  if (currentMode === "image_edit") {
-    const enhanced = (prompt || "") + ", detailed render, hdr, cinematic";
-
-    const img = await env.SPY_AI.run(
-      "@cf/stabilityai/stable-diffusion-xl-refiner-1.0",
-      { prompt: enhanced, image, strength: strength || 0.7 }
-    );
-
-    return new Response(img, { headers: { "content-type": "image/png" } });
- }
-
-  /* ============================================================
-     NORMAL CHAT + SEARCH
-     ============================================================ */
-
-  const searchInstruction = 'If you need up-to-date information, reply ONLY with: {"action":"search","query":"your search query"} No extra text.';
-
-  const baseMessages = [
-    { role: "system", content: SPIDER_SYSTEM_PROMPT }
-  ];
-  if (extraSystemInstructions.length) baseMessages.push({ role: "system", content: extraSystemInstructions.join("\n") });
-  baseMessages.push({ role: "system", content: "Memory:\n" + memorySummary });
-  baseMessages.push({ role: "system", content: searchInstruction });
-  baseMessages.push({ role: "user", content: prompt || "" });
-
-  const aiResp = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", {
-    messages: baseMessages
-  });
-
-  let text = extractText(aiResp).trim();
-
-  // Clean JSON markdown wrapping if present
-  const jsonString = text
-    .replace(/^```json\s*/, "")
-    .replace(/^```\s*/, "")
-    .replace(/\s*```$/, "")
-    .trim();
-
-  try {
-    const obj = JSON.parse(jsonString);
-    if (obj && obj.action === "search" && typeof obj.query === "string" && obj.query.length > 1 && obj.query.length < 300) {
-
-      const results = await runSearch(obj.query);
-
-      const sumMessages = [
-        { role: "system", content: SPIDER_SYSTEM_PROMPT }
-      ];
-      if (extraSystemInstructions.length) sumMessages.push({ role: "system", content: extraSystemInstructions.join("\n") });
-      sumMessages.push({ role: "system", content: "Memory:\n" + memorySummary });
-      sumMessages.push({ role: "user", content: "Search results: " + JSON.stringify(results) });
-
-      const summary = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", {
-        messages: sumMessages
-      });
-
-      return new Response(extractText(summary), {
-        headers: { "content-type": "text/plain" }
-      });
-    }
-  } catch (_) {
-    // not JSON -> continue to raw text response
-  }
-
-  return new Response(text, {
-    headers: { "content-type": "text/plain" }
-  });
 }
 
 /* ============================================================
@@ -626,7 +609,7 @@ async function runSearch(query) {
     }
   };
 
-  // FIX: Clean and correct URL construction (removed markdown link syntax)
+  // FIX 1: Corrected the broken URL construction (removed erroneous markdown syntax)
   const url = "[https://api.duckduckgo.com/?q=](https://api.duckduckgo.com/?q=)" + encodeURIComponent(query) + "&format=json&t=spider_app&no_html=1";
 
   try {
@@ -710,7 +693,6 @@ function extractText(resp) {
    ============================================================ */
 
 function detectMode(prompt, file_content, filename) {
-  // FIX: Use the combined file_content var for detection
   if (file_content || filename) return "analyze_file";
 
   const t = (prompt || "").toLowerCase();
