@@ -1694,7 +1694,14 @@ const handleSendMessage = async () => {
                 <div className={`p-3 rounded-xl max-w-[85%] sm:max-w-4xl shadow-md ${bubbleClasses}`}>
                     {message.type === 'image' && message.base64_image ? (
                         <div className="flex flex-col space-y-2">
-                            <p className="text-xs text-gray-700 italic">Prompt: {message.uploadedImage ? 'Image Transformation' : message.uploadedFile ? 'File Analysis' : 'Image Generation'}</p>
+                            <p className="text-xs">
+                          {message.type === "image" ? 
+                        (message.base64_image ? "Image Result" : "Image Generated") :
+                             message.type === "analyze_file" ? "File Analysis" :
+                                     "Response"
+                                      }
+                                     </p>
+
                             <img 
                                 src={`data:image/jpeg;base64,${message.base64_image}`} 
                                 alt="Generated or Edited Image" 
@@ -1723,15 +1730,11 @@ const handleSendMessage = async () => {
  const isImageMode = !!uploadedImage;
 const isFileMode = !!uploadedFile;
 
-    const getModeText = () => {
-        const modeMap = {
-            'chat': 'Deep Research / Code',
-            'file_analysis': 'File Analysis',
-            'image_gen': 'Create Image (Gen)',
-            'image_edit': 'Edit/Transform Image'
-        };
-        return modeMap[activeAIMode] || 'Chat/Code';
-    };
+const getModeText = () => {
+    if (uploadedFile) return "File Analysis";
+    if (uploadedImage) return "Image Editing";
+    return "Chat / Code";
+};
 
     return (
         // The outer div handles the overall height and overflow of the whole app section
@@ -1830,11 +1833,10 @@ const isFileMode = !!uploadedFile;
                             </div>
                             
                             {/* Plus Menu */}
-                            <PlusMenu 
-                                setActiveAIMode={setActiveAIMode}
+                                <PlusMenu 
                                 fileInputRef={fileInputRef}
-                                imageInputRef={imageInputRef}
-                            />
+                               imageInputRef={imageInputRef}
+                                   />
 
                             {/* Send Button */}
                             <button 
