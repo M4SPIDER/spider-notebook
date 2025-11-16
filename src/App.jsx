@@ -1375,7 +1375,6 @@ const PlusMenu = ({
         </div>
     );
 };
-
 const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setActiveAIMode, uploadedFile, setUploadedFile, uploadedImage, setUploadedImage }) => {
     // ---------- State ----------
     const [message, setMessage] = useState('');
@@ -1463,8 +1462,8 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
                 console.error("Error listening to recent chats:", e);
             }
 
-            // load local default if needed
-            setChatHistory(prev => (prev && prev.length ? prev : [{ role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }]));
+            // if there was local welcome, keep it (do not overwrite if user already saw history)
+            setChatHistory(prev => (prev && prev.length && prev.some(m => m.role !== 'assistant') ? prev : [{ role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }]));
             setActiveChatId(null);
             return;
         }
@@ -1526,11 +1525,11 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
         }
     }, [db, auth, activeChatId, currentUser]);
 
-    // ---------- Initialize on mount ----------
+    // ---------- Initialize on mount and when auth/db changes ----------
     useEffect(() => {
         loadChatHistory(null);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [db, auth]);
 
     useEffect(() => {
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -1550,6 +1549,7 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
             event.target.value = null;
             return;
         }
+        // set state for UI; do not clear too early
         setUploadedFile(file);
         setUploadedImage(null);
         setMessage(`Analyze the contents of ${file.name}.`);
@@ -1584,9 +1584,8 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
 
         const onUploadFile = () => {
             setOpen(false);
-            // older UI expects activeAIMode to be set to 'file_analysis' — keep that for compatibility
             if (typeof _setActiveAIMode === 'function') _setActiveAIMode('file_analysis');
-            // then click input
+            // click input after slight delay so mode/state can settle
             setTimeout(() => fileInputRef.current?.click(), 50);
         };
 
@@ -1615,23 +1614,44 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
         );
     };
 
+    // ---------- New Chat handler ----------
+    const handleNewChat = () => {
+        // Reset UI state, clear uploaded files, reset active AI mode and chat id
+        setUploadedFile(null);
+        setUploadedImage(null);
+        setActiveAIMode && setActiveAIMode('chat');
+        setActiveChatId(null);
+        // Reset history to a fresh welcome message and clear localStorage (optional)
+        const welcome = [{ role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }];
+        setChatHistory(welcome);
+        try { localStorage.removeItem(LOCAL_STORAGE_KEY); } catch (e) { /* ignore */ }
+        // reload recent chats (keeps Firebase listener alive)
+        loadChatHistory(null);
+    };
+
     // ---------- Send message (auto-detects mode) ----------
     const handleSendMessage = async () => {
         if (!message.trim() && !uploadedFile && !uploadedImage) return;
 
-        // determine mode
-        let mode = "chat";
-        if (uploadedFile) mode = "analyze_file";
-        else if (uploadedImage) mode = "image_edit";
-        else if (activeAIMode === 'image_gen') mode = "image_gen"; // keep compatibility
+        // capture current state into local variables so clearing state later won't break us
+        const fileCopy = uploadedFile;
+        const imageCopy = uploadedImage;
+        const selectedActiveMode = activeAIMode; // preserve current activeAIMode
+        let mode = selectedActiveMode || "chat";
 
-        // create user message that is serializable
+        // prioritize explicit uploads
+        if (fileCopy) mode = "analyze_file";
+        if (imageCopy) mode = "image_edit";
+        // keep image_gen if user explicitly set it
+        if (!fileCopy && !imageCopy && selectedActiveMode === 'image_gen') mode = 'image_gen';
+
+        // build a serializable user message (no File objects)
         const userMessage = {
             role: 'user',
             content: message,
             type: mode,
-            fileName: uploadedFile ? uploadedFile.name : undefined,
-            imageName: uploadedImage ? uploadedImage.name : undefined,
+            fileName: fileCopy ? fileCopy.name : undefined,
+            imageName: imageCopy ? imageCopy.name : undefined,
             ts: Date.now()
         };
 
@@ -1640,73 +1660,79 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
 
         try {
             // FILE ANALYSIS
-            if (mode === "analyze_file") {
-                const textContent = await uploadedFile.text();
+            if (mode === "analyze_file" && fileCopy) {
+                const textContent = await fileCopy.text();
                 const apiUrl = '/api/generate/text';
                 const apiPayload = {
                     prompt: message,
                     mode: "analyze_file",
-                    filename: uploadedFile.name,
+                    filename: fileCopy.name,
                     file_content: textContent
                 };
                 const result = await callFastAPI(apiUrl, apiPayload, mode);
+
                 const assistantMessage = {
                     role: 'assistant',
-                    content: result.text || 'File analysis complete.',
-                    type: result.base64_image ? 'image' : 'text',
-                    base64_image: result.base64_image,
-                    sources: result.sources,
-                    model_used: result.model_used,
+                    content: result?.text || 'File analysis complete.',
+                    type: result?.base64_image ? 'image' : 'text',
+                    base64_image: result?.base64_image,
+                    sources: result?.sources,
+                    model_used: result?.model_used,
                     ts: Date.now()
                 };
                 setChatHistory(prev => [...prev, assistantMessage]);
             }
+
             // IMAGE EDIT
-            else if (mode === "image_edit") {
-                await new Promise((resolve, reject) => {
+            else if (mode === "image_edit" && imageCopy) {
+                const base64Image = await new Promise((resolve, reject) => {
                     const reader = new FileReader();
-                    reader.onload = async () => {
+                    reader.onload = () => {
                         try {
-                            const base64Image = reader.result.split(",")[1];
-                            const apiUrl = '/api/generate/text';
-                            const apiPayload = {
-                                prompt: message,
-                                mode: "image_edit",
-                                image: base64Image,
-                                strength: 0.7
-                            };
-                            const result = await callFastAPI(apiUrl, apiPayload, mode);
-                            const assistantMessage = {
-                                role: 'assistant',
-                                content: result.text || 'Image edited.',
-                                type: result.base64_image ? 'image' : 'text',
-                                base64_image: result.base64_image,
-                                sources: result.sources,
-                                model_used: result.model_used,
-                                ts: Date.now()
-                            };
-                            setChatHistory(prev => [...prev, assistantMessage]);
-                            resolve();
+                            const b = reader.result.split(",")[1];
+                            resolve(b);
                         } catch (e) {
                             reject(e);
                         }
                     };
                     reader.onerror = (err) => reject(err);
-                    reader.readAsDataURL(uploadedImage);
+                    reader.readAsDataURL(imageCopy);
                 });
+
+                const apiUrl = '/api/generate/text';
+                const apiPayload = {
+                    prompt: message,
+                    mode: "image_edit",
+                    image: base64Image,
+                    strength: 0.7
+                };
+                const result = await callFastAPI(apiUrl, apiPayload, mode);
+
+                const assistantMessage = {
+                    role: 'assistant',
+                    content: result?.text || 'Image edited.',
+                    type: result?.base64_image ? 'image' : 'text',
+                    base64_image: result?.base64_image,
+                    sources: result?.sources,
+                    model_used: result?.model_used,
+                    ts: Date.now()
+                };
+                setChatHistory(prev => [...prev, assistantMessage]);
             }
+
             // IMAGE GEN or CHAT
             else {
                 const apiUrl = '/api/generate/text';
                 const apiPayload = { prompt: message, mode };
                 const result = await callFastAPI(apiUrl, apiPayload, mode);
+
                 const assistantMessage = {
                     role: 'assistant',
-                    content: result.text || 'Response received.',
-                    type: result.base64_image ? 'image' : 'text',
-                    base64_image: result.base64_image,
-                    sources: result.sources,
-                    model_used: result.model_used,
+                    content: result?.text || 'Response received.',
+                    type: result?.base64_image ? 'image' : 'text',
+                    base64_image: result?.base64_image,
+                    sources: result?.sources,
+                    model_used: result?.model_used,
                     ts: Date.now()
                 };
                 setChatHistory(prev => [...prev, assistantMessage]);
@@ -1715,15 +1741,19 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
             console.error('API ERROR:', error);
             const assistantError = {
                 role: 'assistant',
-                content: `[API ERROR] ${error.message || 'Something went wrong.'}`,
+                content: `[API ERROR] ${error?.message || 'Something went wrong.'}`,
                 type: 'text',
                 ts: Date.now()
             };
             setChatHistory(prev => [...prev, assistantError]);
         } finally {
-            setUploadedFile(null);
-            setUploadedImage(null);
-            // keep activeAIMode as-is; older UI might expect manual mode, but auto-detection covers most flows
+            // Clear uploads only AFTER result is processed
+            try {
+                setUploadedFile(null);
+                setUploadedImage(null);
+            } catch (e) {
+                // ignore
+            }
         }
     };
 
@@ -1780,7 +1810,7 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
         <div className="flex flex-row h-full flex-grow bg-[var(--spider-dark)] text-[var(--spider-text)] overflow-hidden">
             {/* Left Sidebar */}
             <div className="hidden md:flex flex-col bg-[var(--spider-med)] w-64 p-4 border-r border-[var(--spider-light)] flex-shrink-0 space-y-4 overflow-y-auto">
-                <button onClick={() => { setUploadedFile(null); setUploadedImage(null); setActiveAIMode && setActiveAIMode('chat'); setMessage(''); loadChatHistory(null); }} className="w-full bg-[var(--spider-neon-blue)] text-black text-sm font-semibold py-2.5 px-3 rounded-md hover:opacity-90 transition flex items-center space-x-2 justify-center">
+                <button onClick={handleNewChat} className="w-full bg-[var(--spider-neon-blue)] text-black text-sm font-semibold py-2.5 px-3 rounded-md hover:opacity-90 transition flex items-center space-x-2 justify-center">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path></svg>
                     <span>New Chat</span>
                 </button>
