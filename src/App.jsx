@@ -1302,48 +1302,25 @@ const SpiderNotebookApp = ({
 
 
 // --- NEW Plus Menu Component (For AI Chat App) ---
-const PlusMenu = ({ fileInputRef, imageInputRef }) => {
-    const [open, setOpen] = useState(false);
-
-    return (
-        <div className="relative">
-            <button 
-                onClick={() => setOpen(!open)}
-                className="bg-[var(--spider-light)] text-white px-3 py-2 rounded-md h-10 flex items-center justify-center hover:opacity-90"
-            >
-                +
-            </button>
-
-            {open && (
-                <div className="absolute bottom-12 right-0 bg-[var(--spider-dark)] border border-[var(--spider-light)] rounded-md shadow-lg w-40 p-2 z-50">
-
-                    {/* Upload File */}
-                    <button
-                        onClick={() => {
-                            setOpen(false);
-                            fileInputRef.current?.click();
-                        }}
-                        className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm"
-                    >
-                        📄 Upload File
-                    </button>
-
-                    {/* Upload Image */}
-                    <button
-                        onClick={() => {
-                            setOpen(false);
-                            imageInputRef.current?.click();
-                        }}
-                        className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm"
-                    >
-                        🖼 Upload Image
-                    </button>
-
-                </div>
-            )}
-        </div>
-    );
-};
+const PlusMenu = ({ 
+    setActiveAIMode, 
+    fileInputRef, 
+    imageInputRef, 
+}) => {
+    const [isMenuOpen, setIsMenuOpen] = useState(false);
+    
+    // Helper function to handle mode switching and file/image selection
+    const handleMenuItemClick = (mode, ref) => {
+        setActiveAIMode(mode);
+        setIsMenuOpen(false); // Close menu
+        
+        // If a ref is provided (for upload modes), trigger click immediately
+        if (ref) {
+            // Use setTimeout to ensure the React state update for activeAIMode completes
+            // before we fire the native file dialog, ensuring the mode is ready for the response.
+            setTimeout(() => ref.current?.click(), 0);
+        }
+    };
 
     // Menu Item list
     const menuItems = [
@@ -1398,29 +1375,27 @@ const PlusMenu = ({ fileInputRef, imageInputRef }) => {
         </div>
     );
 };
-// --- END Plus Menu Component ---
 
-
-// Spider AI App (ChatGPT Style with Spider Theme) - MOBILE FIXED VERSION
 const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setActiveAIMode, uploadedFile, setUploadedFile, uploadedImage, setUploadedImage }) => {
     const [message, setMessage] = useState('');
-    const [chatHistory, setChatHistory] = useState([ 
-        { role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' } 
+    const [chatHistory, setChatHistory] = useState([
+        { role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }
     ]);
     const [activeChatId, setActiveChatId] = useState(null);
-    const [recentChats, setRecentChats] = useState(mockChatLinks);
+    const [recentChats, setRecentChats] = useState(mockChatLinks || []);
     const [aspectRatio, setAspectRatio] = useState('1:1');
     const fileInputRef = useRef(null);
     const imageInputRef = useRef(null);
     const chatEndRef = useRef(null);
-    
+
     // Firebase/Firestore setup (keep your existing code here)
     const [db, setDb] = useState(null);
     const [auth, setAuth] = useState(null);
     const getAppId = () => typeof __app_id !== 'undefined' ? __app_id : 'default-m4-app';
+    const LOCAL_STORAGE_KEY = `spider_chat_history_${getAppId()}_${(currentUser?.email || 'anon')}`;
 
     useEffect(() => {
-        // Your existing Firebase initialization code
+        // Existing Firebase init (unchanged)
         try {
             const USER_FIREBASE_CONFIG = {
                 apiKey: "AIzaSyBS1aGZZ2RDx2RKji1jOO-7spiY5QzJjh8",
@@ -1431,10 +1406,10 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
                 appId: "1:154970150789:web:60796710cacca377edd6ec",
                 measurementId: "G-TGTWRTF7EX"
             };
-            
+
             let configString = typeof __firebase_config !== 'undefined' ? __firebase_config : '{}';
             let firebaseConfig = JSON.parse(configString);
-            
+
             if (Object.keys(firebaseConfig).length === 0 || !firebaseConfig.apiKey) {
                 firebaseConfig = USER_FIREBASE_CONFIG;
             }
@@ -1449,82 +1424,90 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
         }
     }, []);
 
-    // Your existing chat persistence functions (loadChatHistory, saveChatHistory, etc.)
     const getUserId = () => auth?.currentUser?.uid || currentUser?.email || 'anonymous';
-    
+
+    // Load chat history: prefer Firebase (if logged), otherwise localStorage
     const loadChatHistory = useCallback(async (chatId) => {
-        // Your existing loadChatHistory implementation
         if (db && auth?.currentUser?.uid) {
-             const userId = getUserId();
-             const chatsCollection = collection(db, `artifacts/${getAppId()}/users/${userId}/ai_chats`);
+            const userId = getUserId();
+            const chatsCollection = collection(db, `artifacts/${getAppId()}/users/${userId}/ai_chats`);
 
-             if (chatId) {
-                 // Load specific chat
-                 try {
-                     const chatSnap = await getDocs(query(chatsCollection, where('id', '==', chatId), limit(1))); 
-
-                     if (chatSnap.docs.length > 0) {
-                         const data = chatSnap.docs[0].data();
-                         setChatHistory(JSON.parse(data.history));
-                         setActiveChatId(chatId);
-                     }
-                 } catch (e) {
-                     console.error("Error loading chat:", e);
-                 }
-             } else {
-                  // Load recent chats list (only if logged in)
-                  try {
-                      const q = query(chatsCollection, limit(10)); 
-                      onSnapshot(q, (snapshot) => {
-                         const recent = snapshot.docs.map(doc => ({
-                             id: doc.id,
-                             title: doc.data().title || 'Untitled Chat',
-                             timestamp: doc.data().timestamp,
-                         })).sort((a, b) => b.timestamp - a.timestamp); 
-                         setRecentChats(recent);
-                      });
-                  } catch (e) {
-                      console.error("Error setting up chat listener:", e);
-                  }
-                  
-                  // Set initial empty chat state
-                  setChatHistory([ { role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' } 
-                ]);
-                  setActiveChatId(null);
-             }
-        } else {
-            setRecentChats(mockChatLinks);
             if (chatId) {
-                setChatHistory([
-                    { role: 'assistant', content: `Simulated chat ID: ${chatId}. (Login required for real persistence)`, type: 'text' },
-                    { role: 'user', content: 'What is the Spy format?', type: 'chat' },
-                    { role: 'assistant', content: 'The Spy Language format is a hybrid runtime that supports Python, C++, Java, and Kotlin within a single file. It is optimized for cross-language collaboration and AI execution.', type: 'text' }
-                ]);
-                setActiveChatId(chatId);
+                try {
+                    const chatSnap = await getDocs(query(chatsCollection, where('id', '==', chatId), limit(1)));
+                    if (chatSnap.docs.length > 0) {
+                        const data = chatSnap.docs[0].data();
+                        const parsed = JSON.parse(data.history || '[]');
+                        setChatHistory(parsed.length ? parsed : [{ role: 'assistant', content: 'Welcome! I am Spider AI.', type: 'text' }]);
+                        setActiveChatId(chatId);
+                        return;
+                    }
+                } catch (e) {
+                    console.error("Error loading chat:", e);
+                }
             } else {
-                setChatHistory([ 
-                    { role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' } 
-                ]);
+                // recent chats list
+                try {
+                    const q = query(chatsCollection, limit(10));
+                    onSnapshot(q, (snapshot) => {
+                        const recent = snapshot.docs.map(doc => ({
+                            id: doc.id,
+                            title: doc.data().title || 'Untitled Chat',
+                            timestamp: doc.data().timestamp,
+                        })).sort((a, b) => b.timestamp - a.timestamp);
+                        setRecentChats(recent);
+                    });
+                } catch (e) {
+                    console.error("Error setting up chat listener:", e);
+                }
+                // fallback to initial
+                setChatHistory([{ role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }]);
                 setActiveChatId(null);
+                return;
             }
         }
-    }, [db, auth, currentUser, showModal]);
 
+        // fallback: localStorage based
+        try {
+            const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                setChatHistory(Array.isArray(parsed) && parsed.length ? parsed : [{ role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }]);
+            } else {
+                setChatHistory([{ role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }]);
+            }
+        } catch (e) {
+            console.error("Error loading local chat history:", e);
+            setChatHistory([{ role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }]);
+        }
+    }, [db, auth, currentUser]);
+
+    // Save history to Firebase if logged in AND to localStorage as fallback
     const saveChatHistory = useCallback(async (currentHistory) => {
-        // Your existing saveChatHistory implementation
+        // Don't save File objects — chatHistory entries must be serializable
+        if (!Array.isArray(currentHistory)) return;
+
+        // Save to localStorage always
+        try {
+            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(currentHistory));
+        } catch (e) {
+            console.warn("Failed to save chat locally:", e);
+        }
+
         if (!db || !auth?.currentUser?.uid) {
-            console.log("Skipping chat save: User is not logged in.");
+            // not logged in → don't attempt firebase write
             return;
         }
-        if (currentHistory.length <= 1) return; 
+
+        if (currentHistory.length <= 1) return;
 
         const userId = getUserId();
-        const chatTitle = currentHistory.length > 1 ? currentHistory[1].content.substring(0, 50).trim() + (currentHistory[1].content.length > 50 ? '...' : '') : "New Chat";
+        const chatTitle = currentHistory.length > 1 ? (currentHistory[1].content || '').toString().substring(0, 50).trim() + ((currentHistory[1].content || '').toString().length > 50 ? '...' : '') : "New Chat";
         const chatsCollection = collection(db, `artifacts/${getAppId()}/users/${userId}/ai_chats`);
-        
+
         const chatData = {
             title: chatTitle,
-            history: JSON.stringify(currentHistory), 
+            history: JSON.stringify(currentHistory),
             timestamp: Date.now(),
             mode: currentHistory[1]?.type || 'chat',
             userId: userId
@@ -1539,38 +1522,39 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
                 setActiveChatId(docRef.id);
             }
         } catch (e) {
-            console.error("Error saving chat history:", e);
+            console.error("Error saving chat history to firebase:", e);
         }
-
     }, [db, auth, activeChatId, currentUser]);
 
     const handleNewChat = () => {
         setUploadedFile(null);
         setUploadedImage(null);
-        setActiveAIMode('chat');
+        setActiveAIMode && setActiveAIMode('chat');
         setMessage('');
         loadChatHistory(null);
     };
 
     useEffect(() => {
-        if (auth) {
-            handleNewChat();
-        }
-    }, [auth]);
+        // On mount, load chats (either firebase or localStorage)
+        loadChatHistory(null);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     useEffect(() => {
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-        if (chatHistory.length > 0 && chatHistory[chatHistory.length - 1].role === 'assistant') {
+        // Save when assistant message appears or chat updates
+        if (chatHistory.length > 0) {
             saveChatHistory(chatHistory);
         }
     }, [chatHistory, saveChatHistory]);
 
-    // Your existing handleFileUpload, handleImageUpload, handleSendMessage functions
+    // File/Image upload handlers
     const handleFileUpload = (event) => {
-        const file = event.target.files[0];
+        const file = event.target.files && event.target.files[0];
         if (file) {
             if (file.size > 1024 * 1024 * 10) {
                 showModal("File Error", "File size exceeds 10MB limit.");
+                event.target.value = null;
                 return;
             }
             setUploadedFile(file);
@@ -1581,14 +1565,16 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
     };
 
     const handleImageUpload = (event) => {
-        const file = event.target.files[0];
+        const file = event.target.files && event.target.files[0];
         if (file) {
             if (!file.type.startsWith('image/')) {
                 showModal("File Error", "Please upload a valid image file.");
+                event.target.value = null;
                 return;
             }
             if (file.size > 1024 * 1024 * 5) {
                 showModal("File Error", "Image size exceeds 5MB limit.");
+                event.target.value = null;
                 return;
             }
             setUploadedImage(file);
@@ -1598,136 +1584,207 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
         event.target.value = null;
     };
 
-const handleSendMessage = async () => {
-    if (!message.trim() && !uploadedFile && !uploadedImage) return;
+    // --------- PlusMenu local component (WORKING) ----------
+    const PlusMenu = ({ fileInputRef, imageInputRef }) => {
+        const [open, setOpen] = useState(false);
 
-    let mode = "chat";
-    if (uploadedFile) mode = "analyze_file";
-    else if (uploadedImage) mode = "image_edit";
+        return (
+            <div className="relative">
+                <button
+                    onClick={() => setOpen(!open)}
+                    className="bg-[var(--spider-light)] text-white px-3 py-2 rounded-md h-10 flex items-center justify-center hover:opacity-90"
+                >
+                    +
+                </button>
 
-    const userMessage = {
-        role: 'user',
-        content: message,
-        type: mode,
-        uploadedFile,
-        uploadedImage
+                {open && (
+                    <div className="absolute bottom-12 right-0 bg-[var(--spider-dark)] border border-[var(--spider-light)] rounded-md shadow-lg w-40 p-2 z-50">
+
+                        <button
+                            onClick={() => {
+                                setOpen(false);
+                                fileInputRef.current?.click();
+                            }}
+                            className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm"
+                        >
+                            📄 Upload File
+                        </button>
+
+                        <button
+                            onClick={() => {
+                                setOpen(false);
+                                imageInputRef.current?.click();
+                            }}
+                            className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm"
+                        >
+                            🖼 Upload Image
+                        </button>
+
+                        <button
+                            onClick={() => {
+                                setOpen(false);
+                                // Preserve the old option to explicitly switch to image generation if needed:
+                                setActiveAIMode && setActiveAIMode("image_gen");
+                            }}
+                            className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm"
+                        >
+                            🎨 Create Image (Gen)
+                        </button>
+
+                    </div>
+                )}
+            </div>
+        );
     };
 
-    setChatHistory(prev => [...prev, userMessage]);
-    setMessage('');
+    // handleSendMessage: auto-detect mode from uploadedFile/uploadedImage
+    const handleSendMessage = async () => {
+        if (!message.trim() && !uploadedFile && !uploadedImage) return;
 
-    let apiUrl = '';
-    let apiPayload = {};
+        // choose mode
+        let mode = "chat";
+        if (uploadedFile) mode = "analyze_file";
+        else if (uploadedImage) mode = "image_edit";
 
-    try {
-        // ---------------- FILE ANALYSIS ----------------
-        if (mode === "analyze_file") {
-            const textContent = await uploadedFile.text();
+        // Build a user message WITHOUT storing raw File objects (serialized-friendly)
+        const userMessage = {
+            role: 'user',
+            content: message,
+            type: mode,
+            fileName: uploadedFile ? uploadedFile.name : undefined,
+            imageName: uploadedImage ? uploadedImage.name : undefined,
+            ts: Date.now()
+        };
 
-            apiUrl = '/api/generate/text';
-            apiPayload = {
-                prompt: message,
-                mode: "analyze_file",
-                filename: uploadedFile.name,
-                file_content: textContent
-            };
-        }
+        setChatHistory(prev => [...prev, userMessage]);
+        setMessage('');
 
-        // ---------------- IMAGE EDIT ----------------
-        else if (mode === "image_edit") {
-            const reader = new FileReader();
-
-            reader.onload = async () => {
-                const base64Image = reader.result.split(",")[1];
-
-                apiUrl = '/api/generate/text';
-                apiPayload = {
+        try {
+            // FILE ANALYSIS
+            if (mode === "analyze_file") {
+                const textContent = await uploadedFile.text();
+                const apiUrl = '/api/generate/text';
+                const apiPayload = {
                     prompt: message,
-                    mode: "image_edit",
-                    image: base64Image,
-                    strength: 0.7
+                    mode: "analyze_file",
+                    filename: uploadedFile.name,
+                    file_content: textContent
                 };
 
                 const result = await callFastAPI(apiUrl, apiPayload, mode);
 
                 const assistantMessage = {
                     role: 'assistant',
-                    content: result.text || 'Image edited.',
+                    content: result.text || 'File analysis complete.',
                     type: result.base64_image ? 'image' : 'text',
                     base64_image: result.base64_image,
                     sources: result.sources,
-                    model_used: result.model_used
+                    model_used: result.model_used,
+                    ts: Date.now()
                 };
 
                 setChatHistory(prev => [...prev, assistantMessage]);
+            }
+
+            // IMAGE EDIT
+            else if (mode === "image_edit") {
+                // read file into base64 then send
+                await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = async () => {
+                        try {
+                            const base64Image = reader.result.split(",")[1];
+
+                            const apiUrl = '/api/generate/text';
+                            const apiPayload = {
+                                prompt: message,
+                                mode: "image_edit",
+                                image: base64Image,
+                                strength: 0.7
+                            };
+
+                            const result = await callFastAPI(apiUrl, apiPayload, mode);
+
+                            const assistantMessage = {
+                                role: 'assistant',
+                                content: result.text || 'Image edited.',
+                                type: result.base64_image ? 'image' : 'text',
+                                base64_image: result.base64_image,
+                                sources: result.sources,
+                                model_used: result.model_used,
+                                ts: Date.now()
+                            };
+
+                            setChatHistory(prev => [...prev, assistantMessage]);
+                            resolve();
+                        } catch (e) {
+                            reject(e);
+                        }
+                    };
+                    reader.onerror = (err) => reject(err);
+                    reader.readAsDataURL(uploadedImage);
+                });
+            }
+
+            // NORMAL CHAT
+            else {
+                const apiUrl = '/api/generate/text';
+                const apiPayload = { prompt: message, mode: "chat" };
+
+                const result = await callFastAPI(apiUrl, apiPayload, mode);
+
+                const assistantMessage = {
+                    role: 'assistant',
+                    content: result.text || 'Response received.',
+                    type: result.base64_image ? 'image' : 'text',
+                    base64_image: result.base64_image,
+                    sources: result.sources,
+                    model_used: result.model_used,
+                    ts: Date.now()
+                };
+
+                setChatHistory(prev => [...prev, assistantMessage]);
+            }
+        } catch (error) {
+            console.error('API ERROR:', error);
+            const assistantError = {
+                role: 'assistant',
+                content: `[API ERROR] ${error.message || 'Something went wrong.'}`,
+                type: 'text',
+                ts: Date.now()
             };
-
-            reader.readAsDataURL(uploadedImage);
+            setChatHistory(prev => [...prev, assistantError]);
+        } finally {
+            // always clear upload state after sending (files can't persist across reloads)
+            setUploadedFile(null);
             setUploadedImage(null);
-            return;
         }
+    };
 
-        // ---------------- NORMAL CHAT ----------------
-        else {
-            apiUrl = '/api/generate/text';
-            apiPayload = { prompt: message, mode: "chat" };
-        }
-
-        // ---------------- SEND REQUEST ----------------
-        const result = await callFastAPI(apiUrl, apiPayload, mode);
-
-        const assistantMessage = {
-            role: 'assistant',
-            content: result.text || 'Response received.',
-            type: result.base64_image ? 'image' : 'text',
-            base64_image: result.base64_image,
-            sources: result.sources,
-            model_used: result.model_used
-        };
-
-        setChatHistory(prev => [...prev, assistantMessage]);
-
-    } catch (error) {
-        console.error('API ERROR:', error);
-
-        const assistantError = {
-            role: 'assistant',
-            content: `[API ERROR] ${error.message || 'Something went wrong.'}`,
-            type: 'text'
-        };
-
-        setChatHistory(prev => [...prev, assistantError]);
-
-    } finally {
-        setUploadedFile(null);
-        setUploadedImage(null);
-    }
-};
-    // ChatBubble component (keep your existing one)
+    // Chat message bubble
     const ChatBubble = ({ message }) => {
-        const bubbleClasses = message.role === 'user' 
-            ? 'bg-[var(--spider-neon-blue)] text-black ml-auto' 
+        const bubbleClasses = message.role === 'user'
+            ? 'bg-[var(--spider-neon-blue)] text-black ml-auto'
             : 'bg-[var(--spider-med)] text-white mr-auto';
-            
+
         const content = message.content;
-        
+
         return (
-            // Added margin-bottom here for spacing between bubbles
             <div className={`flex w-full ${message.role === 'user' ? 'justify-end' : 'justify-start'} mb-4`}>
                 <div className={`p-3 rounded-xl max-w-[85%] sm:max-w-4xl shadow-md ${bubbleClasses}`}>
                     {message.type === 'image' && message.base64_image ? (
                         <div className="flex flex-col space-y-2">
                             <p className="text-xs">
-                          {message.type === "image" ? 
-                        (message.base64_image ? "Image Result" : "Image Generated") :
-                             message.type === "analyze_file" ? "File Analysis" :
-                                     "Response"
-                                      }
-                                     </p>
-
-                            <img 
-                                src={`data:image/jpeg;base64,${message.base64_image}`} 
-                                alt="Generated or Edited Image" 
+                                {message.type === "image"
+                                    ? (message.base64_image ? "Image Result" : "Image Generated")
+                                    : message.type === "analyze_file"
+                                        ? "File Analysis"
+                                        : "Response"
+                                }
+                            </p>
+                            <img
+                                src={`data:image/jpeg;base64,${message.base64_image}`}
+                                alt="Generated or Edited Image"
                                 className="max-w-full rounded-lg shadow-lg"
                                 style={{ maxHeight: '300px', objectFit: 'contain' }}
                             />
@@ -1750,14 +1807,17 @@ const handleSendMessage = async () => {
         );
     };
 
- const isImageMode = !!uploadedImage;
-const isFileMode = !!uploadedFile;
+    const isImageMode = !!uploadedImage;
+    const isFileMode = !!uploadedFile;
 
-const getModeText = () => {
-    if (uploadedFile) return "File Analysis";
-    if (uploadedImage) return "Image Editing";
-    return "Chat / Code";
-};
+    const getModeText = () => {
+        if (uploadedFile) return "File Analysis";
+        if (uploadedImage) return "Image Editing";
+        // keep compatibility with legacy activeAIMode just in case
+        if (activeAIMode === 'image_gen') return "Create Image (Gen)";
+        if (activeAIMode === 'image_edit') return "Edit/Transform Image";
+        return "Chat / Code";
+    };
 
     return (
         // The outer div handles the overall height and overflow of the whole app section
@@ -1765,17 +1825,17 @@ const getModeText = () => {
 
             {/* Left Sidebar - Hidden on mobile, visible on desktop */}
             <div className="hidden md:flex flex-col bg-[var(--spider-med)] w-64 p-4 border-r border-[var(--spider-light)] flex-shrink-0 space-y-4 overflow-y-auto">
-                <button onClick={handleNewChat} className="w-full bg-[var(--spider-neon-blue)] text-black text-sm font-semibold py-2.5 px-3 rounded-md hover:opacity-90 transition flex items-center space-x-2 justify-center"> 
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path></svg> 
-                    <span>New Chat</span> 
+                <button onClick={handleNewChat} className="w-full bg-[var(--spider-neon-blue)] text-black text-sm font-semibold py-2.5 px-3 rounded-md hover:opacity-90 transition flex items-center space-x-2 justify-center">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path></svg>
+                    <span>New Chat</span>
                 </button>
 
                 <div className="flex-grow pt-4 border-t border-[var(--spider-light)] overflow-y-auto">
                     <h3 className="text-xs font-semibold uppercase text-[var(--spider-text-dim)] mb-2 px-1">Recent Chats</h3>
                     <div className="space-y-1">
                         {recentChats.map((chat) => (
-                            <button 
-                                key={chat.id} 
+                            <button
+                                key={chat.id}
                                 onClick={() => loadChatHistory(chat.id)}
                                 className={`block w-full text-left px-3 py-1.5 text-xs rounded hover:bg-[var(--spider-light)] truncate ${activeChatId === chat.id ? 'bg-[var(--spider-light)] text-white' : 'text-[var(--spider-text-dim)]'}`}
                             >
@@ -1784,7 +1844,7 @@ const getModeText = () => {
                         ))}
                     </div>
                 </div>
-                
+
                 <div className="mt-auto border-t border-[var(--spider-light)] pt-3">
                     <button className="w-full bg-[var(--spider-med)] text-[var(--spider-text-dim)] text-sm font-semibold py-2 px-3 rounded-md hover:bg-[var(--spider-light)] hover:text-white transition flex items-center space-x-2 text-left">
                         <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd"></path></svg>
@@ -1795,24 +1855,22 @@ const getModeText = () => {
 
             {/* Main Chat Area - CRITICAL MOBILE LAYOUT */}
             <div className="flex flex-col flex-1 h-full min-h-0">
-
-                {/* Chat Messages Area - FLEXIBLE height, takes up all space */}
-                {/* Note: I removed the p-4/p-8 padding from here, moving it to the outer flex container in the previous version for cleaner flow. Added back p-4 for internal padding. */}
+                {/* Chat Messages Area */}
                 <div className="flex-grow overflow-y-auto p-4 space-y-4">
                     {chatHistory.map((msg, index) => (
                         <ChatBubble key={index} message={msg} />
                     ))}
                     <div ref={chatEndRef} />
                 </div>
-                
+
                 {/* Hidden File/Image Upload Inputs */}
                 <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept=".spy,.py,.java,.cpp,.c,.h,.txt,.md,.js,.html,.css" />
                 <input type="file" ref={imageInputRef} onChange={handleImageUpload} className="hidden" accept="image/*" />
 
-                {/* Input Box Area - FIXED at bottom (flex-shrink-0) */}
+                {/* Input Box Area - FIXED at bottom */}
                 <div className="bg-[var(--spider-med)] p-3 border-t border-[var(--spider-light)] flex-shrink-0">
                     <div className="max-w-4xl mx-auto">
-                        
+
                         {/* Mode Indicator & Aspect Ratio */}
                         <div className="flex justify-between items-center mb-3">
                             <span className="flex items-center text-sm text-[var(--spider-neon-blue)] font-semibold">
@@ -1836,33 +1894,34 @@ const getModeText = () => {
                                 <button onClick={() => { setUploadedFile(null); setUploadedImage(null); }} className="text-red-400 hover:text-red-300 ml-3 font-bold flex-shrink-0">×</button>
                             </div>
                         )}
-                        
+
                         {/* Prompt/Text Input Area with Plus Menu */}
                         <div className="flex items-end w-full space-x-2">
                             <div className="flex-1 bg-[var(--spider-light)] rounded-lg p-2">
-                                <textarea 
-                                    placeholder={isImageMode ? "Describe the image..." : isFileMode ? "What should I analyze?" : "Ask a question or request code..."} 
+                                <textarea
+                                    placeholder={isImageMode ? "Describe the image..." : isFileMode ? "What should I analyze?" : "Ask a question or request code..."}
                                     className="w-full bg-transparent text-white focus:outline-none resize-none text-sm max-h-32 overflow-y-auto"
-                                    value={message} 
-                                    onChange={(e) => setMessage(e.target.value)} 
+                                    value={message}
+                                    onChange={(e) => setMessage(e.target.value)}
                                     onKeyDown={(e) => {
                                         if (e.key === 'Enter' && !e.shiftKey) {
                                             e.preventDefault();
                                             handleSendMessage();
                                         }
-                                    }} 
+                                    }}
                                     rows={1}
                                 />
                             </div>
-                            
+
                             {/* Plus Menu */}
-                                <PlusMenu 
+                            <PlusMenu
                                 fileInputRef={fileInputRef}
-                               imageInputRef={imageInputRef}
-                                   />
+                                imageInputRef={imageInputRef}
+                            />
+
                             {/* Send Button */}
-                            <button 
-                                onClick={handleSendMessage} 
+                            <button
+                                onClick={handleSendMessage}
                                 className="bg-[var(--spider-neon-blue)] text-black font-semibold px-4 py-2 rounded-md hover:opacity-90 transition duration-200 flex-shrink-0 h-10 flex items-center justify-center"
                                 disabled={!message.trim() && !uploadedFile && !uploadedImage}
                             >
@@ -1877,6 +1936,8 @@ const getModeText = () => {
         </div>
     );
 };
+
+// --- END Plus Menu Component ---
 const SpiderVFXApp = () => { /* ... (Remains Placeholder) ... */ return (<div className="flex-grow h-full flex flex-col items-center justify-center bg-black text-white p-8 pattern-vfx-grid overflow-y-auto"><div className="bg-black bg-opacity-80 p-10 rounded-lg text-center shadow-xl"><h1 className="text-4xl font-bold mb-4 text-[var(--spider-neon-blue)]">Spider VFX</h1><p className="text-lg text-gray-400 mb-8">Coming Soon!</p><div className="animate-pulse text-6xl">✨</div></div></div>);};
 
 // --- NEW Component: Theme Settings Drawer ---
