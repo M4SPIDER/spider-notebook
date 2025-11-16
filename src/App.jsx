@@ -1593,28 +1593,45 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
                     apiUrl = '/api/generate/text';
                     apiPayload = { prompt: message };
                     break;
+case 'file_analysis':
+    if (!uploadedFile) { showModal('Error', 'Please upload a file first.'); return; }
 
-                case 'file_analysis':
-                    if (!uploadedFile) { showModal('Error', 'Please use the (+) menu to upload a file first.'); return; }
-                    apiUrl = '/api/analyze/file';
-                    formData.append('file', uploadedFile);
-                    formData.append('prompt', message);
-                    apiPayload = formData;
-                    break;
-                    
+    const textContent = await uploadedFile.text();
+
+    apiUrl = '/api/generate/text';   // backend has only one main endpoint
+    apiPayload = {
+        prompt: message,
+        mode: "analyze_file",
+        filename: uploadedFile.name,
+        file_content: textContent
+    };
+    break;
+
                 case 'image_gen':
                     apiUrl = '/api/generate/image';
                     apiPayload = { prompt: message, aspect_ratio: aspectRatio };
                     break;
 
-                case 'image_edit':
-                    if (!uploadedImage) { showModal('Error', 'Please use the (+) menu to upload an image first.'); return; }
-                    apiUrl = '/api/edit/image';
-                    formData.append('image', uploadedImage);
-                    formData.append('prompt', message);
-                    apiPayload = formData;
-                    break;
-                    
+               case 'image_edit':
+    if (!uploadedImage) { showModal('Error', 'Please upload an image first.'); return; }
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+        const base64Image = reader.result.split(",")[1];
+
+        apiUrl = '/api/generate/text';
+        apiPayload = {
+            prompt: message,
+            mode: "image_edit",
+            image: base64Image,
+            strength: 0.7
+        };
+
+        sendRequest(apiUrl, apiPayload); // call your API here
+    };
+    reader.readAsDataURL(uploadedImage);
+    return; // stop normal flow
+
                 default:
                     showModal('Error', 'Invalid AI mode selected.');
                     return;
@@ -2874,6 +2891,7 @@ int main() {
         </>
     );
 }
+
 
 
 
