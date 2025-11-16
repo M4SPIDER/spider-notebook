@@ -224,14 +224,12 @@ if (contentType.includes("multipart/form-data")) {
   }
 
   async function saveMemory(mem) {
-  T   try {
-      await env.CHAT_KV.put(memoryKey, JSON.stringify(mem));
-    } catch (_) {}
-  }
+  try {
+    await env.CHAT_KV.put(memoryKey, JSON.stringify(mem));
+  } catch (_) {}
+}
 
-  let memory = await getMemory();
-
-  /* ================= MEMORY TTL FILTER ======================= */
+/* ================= MEMORY TTL FILTER ======================= */
 
   const cutoff = Date.now() - MEMORY_TTL_DAYS * 24 * 60 * 60 * 1000;
   memory = memory.filter(m => (m.ts || 0) >= cutoff);
@@ -627,7 +625,7 @@ m        }
   };
 
   // FIX: Removed the broken markdown link from the URL
-  const url = "[https://api.duckduckgo.com/?q=](https://api.duckduckgo.com/?q=)" + encodeURIComponent(query) + "&format=json&t=spider_app&no_html=1";
+  const url = "https://api.duckduckgo.com/?q=" + encodeURIComponent(query) + "&format=json&t=spider_app&no_html=1";
 
   try {
     const resp = await fetchWithTimeout(url, {}, 3500);
