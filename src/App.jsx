@@ -1682,7 +1682,15 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
                     fileCopy.name.endsWith('.js') ||
                     fileCopy.name.endsWith('.html') ||
                     fileCopy.name.endsWith('.css') ||
-                    fileCopy.name.endsWith('.md')) {
+                    fileCopy.name.endsWith('.md') ||
+                // 👇 ADD THESE EXTENSIONS 👇
+                fileCopy.name.endsWith('.jsx') ||
+                fileCopy.name.endsWith('.tsx') ||
+                fileCopy.name.endsWith('.ts') ||
+                fileCopy.name.endsWith('.json') ||
+                fileCopy.name.endsWith('.sp') || // Your Spy Language file
+                fileCopy.name.endsWith('.java') ||
+                fileCopy.name.endsWith('.cpp')) {
                     // Text files - read as text
                     fileContent = await fileCopy.text();
                 } else {
@@ -3050,6 +3058,7 @@ int main() {
         </>
     );
 }
+
 
 
 
