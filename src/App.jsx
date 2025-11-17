@@ -1868,18 +1868,17 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
     };
 
     // ---------- Enhanced Chat Bubble with Fixed Code Box ----------
-
 const ChatBubble = ({ message }) => {
     const [copiedIndex, setCopiedIndex] = useState(null);
 
-    // ---------- PRISM HIGHLIGHTER ----------
+    /* ---------------- PRISM HIGHLIGHT ---------------- */
     useEffect(() => {
         if (typeof window !== "undefined" && window.Prism) {
             window.Prism.highlightAll();
         }
     }, [message]);
 
-    // ---------- CODE EXTRACTION ----------
+    /* ---------------- CODE PARSER ---------------- */
     const extractCodeBlocks = (text) => {
         if (!text || typeof text !== "string")
             return [{ type: "text", content: text || "" }];
@@ -1888,14 +1887,14 @@ const ChatBubble = ({ message }) => {
         const inlineCodeRegex = /`([^`]+)`/g;
 
         const parts = [];
-        let lastIndex = 0;
+        let last = 0;
         let match;
 
-        while ((match = codeBlockRegex.exec(text)) !== null) {
-            if (match.index > lastIndex) {
+        while ((match = codeBlockRegex.exec(text))) {
+            if (match.index > last) {
                 parts.push({
                     type: "text",
-                    content: text.slice(lastIndex, match.index),
+                    content: text.slice(last, match.index),
                 });
             }
 
@@ -1905,34 +1904,29 @@ const ChatBubble = ({ message }) => {
                 content: match[2].trim(),
             });
 
-            lastIndex = match.index + match[0].length;
+            last = match.index + match[0].length;
         }
 
-        if (lastIndex < text.length) {
-            const remainingText = text.slice(lastIndex);
-            let inlineLast = 0;
-            const inlineMatches = [...remainingText.matchAll(inlineCodeRegex)];
+        if (last < text.length) {
+            const rem = text.slice(last);
+            let idx = 0;
 
-            inlineMatches.forEach((m) => {
-                if (m.index > inlineLast) {
+            for (const m of rem.matchAll(inlineCodeRegex)) {
+                if (m.index > idx) {
                     parts.push({
                         type: "text",
-                        content: remainingText.slice(inlineLast, m.index),
+                        content: rem.slice(idx, m.index),
                     });
                 }
 
-                parts.push({
-                    type: "inline-code",
-                    content: m[1],
-                });
+                parts.push({ type: "inline-code", content: m[1] });
+                idx = m.index + m[0].length;
+            }
 
-                inlineLast = m.index + m[0].length;
-            });
-
-            if (inlineLast < remainingText.length) {
+            if (idx < rem.length) {
                 parts.push({
                     type: "text",
-                    content: remainingText.slice(inlineLast),
+                    content: rem.slice(idx),
                 });
             }
         }
@@ -1940,21 +1934,20 @@ const ChatBubble = ({ message }) => {
         return parts;
     };
 
-    // ---------- COPY BUTTON ----------
+    /* ---------------- COPY FUNCTION ---------------- */
     const copyToClipboard = async (text, index) => {
         try {
             await navigator.clipboard.writeText(text);
             setCopiedIndex(index);
-            setTimeout(() => setCopiedIndex(null), 2000);
-        } catch (err) {
-            console.error("Copy failed:", err);
-        }
+            setTimeout(() => setCopiedIndex(null), 1500);
+        } catch {}
     };
 
-    const bubbleClasses =
+    /* ---------------- BUBBLE STYLE ---------------- */
+    const bubbleClass =
         message.role === "user"
-            ? "bg-[var(--spider-neon-blue)] text-black ml-auto"
-            : "bg-[var(--spider-med)] text-white mr-auto";
+            ? "bg-[#00e5ff] text-black ml-auto"
+            : "bg-[#002f32] text-white mr-auto";
 
     const contentParts = extractCodeBlocks(message.content);
 
@@ -1965,37 +1958,47 @@ const ChatBubble = ({ message }) => {
             } mb-4`}
         >
             <div
-                className={`p-3 rounded-xl max-w-[85%] sm:max-w-4xl shadow-md ${bubbleClasses}`}
+                className={`px-3 pt-3 pb-2 rounded-xl max-w-[85%] sm:max-w-4xl shadow-lg ${bubbleClass}`}
             >
+
+                {/* ---------- IMAGE WITH PURE BLACK + NEON ---------- */}
+                {message.type === "image" && message.base64_image && (
+                    <div className="w-full rounded-lg overflow-hidden bg-black p-2 mb-3 shadow-[0_0_15px_#00e5ff] border border-[#0d7377]">
+                        <img
+                            src={`data:image/jpeg;base64,${message.base64_image}`}
+                            alt="Generated"
+                            className="w-full rounded-lg"
+                            style={{
+                                maxHeight: "400px",
+                                objectFit: "contain",
+                            }}
+                        />
+                    </div>
+                )}
+
+                {/* ---------- TEXT + CODE ---------- */}
                 <div className="space-y-3">
                     {contentParts.map((part, index) => {
                         if (part.type === "code") {
                             return (
                                 <div
                                     key={index}
-                                    className="relative bg-black rounded-lg border border-gray-700"
+                                    className="relative rounded-md overflow-hidden w-full bg-black border border-[#0d7377] shadow-[0_0_15px_#00e5ff]"
                                 >
-                                    <div className="flex justify-between items-center bg-[#1a1a1a] px-4 py-2 border-b border-gray-700">
-                                        <span className="text-xs text-gray-400 font-mono capitalize">
-                                            {part.language || "text"}
-                                        </span>
+                                    {/* ChatGPT-style floating copy icon */}
+                                    <button
+                                        onClick={() =>
+                                            copyToClipboard(
+                                                part.content,
+                                                index
+                                            )
+                                        }
+                                        className="absolute top-2 right-2 bg-black/70 hover:bg-[#00e5ff] hover:text-black text-gray-300 px-2 py-1 rounded transition text-xs border border-gray-600"
+                                    >
+                                        {copiedIndex === index ? "✔" : "📋"}
+                                    </button>
 
-                                        <button
-                                            onClick={() =>
-                                                copyToClipboard(
-                                                    part.content,
-                                                    index
-                                                )
-                                            }
-                                            className="text-xs bg-gray-800 hover:bg-blue-500 text-white px-3 py-1 rounded transition-all"
-                                        >
-                                            {copiedIndex === index
-                                                ? "✅ Copied!"
-                                                : "📋 Copy"}
-                                        </button>
-                                    </div>
-
-                                    <pre className="overflow-x-auto m-0 p-4">
+                                    <pre className="overflow-x-auto p-4 m-0 bg-black">
                                         <code
                                             className={`language-${part.language}`}
                                         >
@@ -2010,7 +2013,7 @@ const ChatBubble = ({ message }) => {
                             return (
                                 <code
                                     key={index}
-                                    className="bg-gray-800 text-gray-200 px-2 py-1 rounded text-sm font-mono border border-gray-700"
+                                    className="bg-black text-[#00e5ff] px-2 py-1 rounded border border-[#0d7377]"
                                 >
                                     {part.content}
                                 </code>
@@ -2020,7 +2023,7 @@ const ChatBubble = ({ message }) => {
                         return (
                             <div
                                 key={index}
-                                className="whitespace-pre-wrap text-sm break-words leading-relaxed"
+                                className="whitespace-pre-wrap text-sm leading-relaxed break-words"
                             >
                                 {part.content}
                             </div>
@@ -2028,18 +2031,16 @@ const ChatBubble = ({ message }) => {
                     })}
                 </div>
 
-                {message.sources && message.sources.length > 0 && (
+                {/* ---------- SOURCES ---------- */}
+                {message.sources && (
                     <div className="mt-3 text-xs text-gray-400 border-t border-gray-700 pt-2">
-                        <p className="font-semibold mb-1 text-gray-300">
-                            Sources:
-                        </p>
-                        {message.sources.slice(0, 3).map((src, i) => (
+                        <p className="font-semibold">Sources:</p>
+                        {message.sources.map((src, i) => (
                             <a
                                 key={i}
                                 href={src.uri}
                                 target="_blank"
-                                rel="noopener noreferrer"
-                                className="block truncate hover:text-blue-300"
+                                className="block truncate hover:text-[#00e5ff]"
                             >
                                 {i + 1}. {src.title || src.uri}
                             </a>
@@ -2047,10 +2048,11 @@ const ChatBubble = ({ message }) => {
                     </div>
                 )}
 
+                {/* ---------- MODEL NAME ---------- */}
                 {message.model_used && (
-                    <div className="mt-2 text-xs text-gray-400 border-t border-gray-700 pt-2">
+                    <div className="text-xs text-gray-400 border-t border-gray-700 pt-2">
                         Model:{" "}
-                        <span className="text-gray-300">
+                        <span className="text-white">
                             {message.model_used}
                         </span>
                     </div>
