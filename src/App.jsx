@@ -1869,125 +1869,174 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
 
     // ---------- Enhanced Chat Bubble with Fixed Code Box ----------
     const ChatBubble = ({ message }) => {
-        const [copied, setCopied] = useState(false);
+    const [copiedIndex, setCopiedIndex] = useState(null);
+    
+    const extractCodeBlocks = (text) => {
+        if (!text || typeof text !== 'string') return [{ type: 'text', content: text || '' }];
         
-        const extractCodeBlocks = (text) => {
-            if (!text || typeof text !== 'string') return [{ type: 'text', content: text || '' }];
-            
-            const codeBlockRegex = /```(\w+)?\s*\n([\s\S]*?)```/g;
-            const parts = [];
-            let lastIndex = 0;
-            let match;
+        const codeBlockRegex = /```(\w+)?\s*\n?([\s\S]*?)```/g;
+        const inlineCodeRegex = /`([^`]+)`/g;
+        const parts = [];
+        let lastIndex = 0;
+        let match;
 
-            while ((match = codeBlockRegex.exec(text)) !== null) {
-                // Add text before code block
-                if (match.index > lastIndex) {
-                    parts.push({
-                        type: 'text',
-                        content: text.slice(lastIndex, match.index)
-                    });
-                }
-
-                // Add code block
-                parts.push({
-                    type: 'code',
-                    language: match[1] || 'text',
-                    content: match[2].trim()
-                });
-
-                lastIndex = match.index + match[0].length;
-            }
-
-            // Add remaining text
-            if (lastIndex < text.length) {
+        // First, handle code blocks
+        while ((match = codeBlockRegex.exec(text)) !== null) {
+            // Add text before code block
+            if (match.index > lastIndex) {
                 parts.push({
                     type: 'text',
-                    content: text.slice(lastIndex)
+                    content: text.slice(lastIndex, match.index)
                 });
             }
 
-            return parts.length ? parts : [{ type: 'text', content: text }];
-        };
+            // Add code block
+            parts.push({
+                type: 'code',
+                language: match[1] || 'text',
+                content: match[2].trim()
+            });
 
-        const copyToClipboard = async (text) => {
-            try {
-                await navigator.clipboard.writeText(text);
-                setCopied(true);
-                setTimeout(() => setCopied(false), 2000);
-            } catch (err) {
-                console.error('Failed to copy:', err);
+            lastIndex = match.index + match[0].length;
+        }
+
+        // Add remaining text
+        if (lastIndex < text.length) {
+            const remainingText = text.slice(lastIndex);
+            
+            // Handle inline code in remaining text
+            let inlineLastIndex = 0;
+            const inlineMatches = [...remainingText.matchAll(inlineCodeRegex)];
+            
+            inlineMatches.forEach((inlineMatch) => {
+                if (inlineMatch.index > inlineLastIndex) {
+                    parts.push({
+                        type: 'text',
+                        content: remainingText.slice(inlineLastIndex, inlineMatch.index)
+                    });
+                }
+                
+                parts.push({
+                    type: 'inline-code',
+                    content: inlineMatch[1]
+                });
+                
+                inlineLastIndex = inlineMatch.index + inlineMatch[0].length;
+            });
+            
+            if (inlineLastIndex < remainingText.length) {
+                parts.push({
+                    type: 'text',
+                    content: remainingText.slice(inlineLastIndex)
+                });
             }
-        };
+        }
 
-        const bubbleClasses = message.role === 'user'
-            ? 'bg-[var(--spider-neon-blue)] text-black ml-auto'
-            : 'bg-[var(--spider-med)] text-white mr-auto';
+        return parts.length ? parts : [{ type: 'text', content: text }];
+    };
 
-        const contentParts = extractCodeBlocks(message.content);
+    const copyToClipboard = async (text, index) => {
+        try {
+            await navigator.clipboard.writeText(text);
+            setCopiedIndex(index);
+            setTimeout(() => setCopiedIndex(null), 2000);
+        } catch (err) {
+            console.error('Failed to copy:', err);
+        }
+    };
 
-        return (
-            <div className={`flex w-full ${message.role === 'user' ? 'justify-end' : 'justify-start'} mb-4`}>
-                <div className={`p-3 rounded-xl max-w-[85%] sm:max-w-4xl shadow-md ${bubbleClasses}`}>
-                    {message.type === 'image' && message.base64_image ? (
-                        <div className="flex flex-col space-y-2">
-                            <p className="text-xs">
-                                {message.type === "image"
-                                    ? (message.base64_image ? "Image Result" : "Image Generated")
-                                    : message.type === "analyze_file"
-                                        ? "File Analysis"
-                                        : "Response"
-                                }
-                            </p>
-                            <img src={`data:image/jpeg;base64,${message.base64_image}`} alt="Generated or Edited Image" className="max-w-full rounded-lg shadow-lg" style={{ maxHeight: '300px', objectFit: 'contain' }} />
-                        </div>
-                    ) : (
-                        <div className="space-y-3">
-                            {contentParts.map((part, index) => 
-                                part.type === 'code' ? (
-                                    <div key={index} className="relative bg-[#1a1b26] rounded-lg overflow-hidden border border-[var(--spider-light)]">
-                                        <div className="flex justify-between items-center bg-[#16161e] px-4 py-2 border-b border-[var(--spider-light)]">
-                                            <span className="text-xs text-[var(--spider-text-dim)] font-mono">
+    const bubbleClasses = message.role === 'user'
+        ? 'bg-[var(--spider-neon-blue)] text-black ml-auto'
+        : 'bg-[var(--spider-med)] text-white mr-auto';
+
+    const contentParts = extractCodeBlocks(message.content);
+
+    return (
+        <div className={`flex w-full ${message.role === 'user' ? 'justify-end' : 'justify-start'} mb-4`}>
+            <div className={`p-3 rounded-xl max-w-[85%] sm:max-w-4xl shadow-md ${bubbleClasses}`}>
+                {message.type === 'image' && message.base64_image ? (
+                    <div className="flex flex-col space-y-2">
+                        <p className="text-xs opacity-75">
+                            {message.type === "image"
+                                ? (message.base64_image ? "Image Result" : "Image Generated")
+                                : message.type === "analyze_file"
+                                    ? "File Analysis"
+                                    : "Response"
+                            }
+                        </p>
+                        <img 
+                            src={`data:image/jpeg;base64,${message.base64_image}`} 
+                            alt="Generated or Edited Image" 
+                            className="max-w-full rounded-lg shadow-lg" 
+                            style={{ maxHeight: '300px', objectFit: 'contain' }} 
+                        />
+                    </div>
+                ) : (
+                    <div className="space-y-3">
+                        {contentParts.map((part, index) => {
+                            if (part.type === 'code') {
+                                return (
+                                    <div key={index} className="relative bg-gray-900 rounded-lg overflow-hidden border border-gray-600">
+                                        <div className="flex justify-between items-center bg-gray-800 px-4 py-2 border-b border-gray-600">
+                                            <span className="text-xs text-gray-400 font-mono capitalize">
                                                 {part.language || 'text'}
                                             </span>
                                             <button
-                                                onClick={() => copyToClipboard(part.content)}
-                                                className="text-xs bg-[var(--spider-light)] hover:bg-[var(--spider-neon-blue)] text-white hover:text-black px-2 py-1 rounded transition-colors"
+                                                onClick={() => copyToClipboard(part.content, index)}
+                                                className="text-xs bg-gray-700 hover:bg-blue-500 text-white hover:text-white px-3 py-1 rounded transition-colors duration-200 flex items-center space-x-1"
+                                                aria-label="Copy code to clipboard"
                                             >
-                                                {copied ? 'Copied!' : 'Copy'}
+                                                <span>{copiedIndex === index ? '✅ Copied!' : '📋 Copy'}</span>
                                             </button>
                                         </div>
-                                        <pre className="text-sm font-mono p-4 overflow-x-auto text-[#c0caf5] bg-[#1a1b26]">
+                                        <pre className="text-sm font-mono p-4 overflow-x-auto text-gray-100 bg-gray-900">
                                             <code>{part.content}</code>
                                         </pre>
                                     </div>
-                                ) : (
-                                    <pre key={index} className="whitespace-pre-wrap font-sans text-sm break-words">
+                                );
+                            } else if (part.type === 'inline-code') {
+                                return (
+                                    <code key={index} className="bg-gray-800 text-gray-100 px-2 py-1 rounded text-sm font-mono border border-gray-600">
                                         {part.content}
-                                    </pre>
-                                )
-                            )}
-                        </div>
-                    )}
-                    
-                    {message.sources && message.sources.length > 0 && (
-                        <div className="mt-2 text-xs text-[var(--spider-text-dim)] pt-2 border-t border-[var(--spider-light)]">
-                            <p className="font-semibold mb-1">Sources:</p>
-                            {message.sources.slice(0, 3).map((source, index) => (
-                                <a key={index} href={source.uri} target="_blank" rel="noopener noreferrer" className="block hover:underline truncate">{index + 1}. {source.title || source.uri}</a>
-                            ))}
-                        </div>
-                    )}
-                    
-                    {message.model_used && (
-                        <div className="mt-1 text-xs text-[var(--spider-text-dim)]">
-                            Model: {message.model_used}
-                        </div>
-                    )}
-                </div>
+                                    </code>
+                                );
+                            } else {
+                                return (
+                                    <div key={index} className="whitespace-pre-wrap text-sm break-words leading-relaxed">
+                                        {part.content}
+                                    </div>
+                                );
+                            }
+                        })}
+                    </div>
+                )}
+                
+                {message.sources && message.sources.length > 0 && (
+                    <div className="mt-3 text-xs text-gray-400 pt-2 border-t border-gray-600">
+                        <p className="font-semibold mb-1 text-gray-300">Sources:</p>
+                        {message.sources.slice(0, 3).map((source, index) => (
+                            <a 
+                                key={index} 
+                                href={source.uri} 
+                                target="_blank" 
+                                rel="noopener noreferrer" 
+                                className="block hover:underline truncate hover:text-blue-300 transition-colors"
+                            >
+                                {index + 1}. {source.title || source.uri}
+                            </a>
+                        ))}
+                    </div>
+                )}
+                
+                {message.model_used && (
+                    <div className="mt-2 text-xs text-gray-400 border-t border-gray-600 pt-2">
+                        Model: <span className="text-gray-300">{message.model_used}</span>
+                    </div>
+                )}
             </div>
-        );
-    };
-
+        </div>
+    );
+};
     const isImageMode = !!uploadedImage;
     const isFileMode = !!uploadedFile;
 
