@@ -1375,31 +1375,29 @@ const PlusMenu = ({
         </div>
     );
 };
+// --- END Plus Menu Component ---
 
+
+// Spider AI App (ChatGPT Style with Spider Theme) - MOBILE FIXED VERSION
 const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setActiveAIMode, uploadedFile, setUploadedFile, uploadedImage, setUploadedImage }) => {
-    // ---------- State ----------
     const [message, setMessage] = useState('');
-    const [chatHistory, setChatHistory] = useState([
-        { role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }
+    const [chatHistory, setChatHistory] = useState([ 
+        { role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' } 
     ]);
     const [activeChatId, setActiveChatId] = useState(null);
-    const [recentChats, setRecentChats] = useState([]);
+    const [recentChats, setRecentChats] = useState([]); // Changed from mockChatLinks to empty array
     const [aspectRatio, setAspectRatio] = useState('1:1');
-    const [isLoading, setIsLoading] = useState(false);
-
     const fileInputRef = useRef(null);
     const imageInputRef = useRef(null);
     const chatEndRef = useRef(null);
-
-    // Firebase placeholders (keep your firebase logic; we assume functions imported elsewhere)
+    
+    // Firebase/Firestore setup
     const [db, setDb] = useState(null);
     const [auth, setAuth] = useState(null);
-
     const getAppId = () => typeof __app_id !== 'undefined' ? __app_id : 'default-m4-app';
-    const LOCAL_STORAGE_KEY = `spider_chat_history_${getAppId()}_${(currentUser?.email || 'anon')}`;
 
-    // ---------- Firebase init (unchanged) ----------
     useEffect(() => {
+        // Your existing Firebase initialization code
         try {
             const USER_FIREBASE_CONFIG = {
                 apiKey: "AIzaSyBS1aGZZ2RDx2RKji1jOO-7spiY5QzJjh8",
@@ -1410,437 +1408,449 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
                 appId: "1:154970150789:web:60796710cacca377edd6ec",
                 measurementId: "G-TGTWRTF7EX"
             };
-
+            
             let configString = typeof __firebase_config !== 'undefined' ? __firebase_config : '{}';
             let firebaseConfig = JSON.parse(configString);
+            
+            if (Object.keys(firebaseConfig).length === 0 || !firebaseConfig.apiKey) {
+                firebaseConfig = USER_FIREBASE_CONFIG;
+            }
 
-            if (!firebaseConfig || !firebaseConfig.apiKey) firebaseConfig = USER_FIREBASE_CONFIG;
-            if (firebaseConfig && firebaseConfig.apiKey) {
+            if (Object.keys(firebaseConfig).length > 0 && firebaseConfig.apiKey) {
                 const app = initializeApp(firebaseConfig, 'spider-ai-app');
-                setDb(getFirestore(app));
-                setAuth(getAuth(app));
+                const firestoreDb = getFirestore(app);
+                const firebaseAuth = getAuth(app);
+                setDb(firestoreDb);
+                setAuth(firebaseAuth);
+                
+                // Load recent chats after auth is set
+                if (firebaseAuth.currentUser) {
+                    loadRecentChats(firestoreDb, firebaseAuth);
+                }
+                
+                // Listen for auth state changes
+                onAuthStateChanged(firebaseAuth, (user) => {
+                    if (user) {
+                        loadRecentChats(firestoreDb, firebaseAuth);
+                    } else {
+                        setRecentChats([]);
+                    }
+                });
             }
         } catch (e) {
-            console.error("Firebase init error:", e);
+            console.error("Failed to initialize Firebase/Firestore in SpiderAIApp:", e);
+        }
+    }, []);
+
+    // Fixed: Separate function to load recent chats
+    const loadRecentChats = useCallback(async (firestoreDb, firebaseAuth) => {
+        if (!firestoreDb || !firebaseAuth?.currentUser) {
+            console.log("Cannot load recent chats: No user logged in");
+            setRecentChats([]);
+            return;
+        }
+
+        try {
+            const userId = getUserId();
+            const chatsCollection = collection(firestoreDb, `artifacts/${getAppId()}/users/${userId}/ai_chats`);
+            
+            const q = query(
+                chatsCollection, 
+                orderBy('timestamp', 'desc'), 
+                limit(10)
+            );
+            
+            const unsubscribe = onSnapshot(q, (snapshot) => {
+                const recent = snapshot.docs.map(doc => ({
+                    id: doc.id,
+                    title: doc.data().title || 'Untitled Chat',
+                    timestamp: doc.data().timestamp,
+                }));
+                console.log("Loaded recent chats:", recent.length);
+                setRecentChats(recent);
+            });
+
+            return unsubscribe;
+        } catch (e) {
+            console.error("Error loading recent chats:", e);
+            setRecentChats([]);
         }
     }, []);
 
     const getUserId = () => auth?.currentUser?.uid || currentUser?.email || 'anonymous';
-
-    // ---------- FIXED: Load recent chats & history ----------
-    const loadChatHistory = useCallback(async (chatId = null) => {
-        // Prefer Firestore if available
-        if (db && auth?.currentUser?.uid) {
+    
+    const loadChatHistory = useCallback(async (chatId) => {
+        if (db && auth?.currentUser) {
             const userId = getUserId();
             const chatsCollection = collection(db, `artifacts/${getAppId()}/users/${userId}/ai_chats`);
 
-            // FIX: Load recent chats FIRST before trying to load specific chat
-            try {
-                const q = query(chatsCollection, limit(10));
-                const unsubscribe = onSnapshot(q, (snapshot) => {
-                    const recent = snapshot.docs.map(doc => ({
-                        id: doc.id,
-                        title: doc.data().title || 'Untitled Chat',
-                        timestamp: doc.data().timestamp || Date.now()
-                    })).sort((a, b) => b.timestamp - a.timestamp);
-                    setRecentChats(recent);
-                });
+            if (chatId) {
+                // Load specific chat
+                try {
+                    const chatDoc = doc(chatsCollection, chatId);
+                    const chatSnap = await getDoc(chatDoc);
 
-                // If specific chat requested, load it
-                if (chatId) {
-                    try {
-                        const chatSnap = await getDocs(query(chatsCollection, where('id', '==', chatId), limit(1)));
-                        if (chatSnap.docs.length > 0) {
-                            const data = chatSnap.docs[0].data();
-                            const parsed = JSON.parse(data.history || '[]');
-                            setChatHistory(Array.isArray(parsed) && parsed.length ? parsed : [{ role: 'assistant', content: 'Welcome! I am Spider AI.', type: 'text' }]);
-                            setActiveChatId(chatId);
-                            return unsubscribe; // Return unsubscribe function
-                        }
-                    } catch (e) {
-                        console.error("Error loading specific chat:", e);
+                    if (chatSnap.exists()) {
+                        const data = chatSnap.data();
+                        setChatHistory(JSON.parse(data.history));
+                        setActiveChatId(chatId);
+                    } else {
+                        console.log("Chat not found");
+                        setChatHistory([ 
+                            { role: 'assistant', content: 'Chat not found. Starting a new chat.', type: 'text' } 
+                        ]);
+                        setActiveChatId(null);
                     }
+                } catch (e) {
+                    console.error("Error loading chat:", e);
+                    showModal('Error', 'Failed to load chat history.');
                 }
-
-                // If no specific chat or failed to load, check if we should keep current or reset
-                setChatHistory(prev => {
-                    if (prev && prev.length && prev.some(m => m.role !== 'assistant')) {
-                        return prev;
-                    }
-                    return [{ role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }];
-                });
-                setActiveChatId(null);
-                
-                return unsubscribe; // Return unsubscribe function for cleanup
-
-            } catch (e) {
-                console.error("Error listening to recent chats:", e);
-            }
-        }
-
-        // Fallback: localStorage
-        try {
-            const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
-            if (raw) {
-                const parsed = JSON.parse(raw);
-                setChatHistory(Array.isArray(parsed) && parsed.length ? parsed : [{ role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }]);
             } else {
-                setChatHistory([{ role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }]);
+                // Start new chat
+                setChatHistory([ 
+                    { role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' } 
+                ]);
+                setActiveChatId(null);
             }
-            setRecentChats([]); // no recent chats for anon
+        } else {
+            // Fallback for non-logged in users
+            setRecentChats([]);
+            if (chatId) {
+                setChatHistory([
+                    { role: 'assistant', content: `Please log in to access your chat history.`, type: 'text' }
+                ]);
+            } else {
+                setChatHistory([ 
+                    { role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' } 
+                ]);
+            }
             setActiveChatId(null);
-        } catch (e) {
-            console.error("Error reading localStorage history:", e);
-            setChatHistory([{ role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }]);
         }
-    }, [db, auth, currentUser]);
+    }, [db, auth, currentUser, showModal]);
 
-    // ---------- Save chat history (local + firebase when available) ----------
     const saveChatHistory = useCallback(async (currentHistory) => {
-        if (!Array.isArray(currentHistory)) return;
-
-        // local save
-        try {
-            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(currentHistory));
-        } catch (e) {
-            console.warn("LocalStorage save failed:", e);
+        if (!db || !auth?.currentUser) {
+            console.log("Skipping chat save: User is not logged in.");
+            return;
         }
-
-        // Firestore save if logged in
-        if (!db || !auth?.currentUser?.uid) return;
-        if (currentHistory.length <= 1) return;
+        if (currentHistory.length <= 1) return; 
 
         const userId = getUserId();
-        const chatTitle = (currentHistory[1]?.content || "").toString().substring(0, 50).trim() || "New Chat";
+        const chatTitle = currentHistory.length > 1 ? 
+            currentHistory[1].content.substring(0, 50).trim() + (currentHistory[1].content.length > 50 ? '...' : '') : 
+            "New Chat";
+        
         const chatsCollection = collection(db, `artifacts/${getAppId()}/users/${userId}/ai_chats`);
-
+        
         const chatData = {
             title: chatTitle,
-            history: JSON.stringify(currentHistory),
+            history: JSON.stringify(currentHistory), 
             timestamp: Date.now(),
             mode: currentHistory[1]?.type || 'chat',
-            userId
+            userId: userId
         };
 
         try {
             if (activeChatId) {
+                // Update existing chat
                 const chatDocRef = doc(chatsCollection, activeChatId);
                 await setDoc(chatDocRef, chatData, { merge: true });
+                console.log("Chat updated:", activeChatId);
             } else {
+                // Create new chat
                 const docRef = await addDoc(chatsCollection, chatData);
                 setActiveChatId(docRef.id);
+                console.log("New chat created:", docRef.id);
+                
+                // Refresh recent chats after creating new chat
+                loadRecentChats(db, auth);
             }
         } catch (e) {
-            console.error("Error saving to Firestore:", e);
+            console.error("Error saving chat history:", e);
+            showModal('Error', 'Failed to save chat history.');
         }
-    }, [db, auth, activeChatId, currentUser]);
+    }, [db, auth, activeChatId, currentUser, loadRecentChats]);
 
-    // ---------- Initialize on mount and when auth/db changes ----------
+    const handleNewChat = () => {
+        setUploadedFile(null);
+        setUploadedImage(null);
+        setActiveAIMode('chat');
+        setMessage('');
+        setActiveChatId(null);
+        setChatHistory([ 
+            { role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' } 
+        ]);
+    };
+
     useEffect(() => {
-        loadChatHistory(null);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [db, auth]);
+        if (auth?.currentUser) {
+            loadRecentChats(db, auth);
+        }
+    }, [auth?.currentUser, db]);
 
     useEffect(() => {
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-        // save every chat update
-        if (chatHistory && chatHistory.length) saveChatHistory(chatHistory);
+        if (chatHistory.length > 0 && chatHistory[chatHistory.length - 1].role === 'assistant') {
+            saveChatHistory(chatHistory);
+        }
     }, [chatHistory, saveChatHistory]);
 
-    // ---------- File / Image upload handlers ----------
+    // Your existing handleFileUpload, handleImageUpload functions remain the same
     const handleFileUpload = (event) => {
-        const file = event?.target?.files?.[0];
-        if (!file) {
-            if (event) event.target.value = null;
-            return;
+        const file = event.target.files[0];
+        if (file) {
+            if (file.size > 1024 * 1024 * 10) {
+                showModal("File Error", "File size exceeds 10MB limit.");
+                return;
+            }
+            setUploadedFile(file);
+            setUploadedImage(null);
+            setMessage(`Analyze the contents of ${file.name}.`);
         }
-        if (file.size > 1024 * 1024 * 10) {
-            showModal("File Error", "File size exceeds 10MB limit.");
-            event.target.value = null;
-            return;
-        }
-        // set state for UI; do not clear too early
-        setUploadedFile(file);
-        setUploadedImage(null);
-        setMessage(`Analyze the contents of ${file.name}.`);
         event.target.value = null;
     };
 
     const handleImageUpload = (event) => {
-        const file = event?.target?.files?.[0];
-        if (!file) {
-            if (event) event.target.value = null;
-            return;
+        const file = event.target.files[0];
+        if (file) {
+            if (!file.type.startsWith('image/')) {
+                showModal("File Error", "Please upload a valid image file.");
+                return;
+            }
+            if (file.size > 1024 * 1024 * 5) {
+                showModal("File Error", "Image size exceeds 5MB limit.");
+                return;
+            }
+            setUploadedImage(file);
+            setUploadedFile(null);
+            setMessage("Transform or edit this image to: ");
         }
-        if (!file.type.startsWith('image/')) {
-            showModal("File Error", "Please upload a valid image file.");
-            event.target.value = null;
-            return;
-        }
-        if (file.size > 1024 * 1024 * 5) {
-            showModal("File Error", "Image size exceeds 5MB limit.");
-            event.target.value = null;
-            return;
-        }
-        setUploadedImage(file);
-        setUploadedFile(null);
-        setMessage("Transform or edit this image to: ");
         event.target.value = null;
     };
 
-    // ---------- PlusMenu (compatible with older UI that used setActiveAIMode) ----------
-    const PlusMenu = ({ setActiveAIMode: _setActiveAIMode, fileInputRef, imageInputRef }) => {
-        const [open, setOpen] = useState(false);
-
-        const onUploadFile = () => {
-            setOpen(false);
-            if (typeof _setActiveAIMode === 'function') _setActiveAIMode('file_analysis');
-            // click input after slight delay so mode/state can settle
-            setTimeout(() => fileInputRef.current?.click(), 50);
-        };
-
-        const onUploadImage = () => {
-            setOpen(false);
-            if (typeof _setActiveAIMode === 'function') _setActiveAIMode('image_edit');
-            setTimeout(() => imageInputRef.current?.click(), 50);
-        };
-
-        const onGenImage = () => {
-            setOpen(false);
-            if (typeof _setActiveAIMode === 'function') _setActiveAIMode('image_gen');
-        };
-
-        return (
-            <div className="relative">
-                <button onClick={() => setOpen(o => !o)} className="bg-[var(--spider-light)] text-white px-3 py-2 rounded-md h-10 flex items-center justify-center hover:opacity-90">+</button>
-                {open && (
-                    <div className="absolute bottom-12 right-0 bg-[var(--spider-dark)] border border-[var(--spider-light)] rounded-md shadow-lg w-40 p-2 z-50">
-                        <button onClick={onUploadFile} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm">📄 Upload File</button>
-                        <button onClick={onUploadImage} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm">🖼 Upload Image</button>
-                        <button onClick={onGenImage} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm">🎨 Create Image (Gen)</button>
-                    </div>
-                )}
-            </div>
-        );
-    };
-
-    // ---------- New Chat handler ----------
-    const handleNewChat = () => {
-        // Reset UI state, clear uploaded files, reset active AI mode and chat id
-        setUploadedFile(null);
-        setUploadedImage(null);
-        setActiveAIMode && setActiveAIMode('chat');
-        setActiveChatId(null);
-        // Reset history to a fresh welcome message and clear localStorage (optional)
-        const welcome = [{ role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }];
-        setChatHistory(welcome);
-        try { localStorage.removeItem(LOCAL_STORAGE_KEY); } catch (e) { /* ignore */ }
-        // reload recent chats (keeps Firebase listener alive)
-        loadChatHistory(null);
-    };
-
-    // ---------- FIXED: Send message (file analysis fix) ----------
     const handleSendMessage = async () => {
-        if (!message.trim() && !uploadedFile && !uploadedImage) return;
+        if (!message.trim() && activeAIMode !== 'image_gen' && activeAIMode !== 'file_analysis' && activeAIMode !== 'image_edit') 
+            return;
 
-        setIsLoading(true);
-
-        // capture current state into local variables so clearing state later won't break us
-        const fileCopy = uploadedFile;
-        const imageCopy = uploadedImage;
-        const selectedActiveMode = activeAIMode; // preserve current activeAIMode
-        let mode = selectedActiveMode || "chat";
-
-        // prioritize explicit uploads
-        if (fileCopy) mode = "analyze_file";
-        if (imageCopy) mode = "image_edit";
-        // keep image_gen if user explicitly set it
-        if (!fileCopy && !imageCopy && selectedActiveMode === 'image_gen') mode = 'image_gen';
-
-        // build a serializable user message (no File objects)
-        const userMessage = {
-            role: 'user',
-            content: message,
-            type: mode,
-            fileName: fileCopy ? fileCopy.name : undefined,
-            imageName: imageCopy ? imageCopy.name : undefined,
-            ts: Date.now()
+        const userMessage = { 
+            role: 'user', 
+            content: message, 
+            type: activeAIMode, 
+            uploadedFile, 
+            uploadedImage 
         };
 
         setChatHistory(prev => [...prev, userMessage]);
         setMessage('');
 
+        let apiPayload = {};
+
         try {
-            // FILE ANALYSIS - FIXED: Proper file content handling
-            if (mode === "analyze_file" && fileCopy) {
-                let fileContent;
-                
-                // Handle different file types appropriately
-                if (fileCopy.type.startsWith('text/') || 
-                    fileCopy.name.endsWith('.txt') || 
-                    fileCopy.name.endsWith('.py') ||
-                    fileCopy.name.endsWith('.js') ||
-                    fileCopy.name.endsWith('.html') ||
-                    fileCopy.name.endsWith('.css') ||
-                    fileCopy.name.endsWith('.md') ||
-                // 👇 ADD THESE EXTENSIONS 👇
-                fileCopy.name.endsWith('.jsx') ||
-                fileCopy.name.endsWith('.tsx') ||
-                fileCopy.name.endsWith('.ts') ||
-                fileCopy.name.endsWith('.json') ||
-                fileCopy.name.endsWith('.sp') || // Your Spy Language file
-                fileCopy.name.endsWith('.java') ||
-                fileCopy.name.endsWith('.cpp')) {
-                    // Text files - read as text
-                    fileContent = await fileCopy.text();
-                } else {
-                    // Binary files - read as base64
-                    fileContent = await new Promise((resolve, reject) => {
-                        const reader = new FileReader();
-                        reader.onload = () => {
-                            try {
-                                const base64 = reader.result.split(",")[1];
-                                resolve(base64);
-                            } catch (e) {
-                                reject(e);
-                            }
-                        };
-                        reader.onerror = (err) => reject(err);
-                        reader.readAsDataURL(fileCopy);
-                    });
-                }
+            const apiUrl = "/ai";
 
-                const apiUrl = '/api/generate/text';
-                const apiPayload = {
-                    prompt: message || `Analyze the contents of ${fileCopy.name}`,
-                    mode: "analyze_file",
-                    filename: fileCopy.name,
-                    file_content: fileContent,
-                    file_type: fileCopy.type
-                };
-                
-                const result = await callFastAPI(apiUrl, apiPayload, mode);
-
-                const assistantMessage = {
-                    role: 'assistant',
-                    content: result?.text || 'File analysis complete.',
-                    type: result?.base64_image ? 'image' : 'text',
-                    base64_image: result?.base64_image,
-                    sources: result?.sources,
-                    model_used: result?.model_used,
-                    ts: Date.now()
-                };
-                setChatHistory(prev => [...prev, assistantMessage]);
-            }
-
-            // IMAGE EDIT
-            else if (mode === "image_edit" && imageCopy) {
-                const base64Image = await new Promise((resolve, reject) => {
-                    const reader = new FileReader();
-                    reader.onload = () => {
-                        try {
-                            const b = reader.result.split(",")[1];
-                            resolve(b);
-                        } catch (e) {
-                            reject(e);
-                        }
+            switch (activeAIMode) {
+                case "chat":
+                    apiPayload = {
+                        prompt: message,
+                        mode: "chat"
                     };
-                    reader.onerror = (err) => reject(err);
-                    reader.readAsDataURL(imageCopy);
-                });
-
-                const apiUrl = '/api/generate/text';
-                const apiPayload = {
-                    prompt: message || "Edit this image",
-                    mode: "image_edit",
-                    image: base64Image,
-                    strength: 0.7
-                };
-                const result = await callFastAPI(apiUrl, apiPayload, mode);
-
-                const assistantMessage = {
-                    role: 'assistant',
-                    content: result?.text || 'Image edited.',
-                    type: result?.base64_image ? 'image' : 'text',
-                    base64_image: result?.base64_image,
-                    sources: result?.sources,
-                    model_used: result?.model_used,
-                    ts: Date.now()
-                };
-                setChatHistory(prev => [...prev, assistantMessage]);
+                    break;
+                case "file_analysis":
+                    if (!uploadedFile) {
+                        showModal('Error', 'Please use the (+) menu to upload a file first.');
+                        return;
+                    }
+                    apiPayload = {
+                        prompt: message,
+                        mode: "file_analysis",
+                        filename: uploadedFile.name || uploadedFile.file?.name || "file.txt",
+                        file_content: uploadedFile.base64
+                    };
+                    break;
+                case "image_gen":
+                    apiPayload = {
+                        prompt: message,
+                        mode: "image_gen",
+                        aspect_ratio: aspectRatio
+                    };
+                    break;
+                case "image_edit":
+                    if (!uploadedImage) {
+                        showModal('Error', 'Please use the (+) menu to upload an image first.');
+                        return;
+                    }
+                    apiPayload = {
+                        prompt: message,
+                        mode: "image_edit",
+                        filename: uploadedImage.name || uploadedImage.file?.name || "image.png",
+                        image: uploadedImage.base64,
+                        strength: 0.7,
+                        upscale: 1,
+                        style: "auto"
+                    };
+                    break;
+                case "image_purify":
+                    if (!uploadedImage) {
+                        showModal('Error', 'Please upload an image first.');
+                        return;
+                    }
+                    apiPayload = {
+                        prompt: message,
+                        mode: "image_purify",
+                        filename: uploadedImage.name || uploadedImage.file?.name || "image.png",
+                        image: uploadedImage.base64,
+                        upscale: 2,
+                        style: "clean"
+                    };
+                    break;
+                default:
+                    showModal('Error', 'Invalid AI mode selected.');
+                    return;
             }
 
-            // IMAGE GEN or CHAT
-            else {
-                const apiUrl = '/api/generate/text';
-                const apiPayload = { 
-                    prompt: message, 
-                    mode,
-                    aspect_ratio: mode === 'image_gen' ? aspectRatio : undefined
-                };
-                const result = await callFastAPI(apiUrl, apiPayload, mode);
+            const result = await callFastAPI(apiUrl, apiPayload, activeAIMode);
 
-                const assistantMessage = {
-                    role: 'assistant',
-                    content: result?.text || 'Response received.',
-                    type: result?.base64_image ? 'image' : 'text',
-                    base64_image: result?.base64_image,
-                    sources: result?.sources,
-                    model_used: result?.model_used,
-                    ts: Date.now()
-                };
-                setChatHistory(prev => [...prev, assistantMessage]);
-            }
-        } catch (error) {
-            console.error('API ERROR:', error);
-            const assistantError = {
+            const base64Image =
+                result?.base64_image ||
+                result?.base64 ||
+                result?.image ||
+                null;
+
+            const assistantContent = {
                 role: 'assistant',
-                content: `[API ERROR] ${error?.message || 'Something went wrong.'}`,
-                type: 'text',
-                ts: Date.now()
+                content: base64Image 
+                    ? "Image generated successfully." 
+                    : (result.text || result.error || "Response received."),
+                type: base64Image ? "image" : "text",
+                base64_image: base64Image,
+                sources: result.sources || result.results || [],
+                model_used: result.model_used || result.model,
+                // Add code detection for code formatting
+                isCode: result.text && isCodeBlock(result.text)
+            };
+
+            setChatHistory(prev => [...prev, assistantContent]);
+
+        } catch (error) {
+            const assistantError = { 
+                role: 'assistant', 
+                content: `[API ERROR] ${error.message || "The AI service encountered an issue."}`, 
+                type: 'text' 
             };
             setChatHistory(prev => [...prev, assistantError]);
         } finally {
-            // Clear uploads only AFTER result is processed
-            try {
-                setUploadedFile(null);
-                setUploadedImage(null);
-                setIsLoading(false);
-            } catch (e) {
-                // ignore
-            }
+            if (activeAIMode === 'file_analysis') setUploadedFile(null);
+            if (activeAIMode === 'image_edit') setUploadedImage(null);
         }
     };
 
-    // ---------- Chat bubble ----------
+    // Helper function to detect code blocks
+    const isCodeBlock = (text) => {
+        if (!text) return false;
+        const codeIndicators = [
+            '```', 'def ', 'function ', 'class ', 'import ', 'package ',
+            'public class', 'void ', 'int ', 'String ', 'const ', 'let ', 'var ',
+            '<?php', '<html', '<script', 'CREATE TABLE', 'SELECT '
+        ];
+        return codeIndicators.some(indicator => text.includes(indicator));
+    };
+
+    // Extract code from text (simple implementation)
+    const extractCode = (text) => {
+        if (!text) return null;
+        
+        // Check for markdown code blocks
+        const markdownMatch = text.match(/```(?:\w+)?\s*([\s\S]*?)```/);
+        if (markdownMatch) {
+            return {
+                code: markdownMatch[1].trim(),
+                language: markdownMatch[0].match(/```(\w+)/)?.[1] || 'text'
+            };
+        }
+        
+        // Check for inline code or code-like content
+        if (isCodeBlock(text)) {
+            return {
+                code: text,
+                language: 'text'
+            };
+        }
+        
+        return null;
+    };
+
+    // Enhanced ChatBubble component with code box
     const ChatBubble = ({ message }) => {
-        const bubbleClasses = message.role === 'user'
-            ? 'bg-[var(--spider-neon-blue)] text-black ml-auto'
+        const bubbleClasses = message.role === 'user' 
+            ? 'bg-[var(--spider-neon-blue)] text-black ml-auto' 
             : 'bg-[var(--spider-med)] text-white mr-auto';
+        
         const content = message.content;
+        const codeData = extractCode(content);
+        const hasCode = codeData !== null;
+        const hasPlainText = content && !content.startsWith('```') && content !== codeData?.code;
+        
         return (
             <div className={`flex w-full ${message.role === 'user' ? 'justify-end' : 'justify-start'} mb-4`}>
                 <div className={`p-3 rounded-xl max-w-[85%] sm:max-w-4xl shadow-md ${bubbleClasses}`}>
+                    
                     {message.type === 'image' && message.base64_image ? (
                         <div className="flex flex-col space-y-2">
-                            <p className="text-xs">
-                                {message.type === "image"
-                                    ? (message.base64_image ? "Image Result" : "Image Generated")
-                                    : message.type === "analyze_file"
-                                        ? "File Analysis"
-                                        : "Response"
-                                }
-                            </p>
-                            <img src={`data:image/jpeg;base64,${message.base64_image}`} alt="Generated or Edited Image" className="max-w-full rounded-lg shadow-lg" style={{ maxHeight: '300px', objectFit: 'contain' }} />
+                            <p className="text-xs text-gray-700 italic">Prompt: {message.uploadedImage ? 'Image Transformation' : message.uploadedFile ? 'File Analysis' : 'Image Generation'}</p>
+                            <img 
+                                src={`data:image/jpeg;base64,${message.base64_image}`} 
+                                alt="Generated or Edited Image" 
+                                className="max-w-full rounded-lg shadow-lg"
+                                style={{ maxHeight: '300px', objectFit: 'contain' }}
+                            />
+                        </div>
+                    ) : hasCode ? (
+                        <div className="space-y-3">
+                            {/* Plain text part (if any) */}
+                            {hasPlainText && (
+                                <pre className="whitespace-pre-wrap font-sans text-sm break-words mb-3">
+                                    {content.replace(/```[\s\S]*?```/g, '').trim()}
+                                </pre>
+                            )}
+                            
+                            {/* Code box similar to ChatGPT */}
+                            <div className="bg-gray-900 rounded-lg overflow-hidden border border-gray-700">
+                                {/* Code header with language and copy button */}
+                                <div className="flex justify-between items-center bg-gray-800 px-4 py-2 border-b border-gray-700">
+                                    <span className="text-xs text-gray-300 font-mono uppercase">
+                                        {codeData.language}
+                                    </span>
+                                    <button 
+                                        onClick={() => {
+                                            navigator.clipboard.writeText(codeData.code);
+                                            // You can add a toast notification here
+                                        }}
+                                        className="text-gray-400 hover:text-white transition-colors text-xs flex items-center space-x-1"
+                                    >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                                        </svg>
+                                        <span>Copy</span>
+                                    </button>
+                                </div>
+                                
+                                {/* Code content */}
+                                <pre className="text-sm text-gray-100 p-4 overflow-x-auto font-mono whitespace-pre">
+                                    {codeData.code}
+                                </pre>
+                            </div>
                         </div>
                     ) : (
                         <pre className="whitespace-pre-wrap font-sans text-sm break-words">{content}</pre>
                     )}
+                    
                     {message.sources && message.sources.length > 0 && (
                         <div className="mt-2 text-xs text-[var(--spider-text-dim)] pt-2 border-t border-[var(--spider-light)]">
                             <p className="font-semibold mb-1">Sources:</p>
                             {message.sources.slice(0, 3).map((source, index) => (
-                                <a key={index} href={source.uri} target="_blank" rel="noopener noreferrer" className="block hover:underline truncate">{index + 1}. {source.title || source.uri}</a>
+                                <a key={index} href={source.uri} target="_blank" rel="noopener noreferrer" className="block hover:underline truncate">
+                                    {index + 1}. {source.title || source.uri}
+                                </a>
                             ))}
                         </div>
                     )}
@@ -1849,25 +1859,27 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
         );
     };
 
-    const isImageMode = !!uploadedImage;
-    const isFileMode = !!uploadedFile;
+    const isImageMode = activeAIMode === 'image_gen' || activeAIMode === 'image_edit';
+    const isFileMode = activeAIMode === 'file_analysis';
 
     const getModeText = () => {
-        if (uploadedFile) return "File Analysis";
-        if (uploadedImage) return "Image Editing";
-        if (activeAIMode === 'image_gen') return "Create Image (Gen)";
-        if (activeAIMode === 'image_edit') return "Edit/Transform Image";
-        return "Chat / Code";
+        const modeMap = {
+            'chat': 'Deep Research / Code',
+            'file_analysis': 'File Analysis',
+            'image_gen': 'Create Image (Gen)',
+            'image_edit': 'Edit/Transform Image'
+        };
+        return modeMap[activeAIMode] || 'Chat/Code';
     };
 
-    // ---------- JSX (UI with fixes) ----------
     return (
         <div className="flex flex-row h-full flex-grow bg-[var(--spider-dark)] text-[var(--spider-text)] overflow-hidden">
-            {/* Left Sidebar - FIXED: Better visibility for recent chats */}
+
+            {/* Left Sidebar */}
             <div className="hidden md:flex flex-col bg-[var(--spider-med)] w-64 p-4 border-r border-[var(--spider-light)] flex-shrink-0 space-y-4 overflow-y-auto">
-                <button onClick={handleNewChat} className="w-full bg-[var(--spider-neon-blue)] text-black text-sm font-semibold py-2.5 px-3 rounded-md hover:opacity-90 transition flex items-center space-x-2 justify-center">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path></svg>
-                    <span>New Chat</span>
+                <button onClick={handleNewChat} className="w-full bg-[var(--spider-neon-blue)] text-black text-sm font-semibold py-2.5 px-3 rounded-md hover:opacity-90 transition flex items-center space-x-2 justify-center"> 
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path></svg> 
+                    <span>New Chat</span> 
                 </button>
 
                 <div className="flex-grow pt-4 border-t border-[var(--spider-light)] overflow-y-auto">
@@ -1877,66 +1889,50 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
                             recentChats.map((chat) => (
                                 <button 
                                     key={chat.id} 
-                                    onClick={() => loadChatHistory(chat.id)} 
-                                    className={`block w-full text-left px-3 py-2 text-sm rounded hover:bg-[var(--spider-light)] truncate transition-colors ${
-                                        activeChatId === chat.id 
-                                            ? 'bg-[var(--spider-light)] text-white font-medium' 
-                                            : 'text-[var(--spider-text)] hover:text-white'
-                                    }`}
+                                    onClick={() => loadChatHistory(chat.id)}
+                                    className={`block w-full text-left px-3 py-1.5 text-xs rounded hover:bg-[var(--spider-light)] truncate ${activeChatId === chat.id ? 'bg-[var(--spider-light)] text-white' : 'text-[var(--spider-text-dim)]'}`}
                                 >
-                                    <div className="truncate">{chat.title}</div>
-                                    <div className="text-xs text-[var(--spider-text-dim)] mt-1">
-                                        {new Date(chat.timestamp).toLocaleDateString()}
-                                    </div>
+                                    {chat.title}
                                 </button>
                             ))
                         ) : (
-                            <div className="text-center py-4 text-[var(--spider-text-dim)] text-sm">
-                                No recent chats
-                            </div>
+                            <p className="text-xs text-[var(--spider-text-dim)] px-3 py-2 text-center">
+                                {auth?.currentUser ? 'No recent chats' : 'Login to see chats'}
+                            </p>
                         )}
                     </div>
                 </div>
-
+                
                 <div className="mt-auto border-t border-[var(--spider-light)] pt-3">
                     <button className="w-full bg-[var(--spider-med)] text-[var(--spider-text-dim)] text-sm font-semibold py-2 px-3 rounded-md hover:bg-[var(--spider-light)] hover:text-white transition flex items-center space-x-2 text-left">
                         <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd"></path></svg>
-                        <span className="truncate">{currentUser?.name || 'User'}</span>
+                        <span className="truncate">{currentUser?.name || (auth?.currentUser ? 'User' : 'Guest')}</span>
                     </button>
                 </div>
             </div>
 
             {/* Main Chat Area */}
             <div className="flex flex-col flex-1 h-full min-h-0">
-                {/* Messages */}
                 <div className="flex-grow overflow-y-auto p-4 space-y-4">
-                    {chatHistory.map((msg, index) => <ChatBubble key={index} message={msg} />)}
-                    {isLoading && (
-                        <div className="flex justify-start mb-4">
-                            <div className="bg-[var(--spider-med)] text-white p-3 rounded-xl max-w-[85%] shadow-md">
-                                <div className="flex items-center space-x-2">
-                                    <div className="flex space-x-1">
-                                        <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce"></div>
-                                        <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                                        <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                                    </div>
-                                    <span className="text-sm">Processing...</span>
-                                </div>
-                            </div>
-                        </div>
-                    )}
+                    {chatHistory.map((msg, index) => (
+                        <ChatBubble key={index} message={msg} />
+                    ))}
                     <div ref={chatEndRef} />
                 </div>
-
-                {/* Hidden inputs */}
-                <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept=".spy,.py,.java,.cpp,.c,.h,.txt,.md,.js,.html,.css,.json,.xml,.csv" />
+                
+                {/* Hidden File/Image Upload Inputs */}
+                <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept=".spy,.py,.java,.cpp,.c,.h,.txt,.md,.js,.html,.css" />
                 <input type="file" ref={imageInputRef} onChange={handleImageUpload} className="hidden" accept="image/*" />
 
-                {/* Input area */}
+                {/* Input Box Area */}
                 <div className="bg-[var(--spider-med)] p-3 border-t border-[var(--spider-light)] flex-shrink-0">
                     <div className="max-w-4xl mx-auto">
+                        
+                        {/* Mode Indicator & Aspect Ratio */}
                         <div className="flex justify-between items-center mb-3">
-                            <span className="flex items-center text-sm text-[var(--spider-neon-blue)] font-semibold">{getModeText()} Mode</span>
+                            <span className="flex items-center text-sm text-[var(--spider-neon-blue)] font-semibold">
+                                {getModeText()} Mode
+                            </span>
                             {activeAIMode === 'image_gen' && (
                                 <select value={aspectRatio} onChange={(e) => setAspectRatio(e.target.value)} className="bg-[var(--spider-light)] text-[var(--spider-text)] p-1 rounded-md text-xs focus:outline-none">
                                     <option value="1:1">1:1 Square</option>
@@ -1946,6 +1942,7 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
                             )}
                         </div>
 
+                        {/* Uploaded File/Image Indicator */}
                         {(uploadedFile || uploadedImage) && (
                             <div className="mb-2 text-xs text-green-400 p-2 bg-[var(--spider-dark)] rounded-md flex justify-between items-center">
                                 <span className="truncate">
@@ -1954,37 +1951,41 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
                                 <button onClick={() => { setUploadedFile(null); setUploadedImage(null); }} className="text-red-400 hover:text-red-300 ml-3 font-bold flex-shrink-0">×</button>
                             </div>
                         )}
-
+                        
+                        {/* Prompt/Text Input Area with Plus Menu */}
                         <div className="flex items-end w-full space-x-2">
                             <div className="flex-1 bg-[var(--spider-light)] rounded-lg p-2">
                                 <textarea 
                                     placeholder={isImageMode ? "Describe the image..." : isFileMode ? "What should I analyze?" : "Ask a question or request code..."} 
-                                    className="w-full bg-transparent text-white focus:outline-none resize-none text-sm max-h-32 overflow-y-auto" 
+                                    className="w-full bg-transparent text-white focus:outline-none resize-none text-sm max-h-32 overflow-y-auto"
                                     value={message} 
                                     onChange={(e) => setMessage(e.target.value)} 
-                                    onKeyDown={(e) => { 
-                                        if (e.key === 'Enter' && !e.shiftKey) { 
-                                            e.preventDefault(); 
-                                            handleSendMessage(); 
-                                        } 
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' && !e.shiftKey) {
+                                            e.preventDefault();
+                                            handleSendMessage();
+                                        }
                                     }} 
-                                    rows={1} 
-                                    disabled={isLoading}
+                                    rows={1}
                                 />
                             </div>
+                            
+                            {/* Plus Menu */}
+                            <PlusMenu 
+                                setActiveAIMode={setActiveAIMode}
+                                fileInputRef={fileInputRef}
+                                imageInputRef={imageInputRef}
+                            />
 
-                            <PlusMenu setActiveAIMode={setActiveAIMode} fileInputRef={fileInputRef} imageInputRef={imageInputRef} />
-
+                            {/* Send Button */}
                             <button 
                                 onClick={handleSendMessage} 
-                                className="bg-[var(--spider-neon-blue)] text-black font-semibold px-4 py-2 rounded-md hover:opacity-90 transition duration-200 flex-shrink-0 h-10 flex items-center justify-center" 
-                                disabled={(!message.trim() && !uploadedFile && !uploadedImage) || isLoading}
+                                className="bg-[var(--spider-neon-blue)] text-black font-semibold px-4 py-2 rounded-md hover:opacity-90 transition duration-200 flex-shrink-0 h-10 flex items-center justify-center"
+                                disabled={!message.trim() && !isImageMode && !isFileMode}
                             >
-                                {isLoading ? (
-                                    <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
-                                ) : (
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
-                                )}
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
+                                </svg>
                             </button>
                         </div>
                     </div>
@@ -1993,8 +1994,6 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
         </div>
     );
 };
-
-// --- END Plus Menu Component ---
 const SpiderVFXApp = () => { /* ... (Remains Placeholder) ... */ return (<div className="flex-grow h-full flex flex-col items-center justify-center bg-black text-white p-8 pattern-vfx-grid overflow-y-auto"><div className="bg-black bg-opacity-80 p-10 rounded-lg text-center shadow-xl"><h1 className="text-4xl font-bold mb-4 text-[var(--spider-neon-blue)]">Spider VFX</h1><p className="text-lg text-gray-400 mb-8">Coming Soon!</p><div className="animate-pulse text-6xl">✨</div></div></div>);};
 
 // --- NEW Component: Theme Settings Drawer ---
@@ -2273,66 +2272,38 @@ export default function App() {
 // 🔥 UPDATED: Spider AI Cloudflare Integration
 // 🔥 SPIDER AI — Cloudflare GPT-120B + SDXL Integration (FINAL VERSION)
 // 🔥 SPIDER AI — Cloudflare GPT-120B + SDXL Integration (FINAL VERSION)
-// 🔥 UPDATED: Spider AI Cloudflare Integration
-// 🔥 SPIDER AI — Cloudflare GPT-120B + SDXL Integration (FINAL VERSION)
+// Updated callFastAPI: forwards the entire payload and normalizes responses
 const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat") => {
-    
-    // ==========================================================
-    // 🔥 THE REAL FIX IS HERE: This sends the *entire* payload.
-    // ==========================================================
-    
-    let fetchOptions = {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        // Stringify the *entire* payload object from handleSendMessage
-        // This now includes file_content, filename, image, etc.
-        body: JSON.stringify(payload) 
-    };
-
     try {
-        // Use the new fetchOptions, sending to the /ai worker endpoint
-        const res = await fetch("/ai", fetchOptions);
+        const res = await fetch(endpoint, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(payload)
+        });
 
-        const contentType = res.headers.get("content-type") || "";
+        const data = await res.json();
 
-        // ---------------- IMAGE RESPONSE (PNG) ----------------
-        if (contentType.includes("image/")) {
-            const blob = await res.blob();
+        // Normalize image output
+        const base64Image =
+            data.base64_image ||
+            data.base64 ||
+            null;
 
-            const base64 = await new Promise((resolve) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result.split(",")[1]);
-                reader.readAsDataURL(blob);
-            });
-
-            return {
-                text: payload.prompt || "",
-                base64_image: base64,
-                model_used: "SDXL"
-            };
-        }
-
-        // ---------------- TEXT RESPONSE ----------------
-        const rawText = await res.text();
-
-        if (!rawText || rawText.trim() === "") {
-            return { error: "Empty response from Spider AI." };
-        }
-
-        // Spider AI 2.0 always returns plain text from backend
-        // (search → summarized result, or direct answer)
         return {
-            text: rawText,
-            raw: rawText
+            ok: data.ok,
+            text: data.summary || data.text || "",
+            base64_image: base64Image,
+            model_used: data.model_used || "",
+            sources: data.sources || null
         };
 
     } catch (err) {
         return { error: err.message };
     }
-}, []);  
-    
+}, []);
+
     // --- WebSocket Handlers (NEW) ---
     // Helper function to append plain text to terminal output
     const appendToTerminal = (text, type = 'stdout') => {
@@ -3058,8 +3029,6 @@ int main() {
         </>
     );
 }
-
-
 
 
 
