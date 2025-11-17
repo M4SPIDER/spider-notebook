@@ -1868,8 +1868,7 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
     };
 
     // ---------- Enhanced Chat Bubble with Fixed Code Box ----------
-
-const ChatBubble = ({ message }) => {
+  const ChatBubble = ({ message }) => {
 
     /* ---------------- PRISM HIGHLIGHT ---------------- */
     useEffect(() => {
@@ -1934,11 +1933,16 @@ const ChatBubble = ({ message }) => {
         return parts;
     };
 
+    /* ---------------- COPY FUNCTION ---------------- */
+    const handleCopyCode = (content) => {
+        navigator.clipboard.writeText(content);
+    };
+
     /* ---------------- BUBBLE STYLE ---------------- */
     const bubbleClass =
         message.role === "user"
             ? "bg-[#00e5ff] text-black ml-auto"
-            : "bg-[#004745] text-white mr-auto"; // same teal tone as screenshot
+            : "bg-[#004745] text-white mr-auto";
 
     const contentParts = extractCodeBlocks(message.content);
 
@@ -1946,24 +1950,24 @@ const ChatBubble = ({ message }) => {
         <div
             className={`flex w-full ${
                 message.role === "user" ? "justify-end" : "justify-start"
-            } mb-4`}
+            } mb-3`}
         >
             <div
-                className={`px-4 pt-4 pb-3 rounded-2xl max-w-[85%] sm:max-w-4xl ${bubbleClass}`}
+                className={`px-3 pt-3 pb-2 rounded-2xl max-w-[90%] sm:max-w-4xl ${bubbleClass}`}
                 style={{
-                    boxShadow: "0 0 0", // no shadow
+                    boxShadow: "0 0 0",
                 }}
             >
 
                 {/* ---------- IMAGE ---------- */}
                 {message.type === "image" && message.base64_image && (
-                    <div className="w-full rounded-xl overflow-hidden bg-black p-2 mb-3">
+                    <div className="w-full rounded-xl overflow-hidden bg-black p-1 mb-2">
                         <img
                             src={`data:image/jpeg;base64,${message.base64_image}`}
                             alt="Generated"
                             className="w-full rounded-xl"
                             style={{
-                                maxHeight: "400px",
+                                maxHeight: "350px",
                                 objectFit: "contain",
                             }}
                         />
@@ -1971,25 +1975,51 @@ const ChatBubble = ({ message }) => {
                 )}
 
                 {/* ---------- TEXT + CODE ---------- */}
-                <div className="space-y-3">
+                <div className="space-y-2">
                     {contentParts.map((part, index) => {
 
-                        /* ---- CODE BLOCK (EXACT LIKE SCREENSHOT) ---- */
+                        /* ---- CODE BLOCK WITH COPY BUTTON ---- */
                         if (part.type === "code") {
                             return (
                                 <div
                                     key={index}
-                                    className="rounded-xl overflow-hidden w-full"
+                                    className="rounded-xl overflow-hidden w-full relative group"
                                     style={{
-                                        background: "#0f0f0f", // pure dark flat
+                                        background: "#0f0f0f",
                                     }}
                                 >
+                                    {/* COPY & EDIT BUTTONS */}
+                                    <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        {/* COPY BUTTON - Small square */}
+                                        <button
+                                            onClick={() => handleCopyCode(part.content)}
+                                            className="w-5 h-5 flex items-center justify-center rounded bg-gray-700 hover:bg-gray-600 transition-colors"
+                                            title="Copy code"
+                                        >
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                            </svg>
+                                        </button>
+                                        
+                                        {/* EDIT BUTTON - Small pencil */}
+                                        <button
+                                            className="w-5 h-5 flex items-center justify-center rounded bg-gray-700 hover:bg-gray-600 transition-colors"
+                                            title="Edit code"
+                                        >
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                            </svg>
+                                        </button>
+                                    </div>
+
                                     <pre
-                                        className="overflow-x-auto p-4 m-0"
+                                        className="overflow-x-auto p-3 m-0"
                                         style={{
                                             background: "#0f0f0f",
-                                            fontSize: "15px",
-                                            lineHeight: "1.6",
+                                            fontSize: "14px",
+                                            lineHeight: "1.5",
                                             color: "white",
                                         }}
                                     >
@@ -2008,7 +2038,7 @@ const ChatBubble = ({ message }) => {
                             return (
                                 <code
                                     key={index}
-                                    className="px-2 py-1 rounded"
+                                    className="px-1.5 py-0.5 rounded text-sm"
                                     style={{
                                         background: "#0f0f0f",
                                         color: "#00e5ff",
@@ -2025,8 +2055,8 @@ const ChatBubble = ({ message }) => {
                                 key={index}
                                 className="whitespace-pre-wrap break-words"
                                 style={{
-                                    fontSize: "15px",
-                                    lineHeight: "1.6",
+                                    fontSize: "14px",
+                                    lineHeight: "1.5",
                                 }}
                             >
                                 {part.content}
@@ -2038,7 +2068,7 @@ const ChatBubble = ({ message }) => {
                 {/* ---------- MODEL NAME ---------- */}
                 {message.model_used && (
                     <div
-                        className="text-xs pt-2"
+                        className="text-xs pt-1"
                         style={{ opacity: 0.6 }}
                     >
                         Model:{" "}
@@ -2051,7 +2081,6 @@ const ChatBubble = ({ message }) => {
         </div>
     );
 };
-
     const isImageMode = !!uploadedImage;
     const isFileMode = !!uploadedFile;
 
@@ -3290,7 +3319,6 @@ int main() {
         </>
     );
 }
-
 
 
 
