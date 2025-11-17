@@ -1938,7 +1938,7 @@ const ChatBubble = ({ message }) => {
     const bubbleClass =
         message.role === "user"
             ? "bg-[#00e5ff] text-black ml-auto"
-            : "bg-[#002f32] text-white mr-auto";
+            : "bg-[#004745] text-white mr-auto"; // same teal tone as screenshot
 
     const contentParts = extractCodeBlocks(message.content);
 
@@ -1949,16 +1949,19 @@ const ChatBubble = ({ message }) => {
             } mb-4`}
         >
             <div
-                className={`px-3 pt-3 pb-2 rounded-xl max-w-[85%] sm:max-w-4xl shadow-lg ${bubbleClass}`}
+                className={`px-4 pt-4 pb-3 rounded-2xl max-w-[85%] sm:max-w-4xl ${bubbleClass}`}
+                style={{
+                    boxShadow: "0 0 0", // no shadow
+                }}
             >
 
                 {/* ---------- IMAGE ---------- */}
                 {message.type === "image" && message.base64_image && (
-                    <div className="w-full rounded-lg overflow-hidden bg-black p-2 mb-3">
+                    <div className="w-full rounded-xl overflow-hidden bg-black p-2 mb-3">
                         <img
                             src={`data:image/jpeg;base64,${message.base64_image}`}
                             alt="Generated"
-                            className="w-full rounded-lg"
+                            className="w-full rounded-xl"
                             style={{
                                 maxHeight: "400px",
                                 objectFit: "contain",
@@ -1967,16 +1970,29 @@ const ChatBubble = ({ message }) => {
                     </div>
                 )}
 
-                {/* ---------- TEXT + CODE BLOCKS ---------- */}
+                {/* ---------- TEXT + CODE ---------- */}
                 <div className="space-y-3">
                     {contentParts.map((part, index) => {
+
+                        /* ---- CODE BLOCK (EXACT LIKE SCREENSHOT) ---- */
                         if (part.type === "code") {
                             return (
                                 <div
                                     key={index}
-                                    className="rounded-lg overflow-hidden w-full bg-[#0d0d0d] border border-[#1a1a1a]"
+                                    className="rounded-xl overflow-hidden w-full"
+                                    style={{
+                                        background: "#0f0f0f", // pure dark flat
+                                    }}
                                 >
-                                    <pre className="overflow-x-auto p-4 m-0 bg-[#0d0d0d]">
+                                    <pre
+                                        className="overflow-x-auto p-4 m-0"
+                                        style={{
+                                            background: "#0f0f0f",
+                                            fontSize: "15px",
+                                            lineHeight: "1.6",
+                                            color: "white",
+                                        }}
+                                    >
                                         <code
                                             className={`language-${part.language}`}
                                         >
@@ -1987,21 +2003,31 @@ const ChatBubble = ({ message }) => {
                             );
                         }
 
+                        /* ---- INLINE CODE ---- */
                         if (part.type === "inline-code") {
                             return (
                                 <code
                                     key={index}
-                                    className="bg-black text-[#00e5ff] px-2 py-1 rounded"
+                                    className="px-2 py-1 rounded"
+                                    style={{
+                                        background: "#0f0f0f",
+                                        color: "#00e5ff",
+                                    }}
                                 >
                                     {part.content}
                                 </code>
                             );
                         }
 
+                        /* ---- NORMAL TEXT ---- */
                         return (
                             <div
                                 key={index}
-                                className="whitespace-pre-wrap text-sm leading-relaxed break-words"
+                                className="whitespace-pre-wrap break-words"
+                                style={{
+                                    fontSize: "15px",
+                                    lineHeight: "1.6",
+                                }}
                             >
                                 {part.content}
                             </div>
@@ -2009,26 +2035,12 @@ const ChatBubble = ({ message }) => {
                     })}
                 </div>
 
-                {/* ---------- SOURCES ---------- */}
-                {message.sources && (
-                    <div className="mt-3 text-xs text-gray-400 border-t border-gray-700 pt-2">
-                        <p className="font-semibold">Sources:</p>
-                        {message.sources.map((src, i) => (
-                            <a
-                                key={i}
-                                href={src.uri}
-                                target="_blank"
-                                className="block truncate hover:text-[#00e5ff]"
-                            >
-                                {i + 1}. {src.title || src.uri}
-                            </a>
-                        ))}
-                    </div>
-                )}
-
                 {/* ---------- MODEL NAME ---------- */}
                 {message.model_used && (
-                    <div className="text-xs text-gray-400 border-t border-gray-700 pt-2">
+                    <div
+                        className="text-xs pt-2"
+                        style={{ opacity: 0.6 }}
+                    >
                         Model:{" "}
                         <span className="text-white">
                             {message.model_used}
