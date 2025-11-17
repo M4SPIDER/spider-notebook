@@ -1386,431 +1386,216 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
     const [recentChats, setRecentChats] = useState([]);
     const [aspectRatio, setAspectRatio] = useState('1:1');
     const [isLoading, setIsLoading] = useState(false);
-    const [streamingContent, setStreamingContent] = useState('');
-    const [isStreaming, setIsStreaming] = useState(false);
-    const [currentStreamingIndex, setCurrentStreamingIndex] = useState(0);
 
     const fileInputRef = useRef(null);
     const imageInputRef = useRef(null);
     const chatEndRef = useRef(null);
 
-    // Firebase state
+    // Firebase placeholders (keep your firebase logic; we assume functions imported elsewhere)
     const [db, setDb] = useState(null);
     const [auth, setAuth] = useState(null);
 
     const getAppId = () => typeof __app_id !== 'undefined' ? __app_id : 'default-m4-app';
     const LOCAL_STORAGE_KEY = `spider_chat_history_${getAppId()}_${(currentUser?.email || 'anon')}`;
 
-    // ---------- Fast Typing Animation for Code ----------
-    const startCodeStreaming = (fullCode, speed = 20) => {
-        setIsStreaming(true);
-        setStreamingContent('');
-        setCurrentStreamingIndex(0);
-
-        const streamCode = () => {
-            setCurrentStreamingIndex(prevIndex => {
-                if (prevIndex >= fullCode.length) {
-                    setIsStreaming(false);
-                    // Add the completed message to chat history
-                    const completedMessage = {
-                        role: 'assistant',
-                        content: fullCode,
-                        type: 'text',
-                        ts: Date.now()
-                    };
-                    setChatHistory(prev => [...prev, completedMessage]);
-                    return prevIndex;
-                }
-
-                const newContent = fullCode.substring(0, prevIndex + 1);
-                setStreamingContent(newContent);
-                return prevIndex + 1;
-            });
-        };
-
-        // Start streaming
-        const intervalId = setInterval(streamCode, speed);
-
-        // Cleanup when done
-        const checkCompletion = setInterval(() => {
-            if (currentStreamingIndex >= fullCode.length) {
-                clearInterval(intervalId);
-                clearInterval(checkCompletion);
-            }
-        }, 100);
-
-        return () => {
-            clearInterval(intervalId);
-            clearInterval(checkCompletion);
-        };
-    };
-
-    // ---------- Enhanced Code Block with Streaming ----------
-    const StreamingCodeBlock = ({ content, isStreaming = false, language = 'javascript' }) => {
-        const [copied, setCopied] = useState(false);
-
-        const handleCopy = async () => {
-            try {
-                await navigator.clipboard.writeText(content);
-                setCopied(true);
-                setTimeout(() => setCopied(false), 2000);
-            } catch (err) {
-                console.error('Failed to copy code: ', err);
-            }
-        };
-
-        // Calculate typing progress for cursor effect
-        const displayContent = isStreaming ? content : content;
-
-        return (
-            <div className="relative my-2 rounded-lg overflow-hidden border border-[var(--spider-light)]">
-                <div className="flex justify-between items-center bg-[var(--spider-dark)] px-4 py-2 border-b border-[var(--spider-light)]">
-                    <span className="text-xs text-[var(--spider-text-dim)] uppercase font-semibold">{language}</span>
-                    <div className="flex items-center space-x-2">
-                        {isStreaming && (
-                            <div className="flex items-center space-x-1 text-xs text-[var(--spider-neon-blue)]">
-                                <div className="flex space-x-1">
-                                    <div className="w-1.5 h-1.5 bg-[var(--spider-neon-blue)] rounded-full animate-pulse"></div>
-                                    <div className="w-1.5 h-1.5 bg-[var(--spider-neon-blue)] rounded-full animate-pulse" style={{ animationDelay: '0.2s' }}></div>
-                                    <div className="w-1.5 h-1.5 bg-[var(--spider-neon-blue)] rounded-full animate-pulse" style={{ animationDelay: '0.4s' }}></div>
-                                </div>
-                                <span>Typing...</span>
-                            </div>
-                        )}
-                        <button 
-                            onClick={handleCopy}
-                            className="text-xs bg-[var(--spider-light)] hover:bg-[var(--spider-neon-blue)] text-white hover:text-black px-2 py-1 rounded transition-colors"
-                        >
-                            {copied ? 'Copied!' : 'Copy'}
-                        </button>
-                    </div>
-                </div>
-                <pre className="bg-teal-900/20 p-4 overflow-x-auto text-sm font-mono whitespace-pre-wrap relative">
-                    <code className={`language-${language}`}>
-                        {displayContent}
-                        {isStreaming && (
-                            <span className="inline-block w-2 h-4 bg-[var(--spider-neon-blue)] ml-1 animate-pulse"></span>
-                        )}
-                    </code>
-                </pre>
-            </div>
-        );
-    };
-
-    // ---------- Enhanced Chat Bubble with Streaming Code ----------
-    const ChatBubble = ({ message, isTyping = false, isStreaming = false, streamingContent = '' }) => {
-        const bubbleClasses = message.role === 'user'
-            ? 'bg-[var(--spider-neon-blue)] text-black ml-auto'
-            : 'bg-[var(--spider-med)] text-white mr-auto';
-
-        // Detect code blocks with streaming support
-        const renderContentWithCode = (content, isStreaming = false, streamContent = '') => {
-            if (typeof content !== 'string') return content;
-            
-            const displayContent = isStreaming ? streamContent : content;
-            
-            const codeBlockRegex = /```(\w+)?\n([\s\S]*?)```/g;
-            const parts = [];
-            let lastIndex = 0;
-            let match;
-
-            while ((match = codeBlockRegex.exec(displayContent)) !== null) {
-                if (match.index > lastIndex) {
-                    parts.push(
-                        <pre key={`text-${lastIndex}`} className="whitespace-pre-wrap font-sans text-sm break-words">
-                            {displayContent.slice(lastIndex, match.index)}
-                        </pre>
-                    );
-                }
-
-                const language = match[1] || 'javascript';
-                const code = match[2].trim();
-                parts.push(
-                    <StreamingCodeBlock 
-                        key={`code-${match.index}`} 
-                        code={code} 
-                        language={language}
-                        isStreaming={isStreaming && match.index + match[0].length <= streamContent.length}
-                    />
-                );
-
-                lastIndex = match.index + match[0].length;
-            }
-
-            if (lastIndex < displayContent.length) {
-                parts.push(
-                    <pre key={`text-${lastIndex}`} className="whitespace-pre-wrap font-sans text-sm break-words">
-                        {displayContent.slice(lastIndex)}
-                    </pre>
-                );
-            }
-
-            return parts.length > 0 ? parts : (
-                <pre className="whitespace-pre-wrap font-sans text-sm break-words">
-                    {displayContent}
-                    {isStreaming && (
-                        <span className="inline-block w-2 h-4 bg-[var(--spider-neon-blue)] ml-1 animate-pulse"></span>
-                    )}
-                </pre>
-            );
-        };
-
-        return (
-            <div className={`flex w-full ${message.role === 'user' ? 'justify-end' : 'justify-start'} mb-4`}>
-                <div className={`p-3 rounded-xl max-w-[85%] sm:max-w-4xl shadow-md ${bubbleClasses}`}>
-                    {message.type === 'image' && message.base64_image ? (
-                        <div className="flex flex-col space-y-2">
-                            <p className="text-xs">
-                                {message.type === "image"
-                                    ? (message.base64_image ? "Image Result" : "Image Generated")
-                                    : message.type === "analyze_file"
-                                        ? "File Analysis"
-                                        : "Response"
-                                }
-                            </p>
-                            <img src={`data:image/jpeg;base64,${message.base64_image}`} alt="Generated or Edited Image" className="max-w-full rounded-lg shadow-lg" style={{ maxHeight: '300px', objectFit: 'contain' }} />
-                        </div>
-                    ) : isTyping ? (
-                        <div className="flex items-center space-x-2">
-                            <div className="flex space-x-1">
-                                <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce"></div>
-                                <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                                <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                            </div>
-                            <span className="text-sm">Thinking...</span>
-                        </div>
-                    ) : (
-                        renderContentWithCode(
-                            message.content, 
-                            isStreaming, 
-                            streamingContent
-                        )
-                    )}
-                    {message.sources && message.sources.length > 0 && (
-                        <div className="mt-2 text-xs text-[var(--spider-text-dim)] pt-2 border-t border-[var(--spider-light)]">
-                            <p className="font-semibold mb-1">Sources:</p>
-                            {message.sources.slice(0, 3).map((source, index) => (
-                                <a key={index} href={source.uri} target="_blank" rel="noopener noreferrer" className="block hover:underline truncate">{index + 1}. {source.title || source.uri}</a>
-                            ))}
-                        </div>
-                    )}
-                </div>
-            </div>
-        );
-    };
-
-    // ---------- Enhanced Send Message with Streaming ----------
-    const handleSendMessage = async () => {
-        if (!message.trim() && !uploadedFile && !uploadedImage) return;
-
-        setIsLoading(true);
-
-        const fileCopy = uploadedFile;
-        const imageCopy = uploadedImage;
-        const selectedActiveMode = activeAIMode;
-        let mode = selectedActiveMode || "chat";
-
-        if (fileCopy) mode = "analyze_file";
-        if (imageCopy) mode = "image_edit";
-        if (!fileCopy && !imageCopy && selectedActiveMode === 'image_gen') mode = 'image_gen';
-
-        const userMessage = {
-            role: 'user',
-            content: message,
-            type: mode,
-            fileName: fileCopy ? fileCopy.name : undefined,
-            imageName: imageCopy ? imageCopy.name : undefined,
-            ts: Date.now()
-        };
-
-        setChatHistory(prev => [...prev, userMessage]);
-        setMessage('');
-
+    // ---------- Firebase init (unchanged) ----------
+    useEffect(() => {
         try {
-            // Simulate API response with code (in real implementation, this would be from your API)
-            const mockCodeResponse = `Here's a React component for a modern login form:
-
-\`\`\`jsx
-import React, { useState } from 'react';
-import './LoginForm.css';
-
-const LoginForm = ({ onLogin }) => {
-    const [formData, setFormData] = useState({
-        email: '',
-        password: ''
-    });
-    const [isLoading, setIsLoading] = useState(false);
-
-    const handleChange = (e) => {
-        const { name, value } = e.target;
-        setFormData(prev => ({
-            ...prev,
-            [name]: value
-        }));
-    };
-
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        setIsLoading(true);
-        
-        try {
-            await onLogin(formData);
-        } catch (error) {
-            console.error('Login failed:', error);
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    return (
-        <div className="login-container">
-            <form onSubmit={handleSubmit} className="login-form">
-                <h2>Welcome Back</h2>
-                
-                <div className="input-group">
-                    <label htmlFor="email">Email</label>
-                    <input
-                        type="email"
-                        id="email"
-                        name="email"
-                        value={formData.email}
-                        onChange={handleChange}
-                        required
-                        placeholder="Enter your email"
-                    />
-                </div>
-
-                <div className="input-group">
-                    <label htmlFor="password">Password</label>
-                    <input
-                        type="password"
-                        id="password"
-                        name="password"
-                        value={formData.password}
-                        onChange={handleChange}
-                        required
-                        placeholder="Enter your password"
-                    />
-                </div>
-
-                <button 
-                    type="submit" 
-                    className="login-button"
-                    disabled={isLoading}
-                >
-                    {isLoading ? 'Signing in...' : 'Sign In'}
-                </button>
-            </form>
-        </div>
-    );
-};
-
-export default LoginForm;
-\`\`\`
-
-And here's the CSS:
-
-\`\`\`css
-.login-container {
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-}
-
-.login-form {
-    background: white;
-    padding: 2rem;
-    border-radius: 10px;
-    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
-    width: 100%;
-    max-width: 400px;
-}
-
-.login-form h2 {
-    text-align: center;
-    margin-bottom: 1.5rem;
-    color: #333;
-    font-weight: 600;
-}
-
-.input-group {
-    margin-bottom: 1rem;
-}
-
-.input-group label {
-    display: block;
-    margin-bottom: 0.5rem;
-    color: #555;
-    font-weight: 500;
-}
-
-.input-group input {
-    width: 100%;
-    padding: 0.75rem;
-    border: 2px solid #e1e5e9;
-    border-radius: 5px;
-    font-size: 1rem;
-    transition: border-color 0.3s ease;
-}
-
-.input-group input:focus {
-    outline: none;
-    border-color: #667eea;
-}
-
-.login-button {
-    width: 100%;
-    padding: 0.75rem;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    border: none;
-    border-radius: 5px;
-    font-size: 1rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: opacity 0.3s ease;
-}
-
-.login-button:hover:not(:disabled) {
-    opacity: 0.9;
-}
-
-.login-button:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-}
-\`\`\`
-
-This creates a modern, responsive login form with smooth animations and proper validation.`;
-
-            // Start streaming the code response
-            startCodeStreaming(mockCodeResponse, 10); // Fast typing speed
-
-        } catch (error) {
-            console.error('API ERROR:', error);
-            const assistantError = {
-                role: 'assistant',
-                content: `[API ERROR] ${error?.message || 'Something went wrong.'}`,
-                type: 'text',
-                ts: Date.now()
+            const USER_FIREBASE_CONFIG = {
+                apiKey: "AIzaSyBS1aGZZ2RDx2RKji1jOO-7spiY5QzJjh8",
+                authDomain: "m4-spider.firebaseapp.com",
+                projectId: "m4-spider",
+                storageBucket: "m4-spider.firebasestorage.app",
+                messagingSenderId: "154970150789",
+                appId: "1:154970150789:web:60796710cacca377edd6ec",
+                measurementId: "G-TGTWRTF7EX"
             };
-            setChatHistory(prev => [...prev, assistantError]);
-        } finally {
-            setUploadedFile(null);
-            setUploadedImage(null);
-            setIsLoading(false);
+
+            let configString = typeof __firebase_config !== 'undefined' ? __firebase_config : '{}';
+            let firebaseConfig = JSON.parse(configString);
+
+            if (!firebaseConfig || !firebaseConfig.apiKey) firebaseConfig = USER_FIREBASE_CONFIG;
+            if (firebaseConfig && firebaseConfig.apiKey) {
+                const app = initializeApp(firebaseConfig, 'spider-ai-app');
+                setDb(getFirestore(app));
+                setAuth(getAuth(app));
+            }
+        } catch (e) {
+            console.error("Firebase init error:", e);
         }
+    }, []);
+
+    const getUserId = () => auth?.currentUser?.uid || currentUser?.email || 'anonymous';
+
+    // ---------- FIXED: Load recent chats & history ----------
+    const loadChatHistory = useCallback(async (chatId = null) => {
+        // Prefer Firestore if available
+        if (db && auth?.currentUser?.uid) {
+            const userId = getUserId();
+            const chatsCollection = collection(db, `artifacts/${getAppId()}/users/${userId}/ai_chats`);
+
+            // FIX: Load recent chats FIRST before trying to load specific chat
+            try {
+                const q = query(chatsCollection, limit(10));
+                const unsubscribe = onSnapshot(q, (snapshot) => {
+                    const recent = snapshot.docs.map(doc => ({
+                        id: doc.id,
+                        title: doc.data().title || 'Untitled Chat',
+                        timestamp: doc.data().timestamp || Date.now()
+                    })).sort((a, b) => b.timestamp - a.timestamp);
+                    setRecentChats(recent);
+                });
+
+                // If specific chat requested, load it
+                if (chatId) {
+                    try {
+                        const chatSnap = await getDocs(query(chatsCollection, where('id', '==', chatId), limit(1)));
+                        if (chatSnap.docs.length > 0) {
+                            const data = chatSnap.docs[0].data();
+                            const parsed = JSON.parse(data.history || '[]');
+                            setChatHistory(Array.isArray(parsed) && parsed.length ? parsed : [{ role: 'assistant', content: 'Welcome! I am Spider AI.', type: 'text' }]);
+                            setActiveChatId(chatId);
+                            return unsubscribe; // Return unsubscribe function
+                        }
+                    } catch (e) {
+                        console.error("Error loading specific chat:", e);
+                    }
+                }
+
+                // If no specific chat or failed to load, check if we should keep current or reset
+                setChatHistory(prev => {
+                    if (prev && prev.length && prev.some(m => m.role !== 'assistant')) {
+                        return prev;
+                    }
+                    return [{ role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }];
+                });
+                setActiveChatId(null);
+                
+                return unsubscribe; // Return unsubscribe function for cleanup
+
+            } catch (e) {
+                console.error("Error listening to recent chats:", e);
+            }
+        }
+
+        // Fallback: localStorage
+        try {
+            const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                setChatHistory(Array.isArray(parsed) && parsed.length ? parsed : [{ role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }]);
+            } else {
+                setChatHistory([{ role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }]);
+            }
+            setRecentChats([]); // no recent chats for anon
+            setActiveChatId(null);
+        } catch (e) {
+            console.error("Error reading localStorage history:", e);
+            setChatHistory([{ role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }]);
+        }
+    }, [db, auth, currentUser]);
+
+    // ---------- Save chat history (local + firebase when available) ----------
+    const saveChatHistory = useCallback(async (currentHistory) => {
+        if (!Array.isArray(currentHistory)) return;
+
+        // local save
+        try {
+            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(currentHistory));
+        } catch (e) {
+            console.warn("LocalStorage save failed:", e);
+        }
+
+        // Firestore save if logged in
+        if (!db || !auth?.currentUser?.uid) return;
+        if (currentHistory.length <= 1) return;
+
+        const userId = getUserId();
+        const chatTitle = (currentHistory[1]?.content || "").toString().substring(0, 50).trim() || "New Chat";
+        const chatsCollection = collection(db, `artifacts/${getAppId()}/users/${userId}/ai_chats`);
+
+        const chatData = {
+            title: chatTitle,
+            history: JSON.stringify(currentHistory),
+            timestamp: Date.now(),
+            mode: currentHistory[1]?.type || 'chat',
+            userId
+        };
+
+        try {
+            if (activeChatId) {
+                const chatDocRef = doc(chatsCollection, activeChatId);
+                await setDoc(chatDocRef, chatData, { merge: true });
+            } else {
+                const docRef = await addDoc(chatsCollection, chatData);
+                setActiveChatId(docRef.id);
+            }
+        } catch (e) {
+            console.error("Error saving to Firestore:", e);
+        }
+    }, [db, auth, activeChatId, currentUser]);
+
+    // ---------- Initialize on mount and when auth/db changes ----------
+    useEffect(() => {
+        loadChatHistory(null);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [db, auth]);
+
+    useEffect(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        // save every chat update
+        if (chatHistory && chatHistory.length) saveChatHistory(chatHistory);
+    }, [chatHistory, saveChatHistory]);
+
+    // ---------- File / Image upload handlers ----------
+    const handleFileUpload = (event) => {
+        const file = event?.target?.files?.[0];
+        if (!file) {
+            if (event) event.target.value = null;
+            return;
+        }
+        if (file.size > 1024 * 1024 * 10) {
+            showModal("File Error", "File size exceeds 10MB limit.");
+            event.target.value = null;
+            return;
+        }
+        // set state for UI; do not clear too early
+        setUploadedFile(file);
+        setUploadedImage(null);
+        setMessage(`Analyze the contents of ${file.name}.`);
+        event.target.value = null;
     };
 
-    // ---------- PlusMenu (simplified) ----------
+    const handleImageUpload = (event) => {
+        const file = event?.target?.files?.[0];
+        if (!file) {
+            if (event) event.target.value = null;
+            return;
+        }
+        if (!file.type.startsWith('image/')) {
+            showModal("File Error", "Please upload a valid image file.");
+            event.target.value = null;
+            return;
+        }
+        if (file.size > 1024 * 1024 * 5) {
+            showModal("File Error", "Image size exceeds 5MB limit.");
+            event.target.value = null;
+            return;
+        }
+        setUploadedImage(file);
+        setUploadedFile(null);
+        setMessage("Transform or edit this image to: ");
+        event.target.value = null;
+    };
+
+    // ---------- PlusMenu (compatible with older UI that used setActiveAIMode) ----------
     const PlusMenu = ({ setActiveAIMode: _setActiveAIMode, fileInputRef, imageInputRef }) => {
         const [open, setOpen] = useState(false);
 
         const onUploadFile = () => {
             setOpen(false);
             if (typeof _setActiveAIMode === 'function') _setActiveAIMode('file_analysis');
+            // click input after slight delay so mode/state can settle
             setTimeout(() => fileInputRef.current?.click(), 50);
         };
 
@@ -1829,26 +1614,232 @@ This creates a modern, responsive login form with smooth animations and proper v
             <div className="relative">
                 <button onClick={() => setOpen(o => !o)} className="bg-[var(--spider-light)] text-white px-3 py-2 rounded-md h-10 flex items-center justify-center hover:opacity-90">+</button>
                 {open && (
-                    <div className="absolute bottom-12 right-0 bg-[var(--spider-dark)] border border-[var(--spider-light)] rounded-md shadow-lg w-48 p-2 z-50">
-                        <button onClick={onUploadFile} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center">
-                            <span className="mr-2">📄</span> Upload File
-                        </button>
-                        <button onClick={onUploadImage} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center">
-                            <span className="mr-2">🖼</span> Upload Image
-                        </button>
-                        <button onClick={onGenImage} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center">
-                            <span className="mr-2">🎨</span> Create Image
-                        </button>
+                    <div className="absolute bottom-12 right-0 bg-[var(--spider-dark)] border border-[var(--spider-light)] rounded-md shadow-lg w-40 p-2 z-50">
+                        <button onClick={onUploadFile} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm">📄 Upload File</button>
+                        <button onClick={onUploadImage} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm">🖼 Upload Image</button>
+                        <button onClick={onGenImage} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm">🎨 Create Image (Gen)</button>
                     </div>
                 )}
             </div>
         );
     };
 
-    // Scroll to bottom when streaming
-    useEffect(() => {
-        chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [streamingContent, chatHistory]);
+    // ---------- New Chat handler ----------
+    const handleNewChat = () => {
+        // Reset UI state, clear uploaded files, reset active AI mode and chat id
+        setUploadedFile(null);
+        setUploadedImage(null);
+        setActiveAIMode && setActiveAIMode('chat');
+        setActiveChatId(null);
+        // Reset history to a fresh welcome message and clear localStorage (optional)
+        const welcome = [{ role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }];
+        setChatHistory(welcome);
+        try { localStorage.removeItem(LOCAL_STORAGE_KEY); } catch (e) { /* ignore */ }
+        // reload recent chats (keeps Firebase listener alive)
+        loadChatHistory(null);
+    };
+
+    // ---------- FIXED: Send message (file analysis fix) ----------
+    const handleSendMessage = async () => {
+        if (!message.trim() && !uploadedFile && !uploadedImage) return;
+
+        setIsLoading(true);
+
+        // capture current state into local variables so clearing state later won't break us
+        const fileCopy = uploadedFile;
+        const imageCopy = uploadedImage;
+        const selectedActiveMode = activeAIMode; // preserve current activeAIMode
+        let mode = selectedActiveMode || "chat";
+
+        // prioritize explicit uploads
+        if (fileCopy) mode = "analyze_file";
+        if (imageCopy) mode = "image_edit";
+        // keep image_gen if user explicitly set it
+        if (!fileCopy && !imageCopy && selectedActiveMode === 'image_gen') mode = 'image_gen';
+
+        // build a serializable user message (no File objects)
+        const userMessage = {
+            role: 'user',
+            content: message,
+            type: mode,
+            fileName: fileCopy ? fileCopy.name : undefined,
+            imageName: imageCopy ? imageCopy.name : undefined,
+            ts: Date.now()
+        };
+
+        setChatHistory(prev => [...prev, userMessage]);
+        setMessage('');
+
+        try {
+            // FILE ANALYSIS - FIXED: Proper file content handling
+            if (mode === "analyze_file" && fileCopy) {
+                let fileContent;
+                
+                // Handle different file types appropriately
+                if (fileCopy.type.startsWith('text/') || 
+                    fileCopy.name.endsWith('.txt') || 
+                    fileCopy.name.endsWith('.py') ||
+                    fileCopy.name.endsWith('.js') ||
+                    fileCopy.name.endsWith('.html') ||
+                    fileCopy.name.endsWith('.css') ||
+                    fileCopy.name.endsWith('.md')) {
+                    // Text files - read as text
+                    fileContent = await fileCopy.text();
+                } else {
+                    // Binary files - read as base64
+                    fileContent = await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                            try {
+                                const base64 = reader.result.split(",")[1];
+                                resolve(base64);
+                            } catch (e) {
+                                reject(e);
+                            }
+                        };
+                        reader.onerror = (err) => reject(err);
+                        reader.readAsDataURL(fileCopy);
+                    });
+                }
+
+                const apiUrl = '/api/generate/text';
+                const apiPayload = {
+                    prompt: message || `Analyze the contents of ${fileCopy.name}`,
+                    mode: "analyze_file",
+                    filename: fileCopy.name,
+                    file_content: fileContent,
+                    file_type: fileCopy.type
+                };
+                
+                const result = await callFastAPI(apiUrl, apiPayload, mode);
+
+                const assistantMessage = {
+                    role: 'assistant',
+                    content: result?.text || 'File analysis complete.',
+                    type: result?.base64_image ? 'image' : 'text',
+                    base64_image: result?.base64_image,
+                    sources: result?.sources,
+                    model_used: result?.model_used,
+                    ts: Date.now()
+                };
+                setChatHistory(prev => [...prev, assistantMessage]);
+            }
+
+            // IMAGE EDIT
+            else if (mode === "image_edit" && imageCopy) {
+                const base64Image = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        try {
+                            const b = reader.result.split(",")[1];
+                            resolve(b);
+                        } catch (e) {
+                            reject(e);
+                        }
+                    };
+                    reader.onerror = (err) => reject(err);
+                    reader.readAsDataURL(imageCopy);
+                });
+
+                const apiUrl = '/api/generate/text';
+                const apiPayload = {
+                    prompt: message || "Edit this image",
+                    mode: "image_edit",
+                    image: base64Image,
+                    strength: 0.7
+                };
+                const result = await callFastAPI(apiUrl, apiPayload, mode);
+
+                const assistantMessage = {
+                    role: 'assistant',
+                    content: result?.text || 'Image edited.',
+                    type: result?.base64_image ? 'image' : 'text',
+                    base64_image: result?.base64_image,
+                    sources: result?.sources,
+                    model_used: result?.model_used,
+                    ts: Date.now()
+                };
+                setChatHistory(prev => [...prev, assistantMessage]);
+            }
+
+            // IMAGE GEN or CHAT
+            else {
+                const apiUrl = '/api/generate/text';
+                const apiPayload = { 
+                    prompt: message, 
+                    mode,
+                    aspect_ratio: mode === 'image_gen' ? aspectRatio : undefined
+                };
+                const result = await callFastAPI(apiUrl, apiPayload, mode);
+
+                const assistantMessage = {
+                    role: 'assistant',
+                    content: result?.text || 'Response received.',
+                    type: result?.base64_image ? 'image' : 'text',
+                    base64_image: result?.base64_image,
+                    sources: result?.sources,
+                    model_used: result?.model_used,
+                    ts: Date.now()
+                };
+                setChatHistory(prev => [...prev, assistantMessage]);
+            }
+        } catch (error) {
+            console.error('API ERROR:', error);
+            const assistantError = {
+                role: 'assistant',
+                content: `[API ERROR] ${error?.message || 'Something went wrong.'}`,
+                type: 'text',
+                ts: Date.now()
+            };
+            setChatHistory(prev => [...prev, assistantError]);
+        } finally {
+            // Clear uploads only AFTER result is processed
+            try {
+                setUploadedFile(null);
+                setUploadedImage(null);
+                setIsLoading(false);
+            } catch (e) {
+                // ignore
+            }
+        }
+    };
+
+    // ---------- Chat bubble ----------
+    const ChatBubble = ({ message }) => {
+        const bubbleClasses = message.role === 'user'
+            ? 'bg-[var(--spider-neon-blue)] text-black ml-auto'
+            : 'bg-[var(--spider-med)] text-white mr-auto';
+        const content = message.content;
+        return (
+            <div className={`flex w-full ${message.role === 'user' ? 'justify-end' : 'justify-start'} mb-4`}>
+                <div className={`p-3 rounded-xl max-w-[85%] sm:max-w-4xl shadow-md ${bubbleClasses}`}>
+                    {message.type === 'image' && message.base64_image ? (
+                        <div className="flex flex-col space-y-2">
+                            <p className="text-xs">
+                                {message.type === "image"
+                                    ? (message.base64_image ? "Image Result" : "Image Generated")
+                                    : message.type === "analyze_file"
+                                        ? "File Analysis"
+                                        : "Response"
+                                }
+                            </p>
+                            <img src={`data:image/jpeg;base64,${message.base64_image}`} alt="Generated or Edited Image" className="max-w-full rounded-lg shadow-lg" style={{ maxHeight: '300px', objectFit: 'contain' }} />
+                        </div>
+                    ) : (
+                        <pre className="whitespace-pre-wrap font-sans text-sm break-words">{content}</pre>
+                    )}
+                    {message.sources && message.sources.length > 0 && (
+                        <div className="mt-2 text-xs text-[var(--spider-text-dim)] pt-2 border-t border-[var(--spider-light)]">
+                            <p className="font-semibold mb-1">Sources:</p>
+                            {message.sources.slice(0, 3).map((source, index) => (
+                                <a key={index} href={source.uri} target="_blank" rel="noopener noreferrer" className="block hover:underline truncate">{index + 1}. {source.title || source.uri}</a>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    };
 
     const isImageMode = !!uploadedImage;
     const isFileMode = !!uploadedFile;
@@ -1861,47 +1852,77 @@ This creates a modern, responsive login form with smooth animations and proper v
         return "Chat / Code";
     };
 
+    // ---------- JSX (UI with fixes) ----------
     return (
         <div className="flex flex-row h-full flex-grow bg-[var(--spider-dark)] text-[var(--spider-text)] overflow-hidden">
-            {/* Left Sidebar */}
+            {/* Left Sidebar - FIXED: Better visibility for recent chats */}
             <div className="hidden md:flex flex-col bg-[var(--spider-med)] w-64 p-4 border-r border-[var(--spider-light)] flex-shrink-0 space-y-4 overflow-y-auto">
-                {/* Your existing sidebar */}
+                <button onClick={handleNewChat} className="w-full bg-[var(--spider-neon-blue)] text-black text-sm font-semibold py-2.5 px-3 rounded-md hover:opacity-90 transition flex items-center space-x-2 justify-center">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path></svg>
+                    <span>New Chat</span>
+                </button>
+
+                <div className="flex-grow pt-4 border-t border-[var(--spider-light)] overflow-y-auto">
+                    <h3 className="text-xs font-semibold uppercase text-[var(--spider-text-dim)] mb-2 px-1">Recent Chats</h3>
+                    <div className="space-y-1">
+                        {recentChats.length > 0 ? (
+                            recentChats.map((chat) => (
+                                <button 
+                                    key={chat.id} 
+                                    onClick={() => loadChatHistory(chat.id)} 
+                                    className={`block w-full text-left px-3 py-2 text-sm rounded hover:bg-[var(--spider-light)] truncate transition-colors ${
+                                        activeChatId === chat.id 
+                                            ? 'bg-[var(--spider-light)] text-white font-medium' 
+                                            : 'text-[var(--spider-text)] hover:text-white'
+                                    }`}
+                                >
+                                    <div className="truncate">{chat.title}</div>
+                                    <div className="text-xs text-[var(--spider-text-dim)] mt-1">
+                                        {new Date(chat.timestamp).toLocaleDateString()}
+                                    </div>
+                                </button>
+                            ))
+                        ) : (
+                            <div className="text-center py-4 text-[var(--spider-text-dim)] text-sm">
+                                No recent chats
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                <div className="mt-auto border-t border-[var(--spider-light)] pt-3">
+                    <button className="w-full bg-[var(--spider-med)] text-[var(--spider-text-dim)] text-sm font-semibold py-2 px-3 rounded-md hover:bg-[var(--spider-light)] hover:text-white transition flex items-center space-x-2 text-left">
+                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd"></path></svg>
+                        <span className="truncate">{currentUser?.name || 'User'}</span>
+                    </button>
+                </div>
             </div>
 
             {/* Main Chat Area */}
             <div className="flex flex-col flex-1 h-full min-h-0">
-                {/* Messages with Streaming Support */}
+                {/* Messages */}
                 <div className="flex-grow overflow-y-auto p-4 space-y-4">
-                    {chatHistory.map((msg, index) => (
-                        <ChatBubble 
-                            key={index} 
-                            message={msg} 
-                            isTyping={isLoading && index === chatHistory.length - 1 && msg.role === 'user'}
-                        />
-                    ))}
-                    
-                    {/* Streaming Message */}
-                    {isStreaming && (
-                        <ChatBubble 
-                            message={{ 
-                                role: 'assistant', 
-                                content: streamingContent, 
-                                type: 'text',
-                                ts: Date.now()
-                            }}
-                            isStreaming={true}
-                            streamingContent={streamingContent}
-                        />
-                    )}
-                    
-                    {isLoading && !isStreaming && chatHistory[chatHistory.length - 1]?.role === 'user' && (
-                        <ChatBubble 
-                            message={{ role: 'assistant', content: '', type: 'text' }}
-                            isTyping={true}
-                        />
+                    {chatHistory.map((msg, index) => <ChatBubble key={index} message={msg} />)}
+                    {isLoading && (
+                        <div className="flex justify-start mb-4">
+                            <div className="bg-[var(--spider-med)] text-white p-3 rounded-xl max-w-[85%] shadow-md">
+                                <div className="flex items-center space-x-2">
+                                    <div className="flex space-x-1">
+                                        <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce"></div>
+                                        <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                                        <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                                    </div>
+                                    <span className="text-sm">Processing...</span>
+                                </div>
+                            </div>
+                        </div>
                     )}
                     <div ref={chatEndRef} />
                 </div>
+
+                {/* Hidden inputs */}
+                <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept=".spy,.py,.java,.cpp,.c,.h,.txt,.md,.js,.html,.css,.json,.xml,.csv" />
+                <input type="file" ref={imageInputRef} onChange={handleImageUpload} className="hidden" accept="image/*" />
 
                 {/* Input area */}
                 <div className="bg-[var(--spider-med)] p-3 border-t border-[var(--spider-light)] flex-shrink-0">
@@ -1917,10 +1938,19 @@ This creates a modern, responsive login form with smooth animations and proper v
                             )}
                         </div>
 
+                        {(uploadedFile || uploadedImage) && (
+                            <div className="mb-2 text-xs text-green-400 p-2 bg-[var(--spider-dark)] rounded-md flex justify-between items-center">
+                                <span className="truncate">
+                                    {uploadedFile ? `File: ${uploadedFile.name}` : uploadedImage ? `Image: ${uploadedImage.name}` : ''}
+                                </span>
+                                <button onClick={() => { setUploadedFile(null); setUploadedImage(null); }} className="text-red-400 hover:text-red-300 ml-3 font-bold flex-shrink-0">×</button>
+                            </div>
+                        )}
+
                         <div className="flex items-end w-full space-x-2">
                             <div className="flex-1 bg-[var(--spider-light)] rounded-lg p-2">
                                 <textarea 
-                                    placeholder="Ask for code or assistance..." 
+                                    placeholder={isImageMode ? "Describe the image..." : isFileMode ? "What should I analyze?" : "Ask a question or request code..."} 
                                     className="w-full bg-transparent text-white focus:outline-none resize-none text-sm max-h-32 overflow-y-auto" 
                                     value={message} 
                                     onChange={(e) => setMessage(e.target.value)} 
@@ -1931,22 +1961,18 @@ This creates a modern, responsive login form with smooth animations and proper v
                                         } 
                                     }} 
                                     rows={1} 
-                                    disabled={isLoading || isStreaming}
+                                    disabled={isLoading}
                                 />
                             </div>
 
-                            <PlusMenu 
-                                setActiveAIMode={setActiveAIMode} 
-                                fileInputRef={fileInputRef} 
-                                imageInputRef={imageInputRef} 
-                            />
+                            <PlusMenu setActiveAIMode={setActiveAIMode} fileInputRef={fileInputRef} imageInputRef={imageInputRef} />
 
                             <button 
                                 onClick={handleSendMessage} 
                                 className="bg-[var(--spider-neon-blue)] text-black font-semibold px-4 py-2 rounded-md hover:opacity-90 transition duration-200 flex-shrink-0 h-10 flex items-center justify-center" 
-                                disabled={(!message.trim() && !uploadedFile && !uploadedImage) || isLoading || isStreaming}
+                                disabled={(!message.trim() && !uploadedFile && !uploadedImage) || isLoading}
                             >
-                                {(isLoading || isStreaming) ? (
+                                {isLoading ? (
                                     <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
                                 ) : (
                                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
