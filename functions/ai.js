@@ -1,9 +1,6 @@
 /* ============================================================
- SPIDER AI — V4.2 (TAVILY) — ai.js
- Full file in 3 parts. Paste Part 1, then Part 2, then Part 3.
- - Automatic web lookup (Tavily) when model is unsure or when query is time-sensitive.
- - Final user output sanitized (no JSON, no markdown, emoji-enabled).
- - "Think 10-15 times before replying" rule present in system prompt.
+ SPIDER AI — V4.3 (PATCHED)
+ PART 1/3
 ============================================================ */
 
 /* ===== CONFIG ===== */
@@ -35,7 +32,7 @@ function buildTeluguRegex(words) {
 }
 const TELUGU_TRIGGER_REGEX = buildTeluguRegex(TELUGU_TRIGGER_WORDS);
 
-/* ===== NEW PATCH: REQUIRE 2+ TELUGU WORDS ===== */
+/* ===== TELUGU MODE: REQUIRE 2+ WORDS ===== */
 function shouldTriggerTelugu(message) {
   if (!message || typeof message !== "string") return false;
   const words = message.toLowerCase().split(/\s+/);
@@ -47,8 +44,7 @@ function shouldTriggerTelugu(message) {
 }
 
 /* ============================================================
-MAIN SYSTEM PROMPT (IMPROVED)
- - includes emoji rule and think 10-15 times instruction
+ MAIN SYSTEM PROMPT
 ============================================================ */
 
 const SPIDER_SYSTEM_PROMPT =
@@ -60,22 +56,21 @@ GENERAL RULES:
 - No markdown headers or asterisks in replies.
 - Always talk friendly savage and match user's language.
 - Creator = M4 Spider.
-- Think like a human: deliberate deeply (simulate thinking 10-15 separate iterations) before replying to ensure accuracy and nuance.
+- Think like a human: deliberate deeply (simulate thinking 10-15 separate iterations) before replying.
 
 LANGUAGE SWITCH:
 - Telugu mode triggers when 2+ Telugu words detected.
 - Use STRICT Telangana slang in English-letter transliteration only.
-- Telugu replies must be transliteration (English letters).
 
 SAVAGE MODE:
 - If roast mode requested, reply bold & funny but non-offensive.
 
 EMOJI RULE:
 - Use emojis freely in every reply unless the user says 'no emojis'.
-- Use emojis that fit the mood; add some mid-sentence and one at the end.`;
+- Add emojis mid-sentence and one at the end.`;
 
 /* ============================================================
-FIREBASE TOKEN VERIFIER
+ FIREBASE TOKEN VERIFY
 ============================================================ */
 
 async function verifyFirebaseToken(idToken) {
@@ -83,18 +78,23 @@ async function verifyFirebaseToken(idToken) {
   try {
     const parts = idToken.split(".");
     if (parts.length !== 3) return null;
+
     const header = JSON.parse(atob(parts[0]));
     const payload = JSON.parse(atob(parts[1]));
     const kid = header.kid;
+
     const firebaseKeys = await fetch(
       "https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com"
     ).then(r => r.json());
+
     const cert = firebaseKeys[kid];
     if (!cert) return null;
+
     const pem = cert
       .replace("-----BEGIN CERTIFICATE-----", "")
       .replace("-----END CERTIFICATE-----", "")
       .replace(/\s+/g, "");
+
     const binaryDer = Uint8Array.from(atob(pem), c => c.charCodeAt(0));
     const cryptoKey = await crypto.subtle.importKey(
       "spki",
@@ -103,18 +103,22 @@ async function verifyFirebaseToken(idToken) {
       true,
       ["verify"]
     );
+
     const signature = parts[2].replace(/-/g, "+").replace(/_/g, "/");
     const signatureBytes = Uint8Array.from(atob(signature), c => c.charCodeAt(0));
+
     const valid = await crypto.subtle.verify(
       "RSASSA-PKCS1-v1_5",
       cryptoKey,
       signatureBytes,
       new TextEncoder().encode(parts[0] + "." + parts[1])
     );
+
     if (!valid) return null;
     if (payload.aud !== FIREBASE_PROJECT_ID) return null;
     if (payload.iss !== ("https://securetoken.google.com/" + FIREBASE_PROJECT_ID)) return null;
     if (payload.exp * 1000 < Date.now()) return null;
+
     return payload;
   } catch {
     return null;
@@ -122,7 +126,7 @@ async function verifyFirebaseToken(idToken) {
 }
 
 /* ============================================================
-MODE DETECTOR
+ MODE DETECT
 ============================================================ */
 
 function detectMode(prompt, file_content, filename) {
@@ -132,141 +136,49 @@ function detectMode(prompt, file_content, filename) {
     return "analyze_file";
   if (t.includes("generate image") || t.includes("image of")) return "image_gen";
   if (t.includes("edit image") || t.includes("modify image")) return "image_edit";
-  if (t.startsWith("#search:") || t.startsWith("search:")) return "search";
+  if (t.startsWith("search:") || t.startsWith("#search:")) return "search";
   return "chat";
 }
 
 /* ============================================================
-SANITIZATION & UTILITIES
- - sanitizeOutput: ensures user never sees raw JSON or internal tags
- - looksLikeJSON: heuristics to find pure-JSON replies and remove/wrap them
- - extractSearchInstruction: detects internal JSON/markers the model might output
+ SANITIZE OUTPUT (PATCHED — CODE SAFE)
 ============================================================ */
-
-function looksLikeJSON(s) {
-  if (!s || typeof s !== "string") return false;
-  const trimmed = s.trim();
-  return (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
-         (trimmed.startsWith("[") && trimmed.endsWith("]"));
-}
 
 function sanitizeOutput(raw) {
   if (!raw) return "";
 
-  // Remove code fences
-  raw = raw.replace(/```[\s\S]*?```/g, "");
+  raw = raw.replace(/```/g, "");     // keep code, remove only backticks
+  raw = raw.replace(/^#{1,6}\s*/gm, ""); // remove markdown headers
 
-  // Remove markdown headings (###, ##, #)
-  raw = raw.replace(/^#{1,6}\s*/gm, "");
+  raw = raw.replace(/<\/?[^>]+>/g, ""); // remove html tags
+  raw = raw.replace(/\s{2,}/g, " ").trim(); // clean spacing
 
-  // Remove JSON-looking lines with action/search or exact JSON objects/arrays
-  raw = raw.split("\n").filter(line => {
-    const t = line.trim();
-    if (!t) return true;
-    if ((t.startsWith("{") && t.endsWith("}")) || (t.startsWith("[") && t.endsWith("]"))) return false;
-    if (/^\{.*"action".*\}/i.test(t)) return false;
-    if (/^\{.*"response".*\}/i.test(t)) return false;
-    if (/^\{.*"text".*\}/i.test(t)) return false;
-    if (t.startsWith("INTERNAL:")) return false;
-    return true;
-  }).join("\n").trim();
-
-  // Remove any accidental HTML tags (<h1>, <div>, etc)
-  raw = raw.replace(/<\/?[^>]+>/g, "");
-
-  // Remove leftover JSON escape artifacts
-  raw = raw.replace(/\\?\{\\?"action\\?".*?\\?\}/g, "");
-
-  // Clean double spaces and trailing spaces
-  raw = raw.replace(/\s{2,}/g, " ").trim();
-
-  // Ensure sentence ends with punctuation
-  if (raw && !/[.!?…]$/.test(raw)) raw = raw + ".";
-
-  // Keep emojis intact (do not remove emoji characters)
-  return raw.trim();
+  return raw.trim(); // no punctuation forcing
 }
 
-/* Detect internal search instruction: returns {action, query} or null.
-   Accepts both JSON object and plain text markers like:
-   {"action":"search","query":"who is PM of India"}
-   or: #search: who is PM of India
-   or: SEARCH: who is PM of India
-   Additionally, force search for time-sensitive keywords.
-*/
+/* ============================================================
+ SEARCH INSTRUCTION (PATCHED — MANUAL ONLY)
+============================================================ */
+
 function extractSearchInstruction(text) {
   if (!text || typeof text !== "string") return null;
-  const t = text.trim();
 
-  // Try JSON first
+  const explicit = text.match(/i need to search[:\s-]+(.+)/i);
+  if (explicit) return { action: "search", query: explicit[1].trim() };
+
+  // JSON-like fallback
   try {
-    const maybe = JSON.parse(t);
-    if (maybe && maybe.action && maybe.query) {
-      return { action: String(maybe.action).toLowerCase(), query: String(maybe.query) };
-    }
-  } catch (_) {}
-
-  // Look for inline JSON-like substring
-  const jsonMatch = t.match(/\{[^}]*"action"[^}]*\}/);
-  if (jsonMatch) {
-    try {
-      const maybe = JSON.parse(jsonMatch[0]);
-      if (maybe && maybe.action && maybe.query) {
-        return { action: String(maybe.action).toLowerCase(), query: String(maybe.query) };
-      }
-    } catch (_) {}
-  }
-
-  // Hashtag/keyword forms
-  const hashMatch = t.match(/#?search[:\s]+(.+)/i);
-  if (hashMatch && hashMatch[1]) {
-    return { action: "search", query: hashMatch[1].trim() };
-  }
-
-  // Doubt phrases and unreleased product keywords
-  const doubtPhrases = [
-    "i don't know", "i'm not sure", "need to check", "need to look up",
-    "can't find", "unable to verify", "please search",
-    "rumor", "leak", "leaks", "upcoming", "not announced", "future",
-    "unreleased", "speculation", "expected", "iphone 16", "iphone 17"
-  ];
-
-  const lower = t.toLowerCase();
-  for (const p of doubtPhrases) {
-    if (lower.includes(p)) {
-      return { action: "search", query: t };
-    }
-  }
-
-  // Force search for time-sensitive topics (latest info)
-  const latestKeywords = [
-    "latest", "today", "right now", "recent", "update", "updated",
-    "new", "news", "release", "released", "launch", "launching",
-    "unreleased", "upcoming", "future", "iphone", "samsung", "android",
-    "crypto", "bitcoin", "stock", "price", "today's", "current"
-  ];
-
-  const lowerCaseFull = t.toLowerCase();
-  for (const k of latestKeywords) {
-    if (lowerCaseFull.includes(k)) {
-      return { action: "search", query: t };
-    }
-  }
+    const j = JSON.parse(text);
+    if (j?.action && j?.query) return { action: j.action, query: j.query };
+  } catch {}
 
   return null;
 }
 
+/* ========================= END PART 1/3 ========================= */
 /* ============================================================
-END PART 1/3
-(Continue to PART 2/3: memory functions, main handler start, analyze_file flow)
-============================================================ */
-/* ============================================================
-PART 2/3
-- Memory helpers
-- Compression
-- Main handler start
-- Memory management (add/delete)
-- ChatGPT-style file analysis (returns sanitized plain text)
+ PART 2/3
+ Memory system + Handler start + File analysis
 ============================================================ */
 
 /* ================= MEMORY HELPERS ========================== */
@@ -286,45 +198,48 @@ async function saveMemoryToKV(env, memoryKey, mem) {
   } catch (_) {}
 }
 
-/* ================== COMPRESSION (uses your SPY_AI model) ============= */
+/* ================= MEMORY COMPRESSION ====================== */
 
 async function compressMemoryIfNeeded(env, memoryArr) {
   if (memoryArr.length < MEMORY_SUMMARY_TRIGGER) return memoryArr;
+
   const keepRecent = Math.floor(MEMORY_TRIM_TARGET / 2);
   const older = memoryArr.slice(0, memoryArr.length - keepRecent);
 
-  function shortPreview(s, max = 200) {
+  function preview(s, max = 200) {
     if (!s) return "";
-    let t = s.replace(/\s+/g, " ").trim();
-    return t.length <= max ? t : t.slice(0, max).trim() + "...";
+    const t = s.replace(/\s+/g, " ").trim();
+    return t.length <= max ? t : t.slice(0, max) + "...";
   }
 
   const summaryPrompt =
     "Summarize these messages in 3 bullet points. Keep only important context.\n\n" +
-    older.map((m, i) => (i + 1) + ". " + m.role + ": " + shortPreview(m.content, 200)).join("\n");
+    older.map((m,i)=> `${i+1}. ${m.role}: ${preview(m.content)}`).join("\n");
 
   try {
-    const res = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", {
-      messages: [
-        { role: "system", content: SPIDER_SYSTEM_PROMPT },
-        { role: "user", content: summaryPrompt }
-      ]
-    });
+    const res = await env.SPY_AI.run(
+      "@cf/mistralai/mistral-small-3.1-24b-instruct",
+      {
+        messages: [
+          { role: "system", content: SPIDER_SYSTEM_PROMPT },
+          { role: "user", content: summaryPrompt }
+        ]
+      }
+    );
 
-    const summary = sanitizeOutput(extractText(res)).trim();
+    const summary = sanitizeOutput(extractText(res));
 
     return [
       { role: "system_summary", content: summary, ts: Date.now() },
       ...memoryArr.slice(-keepRecent)
     ];
-  } catch (e) {
-    // On failure, return original memory to avoid data loss
+  } catch {
     return memoryArr;
   }
 }
 
 /* ============================================================
-MAIN HANDLER
+ MAIN HANDLER START
 ============================================================ */
 
 export async function onRequest(context) {
@@ -336,9 +251,11 @@ export async function onRequest(context) {
     let fileContentFromForm = null;
     const contentType = request.headers.get("content-type") || "";
 
+    /* ========== INPUT PARSING ========== */
     if (contentType.includes("multipart/form-data")) {
       const form = await request.formData();
       const file = form.get("file_content");
+
       body = {
         mode: form.get("mode"),
         prompt: form.get("prompt"),
@@ -348,201 +265,201 @@ export async function onRequest(context) {
         user_preference_id: form.get("user_preference_id"),
         firebase_token: form.get("firebase_token")
       };
-      if (file && typeof file.text === 'function') {
+
+      if (file && typeof file.text === "function") {
         fileContentFromForm = await file.text();
       } else if (file) {
         fileContentFromForm = String(file);
       }
+
     } else if (contentType.includes("application/json")) {
-      try {
-        body = await request.json();
-      } catch (e) {
-        body = {};
-      }
+      try { body = await request.json(); } catch { body = {}; }
+
     } else {
-      // fallback: try to read text body
       try {
         const t = await request.text();
         if (t) {
-          try { body = JSON.parse(t); } catch (_) { body = { prompt: t }; }
+          try { body = JSON.parse(t); } catch { body = { prompt: t }; }
         }
-      } catch (_) {
+      } catch {
         body = {};
       }
     }
 
     const combinedFileContent = String(fileContentFromForm || body.file_content || "");
     const { prompt, mode, image, strength, filename } = body;
+
     let currentMode = mode || detectMode(prompt, combinedFileContent, filename);
 
-    /* ================ USER IDENTIFICATION ================ */
+    /* ================= USER IDENTIFICATION ================= */
 
     let userId = "anon-default";
-    if (body.user_preference_id) userId = body.user_preference_id.toString();
+    if (body.user_preference_id) userId = String(body.user_preference_id);
+
     if (body.firebase_token) {
       const decoded = await verifyFirebaseToken(body.firebase_token);
-      if (decoded && decoded.user_id) userId = decoded.user_id;
+      if (decoded?.user_id) userId = decoded.user_id;
     }
+
     const memoryKey = MEMORY_USER_KEY_PREFIX + userId;
 
-    /* ================ LOAD MEMORY ===================== */
+    /* ================= LOAD & TRIM MEMORY ================= */
+
     let memory = await getMemoryFromKV(env, memoryKey);
+
     // TTL filter
-    const cutoff = Date.now() - MEMORY_TTL_DAYS * 24 * 60 * 60 * 1000;
-    memory = memory.filter(m => (m.ts || 0) >= cutoff);
+    const ttlCutoff = Date.now() - MEMORY_TTL_DAYS*24*60*60*1000;
+    memory = memory.filter(m => (m.ts || 0) >= ttlCutoff);
 
-    // compress if needed
-    if (memory.length >= MEMORY_SUMMARY_TRIGGER) memory = await compressMemoryIfNeeded(env, memory);
+    if (memory.length >= MEMORY_SUMMARY_TRIGGER)
+      memory = await compressMemoryIfNeeded(env, memory);
 
-    if (memory.length > MEMORY_MESSAGE_LIMIT) memory = memory.slice(-MEMORY_MESSAGE_LIMIT);
+    if (memory.length > MEMORY_MESSAGE_LIMIT)
+      memory = memory.slice(-MEMORY_MESSAGE_LIMIT);
+
     await saveMemoryToKV(env, memoryKey, memory);
 
-    /* ============= DELETE MEMORY HANDLES =============== */
+    /* ================= MEMORY DELETE COMMANDS ================= */
 
     const lower = (prompt || "").toLowerCase();
     const wantsDelete =
-      lower.includes("delete") || lower.includes("remove") || lower.includes("clear") ||
-      lower.includes("reset") || lower.includes("forget");
+      lower.includes("delete") ||
+      lower.includes("remove") ||
+      lower.includes("clear") ||
+      lower.includes("reset") ||
+      lower.includes("forget");
 
-    if (wantsDelete &&
+    if (
+      wantsDelete &&
       !lower.includes("memory:") &&
       !lower.includes("delete all") &&
-      !lower.includes("reset all")) {
-      // plain-text friendly instruction
-      return new Response("Specify delete memory: all / last / first / <index> / keyword", {
-        headers: { "content-type": "text/plain" }
-      });
+      !lower.includes("reset all")
+    ) {
+      return new Response("Specify delete memory: all / last / first / <index> / keyword",
+        { headers: { "content-type": "text/plain" } }
+      );
     }
 
-    if (lower.includes("delete memory: all") || lower.includes("reset all") || lower.includes("delete all")) {
+    if (
+      lower.includes("delete memory: all") ||
+      lower.includes("delete all") ||
+      lower.includes("reset all")
+    ) {
       await env.CHAT_KV.put(memoryKey, "[]");
-      return new Response("All memory cleared 😎🔥", {
-        headers: { "content-type": "text/plain" }
-      });
+      return new Response("All memory cleared 😎🔥",
+        { headers: { "content-type": "text/plain" } }
+      );
     }
 
     if (lower.includes("delete memory:")) {
       const cmd = lower.replace("delete memory:", "").trim();
+
       if (cmd === "last") {
         memory.pop();
         await saveMemoryToKV(env, memoryKey, memory);
-        return new Response("Deleted last entry 👍", { headers: { "content-type": "text/plain" }});
+        return new Response("Deleted last entry 👍", {
+          headers: { "content-type": "text/plain" }
+        });
       }
+
       if (cmd === "first") {
         memory.shift();
         await saveMemoryToKV(env, memoryKey, memory);
-        return new Response("Deleted first entry 👍", { headers: { "content-type": "text/plain" }});
+        return new Response("Deleted first entry 👍", {
+          headers: { "content-type": "text/plain" }
+        });
       }
+
       const idx = parseInt(cmd);
       if (!isNaN(idx)) {
         if (idx >= 1 && idx <= memory.length) {
           memory.splice(idx - 1, 1);
           await saveMemoryToKV(env, memoryKey, memory);
-          return new Response("Entry removed 😃", { headers: { "content-type": "text/plain" }});
+          return new Response("Entry removed 😃",
+            { headers: { "content-type": "text/plain" } }
+          );
         }
-        return new Response("Invalid index 😅", { headers: { "content-type": "text/plain" }});
+        return new Response("Invalid index 😅",
+          { headers: { "content-type": "text/plain" } }
+        );
       }
+
       memory = memory.filter(m => !m.content.toLowerCase().includes(cmd));
       await saveMemoryToKV(env, memoryKey, memory);
-      return new Response("Matching entries deleted 👍", { headers: { "content-type": "text/plain" }});
+
+      return new Response("Matching entries deleted 👍",
+        { headers: { "content-type": "text/plain" } }
+      );
     }
 
-    /* ============= ADD NEW MEMORY SAFELY ================== */
+    /* ============== ADD NEW MEMORY ENTRY ============== */
 
-    function norm(s) {
-      return (s || "").trim().toLowerCase().replace(/\s+/g, " ");
+    function norm(x) {
+      return (x || "").trim().toLowerCase().replace(/\s+/g, " ");
     }
 
     if (prompt && prompt.trim()) {
       const newNorm = norm(prompt);
       const lastNorm = memory.length ? norm(memory[memory.length - 1].content) : "";
+
       if (!(newNorm === lastNorm || newNorm.includes(lastNorm) || lastNorm.includes(newNorm))) {
         memory.push({ role: "user", content: prompt, ts: Date.now() });
-      } else {
-        if (memory.length) memory[memory.length - 1].ts = Date.now();
+      } else if (memory.length) {
+        memory[memory.length - 1].ts = Date.now();
       }
     }
 
-    if (memory.length > MEMORY_MESSAGE_LIMIT) memory = memory.slice(-MEMORY_MESSAGE_LIMIT);
+    if (memory.length > MEMORY_MESSAGE_LIMIT)
+      memory = memory.slice(-MEMORY_MESSAGE_LIMIT);
+
     await saveMemoryToKV(env, memoryKey, memory);
 
-    /* ============= MEMORY SUMMARY FOR MODEL ==================== */
+    /* ============== MEMORY SUMMARY FOR MODEL ============== */
 
-    function shortPreview2(s, max = 160) {
+    function preview2(s, max = 160) {
       if (!s) return "";
-      let t = s.replace(/\s+/g, " ").trim();
-      return t.length <= max ? t : t.slice(0, max).trim() + "...";
+      const t = s.replace(/\s+/g, " ").trim();
+      return t.length <= max ? t : t.slice(0, max) + "...";
     }
 
-    const memorySummary = memory
-      .filter(m => m.role !== "assistant")
-      .slice(-MEMORY_TRIM_TARGET)
-      .map(m => {
-        if (m.role === "system_summary") return "summary: " + shortPreview2(m.content, 240);
-        return m.role + ": " + shortPreview2(m.content, 200);
-      })
-      .join("\n");
+    const memorySummary =
+      memory.filter(m => m.role !== "assistant")
+        .slice(-MEMORY_TRIM_TARGET)
+        .map(m => {
+          if (m.role === "system_summary")
+            return "summary: " + preview2(m.content, 240);
+          return m.role + ": " + preview2(m.content);
+        })
+        .join("\n");
 
     /* ============================================================
-       AUTO TELANGANA SLANG MODE + EXTRA SYSTEM INSTRUCTIONS
-       ============================================================ */
-
-    let forceTeluguSlang = false;
-    if (shouldTriggerTelugu(prompt || "")) forceTeluguSlang = true;
-
-    let forceSavage = false;
-    if ((prompt || "").toLowerCase().includes("savage mode") ||
-        (prompt || "").toLowerCase().includes("roast mode") ||
-        (prompt || "").toLowerCase().includes("be savage")) {
-      forceSavage = true;
-    }
-
-    const extraSystemInstructions = [];
-    if (forceTeluguSlang) {
-      extraSystemInstructions.push(
-        "User message contains Telugu. Respond in STRICT Telangana slang using English transliteration only. Do NOT use Andhra/textbook Telugu."
-      );
-    }
-    if (forceSavage) {
-      extraSystemInstructions.push(
-        "Savage mode enabled. Use playful Telangana-style roast. Be humorous, bold, and non-offensive."
-      );
-    }
-    if (!forceTeluguSlang && !forceSavage) {
-      extraSystemInstructions.push(
-        "In normal English replies, use emojis naturally and freely from the emoji pack unless the user says 'no emojis'."
-      );
-    }
-
-    /* ============================================================
-       FILE ANALYSIS MODE (ChatGPT-style breakdown)
-       - returns sanitized plain text (no raw JSON)
-       ============================================================ */
+       MODE: FILE ANALYSIS
+    ============================================================ */
 
     if (currentMode === "analyze_file") {
-      const receivedFilename = String(body.filename || filename || "unknown");
-      let contentToAnalyze = combinedFileContent;
-      contentToAnalyze = contentToAnalyze
-        .replace(/[\u0000]/g, '')
-        .replace(/\u00A0/g, ' ')
-        .replace(/(\r\n|\r)/g, '\n');
+      const receivedFilename = String(filename || body.filename || "unknown");
 
-      if (contentToAnalyze.trim().length === 0) {
-        const emptyMsg = "I'm sorry, mama — I can't analyze the file because it's empty. Ee file empty undhi ra! 😔";
-        return new Response(emptyMsg, { headers: { "content-type": "text/plain" } });
+      let contentToAnalyze = combinedFileContent
+        .replace(/[\u0000]/g, "")
+        .replace(/\u00A0/g, " ")
+        .replace(/(\r\n|\r)/g, "\n");
+
+      if (!contentToAnalyze.trim()) {
+        return new Response(
+          "I can't analyze the file because it's empty 😔",
+          { headers: { "content-type": "text/plain" } }
+        );
       }
 
-      const aPrompt =
-`You are an expert code analyst. Break down the file in clean sections:
+      const analysisPrompt =
+`Analyze this file in sections:
 1. Overview
 2. What the file contains
-3. How it works (walkthrough)
-4. Why it's written this way (design decisions)
-5. Potential issues, bugs, or pitfalls
-6. Improvements & best practices
-7. Short summary
-
-Be extremely clear and detailed, like ChatGPT-level explanations.
+3. How it works
+4. Why it is structured this way
+5. Issues / bugs
+6. Improvements
+7. Summary
 
 Filename: ${receivedFilename}
 
@@ -551,36 +468,35 @@ ${contentToAnalyze}
 `;
 
       const messages = [
-        { role: "system", content: SPIDER_SYSTEM_PROMPT }
+        { role: "system", content: SPIDER_SYSTEM_PROMPT },
+        { role: "system", content: "Memory:\n" + memorySummary },
+        { role: "user", content: analysisPrompt }
       ];
-      if (extraSystemInstructions.length) messages.push({ role: "system", content: extraSystemInstructions.join("\n") });
-      messages.push({ role: "system", content: "Memory:\n" + memorySummary });
-      messages.push({ role: "user", content: aPrompt });
 
-      const result = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", { messages });
-      const responseTextRaw = extractText(result);
-      const responseText = sanitizeOutput(responseTextRaw);
+      const result = await env.SPY_AI.run(
+        "@cf/mistralai/mistral-small-3.1-24b-instruct",
+        { messages }
+      );
 
-      // Return as plain text (clean, no internal JSON)
-      const finalText = `Here’s a clean breakdown of ${receivedFilename} 👇🔥\n\n${responseText}\n\nIf you want personalization, improvements, or a rewrite, say what you want changed (style, strictness, add linter rules). 😎🕷️`;
-      return new Response(finalText, { headers: { "content-type": "text/plain" } });
+      const out = extractText(result);
+
+      return new Response(
+        `Here’s the breakdown of ${receivedFilename}:\n\n${out}\n\nIf you need a rewrite or optimization, just ask 😎🔥`,
+        { headers: { "content-type": "text/plain" } }
+      );
     }
 
-    // If not analyze_file, handler continues in Part 3 (image_gen, image_edit, chat + search)
+/* ========================= END PART 2/3 ========================= */
 /* ============================================================
-PART 3/3
-- Image generation
-- Image editing
-- Chat + Automatic Tavily search (force-latest logic included)
-- Tavily search function
-- extractText
-- End of file
+ PART 3/3
+ Image gen/edit + Chat + Tavily + extractText + teardown
 ============================================================ */
 
 /* ============================================================
  IMAGE GENERATION
 ============================================================ */
 
+    // (continuing inside the same onRequest scope)
     if (currentMode === "image_gen") {
       const enhanced = (prompt || "") + ", ultra detailed, cinematic lighting, hdr, 8k clarity";
       const img = await env.SPY_AI.run(
@@ -608,11 +524,12 @@ PART 3/3
     }
 
 /* ============================================================
- NORMAL CHAT + AUTO SEARCH (TAVILY)
+ NORMAL CHAT + MANUAL SEARCH (TAVILY)
+ - NOTE: automatic search triggers removed. Model must explicitly request search.
 ============================================================ */
 
     const searchInstruction =
-      "If you need up-to-date information or external knowledge, internally mark it with {\"action\":\"search\",\"query\":\"...\"}. Do NOT return JSON to the user.";
+      "If you need up-to-date information or external knowledge, explicitly include the phrase: 'I need to search: <your query>' in your internal reply. Do NOT return raw JSON to the user.";
 
     const baseMessages = [
       { role: "system", content: SPIDER_SYSTEM_PROMPT }
@@ -633,7 +550,21 @@ PART 3/3
     let instruction = extractSearchInstruction(rawText);
 
     /* ===========================
-       If model wants search (or forced)
+       If model already answered clearly, skip search even if it included doubt phrases
+       This prevents unnecessary Tavily calls. If model explicitly requested a search ("I need to search:"), honor it.
+       =========================== */
+
+    const alreadyAnswered =
+      rawText.length > 40 &&
+      !rawText.toLowerCase().includes("i'm not sure") &&
+      !rawText.toLowerCase().includes("dont know") &&
+      !rawText.toLowerCase().includes("don't know") &&
+      !rawText.toLowerCase().includes("need to check");
+
+    if (alreadyAnswered) instruction = null;
+
+    /* ===========================
+       If model requested search (explicit) → run Tavily
        =========================== */
 
     if (instruction && instruction.action === "search") {
@@ -666,8 +597,8 @@ PART 3/3
 
       // Ensure emojis present if user didn't say 'no emojis'
       const lowerPrompt = (prompt || "").toLowerCase();
-      if (!lowerPrompt.includes("no emojis") && !lowerPrompt.includes("no emoji") && !/[^\p{Emoji}\p{Extended_Pictographic}]/u.test(clean)) {
-        // If model failed to include emoji, append friendly default emoji
+      if (!lowerPrompt.includes("no emojis") && !lowerPrompt.includes("no emoji") && !/[^\u0000-]/.test(clean)) {
+        // If model failed to include emoji (basic heuristic), append friendly default emoji
         return new Response(clean + " 😎🔥", { headers: { "content-type": "text/plain" } });
       }
 
@@ -683,7 +614,7 @@ PART 3/3
     // If user didn't say 'no emojis', ensure the reply includes at least one emoji.
     const lowerPrompt = (prompt || "").toLowerCase();
     if (!lowerPrompt.includes("no emojis") && !lowerPrompt.includes("no emoji")) {
-      // If reply has zero emojis, tack on a friendly emoji
+      // If reply has zero emoji (basic emoji test), tack on a friendly emoji
       if (!/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/u.test(clean)) {
         return new Response(clean + " 🙂", { headers: { "content-type": "text/plain" } });
       }
@@ -762,7 +693,7 @@ function extractText(resp) {
 
     raw = (raw || "").toString().trim();
 
-    // Remove repetition loops
+    // Remove extreme repetition loops
     raw = raw.replace(/(.{40,400}?)(?:[\s\S]*?\1){3,}/u, "$1");
 
     return raw.trim();
