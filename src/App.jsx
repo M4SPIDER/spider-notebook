@@ -1867,14 +1867,14 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
         }
     };
 
-    // ---------- Enhanced Chat Bubble with Code Box ----------
+    // ---------- Enhanced Chat Bubble with Fixed Code Box ----------
     const ChatBubble = ({ message }) => {
         const [copied, setCopied] = useState(false);
         
         const extractCodeBlocks = (text) => {
-            if (!text) return [{ type: 'text', content: '' }];
+            if (!text || typeof text !== 'string') return [{ type: 'text', content: text || '' }];
             
-            const codeBlockRegex = /```(\w+)?\n([\s\S]*?)```/g;
+            const codeBlockRegex = /```(\w+)?\s*\n([\s\S]*?)```/g;
             const parts = [];
             let lastIndex = 0;
             let match;
@@ -1941,13 +1941,13 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
                             <img src={`data:image/jpeg;base64,${message.base64_image}`} alt="Generated or Edited Image" className="max-w-full rounded-lg shadow-lg" style={{ maxHeight: '300px', objectFit: 'contain' }} />
                         </div>
                     ) : (
-                        <div className="space-y-2">
+                        <div className="space-y-3">
                             {contentParts.map((part, index) => 
                                 part.type === 'code' ? (
                                     <div key={index} className="relative bg-[#1a1b26] rounded-lg overflow-hidden border border-[var(--spider-light)]">
                                         <div className="flex justify-between items-center bg-[#16161e] px-4 py-2 border-b border-[var(--spider-light)]">
                                             <span className="text-xs text-[var(--spider-text-dim)] font-mono">
-                                                {part.language}
+                                                {part.language || 'text'}
                                             </span>
                                             <button
                                                 onClick={() => copyToClipboard(part.content)}
@@ -1957,7 +1957,7 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
                                             </button>
                                         </div>
                                         <pre className="text-sm font-mono p-4 overflow-x-auto text-[#c0caf5] bg-[#1a1b26]">
-                                            {part.content}
+                                            <code>{part.content}</code>
                                         </pre>
                                     </div>
                                 ) : (
