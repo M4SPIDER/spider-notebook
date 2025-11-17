@@ -1386,60 +1386,21 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
     const [recentChats, setRecentChats] = useState([]);
     const [aspectRatio, setAspectRatio] = useState('1:1');
     const [isLoading, setIsLoading] = useState(false);
-    const [isGenerating, setIsGenerating] = useState(false);
     const [abortController, setAbortController] = useState(null);
-    const [typingContent, setTypingContent] = useState('');
-    const [currentTypingIndex, setCurrentTypingIndex] = useState(0);
+    const [streamingMessage, setStreamingMessage] = useState(null);
 
     const fileInputRef = useRef(null);
     const imageInputRef = useRef(null);
     const chatEndRef = useRef(null);
 
-    // Firebase placeholders (keep your firebase logic; we assume functions imported elsewhere)
+    // Firebase placeholders
     const [db, setDb] = useState(null);
     const [auth, setAuth] = useState(null);
 
     const getAppId = () => typeof __app_id !== 'undefined' ? __app_id : 'default-m4-app';
     const LOCAL_STORAGE_KEY = `spider_chat_history_${getAppId()}_${(currentUser?.email || 'anon')}`;
 
-    // ---------- Typing Animation ----------
-    useEffect(() => {
-        if (!isGenerating || !typingContent || currentTypingIndex >= typingContent.length) {
-            return;
-        }
-
-        const timer = setTimeout(() => {
-            setCurrentTypingIndex(prev => prev + 1);
-        }, 1); // Fast typing speed (1ms per character)
-
-        return () => clearTimeout(timer);
-    }, [isGenerating, typingContent, currentTypingIndex]);
-
-    // ---------- Stop Generation ----------
-    const handleStopGeneration = () => {
-        if (abortController) {
-            abortController.abort();
-            setAbortController(null);
-        }
-        setIsLoading(false);
-        setIsGenerating(false);
-        
-        // Add the partially generated message to chat history
-        if (typingContent && currentTypingIndex > 0) {
-            const partialContent = typingContent.substring(0, currentTypingIndex);
-            setChatHistory(prev => [...prev, { 
-                role: 'assistant', 
-                content: partialContent, 
-                type: 'text',
-                ts: Date.now()
-            }]);
-        }
-        
-        setTypingContent('');
-        setCurrentTypingIndex(0);
-    };
-
-    // ---------- Firebase init (unchanged) ----------
+    // ---------- Firebase init ----------
     useEffect(() => {
         try {
             const USER_FIREBASE_CONFIG = {
@@ -1468,62 +1429,95 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
 
     const getUserId = () => auth?.currentUser?.uid || currentUser?.email || 'anonymous';
 
-    // ---------- FIXED: Load recent chats & history ----------
+    // ---------- Fast Typing Animation ----------
+    const typeText = useCallback((text, onComplete) => {
+        const words = text.split(' ');
+        let currentText = '';
+        let wordIndex = 0;
+        
+        const typeNextWord = () => {
+            if (wordIndex < words.length) {
+                // Type 2-4 words at a time for faster appearance
+                const wordsToAdd = words.slice(wordIndex, wordIndex + 2 + Math.floor(Math.random() * 3));
+                currentText += (currentText ? ' ' : '') + wordsToAdd.join(' ');
+                wordIndex += wordsToAdd.length;
+                
+                setStreamingMessage(prev => ({
+                    ...prev,
+                    content: currentText
+                }));
+                
+                // Very fast typing speed (10-30ms)
+                setTimeout(typeNextWord, 10 + Math.random() * 20);
+            } else {
+                onComplete?.();
+            }
+        };
+        
+        typeNextWord();
+    }, []);
+
+    // ---------- Stop Generation ----------
+    const handleStopGeneration = () => {
+        if (abortController) {
+            abortController.abort();
+            setAbortController(null);
+        }
+        setIsLoading(false);
+        if (streamingMessage) {
+            setChatHistory(prev => [...prev, streamingMessage]);
+            setStreamingMessage(null);
+        }
+    };
+
+    // ---------- Load recent chats & history ----------
     const loadChatHistory = useCallback(async (chatId = null) => {
-        // Prefer Firestore if available
         if (db && auth?.currentUser?.uid) {
             const userId = getUserId();
             const chatsCollection = collection(db, `artifacts/${getAppId()}/users/${userId}/ai_chats`);
 
             try {
-                const q = query(chatsCollection, orderBy('timestamp', 'desc'), limit(10));
-                const querySnapshot = await getDocs(q);
-                const recent = querySnapshot.docs.map(doc => ({
-                    id: doc.id,
-                    title: doc.data().title || 'Untitled Chat',
-                    timestamp: doc.data().timestamp || Date.now()
-                }));
-                setRecentChats(recent);
+                const q = query(chatsCollection, limit(10));
+                const unsubscribe = onSnapshot(q, (snapshot) => {
+                    const recent = snapshot.docs.map(doc => ({
+                        id: doc.id,
+                        title: doc.data().title || 'Untitled Chat',
+                        timestamp: doc.data().timestamp || Date.now()
+                    })).sort((a, b) => b.timestamp - a.timestamp);
+                    setRecentChats(recent);
+                });
 
-                // If specific chat requested, load it
                 if (chatId) {
                     try {
-                        const chatDoc = await getDoc(doc(chatsCollection, chatId));
-                        if (chatDoc.exists()) {
-                            const data = chatDoc.data();
+                        const chatSnap = await getDocs(query(chatsCollection, where('id', '==', chatId), limit(1)));
+                        if (chatSnap.docs.length > 0) {
+                            const data = chatSnap.docs[0].data();
                             const parsed = JSON.parse(data.history || '[]');
                             setChatHistory(Array.isArray(parsed) && parsed.length ? parsed : [{ role: 'assistant', content: 'Welcome! I am Spider AI.', type: 'text' }]);
                             setActiveChatId(chatId);
+                            return unsubscribe;
                         }
                     } catch (e) {
                         console.error("Error loading specific chat:", e);
                     }
                 }
 
-                // If no specific chat or failed to load, check if we should keep current or reset
-                if (!chatId) {
-                    setChatHistory(prev => {
-                        if (prev && prev.length && prev.some(m => m.role !== 'assistant')) {
-                            return prev;
-                        }
-                        return [{ role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }];
-                    });
-                    setActiveChatId(null);
-                }
+                setChatHistory(prev => {
+                    if (prev && prev.length && prev.some(m => m.role !== 'assistant')) {
+                        return prev;
+                    }
+                    return [{ role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }];
+                });
+                setActiveChatId(null);
+                
+                return unsubscribe;
 
             } catch (e) {
-                console.error("Error loading recent chats:", e);
-                // Fallback to localStorage
-                loadFromLocalStorage();
+                console.error("Error listening to recent chats:", e);
             }
-        } else {
-            // Fallback to localStorage
-            loadFromLocalStorage();
         }
-    }, [db, auth, currentUser]);
 
-    // Local storage fallback
-    const loadFromLocalStorage = () => {
+        // Fallback: localStorage
         try {
             const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
             if (raw) {
@@ -1538,20 +1532,18 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
             console.error("Error reading localStorage history:", e);
             setChatHistory([{ role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }]);
         }
-    };
+    }, [db, auth, currentUser]);
 
-    // ---------- Save chat history (local + firebase when available) ----------
+    // ---------- Save chat history ----------
     const saveChatHistory = useCallback(async (currentHistory) => {
         if (!Array.isArray(currentHistory)) return;
 
-        // local save
         try {
             localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(currentHistory));
         } catch (e) {
             console.warn("LocalStorage save failed:", e);
         }
 
-        // Firestore save if logged in
         if (!db || !auth?.currentUser?.uid) return;
         if (currentHistory.length <= 1) return;
 
@@ -1574,23 +1566,19 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
             } else {
                 const docRef = await addDoc(chatsCollection, chatData);
                 setActiveChatId(docRef.id);
-                
-                // Refresh recent chats after creating new chat
-                loadChatHistory();
             }
         } catch (e) {
             console.error("Error saving to Firestore:", e);
         }
-    }, [db, auth, activeChatId, currentUser, loadChatHistory]);
+    }, [db, auth, activeChatId, currentUser]);
 
-    // ---------- Initialize on mount and when auth/db changes ----------
+    // ---------- Initialize on mount ----------
     useEffect(() => {
         loadChatHistory(null);
-    }, [db, auth, loadChatHistory]);
+    }, [db, auth]);
 
     useEffect(() => {
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-        // save every chat update
         if (chatHistory && chatHistory.length) saveChatHistory(chatHistory);
     }, [chatHistory, saveChatHistory]);
 
@@ -1606,7 +1594,6 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
             event.target.value = null;
             return;
         }
-        // set state for UI; do not clear too early
         setUploadedFile(file);
         setUploadedImage(null);
         setMessage(`Analyze the contents of ${file.name}.`);
@@ -1635,7 +1622,7 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
         event.target.value = null;
     };
 
-    // ---------- Enhanced PlusMenu with Canvas ----------
+    // ---------- PlusMenu ----------
     const PlusMenu = ({ setActiveAIMode: _setActiveAIMode, fileInputRef, imageInputRef }) => {
         const [open, setOpen] = useState(false);
 
@@ -1656,30 +1643,14 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
             if (typeof _setActiveAIMode === 'function') _setActiveAIMode('image_gen');
         };
 
-        const onCanvas = () => {
-            setOpen(false);
-            if (typeof _setActiveAIMode === 'function') _setActiveAIMode('canvas');
-            // You can add canvas initialization logic here
-            showModal("Canvas", "Canvas feature activated! Drawing tools would be implemented here.");
-        };
-
         return (
             <div className="relative">
                 <button onClick={() => setOpen(o => !o)} className="bg-[var(--spider-light)] text-white px-3 py-2 rounded-md h-10 flex items-center justify-center hover:opacity-90">+</button>
                 {open && (
-                    <div className="absolute bottom-12 right-0 bg-[var(--spider-dark)] border border-[var(--spider-light)] rounded-md shadow-lg w-48 p-2 z-50">
-                        <button onClick={onUploadFile} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center">
-                            📄 Upload File
-                        </button>
-                        <button onClick={onUploadImage} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center">
-                            🖼 Upload Image
-                        </button>
-                        <button onClick={onGenImage} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center">
-                            🎨 Create Image (Gen)
-                        </button>
-                        <button onClick={onCanvas} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center">
-                            🎨 Canvas
-                        </button>
+                    <div className="absolute bottom-12 right-0 bg-[var(--spider-dark)] border border-[var(--spider-light)] rounded-md shadow-lg w-40 p-2 z-50">
+                        <button onClick={onUploadFile} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm">📄 Upload File</button>
+                        <button onClick={onUploadImage} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm">🖼 Upload Image</button>
+                        <button onClick={onGenImage} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm">🎨 Create Image (Gen)</button>
                     </div>
                 )}
             </div>
@@ -1694,132 +1665,15 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
         setActiveChatId(null);
         const welcome = [{ role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }];
         setChatHistory(welcome);
-        try { localStorage.removeItem(LOCAL_STORAGE_KEY); } catch (e) { /* ignore */ }
+        try { localStorage.removeItem(LOCAL_STORAGE_KEY); } catch (e) { }
         loadChatHistory(null);
     };
 
-    // ---------- Code Block Component ----------
-    const CodeBlock = ({ code, language = 'python' }) => {
-        const [copied, setCopied] = useState(false);
-
-        const handleCopy = async () => {
-            try {
-                await navigator.clipboard.writeText(code);
-                setCopied(true);
-                setTimeout(() => setCopied(false), 2000);
-            } catch (err) {
-                console.error('Failed to copy code:', err);
-            }
-        };
-
-        return (
-            <div className="relative my-2 rounded-lg overflow-hidden border border-gray-600">
-                <div className="flex justify-between items-center bg-gray-800 px-4 py-2">
-                    <span className="text-xs text-gray-300 uppercase">{language}</span>
-                    <button 
-                        onClick={handleCopy}
-                        className="text-xs bg-gray-700 hover:bg-gray-600 text-white px-2 py-1 rounded flex items-center space-x-1 transition-colors"
-                    >
-                        {copied ? '✓ Copied' : '📋 Copy'}
-                    </button>
-                </div>
-                <pre className="bg-gray-900 text-gray-100 p-4 overflow-x-auto text-sm whitespace-pre-wrap">
-                    <code>{code}</code>
-                </pre>
-            </div>
-        );
-    };
-
-    // ---------- Enhanced Chat Bubble with Code Detection ----------
-    const ChatBubble = ({ message }) => {
-        const bubbleClasses = message.role === 'user'
-            ? 'bg-[var(--spider-neon-blue)] text-black ml-auto'
-            : 'bg-[var(--spider-med)] text-white mr-auto';
-        
-        const content = message.content;
-        
-        // Detect code blocks in the content
-        const renderContentWithCode = (text) => {
-            if (!text) return null;
-            
-            // Simple code block detection (```language\ncode\n```)
-            const codeBlockRegex = /```(\w+)?\n([\s\S]*?)```/g;
-            const parts = [];
-            let lastIndex = 0;
-            let match;
-
-            while ((match = codeBlockRegex.exec(text)) !== null) {
-                // Add text before code block
-                if (match.index > lastIndex) {
-                    parts.push(
-                        <pre key={`text-${lastIndex}`} className="whitespace-pre-wrap font-sans text-sm break-words">
-                            {text.substring(lastIndex, match.index)}
-                        </pre>
-                    );
-                }
-
-                // Add code block
-                const language = match[1] || 'text';
-                const code = match[2].trim();
-                parts.push(
-                    <CodeBlock key={`code-${match.index}`} code={code} language={language} />
-                );
-
-                lastIndex = match.index + match[0].length;
-            }
-
-            // Add remaining text after last code block
-            if (lastIndex < text.length) {
-                parts.push(
-                    <pre key={`text-${lastIndex}`} className="whitespace-pre-wrap font-sans text-sm break-words">
-                        {text.substring(lastIndex)}
-                    </pre>
-                );
-            }
-
-            return parts.length > 0 ? parts : (
-                <pre className="whitespace-pre-wrap font-sans text-sm break-words">{text}</pre>
-            );
-        };
-
-        return (
-            <div className={`flex w-full ${message.role === 'user' ? 'justify-end' : 'justify-start'} mb-4`}>
-                <div className={`p-3 rounded-xl max-w-[85%] sm:max-w-4xl shadow-md ${bubbleClasses}`}>
-                    {message.type === 'image' && message.base64_image ? (
-                        <div className="flex flex-col space-y-2">
-                            <p className="text-xs">
-                                {message.type === "image"
-                                    ? (message.base64_image ? "Image Result" : "Image Generated")
-                                    : message.type === "analyze_file"
-                                        ? "File Analysis"
-                                        : "Response"
-                                }
-                            </p>
-                            <img src={`data:image/jpeg;base64,${message.base64_image}`} alt="Generated or Edited Image" className="max-w-full rounded-lg shadow-lg" style={{ maxHeight: '300px', objectFit: 'contain' }} />
-                        </div>
-                    ) : (
-                        renderContentWithCode(content)
-                    )}
-                    {message.sources && message.sources.length > 0 && (
-                        <div className="mt-2 text-xs text-[var(--spider-text-dim)] pt-2 border-t border-[var(--spider-light)]">
-                            <p className="font-semibold mb-1">Sources:</p>
-                            {message.sources.slice(0, 3).map((source, index) => (
-                                <a key={index} href={source.uri} target="_blank" rel="noopener noreferrer" className="block hover:underline truncate">{index + 1}. {source.title || source.uri}</a>
-                            ))}
-                        </div>
-                    )}
-                </div>
-            </div>
-        );
-    };
-
-    // ---------- FIXED: Send message with streaming support ----------
+    // ---------- Enhanced Send Message with Streaming ----------
     const handleSendMessage = async () => {
         if (!message.trim() && !uploadedFile && !uploadedImage) return;
 
         setIsLoading(true);
-        setIsGenerating(true);
-        
         const controller = new AbortController();
         setAbortController(controller);
 
@@ -1843,8 +1697,16 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
 
         setChatHistory(prev => [...prev, userMessage]);
         setMessage('');
-        setTypingContent('');
-        setCurrentTypingIndex(0);
+
+        // Initialize streaming message
+        const initialStreamMessage = {
+            role: 'assistant',
+            content: '',
+            type: 'text',
+            ts: Date.now(),
+            isStreaming: true
+        };
+        setStreamingMessage(initialStreamMessage);
 
         try {
             // FILE ANALYSIS
@@ -1895,7 +1757,17 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
                     model_used: result?.model_used,
                     ts: Date.now()
                 };
-                setChatHistory(prev => [...prev, assistantMessage]);
+                
+                // Use typing animation for text responses
+                if (!result?.base64_image && result?.text) {
+                    typeText(result.text, () => {
+                        setChatHistory(prev => [...prev, assistantMessage]);
+                        setStreamingMessage(null);
+                    });
+                } else {
+                    setChatHistory(prev => [...prev, assistantMessage]);
+                    setStreamingMessage(null);
+                }
             }
 
             // IMAGE EDIT
@@ -1933,6 +1805,7 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
                     ts: Date.now()
                 };
                 setChatHistory(prev => [...prev, assistantMessage]);
+                setStreamingMessage(null);
             }
 
             // IMAGE GEN or CHAT with streaming
@@ -1945,96 +1818,174 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
                     stream: true // Enable streaming
                 };
                 
-                // For streaming responses
-                const response = await fetch(apiUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(apiPayload),
-                    signal: controller.signal
-                });
+                const result = await callFastAPI(apiUrl, apiPayload, mode);
 
-                if (!response.ok) {
-                    throw new Error(`API error: ${response.status}`);
+                if (result?.text) {
+                    // Use fast typing animation for text responses
+                    typeText(result.text, () => {
+                        const assistantMessage = {
+                            role: 'assistant',
+                            content: result.text,
+                            type: result?.base64_image ? 'image' : 'text',
+                            base64_image: result?.base64_image,
+                            sources: result?.sources,
+                            model_used: result?.model_used,
+                            ts: Date.now()
+                        };
+                        setChatHistory(prev => [...prev, assistantMessage]);
+                        setStreamingMessage(null);
+                    });
+                } else {
+                    const assistantMessage = {
+                        role: 'assistant',
+                        content: result?.text || 'Response received.',
+                        type: result?.base64_image ? 'image' : 'text',
+                        base64_image: result?.base64_image,
+                        sources: result?.sources,
+                        model_used: result?.model_used,
+                        ts: Date.now()
+                    };
+                    setChatHistory(prev => [...prev, assistantMessage]);
+                    setStreamingMessage(null);
                 }
-
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
-                let fullResponse = '';
-
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-
-                    const chunk = decoder.decode(value, { stream: true });
-                    const lines = chunk.split('\n');
-
-                    for (const line of lines) {
-                        if (line.startsWith('data: ')) {
-                            try {
-                                const data = JSON.parse(line.slice(6));
-                                if (data.text) {
-                                    fullResponse += data.text;
-                                    setTypingContent(fullResponse);
-                                }
-                                if (data.base64_image) {
-                                    // Handle image response
-                                    const assistantMessage = {
-                                        role: 'assistant',
-                                        content: fullResponse || 'Image generated.',
-                                        type: 'image',
-                                        base64_image: data.base64_image,
-                                        sources: data.sources,
-                                        model_used: data.model_used,
-                                        ts: Date.now()
-                                    };
-                                    setChatHistory(prev => [...prev, assistantMessage]);
-                                    setIsGenerating(false);
-                                    setTypingContent('');
-                                    setCurrentTypingIndex(0);
-                                    return;
-                                }
-                            } catch (e) {
-                                // Ignore JSON parse errors for incomplete chunks
-                            }
-                        }
-                    }
-                }
-
-                // Final message for text responses
-                const assistantMessage = {
-                    role: 'assistant',
-                    content: fullResponse,
-                    type: 'text',
-                    sources: [],
-                    model_used: 'streaming',
-                    ts: Date.now()
-                };
-                setChatHistory(prev => [...prev, assistantMessage]);
             }
         } catch (error) {
-            if (error.name === 'AbortError') {
-                console.log('Request aborted by user');
-            } else {
-                console.error('API ERROR:', error);
-                const assistantError = {
-                    role: 'assistant',
-                    content: `[API ERROR] ${error?.message || 'Something went wrong.'}`,
-                    type: 'text',
-                    ts: Date.now()
-                };
-                setChatHistory(prev => [...prev, assistantError]);
-            }
+            console.error('API ERROR:', error);
+            const assistantError = {
+                role: 'assistant',
+                content: `[API ERROR] ${error?.message || 'Something went wrong.'}`,
+                type: 'text',
+                ts: Date.now()
+            };
+            setChatHistory(prev => [...prev, assistantError]);
+            setStreamingMessage(null);
         } finally {
-            setIsLoading(false);
-            setIsGenerating(false);
             setAbortController(null);
             setUploadedFile(null);
             setUploadedImage(null);
-            setTypingContent('');
-            setCurrentTypingIndex(0);
+            setIsLoading(false);
         }
+    };
+
+    // ---------- Enhanced Chat Bubble with Code Box ----------
+    const ChatBubble = ({ message }) => {
+        const [copied, setCopied] = useState(false);
+        
+        const extractCodeBlocks = (text) => {
+            if (!text) return [{ type: 'text', content: '' }];
+            
+            const codeBlockRegex = /```(\w+)?\n([\s\S]*?)```/g;
+            const parts = [];
+            let lastIndex = 0;
+            let match;
+
+            while ((match = codeBlockRegex.exec(text)) !== null) {
+                // Add text before code block
+                if (match.index > lastIndex) {
+                    parts.push({
+                        type: 'text',
+                        content: text.slice(lastIndex, match.index)
+                    });
+                }
+
+                // Add code block
+                parts.push({
+                    type: 'code',
+                    language: match[1] || 'text',
+                    content: match[2].trim()
+                });
+
+                lastIndex = match.index + match[0].length;
+            }
+
+            // Add remaining text
+            if (lastIndex < text.length) {
+                parts.push({
+                    type: 'text',
+                    content: text.slice(lastIndex)
+                });
+            }
+
+            return parts.length ? parts : [{ type: 'text', content: text }];
+        };
+
+        const copyToClipboard = async (text) => {
+            try {
+                await navigator.clipboard.writeText(text);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+            } catch (err) {
+                console.error('Failed to copy:', err);
+            }
+        };
+
+        const bubbleClasses = message.role === 'user'
+            ? 'bg-[var(--spider-neon-blue)] text-black ml-auto'
+            : 'bg-[var(--spider-med)] text-white mr-auto';
+
+        const contentParts = extractCodeBlocks(message.content);
+
+        return (
+            <div className={`flex w-full ${message.role === 'user' ? 'justify-end' : 'justify-start'} mb-4`}>
+                <div className={`p-3 rounded-xl max-w-[85%] sm:max-w-4xl shadow-md ${bubbleClasses}`}>
+                    {message.type === 'image' && message.base64_image ? (
+                        <div className="flex flex-col space-y-2">
+                            <p className="text-xs">
+                                {message.type === "image"
+                                    ? (message.base64_image ? "Image Result" : "Image Generated")
+                                    : message.type === "analyze_file"
+                                        ? "File Analysis"
+                                        : "Response"
+                                }
+                            </p>
+                            <img src={`data:image/jpeg;base64,${message.base64_image}`} alt="Generated or Edited Image" className="max-w-full rounded-lg shadow-lg" style={{ maxHeight: '300px', objectFit: 'contain' }} />
+                        </div>
+                    ) : (
+                        <div className="space-y-2">
+                            {contentParts.map((part, index) => 
+                                part.type === 'code' ? (
+                                    <div key={index} className="relative bg-[#1a1b26] rounded-lg overflow-hidden border border-[var(--spider-light)]">
+                                        <div className="flex justify-between items-center bg-[#16161e] px-4 py-2 border-b border-[var(--spider-light)]">
+                                            <span className="text-xs text-[var(--spider-text-dim)] font-mono">
+                                                {part.language}
+                                            </span>
+                                            <button
+                                                onClick={() => copyToClipboard(part.content)}
+                                                className="text-xs bg-[var(--spider-light)] hover:bg-[var(--spider-neon-blue)] text-white hover:text-black px-2 py-1 rounded transition-colors"
+                                            >
+                                                {copied ? 'Copied!' : 'Copy'}
+                                            </button>
+                                        </div>
+                                        <pre className="text-sm font-mono p-4 overflow-x-auto text-[#c0caf5] bg-[#1a1b26]">
+                                            {part.content}
+                                        </pre>
+                                    </div>
+                                ) : (
+                                    <pre key={index} className="whitespace-pre-wrap font-sans text-sm break-words">
+                                        {part.content}
+                                    </pre>
+                                )
+                            )}
+                        </div>
+                    )}
+                    
+                    {message.sources && message.sources.length > 0 && (
+                        <div className="mt-2 text-xs text-[var(--spider-text-dim)] pt-2 border-t border-[var(--spider-light)]">
+                            <p className="font-semibold mb-1">Sources:</p>
+                            {message.sources.slice(0, 3).map((source, index) => (
+                                <a key={index} href={source.uri} target="_blank" rel="noopener noreferrer" className="block hover:underline truncate">{index + 1}. {source.title || source.uri}</a>
+                            ))}
+                        </div>
+                    )}
+                    
+                    {message.model_used && (
+                        <div className="mt-1 text-xs text-[var(--spider-text-dim)]">
+                            Model: {message.model_used}
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
     };
 
     const isImageMode = !!uploadedImage;
@@ -2045,11 +1996,10 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
         if (uploadedImage) return "Image Editing";
         if (activeAIMode === 'image_gen') return "Create Image (Gen)";
         if (activeAIMode === 'image_edit') return "Edit/Transform Image";
-        if (activeAIMode === 'canvas') return "Canvas";
         return "Chat / Code";
     };
 
-    // ---------- JSX (Enhanced UI) ----------
+    // ---------- JSX ----------
     return (
         <div className="flex flex-row h-full flex-grow bg-[var(--spider-dark)] text-[var(--spider-text)] overflow-hidden">
             {/* Left Sidebar */}
@@ -2103,29 +2053,42 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
                         <ChatBubble key={index} message={msg} />
                     ))}
                     
-                    {/* Typing Animation */}
-                    {isGenerating && typingContent && (
+                    {/* Streaming Message */}
+                    {streamingMessage && (
                         <div className="flex justify-start mb-4">
                             <div className="bg-[var(--spider-med)] text-white p-3 rounded-xl max-w-[85%] shadow-md">
                                 <pre className="whitespace-pre-wrap font-sans text-sm break-words">
-                                    {typingContent.substring(0, currentTypingIndex)}
-                                    <span className="animate-pulse">▊</span>
+                                    {streamingMessage.content}
                                 </pre>
-                            </div>
-                        </div>
-                    )}
-                    
-                    {/* Loading Indicator */}
-                    {isLoading && !isGenerating && (
-                        <div className="flex justify-start mb-4">
-                            <div className="bg-[var(--spider-med)] text-white p-3 rounded-xl max-w-[85%] shadow-md">
-                                <div className="flex items-center space-x-2">
+                                <div className="flex items-center space-x-2 mt-2">
                                     <div className="flex space-x-1">
                                         <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce"></div>
                                         <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
                                         <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
                                     </div>
-                                    <span className="text-sm">Processing...</span>
+                                    <span className="text-xs text-[var(--spider-text-dim)]">AI is typing...</span>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    
+                    {/* Loading Indicator with Stop Button */}
+                    {isLoading && !streamingMessage && (
+                        <div className="flex justify-start mb-4">
+                            <div className="bg-[var(--spider-med)] text-white p-3 rounded-xl max-w-[85%] shadow-md">
+                                <div className="flex items-center space-x-3">
+                                    <div className="flex space-x-1">
+                                        <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce"></div>
+                                        <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                                        <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                                    </div>
+                                    <span className="text-sm">Processing your request...</span>
+                                    <button 
+                                        onClick={handleStopGeneration}
+                                        className="bg-red-500 hover:bg-red-600 text-white text-xs px-2 py-1 rounded transition-colors"
+                                    >
+                                        Stop
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -2142,23 +2105,13 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
                     <div className="max-w-4xl mx-auto">
                         <div className="flex justify-between items-center mb-3">
                             <span className="flex items-center text-sm text-[var(--spider-neon-blue)] font-semibold">{getModeText()} Mode</span>
-                            <div className="flex items-center space-x-2">
-                                {isGenerating && (
-                                    <button 
-                                        onClick={handleStopGeneration}
-                                        className="bg-red-500 hover:bg-red-600 text-white text-xs px-3 py-1 rounded-md transition-colors flex items-center space-x-1"
-                                    >
-                                        <span>⏹️ Stop</span>
-                                    </button>
-                                )}
-                                {activeAIMode === 'image_gen' && (
-                                    <select value={aspectRatio} onChange={(e) => setAspectRatio(e.target.value)} className="bg-[var(--spider-light)] text-[var(--spider-text)] p-1 rounded-md text-xs focus:outline-none">
-                                        <option value="1:1">1:1 Square</option>
-                                        <option value="16:9">16:9 Landscape</option>
-                                        <option value="9:16">9:16 Portrait</option>
-                                    </select>
-                                )}
-                            </div>
+                            {activeAIMode === 'image_gen' && (
+                                <select value={aspectRatio} onChange={(e) => setAspectRatio(e.target.value)} className="bg-[var(--spider-light)] text-[var(--spider-text)] p-1 rounded-md text-xs focus:outline-none">
+                                    <option value="1:1">1:1 Square</option>
+                                    <option value="16:9">16:9 Landscape</option>
+                                    <option value="9:16">9:16 Portrait</option>
+                                </select>
+                            )}
                         </div>
 
                         {(uploadedFile || uploadedImage) && (
