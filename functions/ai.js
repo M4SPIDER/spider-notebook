@@ -152,50 +152,42 @@ function looksLikeJSON(s) {
   return (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
          (trimmed.startsWith("[") && trimmed.endsWith("]"));
 }
-
 function sanitizeOutput(raw) {
-  if (!raw) return "";
+  if (!raw) return "";
 
-  // Remove code fences
-  raw = raw.replace(/```[\s\S]*?```/g, "");
+  // 🚨 REMOVE THIS LINE - it's deleting code blocks!
+  // raw = raw.replace(/```[\s\S]*?```/g, "");
 
-  // Remove markdown headings (###, ##, #)
-  raw = raw.replace(/^#{1,6}\s*/gm, "");
+  // Remove markdown headings (###, ##, #)
+  raw = raw.replace(/^#{1,6}\s*/gm, "");
 
-  // Remove JSON-looking lines with action/search or exact JSON objects/arrays
-  raw = raw.split("\n").filter(line => {
-    const t = line.trim();
-    if (!t) return true;
-    if ((t.startsWith("{") && t.endsWith("}")) || (t.startsWith("[") && t.endsWith("]"))) return false;
-    if (/^\{.*"action".*\}/i.test(t)) return false;
-    if (/^\{.*"response".*\}/i.test(t)) return false;
-    if (/^\{.*"text".*\}/i.test(t)) return false;
-    if (t.startsWith("INTERNAL:")) return false;
-    return true;
-  }).join("\n").trim();
+  // Remove JSON-looking lines with action/search or exact JSON objects/arrays
+  raw = raw.split("\n").filter(line => {
+    const t = line.trim();
+    if (!t) return true;
+    if ((t.startsWith("{") && t.endsWith("}")) || (t.startsWith("[") && t.endsWith("]"))) return false;
+    if (/^\{.*"action".*\}/i.test(t)) return false;
+    if (/^\{.*"response".*\}/i.test(t)) return false;
+    if (/^\{.*"text".*\}/i.test(t)) return false;
+    if (t.startsWith("INTERNAL:")) return false;
+    return true;
+  }).join("\n").trim();
 
-  // Remove any accidental HTML tags (<h1>, <div>, etc)
-  raw = raw.replace(/<\/?[^>]+>/g, "");
+  // Remove any accidental HTML tags (<h1>, <div>, etc)
+  raw = raw.replace(/<\/?[^>]+>/g, "");
 
-  // Remove leftover JSON escape artifacts
-  raw = raw.replace(/\\?\{\\?"action\\?".*?\\?\}/g, "");
+  // Remove leftover JSON escape artifacts
+  raw = raw.replace(/\\?\{\\?"action\\?".*?\\?\}/g, "");
 
-  // Clean double spaces and trailing spaces
-  raw = raw.replace(/\s{2,}/g, " ").trim();
+  // Clean double spaces and trailing spaces
+  raw = raw.replace(/\s{2,}/g, " ").trim();
 
-  // Ensure sentence ends with punctuation
-  if (raw && !/[.!?…]$/.test(raw)) raw = raw + ".";
+  // Ensure sentence ends with punctuation
+  if (raw && !/[.!?…]$/.test(raw)) raw = raw + ".";
 
-  // Keep emojis intact (do not remove emoji characters)
-  return raw.trim();
+  // Keep emojis intact (do not remove emoji characters)
+  return raw.trim();
 }
-
-/* Detect internal search instruction: returns {action, query} or null.
-   Accepts both JSON object and plain text markers like:
-   {"action":"search","query":"who is PM of India"}
-   or: #search: who is PM of India
-   or: SEARCH: who is PM of India
-*/
 function extractSearchInstruction(text) {
   if (!text || typeof text !== "string") return null;
   const t = text.trim();
