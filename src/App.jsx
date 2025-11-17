@@ -1870,10 +1870,10 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
     // ---------- Enhanced Chat Bubble with Fixed Code Box ----------
     const ChatBubble = ({ message }) => {
     const [copiedIndex, setCopiedIndex] = useState(null);
-    
+
     const extractCodeBlocks = (text) => {
         if (!text || typeof text !== 'string') return [{ type: 'text', content: text || '' }];
-        
+
         const codeBlockRegex = /```(\w+)?\s*\n?([\s\S]*?)```/g;
         const inlineCodeRegex = /`([^`]+)`/g;
         const parts = [];
@@ -1903,11 +1903,11 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
         // Add remaining text
         if (lastIndex < text.length) {
             const remainingText = text.slice(lastIndex);
-            
+
             // Handle inline code in remaining text
             let inlineLastIndex = 0;
             const inlineMatches = [...remainingText.matchAll(inlineCodeRegex)];
-            
+
             inlineMatches.forEach((inlineMatch) => {
                 if (inlineMatch.index > inlineLastIndex) {
                     parts.push({
@@ -1915,15 +1915,15 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
                         content: remainingText.slice(inlineLastIndex, inlineMatch.index)
                     });
                 }
-                
+
                 parts.push({
                     type: 'inline-code',
                     content: inlineMatch[1]
                 });
-                
+
                 inlineLastIndex = inlineMatch.index + inlineMatch[0].length;
             });
-            
+
             if (inlineLastIndex < remainingText.length) {
                 parts.push({
                     type: 'text',
@@ -1945,9 +1945,10 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
         }
     };
 
+    // Updated colors for user and AI bubbles to shades of cyan
     const bubbleClasses = message.role === 'user'
-        ? 'bg-[var(--spider-neon-blue)] text-black ml-auto'
-        : 'bg-[var(--spider-med)] text-white mr-auto';
+        ? 'bg-cyan-700 text-white ml-auto' // Darker cyan for user
+        : 'bg-cyan-900 text-white mr-auto'; // Even darker cyan for AI, almost black-cyan
 
     const contentParts = extractCodeBlocks(message.content);
 
@@ -1964,11 +1965,11 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
                                     : "Response"
                             }
                         </p>
-                        <img 
-                            src={`data:image/jpeg;base64,${message.base64_image}`} 
-                            alt="Generated or Edited Image" 
-                            className="max-w-full rounded-lg shadow-lg" 
-                            style={{ maxHeight: '300px', objectFit: 'contain' }} 
+                        <img
+                            src={`data:image/jpeg;base64,${message.base64_image}`}
+                            alt="Generated or Edited Image"
+                            className="max-w-full rounded-lg shadow-lg"
+                            style={{ maxHeight: '300px', objectFit: 'contain' }}
                         />
                     </div>
                 ) : (
@@ -1976,33 +1977,33 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
                         {contentParts.map((part, index) => {
                             if (part.type === 'code') {
                                 return (
-                                    <div key={index} className="relative bg-gray-900 rounded-lg overflow-hidden border border-gray-600">
-                                        <div className="flex justify-between items-center bg-gray-800 px-4 py-2 border-b border-gray-600">
-                                            <span className="text-xs text-gray-400 font-mono capitalize">
+                                    <div key={index} className="relative bg-gray-900 rounded-lg overflow-hidden border border-cyan-600">
+                                        <div className="flex justify-between items-center bg-gray-800 px-4 py-2 border-b border-cyan-600">
+                                            <span className="text-xs text-cyan-400 font-mono capitalize">
                                                 {part.language || 'text'}
                                             </span>
                                             <button
                                                 onClick={() => copyToClipboard(part.content, index)}
-                                                className="text-xs bg-gray-700 hover:bg-blue-500 text-white hover:text-white px-3 py-1 rounded transition-colors duration-200 flex items-center space-x-1"
+                                                className="text-xs bg-cyan-700 hover:bg-cyan-500 text-white px-3 py-1 rounded transition-colors duration-200 flex items-center space-x-1"
                                                 aria-label="Copy code to clipboard"
                                             >
                                                 <span>{copiedIndex === index ? '✅ Copied!' : '📋 Copy'}</span>
                                             </button>
                                         </div>
-                                        <pre className="text-sm font-mono p-4 overflow-x-auto text-gray-100 bg-gray-900">
+                                        <pre className="text-sm font-mono p-4 overflow-x-auto text-cyan-100 bg-gray-900">
                                             <code>{part.content}</code>
                                         </pre>
                                     </div>
                                 );
                             } else if (part.type === 'inline-code') {
                                 return (
-                                    <code key={index} className="bg-gray-800 text-gray-100 px-2 py-1 rounded text-sm font-mono border border-gray-600">
+                                    <code key={index} className="bg-gray-800 text-cyan-100 px-2 py-1 rounded text-sm font-mono border border-cyan-600">
                                         {part.content}
                                     </code>
                                 );
                             } else {
                                 return (
-                                    <div key={index} className="whitespace-pre-wrap text-sm break-words leading-relaxed">
+                                    <div key={index} className="whitespace-pre-wrap text-sm break-words leading-relaxed text-cyan-100">
                                         {part.content}
                                     </div>
                                 );
@@ -2010,27 +2011,27 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
                         })}
                     </div>
                 )}
-                
+
                 {message.sources && message.sources.length > 0 && (
-                    <div className="mt-3 text-xs text-gray-400 pt-2 border-t border-gray-600">
-                        <p className="font-semibold mb-1 text-gray-300">Sources:</p>
+                    <div className="mt-3 text-xs text-cyan-400 pt-2 border-t border-cyan-600">
+                        <p className="font-semibold mb-1 text-cyan-300">Sources:</p>
                         {message.sources.slice(0, 3).map((source, index) => (
-                            <a 
-                                key={index} 
-                                href={source.uri} 
-                                target="_blank" 
-                                rel="noopener noreferrer" 
-                                className="block hover:underline truncate hover:text-blue-300 transition-colors"
+                            <a
+                                key={index}
+                                href={source.uri}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="block hover:underline truncate hover:text-cyan-300 transition-colors"
                             >
                                 {index + 1}. {source.title || source.uri}
                             </a>
                         ))}
                     </div>
                 )}
-                
+
                 {message.model_used && (
-                    <div className="mt-2 text-xs text-gray-400 border-t border-gray-600 pt-2">
-                        Model: <span className="text-gray-300">{message.model_used}</span>
+                    <div className="mt-2 text-xs text-cyan-400 border-t border-cyan-600 pt-2">
+                        Model: <span className="text-cyan-300">{message.model_used}</span>
                     </div>
                 )}
             </div>
