@@ -1870,7 +1870,6 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
     // ---------- Enhanced Chat Bubble with Fixed Code Box ----------
 
 const ChatBubble = ({ message }) => {
-    const [copiedIndex, setCopiedIndex] = useState(null);
 
     /* ---------------- PRISM HIGHLIGHT ---------------- */
     useEffect(() => {
@@ -1935,15 +1934,6 @@ const ChatBubble = ({ message }) => {
         return parts;
     };
 
-    /* ---------------- COPY FUNCTION ---------------- */
-    const copyToClipboard = async (text, index) => {
-        try {
-            await navigator.clipboard.writeText(text);
-            setCopiedIndex(index);
-            setTimeout(() => setCopiedIndex(null), 1500);
-        } catch {}
-    };
-
     /* ---------------- BUBBLE STYLE ---------------- */
     const bubbleClass =
         message.role === "user"
@@ -1962,7 +1952,7 @@ const ChatBubble = ({ message }) => {
                 className={`px-3 pt-3 pb-2 rounded-xl max-w-[85%] sm:max-w-4xl shadow-lg ${bubbleClass}`}
             >
 
-                {/* ---------- IMAGE WITH PURE BLACK ---------- */}
+                {/* ---------- IMAGE ---------- */}
                 {message.type === "image" && message.base64_image && (
                     <div className="w-full rounded-lg overflow-hidden bg-black p-2 mb-3">
                         <img
@@ -1977,29 +1967,16 @@ const ChatBubble = ({ message }) => {
                     </div>
                 )}
 
-                {/* ---------- TEXT + CODE ---------- */}
+                {/* ---------- TEXT + CODE BLOCKS ---------- */}
                 <div className="space-y-3">
                     {contentParts.map((part, index) => {
                         if (part.type === "code") {
                             return (
                                 <div
                                     key={index}
-                                    className="relative rounded-md overflow-hidden w-full bg-black"
+                                    className="rounded-lg overflow-hidden w-full bg-[#0d0d0d] border border-[#1a1a1a]"
                                 >
-                                    {/* Copy button */}
-                                    <button
-                                        onClick={() =>
-                                            copyToClipboard(
-                                                part.content,
-                                                index
-                                            )
-                                        }
-                                        className="absolute top-2 right-2 bg-black/80 hover:bg-[#00e5ff] hover:text-black text-gray-300 px-2 py-1 rounded transition text-xs border border-gray-700"
-                                    >
-                                        {copiedIndex === index ? "✔" : "📋"}
-                                    </button>
-
-                                    <pre className="overflow-x-auto p-4 m-0 bg-black">
+                                    <pre className="overflow-x-auto p-4 m-0 bg-[#0d0d0d]">
                                         <code
                                             className={`language-${part.language}`}
                                         >
