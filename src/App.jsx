@@ -1868,6 +1868,7 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
     };
 
     // ---------- Enhanced Chat Bubble with Fixed Code Box ----------
+
 const ChatBubble = ({ message }) => {
     const [copiedIndex, setCopiedIndex] = useState(null);
 
@@ -1961,9 +1962,9 @@ const ChatBubble = ({ message }) => {
                 className={`px-3 pt-3 pb-2 rounded-xl max-w-[85%] sm:max-w-4xl shadow-lg ${bubbleClass}`}
             >
 
-                {/* ---------- IMAGE WITH PURE BLACK + NEON ---------- */}
+                {/* ---------- IMAGE WITH PURE BLACK ---------- */}
                 {message.type === "image" && message.base64_image && (
-                    <div className="w-full rounded-lg overflow-hidden bg-black p-2 mb-3 shadow-[0_0_15px_#00e5ff] border border-[#0d7377]">
+                    <div className="w-full rounded-lg overflow-hidden bg-black p-2 mb-3">
                         <img
                             src={`data:image/jpeg;base64,${message.base64_image}`}
                             alt="Generated"
@@ -1983,9 +1984,9 @@ const ChatBubble = ({ message }) => {
                             return (
                                 <div
                                     key={index}
-                                    className="relative rounded-md overflow-hidden w-full bg-black border border-[#0d7377] shadow-[0_0_15px_#00e5ff]"
+                                    className="relative rounded-md overflow-hidden w-full bg-black"
                                 >
-                                    {/* ChatGPT-style floating copy icon */}
+                                    {/* Copy button */}
                                     <button
                                         onClick={() =>
                                             copyToClipboard(
@@ -1993,7 +1994,7 @@ const ChatBubble = ({ message }) => {
                                                 index
                                             )
                                         }
-                                        className="absolute top-2 right-2 bg-black/70 hover:bg-[#00e5ff] hover:text-black text-gray-300 px-2 py-1 rounded transition text-xs border border-gray-600"
+                                        className="absolute top-2 right-2 bg-black/80 hover:bg-[#00e5ff] hover:text-black text-gray-300 px-2 py-1 rounded transition text-xs border border-gray-700"
                                     >
                                         {copiedIndex === index ? "✔" : "📋"}
                                     </button>
@@ -2013,7 +2014,7 @@ const ChatBubble = ({ message }) => {
                             return (
                                 <code
                                     key={index}
-                                    className="bg-black text-[#00e5ff] px-2 py-1 rounded border border-[#0d7377]"
+                                    className="bg-black text-[#00e5ff] px-2 py-1 rounded"
                                 >
                                     {part.content}
                                 </code>
@@ -2061,7 +2062,8 @@ const ChatBubble = ({ message }) => {
         </div>
     );
 };
-  const isImageMode = !!uploadedImage;
+
+    const isImageMode = !!uploadedImage;
     const isFileMode = !!uploadedFile;
 
     const getModeText = () => {
