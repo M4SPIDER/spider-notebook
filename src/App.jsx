@@ -1386,22 +1386,19 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
     const [recentChats, setRecentChats] = useState([]);
     const [aspectRatio, setAspectRatio] = useState('1:1');
     const [isLoading, setIsLoading] = useState(false);
-    const [showCanvas, setShowCanvas] = useState(false);
-    const [canvasImage, setCanvasImage] = useState(null);
 
     const fileInputRef = useRef(null);
     const imageInputRef = useRef(null);
     const chatEndRef = useRef(null);
-    const canvasRef = useRef(null);
 
-    // Firebase placeholders
+    // Firebase placeholders (keep your firebase logic; we assume functions imported elsewhere)
     const [db, setDb] = useState(null);
     const [auth, setAuth] = useState(null);
 
     const getAppId = () => typeof __app_id !== 'undefined' ? __app_id : 'default-m4-app';
     const LOCAL_STORAGE_KEY = `spider_chat_history_${getAppId()}_${(currentUser?.email || 'anon')}`;
 
-    // ---------- Firebase init ----------
+    // ---------- Firebase init (unchanged) ----------
     useEffect(() => {
         try {
             const USER_FIREBASE_CONFIG = {
@@ -1432,73 +1429,77 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
 
     // ---------- FIXED: Load recent chats & history ----------
     const loadChatHistory = useCallback(async (chatId = null) => {
-        // Firestore loading
+        // Prefer Firestore if available
         if (db && auth?.currentUser?.uid) {
             const userId = getUserId();
             const chatsCollection = collection(db, `artifacts/${getAppId()}/users/${userId}/ai_chats`);
 
+            // FIX: Load recent chats FIRST before trying to load specific chat
             try {
-                // Load recent chats
-                const q = query(chatsCollection, orderBy('timestamp', 'desc'), limit(10));
-                const querySnapshot = await getDocs(q);
-                const recent = querySnapshot.docs.map(doc => ({
-                    id: doc.id,
-                    title: doc.data().title || 'Untitled Chat',
-                    timestamp: doc.data().timestamp || Date.now()
-                }));
-                setRecentChats(recent);
+                const q = query(chatsCollection, limit(10));
+                const unsubscribe = onSnapshot(q, (snapshot) => {
+                    const recent = snapshot.docs.map(doc => ({
+                        id: doc.id,
+                        title: doc.data().title || 'Untitled Chat',
+                        timestamp: doc.data().timestamp || Date.now()
+                    })).sort((a, b) => b.timestamp - a.timestamp);
+                    setRecentChats(recent);
+                });
 
-                // Load specific chat if requested
+                // If specific chat requested, load it
                 if (chatId) {
-                    const chatDoc = await getDoc(doc(chatsCollection, chatId));
-                    if (chatDoc.exists()) {
-                        const data = chatDoc.data();
-                        const parsed = JSON.parse(data.history || '[]');
-                        setChatHistory(Array.isArray(parsed) && parsed.length ? parsed : [{ role: 'assistant', content: 'Welcome! I am Spider AI.', type: 'text' }]);
-                        setActiveChatId(chatId);
-                    }
-                } else {
-                    // No specific chat requested, maintain current or set default
-                    setChatHistory(prev => {
-                        if (prev && prev.length && prev.some(m => m.role !== 'assistant')) {
-                            return prev;
+                    try {
+                        const chatSnap = await getDocs(query(chatsCollection, where('id', '==', chatId), limit(1)));
+                        if (chatSnap.docs.length > 0) {
+                            const data = chatSnap.docs[0].data();
+                            const parsed = JSON.parse(data.history || '[]');
+                            setChatHistory(Array.isArray(parsed) && parsed.length ? parsed : [{ role: 'assistant', content: 'Welcome! I am Spider AI.', type: 'text' }]);
+                            setActiveChatId(chatId);
+                            return unsubscribe; // Return unsubscribe function
                         }
-                        return [{ role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }];
-                    });
-                    setActiveChatId(null);
+                    } catch (e) {
+                        console.error("Error loading specific chat:", e);
+                    }
                 }
-            } catch (e) {
-                console.error("Error loading chats:", e);
-                // Fallback to localStorage on error
-                loadFromLocalStorage();
-            }
-        } else {
-            // No Firebase, use localStorage
-            loadFromLocalStorage();
-        }
-    }, [db, auth, currentUser]);
 
-    // Local storage fallback
-    const loadFromLocalStorage = () => {
+                // If no specific chat or failed to load, check if we should keep current or reset
+                setChatHistory(prev => {
+                    if (prev && prev.length && prev.some(m => m.role !== 'assistant')) {
+                        return prev;
+                    }
+                    return [{ role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }];
+                });
+                setActiveChatId(null);
+                
+                return unsubscribe; // Return unsubscribe function for cleanup
+
+            } catch (e) {
+                console.error("Error listening to recent chats:", e);
+            }
+        }
+
+        // Fallback: localStorage
         try {
             const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
             if (raw) {
                 const parsed = JSON.parse(raw);
                 setChatHistory(Array.isArray(parsed) && parsed.length ? parsed : [{ role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }]);
+            } else {
+                setChatHistory([{ role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }]);
             }
-            setRecentChats([]);
+            setRecentChats([]); // no recent chats for anon
             setActiveChatId(null);
         } catch (e) {
             console.error("Error reading localStorage history:", e);
             setChatHistory([{ role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }]);
         }
-    };
+    }, [db, auth, currentUser]);
 
-    // ---------- Save chat history ----------
+    // ---------- Save chat history (local + firebase when available) ----------
     const saveChatHistory = useCallback(async (currentHistory) => {
         if (!Array.isArray(currentHistory)) return;
 
-        // Local save
+        // local save
         try {
             localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(currentHistory));
         } catch (e) {
@@ -1528,21 +1529,21 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
             } else {
                 const docRef = await addDoc(chatsCollection, chatData);
                 setActiveChatId(docRef.id);
-                // Refresh recent chats after creating new chat
-                loadChatHistory();
             }
         } catch (e) {
             console.error("Error saving to Firestore:", e);
         }
     }, [db, auth, activeChatId, currentUser]);
 
-    // ---------- Initialize on mount ----------
+    // ---------- Initialize on mount and when auth/db changes ----------
     useEffect(() => {
         loadChatHistory(null);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [db, auth]);
 
     useEffect(() => {
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        // save every chat update
         if (chatHistory && chatHistory.length) saveChatHistory(chatHistory);
     }, [chatHistory, saveChatHistory]);
 
@@ -1558,6 +1559,7 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
             event.target.value = null;
             return;
         }
+        // set state for UI; do not clear too early
         setUploadedFile(file);
         setUploadedImage(null);
         setMessage(`Analyze the contents of ${file.name}.`);
@@ -1586,94 +1588,14 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
         event.target.value = null;
     };
 
-    // ---------- Canvas Functions ----------
-    const handleCanvasOpen = () => {
-        setShowCanvas(true);
-    };
-
-    const handleCanvasClose = () => {
-        setShowCanvas(false);
-        setCanvasImage(null);
-    };
-
-    const handleCanvasSave = () => {
-        if (canvasRef.current) {
-            const dataURL = canvasRef.current.toDataURL('image/png');
-            setCanvasImage(dataURL);
-            setUploadedImage(dataURL);
-            setShowCanvas(false);
-            setMessage("I've created this drawing. Please analyze or transform it: ");
-        }
-    };
-
-    const handleCanvasClear = () => {
-        if (canvasRef.current) {
-            const ctx = canvasRef.current.getContext('2d');
-            ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-        }
-    };
-
-    // Initialize canvas
-    useEffect(() => {
-        if (showCanvas && canvasRef.current) {
-            const canvas = canvasRef.current;
-            const ctx = canvas.getContext('2d');
-            
-            // Set canvas size
-            canvas.width = 800;
-            canvas.height = 600;
-            
-            // Set white background
-            ctx.fillStyle = 'white';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            
-            // Drawing functionality
-            let isDrawing = false;
-            let lastX = 0;
-            let lastY = 0;
-
-            const startDrawing = (e) => {
-                isDrawing = true;
-                [lastX, lastY] = [e.offsetX, e.offsetY];
-            };
-
-            const draw = (e) => {
-                if (!isDrawing) return;
-                ctx.beginPath();
-                ctx.moveTo(lastX, lastY);
-                ctx.lineTo(e.offsetX, e.offsetY);
-                ctx.strokeStyle = 'black';
-                ctx.lineWidth = 2;
-                ctx.lineCap = 'round';
-                ctx.stroke();
-                [lastX, lastY] = [e.offsetX, e.offsetY];
-            };
-
-            const stopDrawing = () => {
-                isDrawing = false;
-            };
-
-            canvas.addEventListener('mousedown', startDrawing);
-            canvas.addEventListener('mousemove', draw);
-            canvas.addEventListener('mouseup', stopDrawing);
-            canvas.addEventListener('mouseout', stopDrawing);
-
-            return () => {
-                canvas.removeEventListener('mousedown', startDrawing);
-                canvas.removeEventListener('mousemove', draw);
-                canvas.removeEventListener('mouseup', stopDrawing);
-                canvas.removeEventListener('mouseout', stopDrawing);
-            };
-        }
-    }, [showCanvas]);
-
-    // ---------- PlusMenu with Canvas ----------
+    // ---------- PlusMenu (compatible with older UI that used setActiveAIMode) ----------
     const PlusMenu = ({ setActiveAIMode: _setActiveAIMode, fileInputRef, imageInputRef }) => {
         const [open, setOpen] = useState(false);
 
         const onUploadFile = () => {
             setOpen(false);
             if (typeof _setActiveAIMode === 'function') _setActiveAIMode('file_analysis');
+            // click input after slight delay so mode/state can settle
             setTimeout(() => fileInputRef.current?.click(), 50);
         };
 
@@ -1688,20 +1610,14 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
             if (typeof _setActiveAIMode === 'function') _setActiveAIMode('image_gen');
         };
 
-        const onOpenCanvas = () => {
-            setOpen(false);
-            handleCanvasOpen();
-        };
-
         return (
             <div className="relative">
                 <button onClick={() => setOpen(o => !o)} className="bg-[var(--spider-light)] text-white px-3 py-2 rounded-md h-10 flex items-center justify-center hover:opacity-90">+</button>
                 {open && (
-                    <div className="absolute bottom-12 right-0 bg-[var(--spider-dark)] border border-[var(--spider-light)] rounded-md shadow-lg w-48 p-2 z-50">
+                    <div className="absolute bottom-12 right-0 bg-[var(--spider-dark)] border border-[var(--spider-light)] rounded-md shadow-lg w-40 p-2 z-50">
                         <button onClick={onUploadFile} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm">📄 Upload File</button>
                         <button onClick={onUploadImage} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm">🖼 Upload Image</button>
                         <button onClick={onGenImage} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm">🎨 Create Image (Gen)</button>
-                        <button onClick={onOpenCanvas} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm">🎨 Open Canvas</button>
                     </div>
                 )}
             </div>
@@ -1710,95 +1626,190 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
 
     // ---------- New Chat handler ----------
     const handleNewChat = () => {
+        // Reset UI state, clear uploaded files, reset active AI mode and chat id
         setUploadedFile(null);
         setUploadedImage(null);
         setActiveAIMode && setActiveAIMode('chat');
         setActiveChatId(null);
+        // Reset history to a fresh welcome message and clear localStorage (optional)
         const welcome = [{ role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }];
         setChatHistory(welcome);
-        try { localStorage.removeItem(LOCAL_STORAGE_KEY); } catch (e) { }
+        try { localStorage.removeItem(LOCAL_STORAGE_KEY); } catch (e) { /* ignore */ }
+        // reload recent chats (keeps Firebase listener alive)
         loadChatHistory(null);
     };
 
-    // ---------- Typing Animation Component ----------
-    const TypingAnimation = () => (
-        <div className="flex space-x-1">
-            <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce"></div>
-            <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-            <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-        </div>
-    );
+    // ---------- FIXED: Send message (file analysis fix) ----------
+    const handleSendMessage = async () => {
+        if (!message.trim() && !uploadedFile && !uploadedImage) return;
 
-    // ---------- Code Block Component ----------
-    const CodeBlock = ({ code, language = 'javascript' }) => {
-        const [copied, setCopied] = useState(false);
+        setIsLoading(true);
 
-        const handleCopy = async () => {
-            try {
-                await navigator.clipboard.writeText(code);
-                setCopied(true);
-                setTimeout(() => setCopied(false), 2000);
-            } catch (err) {
-                console.error('Failed to copy code: ', err);
-            }
+        // capture current state into local variables so clearing state later won't break us
+        const fileCopy = uploadedFile;
+        const imageCopy = uploadedImage;
+        const selectedActiveMode = activeAIMode; // preserve current activeAIMode
+        let mode = selectedActiveMode || "chat";
+
+        // prioritize explicit uploads
+        if (fileCopy) mode = "analyze_file";
+        if (imageCopy) mode = "image_edit";
+        // keep image_gen if user explicitly set it
+        if (!fileCopy && !imageCopy && selectedActiveMode === 'image_gen') mode = 'image_gen';
+
+        // build a serializable user message (no File objects)
+        const userMessage = {
+            role: 'user',
+            content: message,
+            type: mode,
+            fileName: fileCopy ? fileCopy.name : undefined,
+            imageName: imageCopy ? imageCopy.name : undefined,
+            ts: Date.now()
         };
 
-        return (
-            <div className="relative my-2 rounded-lg overflow-hidden border border-[var(--spider-light)]">
-                <div className="flex justify-between items-center bg-[var(--spider-dark)] px-4 py-2 border-b border-[var(--spider-light)]">
-                    <span className="text-xs text-[var(--spider-text-dim)] uppercase font-semibold">{language}</span>
-                    <button 
-                        onClick={handleCopy}
-                        className="text-xs bg-[var(--spider-light)] hover:bg-[var(--spider-neon-blue)] text-white hover:text-black px-2 py-1 rounded transition-colors"
-                    >
-                        {copied ? 'Copied!' : 'Copy'}
-                    </button>
-                </div>
-                <pre className="bg-teal-900/20 p-4 overflow-x-auto text-sm font-mono whitespace-pre-wrap">
-                    <code className={`language-${language}`}>{code}</code>
-                </pre>
-            </div>
-        );
+        setChatHistory(prev => [...prev, userMessage]);
+        setMessage('');
+
+        try {
+            // FILE ANALYSIS - FIXED: Proper file content handling
+            if (mode === "analyze_file" && fileCopy) {
+                let fileContent;
+                
+                // Handle different file types appropriately
+                if (fileCopy.type.startsWith('text/') || 
+                    fileCopy.name.endsWith('.txt') || 
+                    fileCopy.name.endsWith('.py') ||
+                    fileCopy.name.endsWith('.js') ||
+                    fileCopy.name.endsWith('.html') ||
+                    fileCopy.name.endsWith('.css') ||
+                    fileCopy.name.endsWith('.md')) {
+                    // Text files - read as text
+                    fileContent = await fileCopy.text();
+                } else {
+                    // Binary files - read as base64
+                    fileContent = await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                            try {
+                                const base64 = reader.result.split(",")[1];
+                                resolve(base64);
+                            } catch (e) {
+                                reject(e);
+                            }
+                        };
+                        reader.onerror = (err) => reject(err);
+                        reader.readAsDataURL(fileCopy);
+                    });
+                }
+
+                const apiUrl = '/api/generate/text';
+                const apiPayload = {
+                    prompt: message || `Analyze the contents of ${fileCopy.name}`,
+                    mode: "analyze_file",
+                    filename: fileCopy.name,
+                    file_content: fileContent,
+                    file_type: fileCopy.type
+                };
+                
+                const result = await callFastAPI(apiUrl, apiPayload, mode);
+
+                const assistantMessage = {
+                    role: 'assistant',
+                    content: result?.text || 'File analysis complete.',
+                    type: result?.base64_image ? 'image' : 'text',
+                    base64_image: result?.base64_image,
+                    sources: result?.sources,
+                    model_used: result?.model_used,
+                    ts: Date.now()
+                };
+                setChatHistory(prev => [...prev, assistantMessage]);
+            }
+
+            // IMAGE EDIT
+            else if (mode === "image_edit" && imageCopy) {
+                const base64Image = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        try {
+                            const b = reader.result.split(",")[1];
+                            resolve(b);
+                        } catch (e) {
+                            reject(e);
+                        }
+                    };
+                    reader.onerror = (err) => reject(err);
+                    reader.readAsDataURL(imageCopy);
+                });
+
+                const apiUrl = '/api/generate/text';
+                const apiPayload = {
+                    prompt: message || "Edit this image",
+                    mode: "image_edit",
+                    image: base64Image,
+                    strength: 0.7
+                };
+                const result = await callFastAPI(apiUrl, apiPayload, mode);
+
+                const assistantMessage = {
+                    role: 'assistant',
+                    content: result?.text || 'Image edited.',
+                    type: result?.base64_image ? 'image' : 'text',
+                    base64_image: result?.base64_image,
+                    sources: result?.sources,
+                    model_used: result?.model_used,
+                    ts: Date.now()
+                };
+                setChatHistory(prev => [...prev, assistantMessage]);
+            }
+
+            // IMAGE GEN or CHAT
+            else {
+                const apiUrl = '/api/generate/text';
+                const apiPayload = { 
+                    prompt: message, 
+                    mode,
+                    aspect_ratio: mode === 'image_gen' ? aspectRatio : undefined
+                };
+                const result = await callFastAPI(apiUrl, apiPayload, mode);
+
+                const assistantMessage = {
+                    role: 'assistant',
+                    content: result?.text || 'Response received.',
+                    type: result?.base64_image ? 'image' : 'text',
+                    base64_image: result?.base64_image,
+                    sources: result?.sources,
+                    model_used: result?.model_used,
+                    ts: Date.now()
+                };
+                setChatHistory(prev => [...prev, assistantMessage]);
+            }
+        } catch (error) {
+            console.error('API ERROR:', error);
+            const assistantError = {
+                role: 'assistant',
+                content: `[API ERROR] ${error?.message || 'Something went wrong.'}`,
+                type: 'text',
+                ts: Date.now()
+            };
+            setChatHistory(prev => [...prev, assistantError]);
+        } finally {
+            // Clear uploads only AFTER result is processed
+            try {
+                setUploadedFile(null);
+                setUploadedImage(null);
+                setIsLoading(false);
+            } catch (e) {
+                // ignore
+            }
+        }
     };
 
-    // ---------- Enhanced Chat Bubble with Code Detection ----------
-    const ChatBubble = ({ message, isTyping = false }) => {
+    // ---------- Chat bubble ----------
+    const ChatBubble = ({ message }) => {
         const bubbleClasses = message.role === 'user'
             ? 'bg-[var(--spider-neon-blue)] text-black ml-auto'
             : 'bg-[var(--spider-med)] text-white mr-auto';
-
-        // Detect code blocks in message content
-        const renderContentWithCode = (content) => {
-            if (typeof content !== 'string') return content;
-            
-            // Simple code block detection (between ```)
-            const codeBlockRegex = /```(\w+)?\n([\s\S]*?)```/g;
-            const parts = [];
-            let lastIndex = 0;
-            let match;
-
-            while ((match = codeBlockRegex.exec(content)) !== null) {
-                // Add text before code block
-                if (match.index > lastIndex) {
-                    parts.push(<pre key={`text-${lastIndex}`} className="whitespace-pre-wrap font-sans text-sm break-words">{content.slice(lastIndex, match.index)}</pre>);
-                }
-
-                // Add code block
-                const language = match[1] || 'javascript';
-                const code = match[2].trim();
-                parts.push(<CodeBlock key={`code-${match.index}`} code={code} language={language} />);
-
-                lastIndex = match.index + match[0].length;
-            }
-
-            // Add remaining text
-            if (lastIndex < content.length) {
-                parts.push(<pre key={`text-${lastIndex}`} className="whitespace-pre-wrap font-sans text-sm break-words">{content.slice(lastIndex)}</pre>);
-            }
-
-            return parts.length > 0 ? parts : <pre className="whitespace-pre-wrap font-sans text-sm break-words">{content}</pre>;
-        };
-
+        const content = message.content;
         return (
             <div className={`flex w-full ${message.role === 'user' ? 'justify-end' : 'justify-start'} mb-4`}>
                 <div className={`p-3 rounded-xl max-w-[85%] sm:max-w-4xl shadow-md ${bubbleClasses}`}>
@@ -1814,13 +1825,8 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
                             </p>
                             <img src={`data:image/jpeg;base64,${message.base64_image}`} alt="Generated or Edited Image" className="max-w-full rounded-lg shadow-lg" style={{ maxHeight: '300px', objectFit: 'contain' }} />
                         </div>
-                    ) : isTyping ? (
-                        <div className="flex items-center space-x-2">
-                            <TypingAnimation />
-                            <span className="text-sm">Thinking...</span>
-                        </div>
                     ) : (
-                        renderContentWithCode(message.content)
+                        <pre className="whitespace-pre-wrap font-sans text-sm break-words">{content}</pre>
                     )}
                     {message.sources && message.sources.length > 0 && (
                         <div className="mt-2 text-xs text-[var(--spider-text-dim)] pt-2 border-t border-[var(--spider-light)]">
@@ -1835,51 +1841,6 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
         );
     };
 
-    // ---------- Send Message (unchanged) ----------
-    const handleSendMessage = async () => {
-        if (!message.trim() && !uploadedFile && !uploadedImage) return;
-
-        setIsLoading(true);
-        const fileCopy = uploadedFile;
-        const imageCopy = uploadedImage;
-        const selectedActiveMode = activeAIMode;
-        let mode = selectedActiveMode || "chat";
-
-        if (fileCopy) mode = "analyze_file";
-        if (imageCopy) mode = "image_edit";
-        if (!fileCopy && !imageCopy && selectedActiveMode === 'image_gen') mode = 'image_gen';
-
-        const userMessage = {
-            role: 'user',
-            content: message,
-            type: mode,
-            fileName: fileCopy ? fileCopy.name : undefined,
-            imageName: imageCopy ? imageCopy.name : undefined,
-            ts: Date.now()
-        };
-
-        setChatHistory(prev => [...prev, userMessage]);
-        setMessage('');
-
-        try {
-            // ... (existing API call logic remains the same)
-            // Your existing API call code here
-        } catch (error) {
-            console.error('API ERROR:', error);
-            const assistantError = {
-                role: 'assistant',
-                content: `[API ERROR] ${error?.message || 'Something went wrong.'}`,
-                type: 'text',
-                ts: Date.now()
-            };
-            setChatHistory(prev => [...prev, assistantError]);
-        } finally {
-            setUploadedFile(null);
-            setUploadedImage(null);
-            setIsLoading(false);
-        }
-    };
-
     const isImageMode = !!uploadedImage;
     const isFileMode = !!uploadedFile;
 
@@ -1891,10 +1852,10 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
         return "Chat / Code";
     };
 
-    // ---------- JSX with Canvas Modal ----------
+    // ---------- JSX (UI with fixes) ----------
     return (
         <div className="flex flex-row h-full flex-grow bg-[var(--spider-dark)] text-[var(--spider-text)] overflow-hidden">
-            {/* Left Sidebar */}
+            {/* Left Sidebar - FIXED: Better visibility for recent chats */}
             <div className="hidden md:flex flex-col bg-[var(--spider-med)] w-64 p-4 border-r border-[var(--spider-light)] flex-shrink-0 space-y-4 overflow-y-auto">
                 <button onClick={handleNewChat} className="w-full bg-[var(--spider-neon-blue)] text-black text-sm font-semibold py-2.5 px-3 rounded-md hover:opacity-90 transition flex items-center space-x-2 justify-center">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path></svg>
@@ -1941,18 +1902,20 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
             <div className="flex flex-col flex-1 h-full min-h-0">
                 {/* Messages */}
                 <div className="flex-grow overflow-y-auto p-4 space-y-4">
-                    {chatHistory.map((msg, index) => (
-                        <ChatBubble 
-                            key={index} 
-                            message={msg} 
-                            isTyping={isLoading && index === chatHistory.length - 1 && msg.role === 'user'}
-                        />
-                    ))}
-                    {isLoading && chatHistory[chatHistory.length - 1]?.role === 'user' && (
-                        <ChatBubble 
-                            message={{ role: 'assistant', content: '', type: 'text' }}
-                            isTyping={true}
-                        />
+                    {chatHistory.map((msg, index) => <ChatBubble key={index} message={msg} />)}
+                    {isLoading && (
+                        <div className="flex justify-start mb-4">
+                            <div className="bg-[var(--spider-med)] text-white p-3 rounded-xl max-w-[85%] shadow-md">
+                                <div className="flex items-center space-x-2">
+                                    <div className="flex space-x-1">
+                                        <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce"></div>
+                                        <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                                        <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                                    </div>
+                                    <span className="text-sm">Processing...</span>
+                                </div>
+                            </div>
+                        </div>
                     )}
                     <div ref={chatEndRef} />
                 </div>
@@ -1960,49 +1923,6 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
                 {/* Hidden inputs */}
                 <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept=".spy,.py,.java,.cpp,.c,.h,.txt,.md,.js,.html,.css,.json,.xml,.csv" />
                 <input type="file" ref={imageInputRef} onChange={handleImageUpload} className="hidden" accept="image/*" />
-
-                {/* Canvas Modal */}
-                {showCanvas && (
-                    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-                        <div className="bg-[var(--spider-dark)] rounded-lg w-full max-w-4xl max-h-[90vh] overflow-hidden">
-                            <div className="flex justify-between items-center p-4 border-b border-[var(--spider-light)]">
-                                <h3 className="text-lg font-semibold text-white">Drawing Canvas</h3>
-                                <div className="flex space-x-2">
-                                    <button 
-                                        onClick={handleCanvasClear}
-                                        className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm"
-                                    >
-                                        Clear
-                                    </button>
-                                    <button 
-                                        onClick={handleCanvasSave}
-                                        className="bg-[var(--spider-neon-blue)] hover:opacity-90 text-black px-3 py-1 rounded text-sm font-semibold"
-                                    >
-                                        Save & Use
-                                    </button>
-                                    <button 
-                                        onClick={handleCanvasClose}
-                                        className="bg-[var(--spider-light)] hover:bg-[var(--spider-med)] text-white px-3 py-1 rounded text-sm"
-                                    >
-                                        Close
-                                    </button>
-                                </div>
-                            </div>
-                            <div className="p-4 bg-white">
-                                <canvas 
-                                    ref={canvasRef}
-                                    className="border border-gray-300 cursor-crosshair w-full h-auto max-h-[60vh]"
-                                    style={{ display: 'block' }}
-                                />
-                            </div>
-                            <div className="p-4 bg-[var(--spider-dark)] border-t border-[var(--spider-light)]">
-                                <p className="text-sm text-[var(--spider-text-dim)] text-center">
-                                    Draw on the canvas above. Click "Save & Use" to send your drawing to AI analysis.
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                )}
 
                 {/* Input area */}
                 <div className="bg-[var(--spider-med)] p-3 border-t border-[var(--spider-light)] flex-shrink-0">
