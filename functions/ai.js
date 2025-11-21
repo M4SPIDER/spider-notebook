@@ -1,7 +1,11 @@
 /* ============================================================
  SPIDER AI — V4.2 (TAVILY) — ai.js (FIXED VERSION)
- - Aggressive auto-search logic removed (now only searches when model explicitly requests it).
- - File analysis mode updated to mandate code fixes/refactoring blocks.
+ 
+ FIXES IN THIS VERSION:
+ 1. Anonymous users now receive a unique UUID to prevent memory
+    collisions and privacy leaks (Fixes Section 4, Issue 1).
+ 2. Added explicit CORS headers for better cross-origin compatibility.
+ 3. Centralized model IDs into constants.
 ============================================================ */
 
 /* ===== CONFIG ===== */
@@ -12,7 +16,12 @@ const MEMORY_SUMMARY_TRIGGER = 300;
 const MEMORY_USER_KEY_PREFIX = "chat_memory:";
 const FIREBASE_PROJECT_ID = "m4-spider";
 
-/* ===== TELUGU TRIGGER WORDS ===== */
+/* ===== MODEL CONSTANTS ===== */
+const CHAT_MODEL = "@cf/mistralai/mistral-small-3.1-24b-instruct";
+const IMAGE_GEN_MODEL = "@cf/stabilityai/stable-diffusion-xl-base-1.0";
+const IMAGE_EDIT_MODEL = "@cf/stabilityai/stable-diffusion-xl-refiner-1.0";
+
+/* ===== TELUGU TRIGGER WORDS (omitted for brevity) ===== */
 const TELUGU_TRIGGER_WORDS = [
   "ra","mama","bro","anna","bhai","macha","bossu","babu","nanna","ayya",
   "guru","machi","bhayya","mamma","pilla","raayya","oye","baaga","asalu","bayya",
@@ -78,7 +87,7 @@ EMOJI RULE:
 - Use emojis that fit the mood; add some mid-sentence and one at the end.`;
 
 /* ============================================================
-FIREBASE TOKEN VERIFIER
+FIREBASE TOKEN VERIFIER (unchanged)
 ============================================================ */
 
 async function verifyFirebaseToken(idToken) {
@@ -90,7 +99,7 @@ async function verifyFirebaseToken(idToken) {
     const payload = JSON.parse(atob(parts[1]));
     const kid = header.kid;
     const firebaseKeys = await fetch(
-      "https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com"
+      "[https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com](https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com)"
     ).then(r => r.json());
     const cert = firebaseKeys[kid];
     if (!cert) return null;
@@ -116,7 +125,7 @@ async function verifyFirebaseToken(idToken) {
     );
     if (!valid) return null;
     if (payload.aud !== FIREBASE_PROJECT_ID) return null;
-    if (payload.iss !== ("https://securetoken.google.com/" + FIREBASE_PROJECT_ID)) return null;
+    if (payload.iss !== ("[https://securetoken.google.com/](https://securetoken.google.com/)" + FIREBASE_PROJECT_ID)) return null;
     if (payload.exp * 1000 < Date.now()) return null;
     return payload;
   } catch {
@@ -125,7 +134,7 @@ async function verifyFirebaseToken(idToken) {
 }
 
 /* ============================================================
-MODE DETECTOR
+MODE DETECTOR (unchanged)
 ============================================================ */
 
 function detectMode(prompt, file_content, filename) {
@@ -140,10 +149,7 @@ function detectMode(prompt, file_content, filename) {
 }
 
 /* ============================================================
-SANITIZATION & UTILITIES
- - sanitizeOutput: ensures user never sees raw JSON or internal tags
- - looksLikeJSON: heuristics to find pure-JSON replies and remove/wrap them
- - extractSearchInstruction: detects internal JSON/markers the model might output
+SANITIZATION & UTILITIES (unchanged)
 ============================================================ */
 
 function looksLikeJSON(s) {
@@ -226,7 +232,7 @@ function extractSearchInstruction(text) {
   return null;
 }
 
-/* ================= MEMORY HELPERS ========================== */
+/* ================= MEMORY HELPERS (unchanged) ========================== */
 
 async function getMemoryFromKV(env, memoryKey) {
   try {
@@ -261,7 +267,7 @@ async function compressMemoryIfNeeded(env, memoryArr) {
     older.map((m, i) => (i + 1) + ". " + m.role + ": " + shortPreview(m.content, 200)).join("\n");
 
   try {
-    const res = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", {
+    const res = await env.SPY_AI.run(CHAT_MODEL, {
       messages: [
         { role: "system", content: SPIDER_SYSTEM_PROMPT },
         { role: "user", content: summaryPrompt }
@@ -287,6 +293,18 @@ MAIN HANDLER
 export async function onRequest(context) {
   const request = context.request;
   const env = context.env;
+  
+  // === FIX 2: Add CORS headers for cross-origin access ===
+  const headers = {
+    "Access-Control-Allow-Origin": "*", // Or restrict to your specific client domain
+    "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, X-User-Preference-Id, Authorization",
+  };
+
+  // Handle preflight OPTIONS requests immediately
+  if (request.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers });
+  }
 
   try {
     let body = {};
@@ -334,8 +352,14 @@ export async function onRequest(context) {
 
     /* ================ USER IDENTIFICATION ================ */
 
-    let userId = "anon-default";
+    // === FIX 1: Use crypto.randomUUID() for anonymous users ===
+    let userId = request.headers.get("X-User-Preference-Id") || ""; 
+    if (!userId) {
+      userId = crypto.randomUUID(); // Assign a unique ID if none is provided
+    }
+    
     if (body.user_preference_id) userId = body.user_preference_id.toString();
+    
     if (body.firebase_token) {
       const decoded = await verifyFirebaseToken(body.firebase_token);
       if (decoded && decoded.user_id) userId = decoded.user_id;
@@ -367,14 +391,14 @@ export async function onRequest(context) {
       !lower.includes("reset all")) {
       // plain-text friendly instruction
       return new Response("Specify delete memory: all / last / first / <index> / keyword", {
-        headers: { "content-type": "text/plain" }
+        headers: { ...headers, "content-type": "text/plain" } // Add headers
       });
     }
 
     if (lower.includes("delete memory: all") || lower.includes("reset all") || lower.includes("delete all")) {
       await env.CHAT_KV.put(memoryKey, "[]");
       return new Response("All memory cleared 😎🔥", {
-        headers: { "content-type": "text/plain" }
+        headers: { ...headers, "content-type": "text/plain" } // Add headers
       });
     }
 
@@ -383,28 +407,28 @@ export async function onRequest(context) {
       if (cmd === "last") {
         memory.pop();
         await saveMemoryToKV(env, memoryKey, memory);
-        return new Response("Deleted last entry 👍", { headers: { "content-type": "text/plain" }});
+        return new Response("Deleted last entry 👍", { headers: { ...headers, "content-type": "text/plain" }}); // Add headers
       }
       if (cmd === "first") {
         memory.shift();
         await saveMemoryToKV(env, memoryKey, memory);
-        return new Response("Deleted first entry 👍", { headers: { "content-type": "text/plain" }});
+        return new Response("Deleted first entry 👍", { headers: { ...headers, "content-type": "text/plain" }}); // Add headers
       }
       const idx = parseInt(cmd);
       if (!isNaN(idx)) {
         if (idx >= 1 && idx <= memory.length) {
           memory.splice(idx - 1, 1);
           await saveMemoryToKV(env, memoryKey, memory);
-          return new Response("Entry removed 😃", { headers: { "content-type": "text/plain" }});
+          return new Response("Entry removed 😃", { headers: { ...headers, "content-type": "text/plain" }}); // Add headers
         }
-        return new Response("Invalid index 😅", { headers: { "content-type": "text/plain" }});
+        return new Response("Invalid index 😅", { headers: { ...headers, "content-type": "text/plain" }}); // Add headers
       }
       memory = memory.filter(m => !m.content.toLowerCase().includes(cmd));
       await saveMemoryToKV(env, memoryKey, memory);
-      return new Response("Matching entries deleted 👍", { headers: { "content-type": "text/plain" }});
+      return new Response("Matching entries deleted 👍", { headers: { ...headers, "content-type": "text/plain" }}); // Add headers
     }
 
-    /* ============= ADD NEW MEMORY SAFELY ================== */
+    /* ============= ADD NEW MEMORY SAFELY (unchanged) ================== */
 
     function norm(s) {
       return (s || "").trim().toLowerCase().replace(/\s+/g, " ");
@@ -423,7 +447,7 @@ export async function onRequest(context) {
     if (memory.length > MEMORY_MESSAGE_LIMIT) memory = memory.slice(-MEMORY_MESSAGE_LIMIT);
     await saveMemoryToKV(env, memoryKey, memory);
 
-    /* ============= MEMORY SUMMARY FOR MODEL ==================== */
+    /* ============= MEMORY SUMMARY FOR MODEL (unchanged) ==================== */
 
     function shortPreview2(s, max = 160) {
       if (!s) return "";
@@ -441,7 +465,7 @@ export async function onRequest(context) {
       .join("\n");
 
     /* ============================================================
-       AUTO TELANGANA SLANG MODE + EXTRA SYSTEM INSTRUCTIONS
+       AUTO TELANGANA SLANG MODE + EXTRA SYSTEM INSTRUCTIONS (unchanged)
        ============================================================ */
 
     let forceTeluguSlang = false;
@@ -472,7 +496,7 @@ export async function onRequest(context) {
     }
 
     /* ============================================================
-       FILE ANALYSIS MODE (FIXED to request code fixes)
+       FILE ANALYSIS MODE (FIXED to use constant model name)
        ============================================================ */
 
     if (currentMode === "analyze_file") {
@@ -485,7 +509,7 @@ export async function onRequest(context) {
 
       if (contentToAnalyze.trim().length === 0) {
         const emptyMsg = "I'm sorry, mama — I can't analyze the file because it's empty. Ee file empty undhi ra! 😔";
-        return new Response(emptyMsg, { headers: { "content-type": "text/plain" } });
+        return new Response(emptyMsg, { headers: { ...headers, "content-type": "text/plain" } });
       }
 
       const aPrompt =
@@ -514,47 +538,47 @@ ${contentToAnalyze}
       messages.push({ role: "system", content: "Memory:\n" + memorySummary });
       messages.push({ role: "user", content: aPrompt });
 
-      const result = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", { messages });
+      const result = await env.SPY_AI.run(CHAT_MODEL, { messages });
       const responseTextRaw = extractText(result);
       const responseText = sanitizeOutput(responseTextRaw);
 
       // Return as plain text (clean, no internal JSON)
       const finalText = `Here’s a clean breakdown of ${receivedFilename}, now including suggested code fixes! 👇🔥\n\n${responseText}\n\nIf you want more personalization, improvements, or a complete rewrite, let me know what needs to change. 😎🕷️`;
-      return new Response(finalText, { headers: { "content-type": "text/plain" } });
+      return new Response(finalText, { headers: { ...headers, "content-type": "text/plain" } });
     }
 
     /* ============================================================
-       IMAGE GENERATION
+       IMAGE GENERATION (FIXED to use constant model name)
     ============================================================ */
 
     if (currentMode === "image_gen") {
       const enhanced = (prompt || "") + ", ultra detailed, cinematic lighting, hdr, 8k clarity";
       const img = await env.SPY_AI.run(
-        "@cf/stabilityai/stable-diffusion-xl-base-1.0",
+        IMAGE_GEN_MODEL,
         { prompt: enhanced }
       );
-      return new Response(img, { headers: { "content-type": "image/png" } });
+      return new Response(img, { headers: { ...headers, "content-type": "image/png" } });
     }
 
     /* ============================================================
-       IMAGE EDIT
+       IMAGE EDIT (FIXED to use constant model name)
     ============================================================ */
 
     if (currentMode === "image_edit") {
       const enhanced = (prompt || "") + ", detailed render, hdr, cinematic";
       const img = await env.SPY_AI.run(
-        "@cf/stabilityai/stable-diffusion-xl-refiner-1.0",
+        IMAGE_EDIT_MODEL,
         {
           prompt: enhanced,
           image: (image || body.image),
           strength: (strength || body.strength || 0.7)
         }
       );
-      return new Response(img, { headers: { "content-type": "image/png" } });
+      return new Response(img, { headers: { ...headers, "content-type": "image/png" } });
     }
 
     /* ============================================================
-       NORMAL CHAT + AUTO SEARCH (TAVILY)
+       NORMAL CHAT + AUTO SEARCH (TAVILY) (FIXED to use constant model name)
     ============================================================ */
 
     const searchInstruction =
@@ -571,7 +595,7 @@ ${contentToAnalyze}
     baseMessages.push({ role: "user", content: prompt || "" });
 
     const aiResp = await env.SPY_AI.run(
-      "@cf/mistralai/mistral-small-3.1-24b-instruct",
+      CHAT_MODEL,
       { messages: baseMessages }
     );
 
@@ -604,7 +628,7 @@ ${contentToAnalyze}
       sumMessages.push({ role: "user", content: searchSummaryPrompt });
 
       const final = await env.SPY_AI.run(
-        "@cf/mistralai/mistral-small-3.1-24b-instruct",
+        CHAT_MODEL,
         { messages: sumMessages }
       );
 
@@ -614,10 +638,10 @@ ${contentToAnalyze}
       const lowerPrompt = (prompt || "").toLowerCase();
       if (!lowerPrompt.includes("no emojis") && !lowerPrompt.includes("no emoji") && !/[^\p{Emoji}\p{Extended_Pictographic}]/u.test(clean)) {
         // If model failed to include emoji, append friendly default emoji
-        return new Response(clean + " 😎🔥", { headers: { "content-type": "text/plain" } });
+        return new Response(clean + " 😎🔥", { headers: { ...headers, "content-type": "text/plain" } });
       }
 
-      return new Response(clean, { headers: { "content-type": "text/plain" } });
+      return new Response(clean, { headers: { ...headers, "content-type": "text/plain" } });
     }
 
     /* ===========================
@@ -631,25 +655,24 @@ ${contentToAnalyze}
     if (!lowerPrompt.includes("no emojis") && !lowerPrompt.includes("no emoji")) {
       // If reply has zero emojis, tack on a friendly emoji
       if (!/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/u.test(clean)) {
-        return new Response(clean + " 🙂", { headers: { "content-type": "text/plain" } });
+        return new Response(clean + " 🙂", { headers: { ...headers, "content-type": "text/plain" } });
       }
     }
 
-    return new Response(clean, { headers: { "content-type": "text/plain" } });
+    return new Response(clean, { headers: { ...headers, "content-type": "text/plain" } });
 
   } catch (error) {
     console.error("Fatal Worker Error:", error);
     return new Response(
       "Spider AI crashed internally 😭. Check logs to fix the issue!",
-      { headers: { "content-type": "text/plain" }, status: 500 }
+      { headers: { ...headers, "content-type": "text/plain" }, status: 500 } // Add headers
     );
   }
 } // END onRequest
 
 
 /* ============================================================
- TAVILY SEARCH
- - Requires secret TAVILY_API_KEY set via `wrangler secret put TAVILY_API_KEY` or Dashboard.
+ TAVILY SEARCH (unchanged)
 ============================================================ */
 
 async function runTavilySearch(env, query) {
@@ -659,7 +682,7 @@ async function runTavilySearch(env, query) {
   }
 
   try {
-    const response = await fetch("https://api.tavily.com/search", {
+    const response = await fetch("[https://api.tavily.com/search](https://api.tavily.com/search)", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -685,7 +708,7 @@ async function runTavilySearch(env, query) {
 }
 
 /* ============================================================
- EXTRACT TEXT FROM MODEL RESPONSE (robust)
+ EXTRACT TEXT FROM MODEL RESPONSE (robust) (unchanged)
 ============================================================ */
 
 function extractText(resp) {
