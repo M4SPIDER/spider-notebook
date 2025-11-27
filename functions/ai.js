@@ -1,7 +1,7 @@
 /* ============================================================
- SPIDER AI — V4.4 (GUARANTEED CODE BLOCKS)
- - **FIXED:** `analyze_file` mode ensures code blocks and markdown structure are preserved by bypassing cleanup.
- - **UPDATED:** `aPrompt` is now extremely forceful in demanding code be delivered inside markdown blocks for analysis/fixes.
+ SPIDER AI — V4.6 (ULTRA-CLEAN CODE OUTPUT)
+ - **FINAL FIX:** Added targeted cleanup in analyze_file mode to strip leaked C++/JS/Python fragments outside of markdown, reinforcing reliance on fenced code blocks for all code output.
+ - **DOMINANT PROMPT:** System prompt is now aggressively worded to ensure model adherence to code block rules.
 ============================================================ */
 
 /* ===== CONFIG ===== */
@@ -90,7 +90,7 @@ async function verifyFirebaseToken(idToken) {
     const payload = JSON.parse(atob(parts[1]));
     const kid = header.kid;
     const firebaseKeys = await fetch(
-      "https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com"
+      "[https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com](https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com)"
     ).then(r => r.json());
     const cert = firebaseKeys[kid];
     if (!cert) return null;
@@ -116,7 +116,7 @@ async function verifyFirebaseToken(idToken) {
     );
     if (!valid) return null;
     if (payload.aud !== FIREBASE_PROJECT_ID) return null;
-    if (payload.iss !== ("https://securetoken.google.com/" + FIREBASE_PROJECT_ID)) return null;
+    if (payload.iss !== ("[https://securetoken.google.com/](https://securetoken.google.com/)" + FIREBASE_PROJECT_ID)) return null;
     if (payload.exp * 1000 < Date.now()) return null;
     return payload;
   } catch {
@@ -125,14 +125,37 @@ async function verifyFirebaseToken(idToken) {
 }
 
 /* ============================================================
-MODE DETECTOR
+MODE DETECTOR (UPDATED FOR PASTED CODE)
 ============================================================ */
 
 function detectMode(prompt, file_content, filename) {
   if (file_content || filename) return "analyze_file";
   const t = (prompt || "").toLowerCase();
-  if (t.includes("analyze file") || t.includes("clean code") || t.includes("debug") || t.includes("fix code"))
+
+  // CRITICAL FIX: If the user provides a long prompt AND asks for code work, 
+  // force analyze_file mode to preserve markdown and code blocks.
+  const isCodeAnalysisKeyword = 
+    t.includes("analyze file") || 
+    t.includes("clean code") || 
+    t.includes("debug") || 
+    t.includes("fix code") || 
+    t.includes("write full code") ||
+    t.includes("code block") || // Added specific instruction keyword
+    t.includes("updated code");
+
+  // Heuristic: Check if the prompt is very long (suggests pasted code, e.g., > 10 lines or > 250 characters)
+  const isLongCodeSnippet = 
+    (prompt || "").length > 250 || (prompt || "").split('\n').length > 5;
+
+  if (isCodeAnalysisKeyword && (isLongCodeSnippet || (prompt || "").includes("```"))) {
     return "analyze_file";
+  }
+  
+  // Fallback for general code requests (like "Hello World") which are short
+  if (isCodeAnalysisKeyword) {
+    return "analyze_file";
+  }
+
   if (t.includes("generate image") || t.includes("image of")) return "image_gen";
   if (t.includes("edit image") || t.includes("modify image")) return "image_edit";
   if (t.startsWith("#search:") || t.startsWith("search:")) return "search";
@@ -326,7 +349,6 @@ export async function onRequest(context) {
 
     const combinedFileContent = String(fileContentFromForm || body.file_content || "");
     const { prompt, mode, image, strength, filename } = body;
-    // Updated detectMode to include "fix code" for analyze_file
     let currentMode = mode || detectMode(prompt, combinedFileContent, filename);
 
     /* ================ USER IDENTIFICATION ================ */
@@ -469,41 +491,44 @@ export async function onRequest(context) {
     }
 
     /* ============================================================
-       FILE ANALYSIS MODE (FIXED to preserve code blocks)
+       FILE ANALYSIS MODE (NOW FORCED FOR PASTED CODE)
        ============================================================ */
 
     if (currentMode === "analyze_file") {
-      const receivedFilename = String(body.filename || filename || "unknown");
+      const receivedFilename = String(body.filename || filename || "chat-snippet");
+
+      // If file content is empty, use the prompt itself as the content to analyze
       let contentToAnalyze = combinedFileContent;
+      if (!contentToAnalyze || contentToAnalyze.trim().length === 0) {
+        contentToAnalyze = prompt;
+      }
+      
       contentToAnalyze = contentToAnalyze
         .replace(/[\u0000]/g, '')
         .replace(/\u00A0/g, ' ')
         .replace(/(\r\n|\r)/g, '\n');
 
       if (contentToAnalyze.trim().length === 0) {
-        const emptyMsg = "I'm sorry, mama — I can't analyze the file because it's empty. Ee file empty undhi ra! 😔";
+        const emptyMsg = "I'm sorry, mama — I can't analyze the code because the message is empty. Ee message empty undhi ra! 😔";
         return new Response(emptyMsg, { headers: { "content-type": "text/plain" } });
       }
 
       const aPrompt =
-`You are an **expert code analyst, debugger, and top-tier code generator**. When asked to fix or write code, you must produce the complete and runnable code blocks, not just descriptive text.
-***CRITICAL INSTRUCTION: Your entire response for file analysis MUST be formatted in clean markdown, including headers. ALL code fixes, complete files, or code examples MUST be enclosed in fenced code blocks (\`\`\`language\\n...\`\`\`). DO NOT output any response that is not formatted in markdown.***
+`You are an **expert code analyst, debugger, and top-tier code generator**. The user provided the code/request below directly in the chat. When asked to fix or write code, you must produce the complete and runnable code blocks, not just descriptive text.
+***CRITICAL INSTRUCTION: Your entire response MUST be formatted in clean markdown, including headers. ALL code fixes, complete files, or code examples MUST be enclosed in fenced code blocks (\`\`\`language\\n...\`\`\`). DO NOT output any response that is not formatted in markdown.***
 
-Break down the file in clean sections:
+Break down the file/snippet in clean sections:
 1. Overview
-2. What the file contains
+2. What the code/request contains
 3. How it works (walkthrough)
-4. Why it's written this way (design decisions)
-5. Potential issues, bugs, or pitfalls (Debug like a pro, find subtle errors.)
-6. Improvements & best practices
-7. Suggested Code Fixes/Refactoring (MANDATORY: Provide one or more **complete and runnable code blocks** with the suggested functional fixes and improvements. If the user asks for a *full* file, provide the full, updated code here. DO NOT just describe the fix. Use the correct language tag: e.g., \`\`\`cpp\n...\`\`\`)
-8. Short summary
+4. Potential issues, bugs, or pitfalls (Debug like a pro, find subtle errors.)
+5. Suggested Code Fixes/Refactoring (MANDATORY: Provide one or more **complete and runnable code blocks** with the suggested functional fixes and improvements. If the user asks for a *full* file, provide the full, updated code here. DO NOT just describe the fix. Use the correct language tag: e.g., \`\`\`cpp\n...\`\`\`)
+6. Short summary
 
 Be extremely clear and detailed, like ChatGPT-level explanations.
 
-Filename: ${receivedFilename}
-
-File Content:
+Source: Chat Message (treat as file content)
+Content:
 ${contentToAnalyze}
 `;
 
@@ -520,11 +545,15 @@ ${contentToAnalyze}
       // CRITICAL FIX: Skip the aggressive sanitizeOutput() for file analysis to preserve markdown headers and code blocks.
       let responseText = responseTextRaw.trim(); 
 
+      // ULTRA-CLEANUP: Remove residual C++/JS/Python boilerplate that leaks outside of markdown fences
+      // This targets fragments like 'cpp include include class SpyObject'
+      responseText = responseText.replace(/^(cpp|javascript|python|js)\s+.*\{?\s*$/gim, '').trim();
+
       // Clean up any remaining internal markers that might have leaked
       responseText = responseText.replace(/\\?\{\\?"action\\?".*?\\?\}/g, "");
 
       // Return as plain text (clean, no internal JSON)
-      const finalText = `Here’s a clean breakdown of ${receivedFilename}, now with guaranteed code fixes/full code blocks! 👇🔥\n\n${responseText}\n\nIf you want more personalization, improvements, or a complete rewrite, let me know what needs to change. 😎🕷️`;
+      const finalText = `Here’s a clean breakdown of your code snippet, now with guaranteed code fixes/full code blocks! 👇🔥\n\n${responseText}\n\nIf you want more personalization, improvements, or a complete rewrite, let me know what needs to change. 😎🕷️`;
       return new Response(finalText, { headers: { "content-type": "text/plain" } });
     }
 
