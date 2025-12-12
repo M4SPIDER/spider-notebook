@@ -276,23 +276,7 @@ async function compressMemoryIfNeeded(env, memoryArr) {
 ENHANCED CODE BLOCK ENFORCEMENT
 ============================================================ */
 
-function enforceCodeBlocks(text) {
-  if (!text) return text;
-  
-  // Check if this looks like a technical response that should have code blocks
-  const technicalIndicators = [
-    /(?:code|function|class|def|var|let|const|import|package|public|private|protected)/i,
-    /(?:html|css|javascript|python|java|c\+\+|php|ruby|go|rust|sql)/i,
-    /(?:algorithm|function|method|api|endpoint|database|query)/i,
-    /(?:implement|solution|example|snippet|program|script)/i
-  ];
-  
-  const isTechnical = technicalIndicators.some(pattern => pattern.test(text));
-  const hasExistingCodeBlocks = /```/.test(text);
-  
-  // If technical but no code blocks, add guidance
-  
-}
+
 
 /* ============================================================
 MAIN HANDLER
