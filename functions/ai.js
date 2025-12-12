@@ -291,11 +291,7 @@ function enforceCodeBlocks(text) {
   const hasExistingCodeBlocks = /```/.test(text);
   
   // If technical but no code blocks, add guidance
-  if (isTechnical && !hasExistingCodeBlocks) {
-    return text + "\n\n💡 **Pro Tip**: For complete code solutions, please ask me to provide specific implementations with proper code blocks!";
-  }
   
-  return text;
 }
 
 /* ============================================================
