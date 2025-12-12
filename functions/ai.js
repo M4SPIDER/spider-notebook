@@ -1,7 +1,7 @@
 /* ============================================================
- SPIDER AI — V4.2 (TAVILY) — ai.js (FIXED VERSION)
- - Aggressive auto-search logic removed (now only searches when model explicitly requests it).
- - File analysis mode updated to mandate code fixes/refactoring blocks.
+ SPIDER AI — V4.3 (KV FIXED)
+ - Added critical check for CHAT_KV binding.
+ - Refined memory deduplication logic.
 ============================================================ */
 
 /* ===== CONFIG ===== */
@@ -153,37 +153,37 @@ function looksLikeJSON(s) {
          (trimmed.startsWith("[") && trimmed.endsWith("]"));
 }
 function sanitizeOutput(raw) {
-  if (!raw) return "";
+  if (!raw) return "";
 
-  // Remove markdown headings (###, ##, #)
-  raw = raw.replace(/^#{1,6}\s*/gm, "");
+  // Remove markdown headings (###, ##, #)
+  raw = raw.replace(/^#{1,6}\s*/gm, "");
 
-  // Remove JSON-looking lines with action/search or exact JSON objects/arrays
-  raw = raw.split("\n").filter(line => {
-    const t = line.trim();
-    if (!t) return true;
-    if ((t.startsWith("{") && t.endsWith("}")) || (t.startsWith("[") && t.endsWith("]"))) return false;
-    if (/^\{.*"action".*\}/i.test(t)) return false;
-    if (/^\{.*"response".*\}/i.test(t)) return false;
-    if (/^\{.*"text".*\}/i.test(t)) return false;
-    if (t.startsWith("INTERNAL:")) return false;
-    return true;
-  }).join("\n").trim();
+  // Remove JSON-looking lines with action/search or exact JSON objects/arrays
+  raw = raw.split("\n").filter(line => {
+    const t = line.trim();
+    if (!t) return true;
+    if ((t.startsWith("{") && t.endsWith("}")) || (t.startsWith("[") && t.endsWith("]"))) return false;
+    if (/^\{.*"action".*\}/i.test(t)) return false;
+    if (/^\{.*"response".*\}/i.test(t)) return false;
+    if (/^\{.*"text".*\}/i.test(t)) return false;
+    if (t.startsWith("INTERNAL:")) return false;
+    return true;
+  }).join("\n").trim();
 
-  // Remove any accidental HTML tags (<h1>, <div>, etc)
-  raw = raw.replace(/<\/?[^>]+>/g, "");
+  // Remove any accidental HTML tags (<h1>, <div>, etc)
+  raw = raw.replace(/<\/?[^>]+>/g, "");
 
-  // Remove leftover JSON escape artifacts
-  raw = raw.replace(/\\?\{\\?"action\\?".*?\\?\}/g, "");
+  // Remove leftover JSON escape artifacts
+  raw = raw.replace(/\\?\{\\?"action\\?".*?\\?\}/g, "");
 
-  // Clean double spaces and trailing spaces
-  raw = raw.replace(/\s{2,}/g, " ").trim();
+  // Clean double spaces and trailing spaces
+  raw = raw.replace(/\s{2,}/g, " ").trim();
 
-  // Ensure sentence ends with punctuation
-  if (raw && !/[.!?…]$/.test(raw)) raw = raw + ".";
+  // Ensure sentence ends with punctuation
+  if (raw && !/[.!?…]$/.test(raw)) raw = raw + ".";
 
-  // Keep emojis intact (do not remove emoji characters)
-  return raw.trim();
+  // Keep emojis intact (do not remove emoji characters)
+  return raw.trim();
 }
 /* Detect internal search instruction: returns {action, query} or null.
    Accepts both JSON object and plain text markers like:
@@ -232,15 +232,19 @@ async function getMemoryFromKV(env, memoryKey) {
   try {
     const raw = await env.CHAT_KV.get(memoryKey);
     return raw ? JSON.parse(raw) : [];
-  } catch {
+  } catch (e) {
+    console.error("Error reading KV memory for key:", memoryKey, e);
     return [];
   }
 }
 
 async function saveMemoryToKV(env, memoryKey, mem) {
   try {
-    await env.CHAT_KV.put(memoryKey, JSON.stringify(mem));
-  } catch (_) {}
+    // Setting expiration for safety, though TTL is handled by filter
+    await env.CHAT_KV.put(memoryKey, JSON.stringify(mem), { expirationTtl: MEMORY_TTL_DAYS * 24 * 60 * 60 });
+  } catch (e) {
+    console.error("Error saving KV memory for key:", memoryKey, e);
+  }
 }
 
 /* ================== COMPRESSION (uses your SPY_AI model) ============= */
@@ -275,6 +279,7 @@ async function compressMemoryIfNeeded(env, memoryArr) {
       ...memoryArr.slice(-keepRecent)
     ];
   } catch (e) {
+    console.error("Memory compression failed:", e);
     // On failure, return original memory to avoid data loss
     return memoryArr;
   }
@@ -342,17 +347,23 @@ export async function onRequest(context) {
     }
     const memoryKey = MEMORY_USER_KEY_PREFIX + userId;
 
+    /* ================ CRITICAL KV CHECK ================= */
+    if (!env.CHAT_KV) {
+      console.error("CRITICAL ERROR: CHAT_KV environment binding is missing. Memory is disabled.");
+    }
+
     /* ================ LOAD MEMORY ===================== */
-    let memory = await getMemoryFromKV(env, memoryKey);
+    let memory = env.CHAT_KV ? await getMemoryFromKV(env, memoryKey) : [];
+    
     // TTL filter
     const cutoff = Date.now() - MEMORY_TTL_DAYS * 24 * 60 * 60 * 1000;
     memory = memory.filter(m => (m.ts || 0) >= cutoff);
 
     // compress if needed
-    if (memory.length >= MEMORY_SUMMARY_TRIGGER) memory = await compressMemoryIfNeeded(env, memory);
+    if (env.CHAT_KV && memory.length >= MEMORY_SUMMARY_TRIGGER) memory = await compressMemoryIfNeeded(env, memory);
 
     if (memory.length > MEMORY_MESSAGE_LIMIT) memory = memory.slice(-MEMORY_MESSAGE_LIMIT);
-    await saveMemoryToKV(env, memoryKey, memory);
+    if (env.CHAT_KV) await saveMemoryToKV(env, memoryKey, memory);
 
     /* ============= DELETE MEMORY HANDLES =============== */
 
@@ -370,58 +381,68 @@ export async function onRequest(context) {
         headers: { "content-type": "text/plain" }
       });
     }
+    
+    // Ensure KV is available before attempting delete
+    if (env.CHAT_KV) {
 
-    if (lower.includes("delete memory: all") || lower.includes("reset all") || lower.includes("delete all")) {
-      await env.CHAT_KV.put(memoryKey, "[]");
-      return new Response("All memory cleared 😎🔥", {
-        headers: { "content-type": "text/plain" }
-      });
-    }
+      if (lower.includes("delete memory: all") || lower.includes("reset all") || lower.includes("delete all")) {
+        await env.CHAT_KV.put(memoryKey, "[]");
+        return new Response("All memory cleared 😎🔥", {
+          headers: { "content-type": "text/plain" }
+        });
+      }
 
-    if (lower.includes("delete memory:")) {
-      const cmd = lower.replace("delete memory:", "").trim();
-      if (cmd === "last") {
-        memory.pop();
-        await saveMemoryToKV(env, memoryKey, memory);
-        return new Response("Deleted last entry 👍", { headers: { "content-type": "text/plain" }});
-      }
-      if (cmd === "first") {
-        memory.shift();
-        await saveMemoryToKV(env, memoryKey, memory);
-        return new Response("Deleted first entry 👍", { headers: { "content-type": "text/plain" }});
-      }
-      const idx = parseInt(cmd);
-      if (!isNaN(idx)) {
-        if (idx >= 1 && idx <= memory.length) {
-          memory.splice(idx - 1, 1);
+      if (lower.includes("delete memory:")) {
+        const cmd = lower.replace("delete memory:", "").trim();
+        if (cmd === "last") {
+          memory.pop();
           await saveMemoryToKV(env, memoryKey, memory);
-          return new Response("Entry removed 😃", { headers: { "content-type": "text/plain" }});
+          return new Response("Deleted last entry 👍", { headers: { "content-type": "text/plain" }});
         }
-        return new Response("Invalid index 😅", { headers: { "content-type": "text/plain" }});
+        if (cmd === "first") {
+          memory.shift();
+          await saveMemoryToKV(env, memoryKey, memory);
+          return new Response("Deleted first entry 👍", { headers: { "content-type": "text/plain" }});
+        }
+        const idx = parseInt(cmd);
+        if (!isNaN(idx)) {
+          if (idx >= 1 && idx <= memory.length) {
+            memory.splice(idx - 1, 1);
+            await saveMemoryToKV(env, memoryKey, memory);
+            return new Response("Entry removed 😃", { headers: { "content-type": "text/plain" }});
+          }
+          return new Response("Invalid index 😅", { headers: { "content-type": "text/plain" }});
+        }
+        memory = memory.filter(m => !m.content.toLowerCase().includes(cmd));
+        await saveMemoryToKV(env, memoryKey, memory);
+        return new Response("Matching entries deleted 👍", { headers: { "content-type": "text/plain" }});
       }
-      memory = memory.filter(m => !m.content.toLowerCase().includes(cmd));
-      await saveMemoryToKV(env, memoryKey, memory);
-      return new Response("Matching entries deleted 👍", { headers: { "content-type": "text/plain" }});
     }
-
-    /* ============= ADD NEW MEMORY SAFELY ================== */
+    
+    /* ============= ADD NEW MEMORY SAFELY (Refined) ================== */
 
     function norm(s) {
       return (s || "").trim().toLowerCase().replace(/\s+/g, " ");
     }
 
-    if (prompt && prompt.trim()) {
-      const newNorm = norm(prompt);
-      const lastNorm = memory.length ? norm(memory[memory.length - 1].content) : "";
-      if (!(newNorm === lastNorm || newNorm.includes(lastNorm) || lastNorm.includes(newNorm))) {
-        memory.push({ role: "user", content: prompt, ts: Date.now() });
-      } else {
-        if (memory.length) memory[memory.length - 1].ts = Date.now();
+    const userMessage = prompt && prompt.trim();
+    if (userMessage) {
+      const newNorm = norm(userMessage);
+      const lastMessage = memory.length ? memory[memory.length - 1] : null;
+      const lastNorm = lastMessage ? norm(lastMessage.content) : "";
+
+      // Only prevent adding exact duplicates to avoid spamming the same prompt
+      if (newNorm !== lastNorm) {
+        memory.push({ role: "user", content: userMessage, ts: Date.now() });
+      } else if (lastMessage && lastMessage.role === "user") {
+        // If exact duplicate and the role is user (meaning model hasn't replied yet), update the timestamp
+        lastMessage.ts = Date.now();
       }
     }
 
+
     if (memory.length > MEMORY_MESSAGE_LIMIT) memory = memory.slice(-MEMORY_MESSAGE_LIMIT);
-    await saveMemoryToKV(env, memoryKey, memory);
+    if (env.CHAT_KV) await saveMemoryToKV(env, memoryKey, memory);
 
     /* ============= MEMORY SUMMARY FOR MODEL ==================== */
 
@@ -612,7 +633,7 @@ ${contentToAnalyze}
 
       // Ensure emojis present if user didn't say 'no emojis'
       const lowerPrompt = (prompt || "").toLowerCase();
-      if (!lowerPrompt.includes("no emojis") && !lowerPrompt.includes("no emoji") && !/[^\p{Emoji}\p{Extended_Pictographic}]/u.test(clean)) {
+      if (!lowerPrompt.includes("no emojis") && !lowerPrompt.includes("no emoji") && !/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/u.test(clean)) {
         // If model failed to include emoji, append friendly default emoji
         return new Response(clean + " 😎🔥", { headers: { "content-type": "text/plain" } });
       }
