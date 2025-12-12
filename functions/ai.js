@@ -1,7 +1,7 @@
 /* ============================================================
- SPIDER AI — V4.3 (KV FIXED)
- - Added critical check for CHAT_KV binding.
- - Refined memory deduplication logic.
+ SPIDER AI — V4.4 (TEXT TRUNCATION FIX)
+ - Removed aggressive repetition removal logic in extractText
+ - Ensured full model response is returned.
 ============================================================ */
 
 /* ===== CONFIG ===== */
@@ -215,7 +215,7 @@ function extractSearchInstruction(text) {
   }
 
   // Hashtag/keyword forms (Explicit instruction)
-  const hashMatch = t.match(/#?search[:\s]+(.+)/i);
+  const hashMatch = t.match(/#?search[:\s]+(.+)/ /i);
   if (hashMatch && hashMatch[1]) {
     return { action: "search", query: hashMatch[1].trim() };
   }
@@ -230,6 +230,7 @@ function extractSearchInstruction(text) {
 
 async function getMemoryFromKV(env, memoryKey) {
   try {
+    if (!env.CHAT_KV) throw new Error("CHAT_KV is not bound.");
     const raw = await env.CHAT_KV.get(memoryKey);
     return raw ? JSON.parse(raw) : [];
   } catch (e) {
@@ -240,6 +241,7 @@ async function getMemoryFromKV(env, memoryKey) {
 
 async function saveMemoryToKV(env, memoryKey, mem) {
   try {
+    if (!env.CHAT_KV) throw new Error("CHAT_KV is not bound.");
     // Setting expiration for safety, though TTL is handled by filter
     await env.CHAT_KV.put(memoryKey, JSON.stringify(mem), { expirationTtl: MEMORY_TTL_DAYS * 24 * 60 * 60 });
   } catch (e) {
@@ -348,22 +350,23 @@ export async function onRequest(context) {
     const memoryKey = MEMORY_USER_KEY_PREFIX + userId;
 
     /* ================ CRITICAL KV CHECK ================= */
-    if (!env.CHAT_KV) {
+    const isKvBound = !!env.CHAT_KV;
+    if (!isKvBound) {
       console.error("CRITICAL ERROR: CHAT_KV environment binding is missing. Memory is disabled.");
     }
 
     /* ================ LOAD MEMORY ===================== */
-    let memory = env.CHAT_KV ? await getMemoryFromKV(env, memoryKey) : [];
+    let memory = isKvBound ? await getMemoryFromKV(env, memoryKey) : [];
     
     // TTL filter
     const cutoff = Date.now() - MEMORY_TTL_DAYS * 24 * 60 * 60 * 1000;
     memory = memory.filter(m => (m.ts || 0) >= cutoff);
 
     // compress if needed
-    if (env.CHAT_KV && memory.length >= MEMORY_SUMMARY_TRIGGER) memory = await compressMemoryIfNeeded(env, memory);
+    if (isKvBound && memory.length >= MEMORY_SUMMARY_TRIGGER) memory = await compressMemoryIfNeeded(env, memory);
 
     if (memory.length > MEMORY_MESSAGE_LIMIT) memory = memory.slice(-MEMORY_MESSAGE_LIMIT);
-    if (env.CHAT_KV) await saveMemoryToKV(env, memoryKey, memory);
+    if (isKvBound) await saveMemoryToKV(env, memoryKey, memory);
 
     /* ============= DELETE MEMORY HANDLES =============== */
 
@@ -383,7 +386,7 @@ export async function onRequest(context) {
     }
     
     // Ensure KV is available before attempting delete
-    if (env.CHAT_KV) {
+    if (isKvBound) {
 
       if (lower.includes("delete memory: all") || lower.includes("reset all") || lower.includes("delete all")) {
         await env.CHAT_KV.put(memoryKey, "[]");
@@ -442,7 +445,7 @@ export async function onRequest(context) {
 
 
     if (memory.length > MEMORY_MESSAGE_LIMIT) memory = memory.slice(-MEMORY_MESSAGE_LIMIT);
-    if (env.CHAT_KV) await saveMemoryToKV(env, memoryKey, memory);
+    if (isKvBound) await saveMemoryToKV(env, memoryKey, memory);
 
     /* ============= MEMORY SUMMARY FOR MODEL ==================== */
 
@@ -729,8 +732,8 @@ function extractText(resp) {
 
     raw = (raw || "").toString().trim();
 
-    // Remove repetition loops
-    raw = raw.replace(/(.{40,400}?)(?:[\s\S]*?\1){3,}/u, "$1");
+    // *** AGGRESSIVE REPETITION REMOVAL DISABLED TO PREVENT TRUNCATION ISSUES ***
+    // raw = raw.replace(/(.{40,400}?)(?:[\s\S]*?\1){3,}/u, "$1");
 
     return raw.trim();
   } catch (e) {
