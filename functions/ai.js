@@ -1,8 +1,7 @@
 /* ============================================================
- SPIDER AI — V4.3 (CHATGPT/DeepSeek QUALITY) — ai.js
- - Enhanced response quality to match ChatGPT/DeepSeek standards
- - Perfect code block enforcement for all technical responses
- - Improved thinking process and structured answers
+ SPIDER AI — V4.2 (TAVILY) — ai.js (FIXED VERSION)
+ - Aggressive auto-search logic removed (now only searches when model explicitly requests it).
+ - File analysis mode updated to mandate code fixes/refactoring blocks.
 ============================================================ */
 
 /* ===== CONFIG ===== */
@@ -34,7 +33,7 @@ function buildTeluguRegex(words) {
 }
 const TELUGU_TRIGGER_REGEX = buildTeluguRegex(TELUGU_TRIGGER_WORDS);
 
-/* ===== REQUIRE 2+ TELUGU WORDS ===== */
+/* ===== NEW PATCH: REQUIRE 2+ TELUGU WORDS ===== */
 function shouldTriggerTelugu(message) {
   if (!message || typeof message !== "string") return false;
   const words = message.toLowerCase().split(/\s+/);
@@ -46,8 +45,10 @@ function shouldTriggerTelugu(message) {
 }
 
 /* ============================================================
-MAIN SYSTEM PROMPT (CHATGPT/DEEPSEEK LEVEL QUALITY)
+MAIN SYSTEM PROMPT (IMPROVED)
+ - includes emoji rule and think 10-15 times instruction
 ============================================================ */
+
 const SPIDER_SYSTEM_PROMPT =
 `You are Spider, the AI created by M4 Spider.
 GENERAL RULES:
@@ -75,9 +76,6 @@ SAVAGE MODE:
 EMOJI RULE:
 - Use emojis freely in every reply unless the user says 'no emojis'.
 - Use emojis that fit the mood; add some mid-sentence and one at the end.`;
-
-/* ============================================================
-FIREBASE TOKEN VERIFIER (unchanged)
 
 /* ============================================================
 FIREBASE TOKEN VERIFIER
@@ -143,6 +141,9 @@ function detectMode(prompt, file_content, filename) {
 
 /* ============================================================
 SANITIZATION & UTILITIES
+ - sanitizeOutput: ensures user never sees raw JSON or internal tags
+ - looksLikeJSON: heuristics to find pure-JSON replies and remove/wrap them
+ - extractSearchInstruction: detects internal JSON/markers the model might output
 ============================================================ */
 
 function looksLikeJSON(s) {
@@ -151,42 +152,45 @@ function looksLikeJSON(s) {
   return (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
          (trimmed.startsWith("[") && trimmed.endsWith("]"));
 }
-
 function sanitizeOutput(raw) {
-  if (!raw) return "";
+  if (!raw) return "";
 
-  // Remove markdown headings (###, ##, #)
-  raw = raw.replace(/^#{1,6}\s*/gm, "");
+  // Remove markdown headings (###, ##, #)
+  raw = raw.replace(/^#{1,6}\s*/gm, "");
 
-  // Remove JSON-looking lines with action/search or exact JSON objects/arrays
-  raw = raw.split("\n").filter(line => {
-    const t = line.trim();
-    if (!t) return true;
-    if ((t.startsWith("{") && t.endsWith("}")) || (t.startsWith("[") && t.endsWith("]"))) return false;
-    if (/^\{.*"action".*\}/i.test(t)) return false;
-    if (/^\{.*"response".*\}/i.test(t)) return false;
-    if (/^\{.*"text".*\}/i.test(t)) return false;
-    if (t.startsWith("INTERNAL:")) return false;
-    return true;
-  }).join("\n").trim();
+  // Remove JSON-looking lines with action/search or exact JSON objects/arrays
+  raw = raw.split("\n").filter(line => {
+    const t = line.trim();
+    if (!t) return true;
+    if ((t.startsWith("{") && t.endsWith("}")) || (t.startsWith("[") && t.endsWith("]"))) return false;
+    if (/^\{.*"action".*\}/i.test(t)) return false;
+    if (/^\{.*"response".*\}/i.test(t)) return false;
+    if (/^\{.*"text".*\}/i.test(t)) return false;
+    if (t.startsWith("INTERNAL:")) return false;
+    return true;
+  }).join("\n").trim();
 
-  // Remove any accidental HTML tags (<h1>, <div>, etc)
-  raw = raw.replace(/<\/?[^>]+>/g, "");
+  // Remove any accidental HTML tags (<h1>, <div>, etc)
+  raw = raw.replace(/<\/?[^>]+>/g, "");
 
-  // Remove leftover JSON escape artifacts
-  raw = raw.replace(/\\?\{\\?"action\\?".*?\\?\}/g, "");
+  // Remove leftover JSON escape artifacts
+  raw = raw.replace(/\\?\{\\?"action\\?".*?\\?\}/g, "");
 
-  // Clean double spaces and trailing spaces
-  raw = raw.replace(/\s{2,}/g, " ").trim();
+  // Clean double spaces and trailing spaces
+  raw = raw.replace(/\s{2,}/g, " ").trim();
 
-  // Ensure sentence ends with punctuation
-  if (raw && !/[.!?…]$/.test(raw)) raw = raw + ".";
+  // Ensure sentence ends with punctuation
+  if (raw && !/[.!?…]$/.test(raw)) raw = raw + ".";
 
-  // Keep emojis intact (do not remove emoji characters)
-  return raw.trim();
+  // Keep emojis intact (do not remove emoji characters)
+  return raw.trim();
 }
-
-/* Detect internal search instruction */
+/* Detect internal search instruction: returns {action, query} or null.
+   Accepts both JSON object and plain text markers like:
+   {"action":"search","query":"who is PM of India"}
+   or: #search: who is PM of India
+   or: SEARCH: who is PM of India
+*/
 function extractSearchInstruction(text) {
   if (!text || typeof text !== "string") return null;
   const t = text.trim();
@@ -216,6 +220,9 @@ function extractSearchInstruction(text) {
     return { action: "search", query: hashMatch[1].trim() };
   }
 
+  // *** AGGRESSIVE, AUTOMATIC KEYWORD/DOUBT-BASED SEARCH LOGIC REMOVED ***
+  // Now, the search relies ONLY on the model's explicit instruction above.
+
   return null;
 }
 
@@ -236,7 +243,7 @@ async function saveMemoryToKV(env, memoryKey, mem) {
   } catch (_) {}
 }
 
-/* ================== COMPRESSION ============= */
+/* ================== COMPRESSION (uses your SPY_AI model) ============= */
 
 async function compressMemoryIfNeeded(env, memoryArr) {
   if (memoryArr.length < MEMORY_SUMMARY_TRIGGER) return memoryArr;
@@ -268,97 +275,9 @@ async function compressMemoryIfNeeded(env, memoryArr) {
       ...memoryArr.slice(-keepRecent)
     ];
   } catch (e) {
+    // On failure, return original memory to avoid data loss
     return memoryArr;
   }
-}
-
-/* ============================================================
-ENHANCED CODE BLOCK ENFORCEMENT
-============================================================ */
-
-/**
- * Ensures code-like segments that were not properly wrapped in ```code``` blocks
- * by the model or during sanitization are correctly fenced.
- * @param {string} text - The raw text response from the model.
- * @returns {string} The text with enforced code blocks.
- */
-function enforceCodeBlocks(text) {
-    if (!text || typeof text !== "string") return "";
-
-    const lines = text.split('\n');
-    let inCodeBlock = false;
-    let newLines = [];
-
-    // Keywords used to identify potential code lines, favoring common web languages
-    const codeKeywords = [
-        "function", "const", "let", "var", "import", "export", "class", "async", "await", "return",
-        "if", "else", "while", "for", "def", "print", "System.out", "SELECT", "FROM", "UPDATE",
-        "<html>", "<div", "<body", "<?php",
-    ];
-    const codeLikePattern = new RegExp(`(${codeKeywords.join('|')})|[{}();:\\[\\]=<>/\.]`, 'i');
-
-    for (let i = 0; i < lines.length; i++) {
-        let originalLine = lines[i];
-        let trimmedLine = originalLine.trim();
-
-        // 1. Check for explicit fence markers
-        if (trimmedLine.startsWith('```')) {
-            inCodeBlock = !inCodeBlock;
-            newLines.push(originalLine);
-            continue;
-        }
-
-        if (!inCodeBlock) {
-            // 2. Code detection heuristic (start block)
-            let isCodeLike = codeLikePattern.test(originalLine) && !trimmedLine.startsWith('-');
-
-            if (isCodeLike) {
-                let codeCount = 0;
-                let isBlockStart = false;
-
-                // Look ahead 5 lines to confirm it's a block
-                for (let j = i; j < Math.min(i + 5, lines.length); j++) {
-                    if (codeLikePattern.test(lines[j]) && lines[j].trim() !== '') {
-                        codeCount++;
-                    } else if (codeCount > 1) {
-                        break;
-                    }
-                }
-
-                if (codeCount >= 2 && trimmedLine.length > 5) {
-                    // Confirmed potential block start
-                    newLines.push('\n```javascript'); // Default to 'javascript'
-                    inCodeBlock = true;
-                    newLines.push(originalLine);
-                } else {
-                    newLines.push(originalLine);
-                }
-            } else {
-                newLines.push(originalLine);
-            }
-        } else {
-            // 3. Inside a code block, check for fence end
-            newLines.push(originalLine);
-
-            // Look ahead to check if the next line is definitely non-code (e.g., a header, a bullet, or a short sentence)
-            let nextLine = lines[i+1] ? lines[i+1].trim() : null;
-
-            if (trimmedLine.endsWith('}') || trimmedLine.endsWith(';') || trimmedLine.endsWith(')') || trimmedLine.endsWith('/>')) {
-                if (nextLine === null || nextLine.length < 5 || nextLine.startsWith('-') || nextLine.startsWith('*') || nextLine.match(/^[A-Z][a-z]/) || nextLine.match(/^#{1,}/)) {
-                    newLines.push('```\n');
-                    inCodeBlock = false;
-                }
-            }
-        }
-    }
-
-    // Ensure last block is closed if loop finished inside one
-    if (inCodeBlock) {
-        newLines.push('```\n');
-    }
-
-    // Clean up empty lines caused by wrapping logic
-    return newLines.join('\n').replace(/\n\s*\n/g, '\n\n').trim();
 }
 
 /* ============================================================
@@ -398,6 +317,7 @@ export async function onRequest(context) {
         body = {};
       }
     } else {
+      // fallback: try to read text body
       try {
         const t = await request.text();
         if (t) {
@@ -424,10 +344,13 @@ export async function onRequest(context) {
 
     /* ================ LOAD MEMORY ===================== */
     let memory = await getMemoryFromKV(env, memoryKey);
+    // TTL filter
     const cutoff = Date.now() - MEMORY_TTL_DAYS * 24 * 60 * 60 * 1000;
     memory = memory.filter(m => (m.ts || 0) >= cutoff);
 
+    // compress if needed
     if (memory.length >= MEMORY_SUMMARY_TRIGGER) memory = await compressMemoryIfNeeded(env, memory);
+
     if (memory.length > MEMORY_MESSAGE_LIMIT) memory = memory.slice(-MEMORY_MESSAGE_LIMIT);
     await saveMemoryToKV(env, memoryKey, memory);
 
@@ -442,6 +365,7 @@ export async function onRequest(context) {
       !lower.includes("memory:") &&
       !lower.includes("delete all") &&
       !lower.includes("reset all")) {
+      // plain-text friendly instruction
       return new Response("Specify delete memory: all / last / first / <index> / keyword", {
         headers: { "content-type": "text/plain" }
       });
@@ -511,12 +435,14 @@ export async function onRequest(context) {
       .filter(m => m.role !== "assistant")
       .slice(-MEMORY_TRIM_TARGET)
       .map(m => {
-        if (m.role === "system_summary") return "📋 Summary: " + shortPreview2(m.content, 240);
+        if (m.role === "system_summary") return "summary: " + shortPreview2(m.content, 240);
         return m.role + ": " + shortPreview2(m.content, 200);
       })
       .join("\n");
 
-    /* ============= LANGUAGE & MODE DETECTION ================ */
+    /* ============================================================
+       AUTO TELANGANA SLANG MODE + EXTRA SYSTEM INSTRUCTIONS
+       ============================================================ */
 
     let forceTeluguSlang = false;
     if (shouldTriggerTelugu(prompt || "")) forceTeluguSlang = true;
@@ -546,7 +472,7 @@ export async function onRequest(context) {
     }
 
     /* ============================================================
-       FILE ANALYSIS MODE (CHATGPT-LEVEL QUALITY)
+       FILE ANALYSIS MODE (FIXED to request code fixes)
        ============================================================ */
 
     if (currentMode === "analyze_file") {
@@ -563,49 +489,19 @@ export async function onRequest(context) {
       }
 
       const aPrompt =
-`As an expert code analyst at ChatGPT/DeepSeek level, provide a comprehensive technical breakdown:
+`You are an expert code analyst and debugger. Break down the file in clean sections:
+1. Overview
+2. What the file contains
+3. How it works (walkthrough)
+4. Why it's written this way (design decisions)
+5. Potential issues, bugs, or pitfalls
+6. Improvements & best practices
+7. Suggested Code Fixes/Refactoring (MANDATORY: Provide one or more complete code blocks with the suggested functional fixes and improvements. DO NOT just describe the fix.)
+8. Short summary
 
-📊 **COMPREHENSIVE FILE ANALYSIS: ${receivedFilename}**
+Be extremely clear and detailed, like ChatGPT-level explanations.
 
-1. **ARCHITECTURE OVERVIEW**
-   - Primary purpose and functionality
-   - Overall design patterns and structure
-   - Key components and their relationships
-
-2. **CODE QUALITY ASSESSMENT**
-   - Readability and maintainability score
-   - Adherence to best practices
-   - Potential technical debt indicators
-
-3. **FUNCTIONAL ANALYSIS**
-   - Core algorithms and logic flow
-   - Data structures and their appropriateness
-   - Input/output processing
-
-4. **SECURITY & ROBUSTNESS**
-   - Potential vulnerabilities
-   - Error handling completeness
-   - Input validation and sanitization
-
-5. **PERFORMANCE CONSIDERATIONS**
-   - Time/space complexity analysis
-   - Bottlenecks and optimization opportunities
-   - Scalability concerns
-
-6. **BEST PRACTICES IMPLEMENTATION**
-   - SOLID principles application
-   - Code organization and modularity
-   - Documentation adequacy
-
-🔧 **CODE IMPROVEMENTS & REFACTORING (MANDATORY):**
-Provide complete, production-ready code blocks with:
-- Enhanced error handling and validation
-- Improved performance optimizations
-- Better security practices
-- Comprehensive comments
-- Proper testing considerations
-
-Format ALL code examples in proper markdown code blocks with language specification.
+Filename: ${receivedFilename}
 
 File Content:
 ${contentToAnalyze}
@@ -615,15 +511,15 @@ ${contentToAnalyze}
         { role: "system", content: SPIDER_SYSTEM_PROMPT }
       ];
       if (extraSystemInstructions.length) messages.push({ role: "system", content: extraSystemInstructions.join("\n") });
-      messages.push({ role: "system", content: "📝 Conversation Context:\n" + memorySummary });
+      messages.push({ role: "system", content: "Memory:\n" + memorySummary });
       messages.push({ role: "user", content: aPrompt });
 
       const result = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", { messages });
       const responseTextRaw = extractText(result);
       const responseText = sanitizeOutput(responseTextRaw);
-      const withCodeEnforcement = enforceCodeBlocks(responseText);
 
-      const finalText = `🔍 **In-Depth Analysis of ${receivedFilename}** (ChatGPT-Level Quality) 👇\n\n${withCodeEnforcement}\n\n💎 *Need specific improvements or additional explanations? Just ask!* 😊🕷️`;
+      // Return as plain text (clean, no internal JSON)
+      const finalText = `Here’s a clean breakdown of ${receivedFilename}, now including suggested code fixes! 👇🔥\n\n${responseText}\n\nIf you want more personalization, improvements, or a complete rewrite, let me know what needs to change. 😎🕷️`;
       return new Response(finalText, { headers: { "content-type": "text/plain" } });
     }
 
@@ -664,18 +560,13 @@ ${contentToAnalyze}
     const searchInstruction =
       "If you need up-to-date information or external knowledge, internally mark it with {\"action\":\"search\",\"query\":\"...\"}. Do NOT return JSON to the user.";
 
-    // Enhanced context for ChatGPT-level responses
-    const qualityContext = 
-      "Provide ChatGPT/DeepSeek level comprehensive responses. Structure answers clearly, include practical examples, and use code blocks for all technical implementations. Think deeply (15+ iterations) before responding.";
-
     const baseMessages = [
       { role: "system", content: SPIDER_SYSTEM_PROMPT }
     ];
     if (extraSystemInstructions.length)
       baseMessages.push({ role: "system", content: extraSystemInstructions.join("\n") });
 
-    baseMessages.push({ role: "system", content: "📝 Conversation Context:\n" + memorySummary });
-    baseMessages.push({ role: "system", content: qualityContext });
+    baseMessages.push({ role: "system", content: "Memory:\n" + memorySummary });
     baseMessages.push({ role: "system", content: searchInstruction });
     baseMessages.push({ role: "user", content: prompt || "" });
 
@@ -697,11 +588,11 @@ ${contentToAnalyze}
       const results = await runTavilySearch(env, query);
 
       const searchSummaryPrompt =
-        `Here are comprehensive Tavily search results:\n\nDirect Answer: ${results.answer || "No direct answer available."}\n\nTop Sources:\n` +
+        `Here are Tavily search results:\n\nAnswer: ${results.answer || "No direct answer."}\n\nTop Sources:\n` +
         (results.results || [])
-          .map(r => `- ${(r.title || "").trim()} [${(r.url || "").trim()}]`)
+          .map(r => "- " + (r.url || r.title || "").trim())
           .join("\n") +
-        `\n\nUsing ONLY the above verified information, provide a comprehensive ChatGPT-level answer to the user's original question. Include relevant details, context, and practical insights. Structure the response clearly and include emoji(s) where appropriate.`;
+        `\n\nUsing ONLY the above information, answer the user's original question clearly and include emoji(s) where appropriate. Mention top sources when useful.`;
 
       const sumMessages = [
         { role: "system", content: SPIDER_SYSTEM_PROMPT }
@@ -709,8 +600,7 @@ ${contentToAnalyze}
       if (extraSystemInstructions.length)
         sumMessages.push({ role: "system", content: extraSystemInstructions.join("\n") });
 
-      sumMessages.push({ role: "system", content: "📝 Conversation Context:\n" + memorySummary });
-      sumMessages.push({ role: "system", content: qualityContext });
+      sumMessages.push({ role: "system", content: "Memory:\n" + memorySummary });
       sumMessages.push({ role: "user", content: searchSummaryPrompt });
 
       const final = await env.SPY_AI.run(
@@ -719,14 +609,15 @@ ${contentToAnalyze}
       );
 
       const clean = sanitizeOutput(extractText(final));
-      const withCodeEnforcement = enforceCodeBlocks(clean);
 
+      // Ensure emojis present if user didn't say 'no emojis'
       const lowerPrompt = (prompt || "").toLowerCase();
-      if (!lowerPrompt.includes("no emojis") && !lowerPrompt.includes("no emoji") && !/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/u.test(withCodeEnforcement)) {
-        return new Response(withCodeEnforcement + " 🔍📚", { headers: { "content-type": "text/plain" } });
+      if (!lowerPrompt.includes("no emojis") && !lowerPrompt.includes("no emoji") && !/[^\p{Emoji}\p{Extended_Pictographic}]/u.test(clean)) {
+        // If model failed to include emoji, append friendly default emoji
+        return new Response(clean + " 😎🔥", { headers: { "content-type": "text/plain" } });
       }
 
-      return new Response(withCodeEnforcement, { headers: { "content-type": "text/plain" } });
+      return new Response(clean, { headers: { "content-type": "text/plain" } });
     }
 
     /* ===========================
@@ -734,21 +625,22 @@ ${contentToAnalyze}
        =========================== */
 
     const clean = sanitizeOutput(rawText);
-    const withCodeEnforcement = enforceCodeBlocks(clean);
 
+    // If user didn't say 'no emojis', ensure the reply includes at least one emoji.
     const lowerPrompt = (prompt || "").toLowerCase();
     if (!lowerPrompt.includes("no emojis") && !lowerPrompt.includes("no emoji")) {
-      if (!/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/u.test(withCodeEnforcement)) {
-        return new Response(withCodeEnforcement + " 💡", { headers: { "content-type": "text/plain" } });
+      // If reply has zero emojis, tack on a friendly emoji
+      if (!/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/u.test(clean)) {
+        return new Response(clean + " 🙂", { headers: { "content-type": "text/plain" } });
       }
     }
 
-    return new Response(withCodeEnforcement, { headers: { "content-type": "text/plain" } });
+    return new Response(clean, { headers: { "content-type": "text/plain" } });
 
   } catch (error) {
     console.error("Fatal Worker Error:", error);
     return new Response(
-      "Spider AI encountered an internal error 😭. Our team has been notified and is working on a fix!",
+      "Spider AI crashed internally 😭. Check logs to fix the issue!",
       { headers: { "content-type": "text/plain" }, status: 500 }
     );
   }
@@ -757,6 +649,7 @@ ${contentToAnalyze}
 
 /* ============================================================
  TAVILY SEARCH
+ - Requires secret TAVILY_API_KEY set via `wrangler secret put TAVILY_API_KEY` or Dashboard.
 ============================================================ */
 
 async function runTavilySearch(env, query) {
