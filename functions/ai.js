@@ -1,7 +1,7 @@
 /* ============================================================
- SPIDER AI — V4.5 (CRASH FIXES & BINDING CHECKS)
- - Added crucial checks for env.SPY_AI and env.TAVILY_API_KEY.
- - Ensures graceful error handling if environment bindings are missing.
+ SPIDER AI — V4.4 (TEXT TRUNCATION FIX)
+ - Removed aggressive repetition removal logic in extractText
+ - Ensured full model response is returned.
 ============================================================ */
 
 /* ===== CONFIG ===== */
@@ -215,12 +215,13 @@ function extractSearchInstruction(text) {
   }
 
   // Hashtag/keyword forms (Explicit instruction)
-  const hashMatch = t.match(/#?search[:\s]+(.+)/i);
+  const hashMatch = t.match(/#?search[:\s]+(.+)/ /i);
   if (hashMatch && hashMatch[1]) {
     return { action: "search", query: hashMatch[1].trim() };
   }
 
   // *** AGGRESSIVE, AUTOMATIC KEYWORD/DOUBT-BASED SEARCH LOGIC REMOVED ***
+  // Now, the search relies ONLY on the model's explicit instruction above.
 
   return null;
 }
@@ -295,27 +296,6 @@ export async function onRequest(context) {
   const env = context.env;
 
   try {
-    /* ================ CRITICAL BINDING CHECKS (FIX) ================= */
-    const isKvBound = !!env.CHAT_KV;
-    if (!isKvBound) {
-      console.error("CRITICAL ERROR: CHAT_KV environment binding is missing. Memory is disabled.");
-      // Continue, but mark memory as disabled
-    }
-    
-    const isAiBound = !!env.SPY_AI;
-    if (!isAiBound) {
-      return new Response(
-        "CRITICAL ERROR: The AI Model binding (SPY_AI) is missing. Please check your Worker AI configuration in wrangler.toml.",
-        { headers: { "content-type": "text/plain" }, status: 500 }
-      );
-    }
-
-    if (!env.TAVILY_API_KEY) {
-      console.warn("WARNING: TAVILY_API_KEY is missing. Search functionality will fail.");
-    }
-    /* ============================================================= */
-
-
     let body = {};
     let fileContentFromForm = null;
     const contentType = request.headers.get("content-type") || "";
@@ -369,9 +349,15 @@ export async function onRequest(context) {
     }
     const memoryKey = MEMORY_USER_KEY_PREFIX + userId;
 
+    /* ================ CRITICAL KV CHECK ================= */
+    const isKvBound = !!env.CHAT_KV;
+    if (!isKvBound) {
+      console.error("CRITICAL ERROR: CHAT_KV environment binding is missing. Memory is disabled.");
+    }
+
     /* ================ LOAD MEMORY ===================== */
     let memory = isKvBound ? await getMemoryFromKV(env, memoryKey) : [];
-    
+    
     // TTL filter
     const cutoff = Date.now() - MEMORY_TTL_DAYS * 24 * 60 * 60 * 1000;
     memory = memory.filter(m => (m.ts || 0) >= cutoff);
@@ -398,11 +384,11 @@ export async function onRequest(context) {
         headers: { "content-type": "text/plain" }
       });
     }
-    
+    
     // Ensure KV is available before attempting delete
     if (isKvBound) {
 
-      if (lower.includes("delete memory: all") || lower.includes("reset all") || lower.includes("delete all")) {
+      if (lower.includes("delete memory: all") || lower.includes("reset all") || lower.includes("delete all")) {
         await env.CHAT_KV.put(memoryKey, "[]");
         return new Response("All memory cleared 😎🔥", {
           headers: { "content-type": "text/plain" }
@@ -435,7 +421,7 @@ export async function onRequest(context) {
         return new Response("Matching entries deleted 👍", { headers: { "content-type": "text/plain" }});
       }
     }
-    
+    
     /* ============= ADD NEW MEMORY SAFELY (Refined) ================== */
 
     function norm(s) {
@@ -621,11 +607,6 @@ ${contentToAnalyze}
        =========================== */
 
     if (instruction && instruction.action === "search") {
-      if (!env.TAVILY_API_KEY) {
-        const noSearchMsg = `Yo, I tried to search for "${instruction.query}", but the TAVILY_API_KEY is missing, mama! 🔑 No current info for you. Try setting the secret! 😅`;
-        return new Response(noSearchMsg, { headers: { "content-type": "text/plain" } });
-      }
-      
       const query = (instruction.query || prompt || "").slice(0, 800);
 
       const results = await runTavilySearch(env, query);
@@ -683,7 +664,7 @@ ${contentToAnalyze}
   } catch (error) {
     console.error("Fatal Worker Error:", error);
     return new Response(
-      `Spider AI crashed internally 😭. Details: ${error.message || 'Unknown error. Check logs.'}`,
+      "Spider AI crashed internally 😭. Check logs to fix the issue!",
       { headers: { "content-type": "text/plain" }, status: 500 }
     );
   }
@@ -750,6 +731,9 @@ function extractText(resp) {
     if (!raw && typeof resp === "string") raw = resp;
 
     raw = (raw || "").toString().trim();
+
+    // *** AGGRESSIVE REPETITION REMOVAL DISABLED TO PREVENT TRUNCATION ISSUES ***
+    // raw = raw.replace(/(.{40,400}?)(?:[\s\S]*?\1){3,}/u, "$1");
 
     return raw.trim();
   } catch (e) {
