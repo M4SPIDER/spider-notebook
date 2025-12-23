@@ -180,7 +180,7 @@ function sanitizeOutput(raw) {
   raw = raw.replace(/\s{2,}/g, " ").trim();
 
   // Ensure sentence ends with punctuation
-  if (raw && !/[.!?…]$/.test(raw)) raw = raw + ".";
+  if (raw && !/[.!?…]$/.test(raw) && !/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/u.test(raw)) raw = raw + ".";
 
   // Keep emojis intact (do not remove emoji characters)
   return raw.trim();
@@ -301,7 +301,7 @@ export async function onRequest(context) {
       console.error("CRITICAL ERROR: CHAT_KV environment binding is missing. Memory is disabled.");
       // Continue, but mark memory as disabled
     }
-    
+    
     const isAiBound = !!env.SPY_AI;
     if (!isAiBound) {
       return new Response(
@@ -380,7 +380,7 @@ export async function onRequest(context) {
     if (isKvBound && memory.length >= MEMORY_SUMMARY_TRIGGER) memory = await compressMemoryIfNeeded(env, memory);
 
     if (memory.length > MEMORY_MESSAGE_LIMIT) memory = memory.slice(-MEMORY_MESSAGE_LIMIT);
-    if (isKvBound) await saveMemoryToKV(env, memoryKey, memory);
+    // Initial memory save removed here, will be saved once at the end with assistant's reply.
 
     /* ============= DELETE MEMORY HANDLES =============== */
 
@@ -459,7 +459,7 @@ export async function onRequest(context) {
 
 
     if (memory.length > MEMORY_MESSAGE_LIMIT) memory = memory.slice(-MEMORY_MESSAGE_LIMIT);
-    if (isKvBound) await saveMemoryToKV(env, memoryKey, memory);
+    // Removed redundant memory save after user message.
 
     /* ============= MEMORY SUMMARY FOR MODEL ==================== */
 
@@ -477,6 +477,17 @@ export async function onRequest(context) {
         return m.role + ": " + shortPreview2(m.content, 200);
       })
       .join("\n");
+
+
+    /* ============= NEW: ASSISTANT REPLY SAVE HELPER ===================== */
+
+    async function saveAssistantReply(replyContent) {
+      if (isKvBound && replyContent) {
+        memory.push({ role: "assistant", content: replyContent, ts: Date.now() });
+        if (memory.length > MEMORY_MESSAGE_LIMIT) memory = memory.slice(-MEMORY_MESSAGE_LIMIT);
+        await saveMemoryToKV(env, memoryKey, memory);
+      }
+    }
 
     /* ============================================================
        AUTO TELANGANA SLANG MODE + EXTRA SYSTEM INSTRUCTIONS
@@ -556,6 +567,9 @@ ${contentToAnalyze}
       const responseTextRaw = extractText(result);
       const responseText = sanitizeOutput(responseTextRaw);
 
+      // NEW FIX: Save Assistant's reply to memory before returning.
+      await saveAssistantReply(responseText);
+
       // Return as plain text (clean, no internal JSON)
       const finalText = `Here’s a clean breakdown of ${receivedFilename}, now including suggested code fixes! 👇🔥\n\n${responseText}\n\nIf you want more personalization, improvements, or a complete rewrite, let me know what needs to change. 😎🕷️`;
       return new Response(finalText, { headers: { "content-type": "text/plain" } });
@@ -623,9 +637,11 @@ ${contentToAnalyze}
     if (instruction && instruction.action === "search") {
       if (!env.TAVILY_API_KEY) {
         const noSearchMsg = `Yo, I tried to search for "${instruction.query}", but the TAVILY_API_KEY is missing, mama! 🔑 No current info for you. Try setting the secret! 😅`;
+        // NEW FIX: Save Assistant's reply to memory before returning (no search)
+        await saveAssistantReply(noSearchMsg);
         return new Response(noSearchMsg, { headers: { "content-type": "text/plain" } });
       }
-      
+      
       const query = (instruction.query || prompt || "").slice(0, 800);
 
       const results = await runTavilySearch(env, query);
@@ -651,14 +667,16 @@ ${contentToAnalyze}
         { messages: sumMessages }
       );
 
-      const clean = sanitizeOutput(extractText(final));
+      let clean = sanitizeOutput(extractText(final));
 
       // Ensure emojis present if user didn't say 'no emojis'
       const lowerPrompt = (prompt || "").toLowerCase();
       if (!lowerPrompt.includes("no emojis") && !lowerPrompt.includes("no emoji") && !/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/u.test(clean)) {
-        // If model failed to include emoji, append friendly default emoji
-        return new Response(clean + " 😎🔥", { headers: { "content-type": "text/plain" } });
+        clean = clean + " 😎🔥"; // Append friendly default emoji if missing
       }
+
+      // NEW FIX: Save Assistant's reply to memory before returning.
+      await saveAssistantReply(clean);
 
       return new Response(clean, { headers: { "content-type": "text/plain" } });
     }
@@ -667,16 +685,19 @@ ${contentToAnalyze}
        If no search needed → Direct reply
        =========================== */
 
-    const clean = sanitizeOutput(rawText);
+    let clean = sanitizeOutput(rawText);
 
     // If user didn't say 'no emojis', ensure the reply includes at least one emoji.
     const lowerPrompt = (prompt || "").toLowerCase();
     if (!lowerPrompt.includes("no emojis") && !lowerPrompt.includes("no emoji")) {
       // If reply has zero emojis, tack on a friendly emoji
       if (!/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/u.test(clean)) {
-        return new Response(clean + " 🙂", { headers: { "content-type": "text/plain" } });
+        clean = clean + " 🙂";
       }
     }
+
+    // NEW FIX: Save Assistant's reply to memory before returning.
+    await saveAssistantReply(clean);
 
     return new Response(clean, { headers: { "content-type": "text/plain" } });
 
