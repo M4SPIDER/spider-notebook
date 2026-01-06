@@ -231,53 +231,23 @@ const PrivacyModal = ({ show, onClose }) => {
 
 
 // --- NEW: Login Page Component (Updated for M4 Spider Login and Firebase Auth Pattern) ---
-// In your LoginPage component, add auth as a prop:
-const LoginPage = ({ onLoginSuccess, auth }) => {  // Add auth prop
-    // ... existing state
+const LoginPage = ({ onLoginSuccess }) => {
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [userName, setUserName] = useState(''); // NEW: State for User Name
+    const [error, setError] = useState('');
+    const [isSignUpMode, setIsSignUpMode] = useState(false); // New state to control default view
 
-    // REMOVE the Firebase initialization useEffect from LoginPage
-    // const [auth, setAuth] = useState(null); // REMOVE this line
-    // useEffect(() => { ... }, []); // REMOVE this useEffect
-
-    const handleLogin = async (e) => {
-        e.preventDefault();
-        setError('');
-        
-        try {
-            // Use the passed auth prop
-            if (!auth) {
-                setError("Authentication service is not ready. Please wait a moment.");
-                return;
-            }
-
-            const userCredential = await signInWithEmailAndPassword(auth, email, password);
-            handleAuthSuccess(userCredential.user);
-        } catch (err) {
-            // ... error handling
-        }
+    // User's provided Firebase configuration as a fallback
+    const USER_FIREBASE_CONFIG = {
+        apiKey: "AIzaSyBS1aGZZ2RDx2RKji1jOO-7spiY5QzJjh8",
+        authDomain: "m4-spider.firebaseapp.com",
+        projectId: "m4-spider",
+        storageBucket: "m4-spider.firebasestorage.app",
+        messagingSenderId: "154970150789",
+        appId: "1:154970150789:web:60796710cacca377edd6ec",
+        measurementId: "G-TGTWRTF7EX"
     };
-    
-    const handleSignUp = async (e) => {
-        e.preventDefault();
-        setError('');
-        
-        try {
-            // Use the passed auth prop
-            if (!auth) {
-                setError("Authentication service is not ready. Please wait a moment.");
-                return;
-            }
-            
-            const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-            await updateProfile(userCredential.user, { displayName: userName.trim() });
-            handleAuthSuccess(userCredential.user);
-        } catch (err) {
-            // ... error handling
-        }
-    };
-
-    // ... rest of LoginPage
-};
 
     // --- Firebase Auth Setup (MANDATORY for real persistence) ---
     const [auth, setAuth] = useState(null);
@@ -428,6 +398,10 @@ const LoginPage = ({ onLoginSuccess, auth }) => {  // Add auth prop
             </div>
         </div>
     );
+};
+
+
+// --- Helper Components for LandingPage (Icons & Logo) ---
 
 // Custom inline SVG for the Spider Logo
 const SpiderLogo = () => (
@@ -1460,10 +1434,7 @@ const SpiderAIApp = ({
     uploadedFile, 
     setUploadedFile, 
     uploadedImage, 
-    setUploadedImage,
-    auth,
-    database,
-    isLoggedIn
+    setUploadedImage 
 }) => {
     // ---------- State ----------
     const [message, setMessage] = useState('');
@@ -1480,14 +1451,10 @@ const SpiderAIApp = ({
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [isMobile, setIsMobile] = useState(false);
     
-    // ---------- Refs ----------
-    const fileInputRef = useRef(null);
-    const imageInputRef = useRef(null);
-    const textareaRef = useRef(null);
-    const profileImageInputRef = useRef(null);
-    const chatEndRef = useRef(null);
-    
-    // Firebase states - use props instead of local initialization
+    // Firebase states
+    const [firebaseApp, setFirebaseApp] = useState(null);
+    const [auth, setAuth] = useState(null);
+    const [database, setDatabase] = useState(null);
     const [firebaseUser, setFirebaseUser] = useState(null);
     const [isSyncing, setIsSyncing] = useState(false);
     const [syncStatus, setSyncStatus] = useState('idle');
@@ -1509,51 +1476,101 @@ const SpiderAIApp = ({
     });
     const [showProfileModal, setShowProfileModal] = useState(false);
 
-    // ---------- Use passed auth/database ----------
+    const fileInputRef = useRef(null);
+    const imageInputRef = useRef(null);
+    const profileImageInputRef = useRef(null);
+    const chatEndRef = useRef(null);
+    const textareaRef = useRef(null);
+
+    const getAppId = () => typeof __app_id !== 'undefined' ? __app_id : 'default-m4-app';
+    
+    // Firebase config
+    const FIREBASE_CONFIG = {
+        apiKey: "AIzaSyBS1aGZZ2RDx2RKji1jOO-7spiY5QzJjh8",
+        authDomain: "m4-spider.firebaseapp.com",
+        projectId: "m4-spider",
+        storageBucket: "m4-spider.firebasestorage.app",
+        messagingSenderId: "154970150789",
+        appId: "1:154970150789:web:60796710cacca377edd6ec",
+        measurementId: "G-TGTWRTF7EX",
+        databaseURL: "https://m4-spider-default-rtdb.firebaseio.com"
+    };
+
+    // ---------- Detect Mobile ----------
     useEffect(() => {
-        if (!auth) {
-            console.log('No auth instance available');
-            loadLocalData();
-            return;
-        }
+        const checkMobile = () => {
+            const mobile = window.innerWidth <= 768;
+            setIsMobile(mobile);
+            if (mobile) {
+                setSidebarOpen(false);
+            }
+        };
         
-        // Listen for auth state changes
-        const unsubscribe = onAuthStateChanged(auth, async (user) => {
-            console.log('SpiderAIApp auth state:', user ? user.email : 'No user');
-            setFirebaseUser(user);
-            
-            if (user) {
-                await loadOrCreateUserProfile(user);
-                startRealtimeSync(user.uid);
-            } else {
+        checkMobile();
+        window.addEventListener('resize', checkMobile);
+        
+        return () => window.removeEventListener('resize', checkMobile);
+    }, []);
+
+    // ---------- Auto-resize textarea ----------
+    useEffect(() => {
+        if (textareaRef.current) {
+            textareaRef.current.style.height = 'auto';
+            textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 120) + 'px';
+        }
+    }, [message]);
+
+    // ---------- Initialize Firebase ----------
+    useEffect(() => {
+        const initFirebase = async () => {
+            try {
+                console.log('Initializing Firebase...');
+                
+                const app = initializeApp(FIREBASE_CONFIG, 'spider-ai-realtime');
+                const authInstance = getAuth(app);
+                const db = getDatabase(app);
+                
+                setFirebaseApp(app);
+                setAuth(authInstance);
+                setDatabase(db);
+                
+                // Try anonymous sign-in for basic features
+                try {
+                    await signInAnonymously(authInstance);
+                } catch (authError) {
+                    console.log('Using local mode only');
+                }
+                
+                // Listen for auth state
+                const unsubscribe = onAuthStateChanged(authInstance, async (user) => {
+                    console.log('Auth state:', user ? user.uid : 'No user');
+                    setFirebaseUser(user);
+                    
+                    if (user) {
+                        await loadOrCreateUserProfile(user);
+                        startRealtimeSync(user.uid);
+                    } else {
+                        loadLocalData();
+                    }
+                });
+                
+                // Monitor connection
+                const connectedRef = ref(db, '.info/connected');
+                onValue(connectedRef, (snap) => {
+                    setSyncStatus(snap.val() === true ? 'online' : 'offline');
+                });
+                
+                return () => unsubscribe();
+                
+            } catch (error) {
+                console.error('Firebase init failed:', error);
                 loadLocalData();
             }
-        });
+        };
         
-        // Monitor connection if database is available
-        if (database) {
-            const connectedRef = ref(database, '.info/connected');
-            onValue(connectedRef, (snap) => {
-                setSyncStatus(snap.val() === true ? 'online' : 'offline');
-            });
-        }
-        
-        return () => unsubscribe();
-    }, [auth, database]);
+        initFirebase();
+    }, []);
 
-    // ---------- Sync with main app's currentUser ----------
-    useEffect(() => {
-        if (initialUser && isLoggedIn) {
-            console.log('Updating user from main app:', initialUser);
-            // Update user profile with data from main app
-            setUserProfile(prev => ({
-                ...prev,
-                name: initialUser.name || prev.name,
-                email: initialUser.email || prev.email,
-                userId: initialUser.uid || prev.userId
-            }));
-        }
-    }, [initialUser, isLoggedIn]);
     // ---------- IndexedDB Functions ----------
     const openIndexedDB = () => {
         return new Promise((resolve, reject) => {
@@ -3166,77 +3183,7 @@ export default function App() {
         // Apply scaling directly to the root HTML element's font size
         document.documentElement.style.fontSize = `${appScale * 100}%`;
     }, [appScale]);
-  
-// Firebase config (keep this outside component)
-    const FIREBASE_CONFIG = {
-        apiKey: "AIzaSyBS1aGZZ2RDx2RKji1jOO-7spiY5QzJjh8",
-        authDomain: "m4-spider.firebaseapp.com",
-        projectId: "m4-spider",
-        storageBucket: "m4-spider.firebasestorage.app",
-        messagingSenderId: "154970150789",
-        appId: "1:154970150789:web:60796710cacca377edd6ec",
-        measurementId: "G-TGTWRTF7EX",
-        databaseURL: "https://m4-spider-default-rtdb.firebaseio.com"
-    };
 
-    // --- Initialize Firebase INSIDE useEffect ---
-    useEffect(() => {
-        const initFirebase = () => {
-            try {
-                console.log('Initializing Firebase...');
-                
-                const app = initializeApp(FIREBASE_CONFIG);
-                const authInstance = getAuth(app);
-                const db = getDatabase(app);
-                
-                setFirebaseApp(app);
-                setAuth(authInstance);
-                setDatabase(db);
-                
-                // Enable persistence
-                import('firebase/auth').then(({ setPersistence, browserLocalPersistence }) => {
-                    setPersistence(authInstance, browserLocalPersistence)
-                        .then(() => {
-                            console.log('Firebase persistence enabled');
-                        })
-                        .catch((error) => {
-                            console.error('Persistence error:', error);
-                        });
-                });
-                
-                // Listen for auth changes
-                const unsubscribe = onAuthStateChanged(authInstance, (user) => {
-                    console.log('Auth state changed:', user ? user.email : 'No user');
-                    
-                    if (user) {
-                        // User is signed in
-                        setIsLoggedIn(true);
-                        setCurrentUser({
-                            email: user.email,
-                            name: user.displayName || user.email?.split('@')[0] || 'User',
-                            uid: user.uid
-                        });
-                    } else {
-                        // User is signed out
-                        setIsLoggedIn(false);
-                        setCurrentUser(null);
-                        
-                        // Optional: Try anonymous sign-in
-                        signInAnonymously(authInstance).catch(error => {
-                            console.log('Anonymous auth failed:', error);
-                        });
-                    }
-                });
-                
-                return unsubscribe;
-                
-            } catch (error) {
-                console.error("Firebase init error:", error);
-            }
-        };
-        
-        initFirebase();
-    }, []); //
 
     // --- Icon Components ---
     const FolderIcon = () => ( <svg className="w-4 h-4 mr-2 inline-block text-yellow-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"></path></svg> );
@@ -3958,20 +3905,16 @@ int main() {
                     
                     {/* AI App */}
                     <div className={`absolute inset-0 transition-opacity duration-300 ${activePanel === 'ai' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}> 
-                      {activePanel === 'ai' && <SpiderAIApp 
-    currentUser={currentUser} 
-    showModal={showModal} 
-    callFastAPI={callFastAPI}
-    activeAIMode={activeAIMode}
-    setActiveAIMode={setActiveAIMode}
-    uploadedFile={uploadedFile}
-    setUploadedFile={setUploadedFile}
-    uploadedImage={uploadedImage}
-    setUploadedImage={setUploadedImage}
-    auth={auth}           // Pass the shared auth
-    database={database}   // Pass the shared database
-    isLoggedIn={isLoggedIn} // Pass login status
-
+                        {activePanel === 'ai' && <SpiderAIApp 
+                            currentUser={currentUser} 
+                            showModal={showModal} 
+                            callFastAPI={callFastAPI}
+                            activeAIMode={activeAIMode}
+                            setActiveAIMode={setActiveAIMode}
+                            uploadedFile={uploadedFile}
+                            setUploadedFile={setUploadedFile}
+                            uploadedImage={uploadedImage}
+                            setUploadedImage={setUploadedImage}
                         />} 
                     </div>
                     {/* --- ADD THIS NEW DOCS PANEL --- */}
@@ -4044,19 +3987,3 @@ int main() {
         </>
     );
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
