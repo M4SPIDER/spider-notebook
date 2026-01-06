@@ -1375,313 +1375,1082 @@ const PlusMenu = ({
         </div>
     );
 };
-
-const SpiderAIApp = ({
-  currentUser,
-  showModal,
-  callFastAPI,
-  activeAIMode,
-  setActiveAIMode,
-  uploadedFile,
-  setUploadedFile,
-  uploadedImage,
-  setUploadedImage
+const SpiderAIApp = ({ 
+    currentUser, 
+    showModal, 
+    callFastAPI, 
+    activeAIMode, 
+    setActiveAIMode, 
+    uploadedFile, 
+    setUploadedFile, 
+    uploadedImage, 
+    setUploadedImage 
 }) => {
-
-  /* ---------------- STATE ---------------- */
-  const [message, setMessage] = useState("");
-  const [chatHistory, setChatHistory] = useState([
-    {
-      role: "assistant",
-      content: "Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting.",
-      type: "text"
-    }
-  ]);
-
-  const [recentChats, setRecentChats] = useState([]);
-  const [activeChatId, setActiveChatId] = useState(null);
-  const [aspectRatio, setAspectRatio] = useState("1:1");
-  const [isLoading, setIsLoading] = useState(false);
-
-  const chatEndRef = useRef(null);
-  const fileInputRef = useRef(null);
-  const imageInputRef = useRef(null);
-
-  const [db, setDb] = useState(null);
-  const [auth, setAuth] = useState(null);
-
-  /* ---------------- HELPERS ---------------- */
-  const getAppId = () =>
-    typeof __app_id !== "undefined" ? __app_id : "default-spider";
-
-  const getUserId = () =>
-    auth?.currentUser?.uid ||
-    currentUser?.email ||
-    "anonymous";
-
-  const LOCAL_STORAGE_KEY = `spider_chat_${getAppId()}_${currentUser?.email || "anon"}`;
-
-  /* ---------------- FIREBASE INIT ---------------- */
-  useEffect(() => {
-    try {
-      const firebaseConfig = {
-        apiKey: "AIzaSyBS1aGZZ2RDx2RKji1jOO-7spiY5QzJjh8",
-        authDomain: "m4-spider.firebaseapp.com",
-        projectId: "m4-spider",
-        storageBucket: "m4-spider.firebasestorage.app",
-        messagingSenderId: "154970150789",
-        appId: "1:154970150789:web:60796710cacca377edd6ec"
-      };
-
-      const app = initializeApp(firebaseConfig, "spider-ai");
-      setDb(getFirestore(app));
-      setAuth(getAuth(app));
-    } catch (e) {
-      console.error("Firebase init error", e);
-    }
-  }, []);
-
-  /* ---------------- STREAMING TYPING ---------------- */
-  const typeText = useCallback((text) => {
-    const words = text.split(" ");
-    let index = 0;
-
-    const step = () => {
-      setChatHistory(prev => {
-        const updated = [...prev];
-        const last = updated[updated.length - 1];
-        if (!last || last.role !== "assistant") return prev;
-
-        last.content +=
-          (last.content ? " " : "") +
-          words.slice(index, index + 3).join(" ");
-
-        return updated;
-      });
-
-      index += 3;
-
-      if (index < words.length) {
-        setTimeout(step, 15);
-      } else {
-        setChatHistory(prev => {
-          const updated = [...prev];
-          updated[updated.length - 1].isStreaming = false;
-          return updated;
-        });
-      }
-    };
-
-    step();
-  }, []);
-
-  /* ---------------- SAVE CHAT ---------------- */
-  const saveChatHistory = useCallback(async (history) => {
-    try {
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(history));
-    } catch {}
-
-    if (!db || !auth?.currentUser || history.length < 2) return;
-
-    const chatsRef = collection(
-      db,
-      `artifacts/${getAppId()}/users/${getUserId()}/ai_chats`
-    );
-
-    const title =
-      history.find(m => m.role === "user")?.content?.slice(0, 50) ||
-      "New Chat";
-
-    const payload = {
-      title,
-      history: JSON.stringify(history),
-      timestamp: Date.now(),
-      userId: getUserId()
-    };
-
-    if (activeChatId) {
-      await setDoc(doc(chatsRef, activeChatId), payload, { merge: true });
-    } else {
-      const ref = await addDoc(chatsRef, payload);
-      await setDoc(ref, { id: ref.id }, { merge: true });
-      setActiveChatId(ref.id);
-    }
-  }, [db, auth, activeChatId]);
-
-  /* ---------------- LOAD RECENT CHATS ---------------- */
-  useEffect(() => {
-    if (!db || !auth?.currentUser) return;
-
-    const chatsRef = collection(
-      db,
-      `artifacts/${getAppId()}/users/${getUserId()}/ai_chats`
-    );
-
-    const q = query(chatsRef, orderBy("timestamp", "desc"), limit(20));
-
-    const unsub = onSnapshot(q, snap => {
-      const chats = snap.docs.map(d => ({
-        id: d.id,
-        title: d.data().title || "Untitled Chat",
-        timestamp: d.data().timestamp
-      }));
-      setRecentChats(chats);
-    });
-
-    return () => unsub();
-  }, [db, auth]);
-
-  /* ---------------- LOAD CHAT ---------------- */
-  const loadChatHistory = async (chatId) => {
-    if (!db) return;
-
-    const ref = doc(
-      db,
-      `artifacts/${getAppId()}/users/${getUserId()}/ai_chats/${chatId}`
-    );
-
-    const snap = await getDoc(ref);
-    if (!snap.exists()) return;
-
-    const data = snap.data();
-    setChatHistory(JSON.parse(data.history || "[]"));
-    setActiveChatId(chatId);
-  };
-
-  /* ---------------- AUTO SAVE ---------------- */
-  useEffect(() => {
-    const last = chatHistory[chatHistory.length - 1];
-    if (!last?.isStreaming) {
-      saveChatHistory(chatHistory);
-    }
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatHistory]);
-
-  /* ---------------- SEND MESSAGE ---------------- */
-  const handleSendMessage = async () => {
-    if (!message.trim()) return;
-
-    const userMsg = {
-      role: "user",
-      content: message,
-      type: "text",
-      ts: Date.now()
-    };
-
-    setChatHistory(prev => [
-      ...prev,
-      userMsg,
-      {
-        role: "assistant",
-        content: "",
-        type: "text",
-        isStreaming: true,
-        ts: Date.now()
-      }
+    // ---------- State ----------
+    const [message, setMessage] = useState('');
+    const [chatHistory, setChatHistory] = useState([
+        { role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }
     ]);
+    const [activeChatId, setActiveChatId] = useState(null);
+    const [recentChats, setRecentChats] = useState([]);
+    const [aspectRatio, setAspectRatio] = useState('1:1');
+    const [isLoading, setIsLoading] = useState(false);
+    const [abortController, setAbortController] = useState(null);
+    const [streamingMessage, setStreamingMessage] = useState(null);
+    const [isDeleting, setIsDeleting] = useState(false);
 
-    setMessage("");
-    setIsLoading(true);
+    const fileInputRef = useRef(null);
+    const imageInputRef = useRef(null);
+    const chatEndRef = useRef(null);
 
-    try {
-      const res = await callFastAPI("/api/generate/text", {
-        prompt: userMsg.content,
-        mode: "chat"
-      });
+    const getAppId = () => typeof __app_id !== 'undefined' ? __app_id : 'default-m4-app';
+    const LOCAL_STORAGE_KEY = `spider_chat_history_${getAppId()}_${(currentUser?.email || 'anon')}`;
+    
+    // IndexedDB configuration
+    const DB_NAME = 'SpiderAIChatsDB';
+    const DB_VERSION = 1;
+    const STORE_NAME = 'chats';
 
-      typeText(res?.text || "No response");
-    } catch (e) {
-      setChatHistory(prev => {
-        const u = [...prev];
-        u[u.length - 1] = {
-          role: "assistant",
-          content: "API Error",
-          type: "text"
+    // ---------- IndexedDB Helper Functions ----------
+    const openDatabase = useCallback(() => {
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open(DB_NAME, DB_VERSION);
+            
+            request.onerror = () => {
+                reject(new Error(`Failed to open database: ${request.error}`));
+            };
+            
+            request.onsuccess = () => {
+                resolve(request.result);
+            };
+            
+            request.onupgradeneeded = (event) => {
+                const db = event.target.result;
+                
+                // Create object store if it doesn't exist
+                if (!db.objectStoreNames.contains(STORE_NAME)) {
+                    const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+                    store.createIndex('userId', 'userId', { unique: false });
+                    store.createIndex('timestamp', 'timestamp', { unique: false });
+                    store.createIndex('appId', 'appId', { unique: false });
+                }
+            };
+        });
+    }, []);
+
+    const getUserId = useCallback(() => {
+        return currentUser?.email || currentUser?.id || 'anonymous';
+    }, [currentUser]);
+
+    // ---------- Load Recent Chats ----------
+    const loadRecentChats = useCallback(async () => {
+        try {
+            const db = await openDatabase();
+            const transaction = db.transaction([STORE_NAME], 'readonly');
+            const store = transaction.objectStore(STORE_NAME);
+            const index = store.index('userId');
+            
+            const userId = getUserId();
+            const range = IDBKeyRange.only(userId);
+            const request = index.getAll(range);
+            
+            return new Promise((resolve) => {
+                request.onsuccess = () => {
+                    const chats = request.result || [];
+                    const sortedChats = chats
+                        .sort((a, b) => b.timestamp - a.timestamp)
+                        .slice(0, 10)
+                        .map(chat => ({
+                            id: chat.id,
+                            title: chat.title || 'Untitled Chat',
+                            timestamp: chat.timestamp,
+                            mode: chat.mode || 'chat'
+                        }));
+                    
+                    setRecentChats(sortedChats);
+                    resolve(sortedChats);
+                    db.close();
+                };
+                
+                request.onerror = () => {
+                    console.error('Error loading recent chats:', request.error);
+                    setRecentChats([]);
+                    resolve([]);
+                    db.close();
+                };
+            });
+        } catch (error) {
+            console.error('Error in loadRecentChats:', error);
+            setRecentChats([]);
+            return [];
+        }
+    }, [openDatabase, getUserId]);
+
+    // ---------- Load Specific Chat ----------
+    const loadChatById = useCallback(async (chatId) => {
+        if (!chatId) return;
+        
+        try {
+            const db = await openDatabase();
+            const transaction = db.transaction([STORE_NAME], 'readonly');
+            const store = transaction.objectStore(STORE_NAME);
+            const request = store.get(chatId);
+            
+            return new Promise((resolve, reject) => {
+                request.onsuccess = () => {
+                    if (request.result) {
+                        const chat = request.result;
+                        try {
+                            const history = JSON.parse(chat.history || '[]');
+                            if (Array.isArray(history) && history.length > 0) {
+                                setChatHistory(history);
+                                setActiveChatId(chatId);
+                                resolve(history);
+                            } else {
+                                throw new Error('Invalid chat history');
+                            }
+                        } catch (parseError) {
+                            console.error('Error parsing chat history:', parseError);
+                            reject(parseError);
+                        }
+                    } else {
+                        reject(new Error('Chat not found'));
+                    }
+                    db.close();
+                };
+                
+                request.onerror = () => {
+                    reject(request.error);
+                    db.close();
+                };
+            });
+        } catch (error) {
+            console.error('Error in loadChatById:', error);
+            throw error;
+        }
+    }, [openDatabase]);
+
+    // ---------- Save Chat History ----------
+    const saveChatHistory = useCallback(async (history) => {
+        if (!Array.isArray(history) || history.length <= 1) return;
+        
+        // Save to localStorage as backup
+        try {
+            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(history));
+        } catch (e) {
+            console.warn('LocalStorage save failed:', e);
+        }
+        
+        const userId = getUserId();
+        const chatTitle = (history[1]?.content || 'New Chat')
+            .toString()
+            .substring(0, 50)
+            .trim() || 'New Chat';
+        
+        const chatData = {
+            id: activeChatId || `chat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            title: chatTitle,
+            history: JSON.stringify(history),
+            timestamp: Date.now(),
+            mode: history[1]?.type || 'chat',
+            userId: userId,
+            appId: getAppId()
         };
-        return u;
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
+        
+        try {
+            const db = await openDatabase();
+            const transaction = db.transaction([STORE_NAME], 'readwrite');
+            const store = transaction.objectStore(STORE_NAME);
+            
+            // Save to IndexedDB
+            store.put(chatData);
+            
+            transaction.oncomplete = () => {
+                if (!activeChatId) {
+                    setActiveChatId(chatData.id);
+                }
+                loadRecentChats(); // Refresh recent chats list
+                db.close();
+            };
+            
+            transaction.onerror = () => {
+                console.error('Error saving to IndexedDB:', transaction.error);
+                db.close();
+            };
+        } catch (error) {
+            console.error('Error saving chat:', error);
+        }
+    }, [activeChatId, openDatabase, getUserId, loadRecentChats]);
 
-  /* ---------------- UI ---------------- */
-  return (
-    <div className="flex h-full bg-[var(--spider-dark)] text-white">
-      {/* SIDEBAR */}
-      <div className="w-64 hidden md:flex flex-col border-r border-[var(--spider-light)] p-3">
-        <button
-          className="bg-[var(--spider-neon-blue)] text-black py-2 rounded"
-          onClick={() => {
-            setChatHistory(chatHistory.slice(0, 1));
-            setActiveChatId(null);
-          }}
-        >
-          + New Chat
-        </button>
+    // ---------- Delete Chat ----------
+    const deleteChat = useCallback(async (chatId) => {
+        if (!chatId) return;
+        
+        setIsDeleting(true);
+        try {
+            const db = await openDatabase();
+            const transaction = db.transaction([STORE_NAME], 'readwrite');
+            const store = transaction.objectStore(STORE_NAME);
+            
+            store.delete(chatId);
+            
+            transaction.oncomplete = () => {
+                // If deleting the active chat, start a new one
+                if (activeChatId === chatId) {
+                    handleNewChat();
+                }
+                // Refresh recent chats
+                loadRecentChats();
+                db.close();
+                setIsDeleting(false);
+            };
+            
+            transaction.onerror = () => {
+                console.error('Error deleting chat:', transaction.error);
+                db.close();
+                setIsDeleting(false);
+            };
+        } catch (error) {
+            console.error('Error in deleteChat:', error);
+            setIsDeleting(false);
+        }
+    }, [activeChatId, openDatabase, loadRecentChats]);
 
-        <div className="mt-4 space-y-1 overflow-y-auto">
-          {recentChats.map(c => (
-            <button
-              key={c.id}
-              onClick={() => loadChatHistory(c.id)}
-              className={`w-full text-left px-2 py-2 rounded ${
-                activeChatId === c.id
-                  ? "bg-[var(--spider-light)]"
-                  : "hover:bg-[var(--spider-light)]"
-              }`}
-            >
-              <div className="truncate">{c.title}</div>
-              <div className="text-xs opacity-60">
-                {new Date(c.timestamp).toLocaleDateString()}
-              </div>
-            </button>
-          ))}
-        </div>
-      </div>
+    // ---------- Initialize ----------
+    useEffect(() => {
+        const initializeChats = async () => {
+            try {
+                await loadRecentChats();
+                
+                // Try to load the most recent chat
+                if (recentChats.length > 0) {
+                    try {
+                        await loadChatById(recentChats[0].id);
+                    } catch (error) {
+                        console.log('Could not load recent chat, starting new chat');
+                    }
+                }
+            } catch (error) {
+                console.error('Error initializing chats:', error);
+            }
+        };
+        
+        initializeChats();
+    }, [currentUser]);
 
-      {/* CHAT */}
-      <div className="flex flex-col flex-1">
-        <div className="flex-1 overflow-y-auto p-4">
-          {chatHistory.map((m, i) => (
-            <div
-              key={i}
-              className={`mb-2 ${
-                m.role === "user" ? "text-right" : "text-left"
-              }`}
-            >
-              <div className="inline-block px-3 py-2 rounded bg-[var(--spider-light)]">
-                {m.content}
-              </div>
+    // Auto-save chat history when it changes
+    useEffect(() => {
+        if (chatHistory.length > 1) {
+            const timeoutId = setTimeout(() => {
+                saveChatHistory(chatHistory);
+            }, 500);
+            
+            return () => clearTimeout(timeoutId);
+        }
+    }, [chatHistory, saveChatHistory]);
+
+    // Scroll to bottom when chat updates
+    useEffect(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [chatHistory, streamingMessage]);
+
+    // ---------- Fast Typing Animation ----------
+    const typeText = useCallback((text, onComplete) => {
+        if (!text) {
+            onComplete?.();
+            return;
+        }
+        
+        const words = text.split(' ');
+        let currentText = '';
+        let wordIndex = 0;
+        
+        const typeNextWord = () => {
+            if (wordIndex < words.length) {
+                // Type 2-4 words at a time for faster appearance
+                const wordsToAdd = words.slice(wordIndex, wordIndex + 2 + Math.floor(Math.random() * 3));
+                currentText += (currentText ? ' ' : '') + wordsToAdd.join(' ');
+                wordIndex += wordsToAdd.length;
+                
+                setStreamingMessage(prev => ({
+                    ...prev,
+                    content: currentText
+                }));
+                
+                // Very fast typing speed (10-30ms)
+                setTimeout(typeNextWord, 10 + Math.random() * 20);
+            } else {
+                onComplete?.();
+            }
+        };
+        
+        typeNextWord();
+    }, []);
+
+    // ---------- Stop Generation ----------
+    const handleStopGeneration = () => {
+        if (abortController) {
+            abortController.abort();
+            setAbortController(null);
+        }
+        setIsLoading(false);
+        if (streamingMessage) {
+            setChatHistory(prev => [...prev, streamingMessage]);
+            setStreamingMessage(null);
+        }
+    };
+
+    // ---------- File / Image Upload Handlers ----------
+    const handleFileUpload = (event) => {
+        const file = event?.target?.files?.[0];
+        if (!file) {
+            if (event) event.target.value = null;
+            return;
+        }
+        if (file.size > 1024 * 1024 * 10) {
+            showModal("File Error", "File size exceeds 10MB limit.");
+            event.target.value = null;
+            return;
+        }
+        setUploadedFile(file);
+        setUploadedImage(null);
+        setMessage(`Analyze the contents of ${file.name}.`);
+        event.target.value = null;
+    };
+
+    const handleImageUpload = (event) => {
+        const file = event?.target?.files?.[0];
+        if (!file) {
+            if (event) event.target.value = null;
+            return;
+        }
+        if (!file.type.startsWith('image/')) {
+            showModal("File Error", "Please upload a valid image file.");
+            event.target.value = null;
+            return;
+        }
+        if (file.size > 1024 * 1024 * 5) {
+            showModal("File Error", "Image size exceeds 5MB limit.");
+            event.target.value = null;
+            return;
+        }
+        setUploadedImage(file);
+        setUploadedFile(null);
+        setMessage("Transform or edit this image to: ");
+        event.target.value = null;
+    };
+
+    // ---------- PlusMenu Component ----------
+    const PlusMenu = ({ setActiveAIMode: _setActiveAIMode, fileInputRef, imageInputRef }) => {
+        const [open, setOpen] = useState(false);
+
+        const onUploadFile = () => {
+            setOpen(false);
+            if (typeof _setActiveAIMode === 'function') _setActiveAIMode('file_analysis');
+            setTimeout(() => fileInputRef.current?.click(), 50);
+        };
+
+        const onUploadImage = () => {
+            setOpen(false);
+            if (typeof _setActiveAIMode === 'function') _setActiveAIMode('image_edit');
+            setTimeout(() => imageInputRef.current?.click(), 50);
+        };
+
+        const onGenImage = () => {
+            setOpen(false);
+            if (typeof _setActiveAIMode === 'function') _setActiveAIMode('image_gen');
+        };
+
+        return (
+            <div className="relative">
+                <button 
+                    onClick={() => setOpen(o => !o)} 
+                    className="bg-[var(--spider-light)] text-white px-3 py-2 rounded-md h-10 flex items-center justify-center hover:opacity-90 transition"
+                >
+                    +
+                </button>
+                {open && (
+                    <div className="absolute bottom-12 right-0 bg-[var(--spider-dark)] border border-[var(--spider-light)] rounded-md shadow-lg w-40 p-2 z-50">
+                        <button onClick={onUploadFile} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center">
+                            <span className="mr-2">📄</span> Upload File
+                        </button>
+                        <button onClick={onUploadImage} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center">
+                            <span className="mr-2">🖼</span> Upload Image
+                        </button>
+                        <button onClick={onGenImage} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center">
+                            <span className="mr-2">🎨</span> Create Image
+                        </button>
+                    </div>
+                )}
             </div>
-          ))}
-          <div ref={chatEndRef} />
-        </div>
+        );
+    };
 
-        <div className="p-3 border-t border-[var(--spider-light)] flex gap-2">
-          <textarea
-            value={message}
-            onChange={e => setMessage(e.target.value)}
-            className="flex-1 bg-transparent border border-[var(--spider-light)] rounded p-2"
-            placeholder="Ask something…"
-            onKeyDown={e => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                handleSendMessage();
-              }
-            }}
-          />
-          <button
-            onClick={handleSendMessage}
-            className="bg-[var(--spider-neon-blue)] text-black px-4 rounded"
-            disabled={isLoading}
-          >
-            Send
-          </button>
+    // ---------- New Chat Handler ----------
+    const handleNewChat = () => {
+        setUploadedFile(null);
+        setUploadedImage(null);
+        setActiveAIMode && setActiveAIMode('chat');
+        setActiveChatId(null);
+        const welcome = [{ 
+            role: 'assistant', 
+            content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', 
+            type: 'text' 
+        }];
+        setChatHistory(welcome);
+        try { 
+            localStorage.removeItem(LOCAL_STORAGE_KEY); 
+        } catch (e) { 
+            console.warn("Error clearing localStorage:", e);
+        }
+    };
+
+    // ---------- Enhanced Send Message ----------
+    const handleSendMessage = async () => {
+        if (!message.trim() && !uploadedFile && !uploadedImage) return;
+
+        setIsLoading(true);
+        const controller = new AbortController();
+        setAbortController(controller);
+
+        const fileCopy = uploadedFile;
+        const imageCopy = uploadedImage;
+        const selectedActiveMode = activeAIMode;
+        let mode = selectedActiveMode || "chat";
+
+        if (fileCopy) mode = "analyze_file";
+        if (imageCopy) mode = "image_edit";
+        if (!fileCopy && !imageCopy && selectedActiveMode === 'image_gen') mode = 'image_gen';
+
+        const userMessage = {
+            role: 'user',
+            content: message,
+            type: mode,
+            fileName: fileCopy ? fileCopy.name : undefined,
+            imageName: imageCopy ? imageCopy.name : undefined,
+            ts: Date.now()
+        };
+
+        setChatHistory(prev => [...prev, userMessage]);
+        setMessage('');
+
+        // Initialize streaming message
+        const initialStreamMessage = {
+            role: 'assistant',
+            content: '',
+            type: 'text',
+            ts: Date.now(),
+            isStreaming: true
+        };
+        setStreamingMessage(initialStreamMessage);
+
+        try {
+            // FILE ANALYSIS
+            if (mode === "analyze_file" && fileCopy) {
+                let fileContent;
+                
+                if (fileCopy.type.startsWith('text/') || 
+                    fileCopy.name.endsWith('.txt') || 
+                    fileCopy.name.endsWith('.py') ||
+                    fileCopy.name.endsWith('.js') ||
+                    fileCopy.name.endsWith('.html') ||
+                    fileCopy.name.endsWith('.css') ||
+                    fileCopy.name.endsWith('.md')) {
+                    fileContent = await fileCopy.text();
+                } else {
+                    fileContent = await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                            try {
+                                const base64 = reader.result.split(",")[1];
+                                resolve(base64);
+                            } catch (e) {
+                                reject(e);
+                            }
+                        };
+                        reader.onerror = (err) => reject(err);
+                        reader.readAsDataURL(fileCopy);
+                    });
+                }
+
+                const apiUrl = '/api/generate/text';
+                const apiPayload = {
+                    prompt: message || `Analyze the contents of ${fileCopy.name}`,
+                    mode: "analyze_file",
+                    filename: fileCopy.name,
+                    file_content: fileContent,
+                    file_type: fileCopy.type
+                };
+                
+                const result = await callFastAPI(apiUrl, apiPayload, mode);
+
+                const assistantMessage = {
+                    role: 'assistant',
+                    content: result?.text || 'File analysis complete.',
+                    type: result?.base64_image ? 'image' : 'text',
+                    base64_image: result?.base64_image,
+                    sources: result?.sources,
+                    model_used: result?.model_used,
+                    ts: Date.now()
+                };
+                
+                if (!result?.base64_image && result?.text) {
+                    typeText(result.text, () => {
+                        setChatHistory(prev => [...prev, assistantMessage]);
+                        setStreamingMessage(null);
+                    });
+                } else {
+                    setChatHistory(prev => [...prev, assistantMessage]);
+                    setStreamingMessage(null);
+                }
+            }
+
+            // IMAGE EDIT
+            else if (mode === "image_edit" && imageCopy) {
+                const base64Image = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        try {
+                            const b = reader.result.split(",")[1];
+                            resolve(b);
+                        } catch (e) {
+                            reject(e);
+                        }
+                    };
+                    reader.onerror = (err) => reject(err);
+                    reader.readAsDataURL(imageCopy);
+                });
+
+                const apiUrl = '/api/generate/text';
+                const apiPayload = {
+                    prompt: message || "Edit this image",
+                    mode: "image_edit",
+                    image: base64Image,
+                    strength: 0.7
+                };
+                const result = await callFastAPI(apiUrl, apiPayload, mode);
+
+                const assistantMessage = {
+                    role: 'assistant',
+                    content: result?.text || 'Image edited.',
+                    type: result?.base64_image ? 'image' : 'text',
+                    base64_image: result?.base64_image,
+                    sources: result?.sources,
+                    model_used: result?.model_used,
+                    ts: Date.now()
+                };
+                setChatHistory(prev => [...prev, assistantMessage]);
+                setStreamingMessage(null);
+            }
+
+            // IMAGE GEN or CHAT with streaming
+            else {
+                const apiUrl = '/api/generate/text';
+                const apiPayload = { 
+                    prompt: message, 
+                    mode,
+                    aspect_ratio: mode === 'image_gen' ? aspectRatio : undefined,
+                    stream: true
+                };
+                
+                const result = await callFastAPI(apiUrl, apiPayload, mode);
+
+                if (result?.text) {
+                    typeText(result.text, () => {
+                        const assistantMessage = {
+                            role: 'assistant',
+                            content: result.text,
+                            type: result?.base64_image ? 'image' : 'text',
+                            base64_image: result?.base64_image,
+                            sources: result?.sources,
+                            model_used: result?.model_used,
+                            ts: Date.now()
+                        };
+                        setChatHistory(prev => [...prev, assistantMessage]);
+                        setStreamingMessage(null);
+                    });
+                } else {
+                    const assistantMessage = {
+                        role: 'assistant',
+                        content: result?.text || 'Response received.',
+                        type: result?.base64_image ? 'image' : 'text',
+                        base64_image: result?.base64_image,
+                        sources: result?.sources,
+                        model_used: result?.model_used,
+                        ts: Date.now()
+                    };
+                    setChatHistory(prev => [...prev, assistantMessage]);
+                    setStreamingMessage(null);
+                }
+            }
+        } catch (error) {
+            console.error('API ERROR:', error);
+            const assistantError = {
+                role: 'assistant',
+                content: `[API ERROR] ${error?.message || 'Something went wrong.'}`,
+                type: 'text',
+                ts: Date.now()
+            };
+            setChatHistory(prev => [...prev, assistantError]);
+            setStreamingMessage(null);
+        } finally {
+            setAbortController(null);
+            setUploadedFile(null);
+            setUploadedImage(null);
+            setIsLoading(false);
+        }
+    };
+
+    // ---------- Enhanced Chat Bubble with Fixed Code Box ----------
+    const ChatBubble = ({ message }) => {
+        // Highlight code with Prism
+        useEffect(() => {
+            if (typeof window !== "undefined" && window.Prism) {
+                window.Prism.highlightAll();
+            }
+        }, [message]);
+
+        // Extract code blocks from text
+        const extractCodeBlocks = (text) => {
+            if (!text || typeof text !== "string")
+                return [{ type: "text", content: text || "" }];
+
+            const codeBlockRegex = /```(\w+)?\s*\n?([\s\S]*?)```/g;
+            const inlineCodeRegex = /`([^`]+)`/g;
+
+            const parts = [];
+            let last = 0;
+            let match;
+
+            while ((match = codeBlockRegex.exec(text))) {
+                if (match.index > last) {
+                    parts.push({
+                        type: "text",
+                        content: text.slice(last, match.index),
+                    });
+                }
+
+                parts.push({
+                    type: "code",
+                    language: match[1] || "text",
+                    content: match[2].trim(),
+                });
+
+                last = match.index + match[0].length;
+            }
+
+            if (last < text.length) {
+                const rem = text.slice(last);
+                let idx = 0;
+
+                for (const m of rem.matchAll(inlineCodeRegex)) {
+                    if (m.index > idx) {
+                        parts.push({
+                            type: "text",
+                            content: rem.slice(idx, m.index),
+                        });
+                    }
+
+                    parts.push({ type: "inline-code", content: m[1] });
+                    idx = m.index + m[0].length;
+                }
+
+                if (idx < rem.length) {
+                    parts.push({
+                        type: "text",
+                        content: rem.slice(idx),
+                    });
+                }
+            }
+
+            return parts;
+        };
+
+        // Copy code to clipboard
+        const handleCopyCode = (content) => {
+            navigator.clipboard.writeText(content);
+        };
+
+        // Bubble styling
+        const bubbleClass =
+            message.role === "user"
+                ? "bg-[#00e5ff] text-black ml-auto"
+                : "bg-[#004745] text-white mr-auto";
+
+        const contentParts = extractCodeBlocks(message.content);
+
+        return (
+            <div
+                className={`flex w-full ${
+                    message.role === "user" ? "justify-end" : "justify-start"
+                } mb-4`}
+            >
+                <div
+                    className={`px-3 py-2 rounded-xl max-w-[95%] sm:max-w-4xl ${bubbleClass}`}
+                    style={{
+                        boxShadow: "0 0 0",
+                    }}
+                >
+                    {/* Image display */}
+                    {message.type === "image" && message.base64_image && (
+                        <div className="w-full rounded-lg overflow-hidden bg-black p-0.5 mb-2">
+                            <img
+                                src={`data:image/jpeg;base64,${message.base64_image}`}
+                                alt="Generated"
+                                className="w-full rounded-lg"
+                                style={{
+                                    maxHeight: "300px",
+                                    objectFit: "contain",
+                                }}
+                            />
+                        </div>
+                    )}
+
+                    {/* Text and code content */}
+                    <div className="space-y-2">
+                        {contentParts.map((part, index) => {
+                            // Code block with copy button
+                            if (part.type === "code") {
+                                return (
+                                    <div
+                                        key={index}
+                                        className="rounded-lg overflow-hidden w-full relative group"
+                                        style={{
+                                            background: "#0f0f0f",
+                                        }}
+                                    >
+                                        {/* Copy & Edit buttons */}
+                                        <div className="absolute top-1 right-1 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                                            {/* Copy button */}
+                                            <button
+                                                onClick={() => handleCopyCode(part.content)}
+                                                className="w-6 h-6 flex items-center justify-center rounded bg-gray-700 hover:bg-gray-600 transition-colors"
+                                                title="Copy code"
+                                            >
+                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                                </svg>
+                                            </button>
+                                        </div>
+
+                                        <pre
+                                            className="overflow-x-auto p-3 m-0"
+                                            style={{
+                                                background: "#0f0f0f",
+                                                fontSize: "13px",
+                                                lineHeight: "1.4",
+                                                color: "white",
+                                            }}
+                                        >
+                                            <code
+                                                className={`language-${part.language}`}
+                                            >
+                                                {part.content}
+                                            </code>
+                                        </pre>
+                                    </div>
+                                );
+                            }
+
+                            // Inline code
+                            if (part.type === "inline-code") {
+                                return (
+                                    <code
+                                        key={index}
+                                        className="px-1.5 py-0.5 rounded text-sm"
+                                        style={{
+                                            background: "#0f0f0f",
+                                            color: "#00e5ff",
+                                        }}
+                                    >
+                                        {part.content}
+                                    </code>
+                                );
+                            }
+
+                            // Normal text
+                            return (
+                                <div
+                                    key={index}
+                                    className="whitespace-pre-wrap break-words"
+                                    style={{
+                                        fontSize: "14px",
+                                        lineHeight: "1.5",
+                                    }}
+                                >
+                                    {part.content}
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    {/* Model name */}
+                    {message.model_used && (
+                        <div
+                            className="text-xs pt-1 mt-2 border-t border-gray-700"
+                            style={{ opacity: 0.6 }}
+                        >
+                            Model:{" "}
+                            <span className="text-white">
+                                {message.model_used}
+                            </span>
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    };
+
+    // Helper function for mode display
+    const getModeText = () => {
+        if (uploadedFile) return "File Analysis";
+        if (uploadedImage) return "Image Editing";
+        if (activeAIMode === 'image_gen') return "Create Image";
+        if (activeAIMode === 'image_edit') return "Edit/Transform Image";
+        return "Chat / Code";
+    };
+
+    // ---------- JSX ----------
+    return (
+        <div className="flex flex-row h-full flex-grow bg-[var(--spider-dark)] text-[var(--spider-text)] overflow-hidden">
+            {/* Left Sidebar */}
+            <div className="hidden md:flex flex-col bg-[var(--spider-med)] w-64 p-4 border-r border-[var(--spider-light)] flex-shrink-0 space-y-4 overflow-y-auto">
+                {/* New Chat Button */}
+                <button 
+                    onClick={handleNewChat} 
+                    className="w-full bg-[var(--spider-neon-blue)] text-black text-sm font-semibold py-2.5 px-3 rounded-md hover:opacity-90 transition flex items-center space-x-2 justify-center"
+                    disabled={isDeleting}
+                >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
+                    </svg>
+                    <span>New Chat</span>
+                </button>
+
+                {/* Recent Chats Section */}
+                <div className="flex-grow pt-4 border-t border-[var(--spider-light)] overflow-y-auto">
+                    <h3 className="text-xs font-semibold uppercase text-[var(--spider-text-dim)] mb-2 px-1">
+                        Recent Chats
+                    </h3>
+                    <div className="space-y-1">
+                        {recentChats.length > 0 ? (
+                            recentChats.map((chat) => (
+                                <div key={chat.id} className="flex items-center group">
+                                    <button 
+                                        onClick={() => loadChatById(chat.id)} 
+                                        className={`flex-grow text-left px-3 py-2 text-sm rounded hover:bg-[var(--spider-light)] truncate transition-colors ${
+                                            activeChatId === chat.id 
+                                                ? 'bg-[var(--spider-light)] text-white font-medium' 
+                                                : 'text-[var(--spider-text)] hover:text-white'
+                                        }`}
+                                        disabled={isDeleting}
+                                    >
+                                        <div className="truncate">{chat.title}</div>
+                                        <div className="text-xs text-[var(--spider-text-dim)] mt-0.5">
+                                            {new Date(chat.timestamp).toLocaleDateString()} • {chat.mode}
+                                        </div>
+                                    </button>
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (window.confirm('Delete this chat?')) {
+                                                deleteChat(chat.id);
+                                            }
+                                        }}
+                                        className="ml-2 text-red-400 hover:text-red-300 opacity-0 group-hover:opacity-100 transition-opacity p-1"
+                                        title="Delete chat"
+                                        disabled={isDeleting}
+                                    >
+                                        {isDeleting ? (
+                                            <div className="w-3 h-3 border-2 border-red-400 border-t-transparent rounded-full animate-spin"></div>
+                                        ) : (
+                                            '×'
+                                        )}
+                                    </button>
+                                </div>
+                            ))
+                        ) : (
+                            <div className="text-center py-4 text-[var(--spider-text-dim)] text-sm">
+                                No recent chats
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* User Info */}
+                <div className="mt-auto border-t border-[var(--spider-light)] pt-3">
+                    <div className="w-full bg-[var(--spider-med)] text-[var(--spider-text-dim)] text-sm font-semibold py-2 px-3 rounded-md flex items-center space-x-2">
+                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd"></path>
+                        </svg>
+                        <span className="truncate">{currentUser?.name || 'User'}</span>
+                    </div>
+                </div>
+            </div>
+
+            {/* Main Chat Area */}
+            <div className="flex flex-col flex-1 h-full min-h-0">
+                {/* Messages Container */}
+                <div className="flex-grow overflow-y-auto p-4 space-y-4">
+                    {chatHistory.map((msg, index) => (
+                        <ChatBubble key={`${msg.ts}_${index}`} message={msg} />
+                    ))}
+                    
+                    {/* Streaming Message */}
+                    {streamingMessage && (
+                        <div className="flex justify-start mb-4">
+                            <div className="bg-[var(--spider-med)] text-white p-3 rounded-xl max-w-[85%] shadow-md">
+                                <pre className="whitespace-pre-wrap font-sans text-sm break-words">
+                                    {streamingMessage.content}
+                                </pre>
+                                <div className="flex items-center space-x-2 mt-2">
+                                    <div className="flex space-x-1">
+                                        <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce"></div>
+                                        <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                                        <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                                    </div>
+                                    <span className="text-xs text-[var(--spider-text-dim)]">AI is typing...</span>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    
+                    {/* Loading Indicator with Stop Button */}
+                    {isLoading && !streamingMessage && (
+                        <div className="flex justify-start mb-4">
+                            <div className="bg-[var(--spider-med)] text-white p-3 rounded-xl max-w-[85%] shadow-md">
+                                <div className="flex items-center space-x-3">
+                                    <div className="flex space-x-1">
+                                        <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce"></div>
+                                        <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                                        <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                                    </div>
+                                    <span className="text-sm">Processing your request...</span>
+                                    <button 
+                                        onClick={handleStopGeneration}
+                                        className="bg-red-500 hover:bg-red-600 text-white text-xs px-2 py-1 rounded transition-colors"
+                                    >
+                                        Stop
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    <div ref={chatEndRef} />
+                </div>
+
+                {/* Hidden file inputs */}
+                <input 
+                    type="file" 
+                    ref={fileInputRef} 
+                    onChange={handleFileUpload} 
+                    className="hidden" 
+                    accept=".spy,.py,.java,.cpp,.c,.h,.txt,.md,.js,.html,.css,.json,.xml,.csv,.pdf,.doc,.docx,.xls,.xlsx" 
+                />
+                <input 
+                    type="file" 
+                    ref={imageInputRef} 
+                    onChange={handleImageUpload} 
+                    className="hidden" 
+                    accept="image/*" 
+                />
+
+                {/* Input Area */}
+                <div className="bg-[var(--spider-med)] p-3 border-t border-[var(--spider-light)] flex-shrink-0">
+                    <div className="max-w-4xl mx-auto">
+                        {/* Mode Display */}
+                        <div className="flex justify-between items-center mb-3">
+                            <span className="flex items-center text-sm text-[var(--spider-neon-blue)] font-semibold">
+                                {getModeText()} Mode
+                                {activeChatId && (
+                                    <span className="ml-2 text-xs text-[var(--spider-text-dim)]">
+                                        (Auto-saved)
+                                    </span>
+                                )}
+                            </span>
+                            {activeAIMode === 'image_gen' && (
+                                <select 
+                                    value={aspectRatio} 
+                                    onChange={(e) => setAspectRatio(e.target.value)} 
+                                    className="bg-[var(--spider-light)] text-[var(--spider-text)] p-1 rounded-md text-xs focus:outline-none"
+                                >
+                                    <option value="1:1">1:1 Square</option>
+                                    <option value="16:9">16:9 Landscape</option>
+                                    <option value="9:16">9:16 Portrait</option>
+                                    <option value="4:3">4:3 Standard</option>
+                                </select>
+                            )}
+                        </div>
+
+                        {/* Uploaded File/Image Indicator */}
+                        {(uploadedFile || uploadedImage) && (
+                            <div className="mb-2 text-xs text-green-400 p-2 bg-[var(--spider-dark)] rounded-md flex justify-between items-center">
+                                <span className="truncate">
+                                    {uploadedFile ? `📄 File: ${uploadedFile.name}` : uploadedImage ? `🖼 Image: ${uploadedImage.name}` : ''}
+                                </span>
+                                <button 
+                                    onClick={() => { 
+                                        setUploadedFile(null); 
+                                        setUploadedImage(null); 
+                                    }} 
+                                    className="text-red-400 hover:text-red-300 ml-3 font-bold flex-shrink-0"
+                                >
+                                    ×
+                                </button>
+                            </div>
+                        )}
+
+                        {/* Input Controls */}
+                        <div className="flex items-end w-full space-x-2">
+                            <div className="flex-1 bg-[var(--spider-light)] rounded-lg p-2">
+                                <textarea 
+                                    placeholder={
+                                        uploadedImage ? "Describe the image transformation..." : 
+                                        uploadedFile ? "What should I analyze in this file?" : 
+                                        "Ask a question or request code..."
+                                    } 
+                                    className="w-full bg-transparent text-white focus:outline-none resize-none text-sm max-h-32 overflow-y-auto" 
+                                    value={message} 
+                                    onChange={(e) => setMessage(e.target.value)} 
+                                    onKeyDown={(e) => { 
+                                        if (e.key === 'Enter' && !e.shiftKey) { 
+                                            e.preventDefault(); 
+                                            handleSendMessage(); 
+                                        } 
+                                    }} 
+                                    rows={1} 
+                                    disabled={isLoading}
+                                />
+                            </div>
+
+                            {/* Plus Menu */}
+                            <PlusMenu 
+                                setActiveAIMode={setActiveAIMode} 
+                                fileInputRef={fileInputRef} 
+                                imageInputRef={imageInputRef} 
+                            />
+
+                            {/* Send Button */}
+                            <button 
+                                onClick={handleSendMessage} 
+                                className="bg-[var(--spider-neon-blue)] text-black font-semibold px-4 py-2 rounded-md hover:opacity-90 transition duration-200 flex-shrink-0 h-10 flex items-center justify-center" 
+                                disabled={(!message.trim() && !uploadedFile && !uploadedImage) || isLoading}
+                            >
+                                {isLoading ? (
+                                    <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
+                                ) : (
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
+                                    </svg>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
-      </div>
-    </div>
-  );
+    );
 };
 // --- END Plus Menu Component ---
 const SpiderVFXApp = () => { /* ... (Remains Placeholder) ... */ return (<div className="flex-grow h-full flex flex-col items-center justify-center bg-black text-white p-8 pattern-vfx-grid overflow-y-auto"><div className="bg-black bg-opacity-80 p-10 rounded-lg text-center shadow-xl"><h1 className="text-4xl font-bold mb-4 text-[var(--spider-neon-blue)]">Spider VFX</h1><p className="text-lg text-gray-400 mb-8">Coming Soon!</p><div className="animate-pulse text-6xl">✨</div></div></div>);};
@@ -2747,6 +3516,7 @@ int main() {
         </>
     );
 }
+
 
 
 
