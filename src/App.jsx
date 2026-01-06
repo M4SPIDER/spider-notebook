@@ -1375,303 +1375,313 @@ const PlusMenu = ({
         </div>
     );
 };
-const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setActiveAIMode, uploadedFile, setUploadedFile, uploadedImage, setUploadedImage }) => {
-    // ---------- State ----------
-    const [message, setMessage] = useState('');
-    const [chatHistory, setChatHistory] = useState([
-        { role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text', ts: Date.now() }
-    ]);
-    const [activeChatId, setActiveChatId] = useState(null);
-    const [recentChats, setRecentChats] = useState([]);
-    const [aspectRatio, setAspectRatio] = useState('1:1');
-    const [isLoading, setIsLoading] = useState(false);
-    const [abortController, setAbortController] = useState(null);
-    const [streamingMessage, setStreamingMessage] = useState(null);
 
-    const fileInputRef = useRef(null);
-    const imageInputRef = useRef(null);
-    const chatEndRef = useRef(null);
+const SpiderAIApp = ({
+  currentUser,
+  showModal,
+  callFastAPI,
+  activeAIMode,
+  setActiveAIMode,
+  uploadedFile,
+  setUploadedFile,
+  uploadedImage,
+  setUploadedImage
+}) => {
 
-    // Firebase placeholders
-    const [db, setDb] = useState(null);
-    const [auth, setAuth] = useState(null);
+  /* ---------------- STATE ---------------- */
+  const [message, setMessage] = useState("");
+  const [chatHistory, setChatHistory] = useState([
+    {
+      role: "assistant",
+      content: "Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting.",
+      type: "text"
+    }
+  ]);
 
-    const getAppId = () => typeof __app_id !== 'undefined' ? __app_id : 'default-m4-app';
-    const getUserId = () => auth?.currentUser?.uid || currentUser?.email || 'anonymous';
-    const LOCAL_STORAGE_KEY = `spider_chat_history_${getAppId()}_${(currentUser?.email || 'anon')}`;
+  const [recentChats, setRecentChats] = useState([]);
+  const [activeChatId, setActiveChatId] = useState(null);
+  const [aspectRatio, setAspectRatio] = useState("1:1");
+  const [isLoading, setIsLoading] = useState(false);
 
-    // ---------- Firebase init ----------
-    useEffect(() => {
-        try {
-            const USER_FIREBASE_CONFIG = {
-                apiKey: "AIzaSyBS1aGZZ2RDx2RKji1jOO-7spiY5QzJjh8",
-                authDomain: "m4-spider.firebaseapp.com",
-                projectId: "m4-spider",
-                storageBucket: "m4-spider.firebasestorage.app",
-                messagingSenderId: "154970150789",
-                appId: "1:154970150789:web:60796710cacca377edd6ec",
-                measurementId: "G-TGTWRTF7EX"
-            };
+  const chatEndRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const imageInputRef = useRef(null);
 
-            let configString = typeof __firebase_config !== 'undefined' ? __firebase_config : '{}';
-            let firebaseConfig = JSON.parse(configString);
+  const [db, setDb] = useState(null);
+  const [auth, setAuth] = useState(null);
 
-            if (!firebaseConfig || !firebaseConfig.apiKey) firebaseConfig = USER_FIREBASE_CONFIG;
-            if (firebaseConfig && firebaseConfig.apiKey) {
-                const app = initializeApp(firebaseConfig, 'spider-ai-app');
-                setDb(getFirestore(app));
-                setAuth(getAuth(app));
-            }
-        } catch (e) {
-            console.error("Firebase init error:", e);
-        }
-    }, []);
+  /* ---------------- HELPERS ---------------- */
+  const getAppId = () =>
+    typeof __app_id !== "undefined" ? __app_id : "default-spider";
 
-    // ---------- Save chat history (The Fixed Logic) ----------
-    const saveChatHistoryToDB = useCallback(async (currentHistory, chatIdOverride = null) => {
-        if (!Array.isArray(currentHistory) || currentHistory.length <= 1) return;
+  const getUserId = () =>
+    auth?.currentUser?.uid ||
+    currentUser?.email ||
+    "anonymous";
 
-        // 1. Always save to LocalStorage for quick recovery
-        try {
-            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(currentHistory));
-        } catch (e) { console.warn("LocalStorage save failed", e); }
+  const LOCAL_STORAGE_KEY = `spider_chat_${getAppId()}_${currentUser?.email || "anon"}`;
 
-        // 2. Save to Firestore
-        if (!db || !getUserId()) return;
+  /* ---------------- FIREBASE INIT ---------------- */
+  useEffect(() => {
+    try {
+      const firebaseConfig = {
+        apiKey: "AIzaSyBS1aGZZ2RDx2RKji1jOO-7spiY5QzJjh8",
+        authDomain: "m4-spider.firebaseapp.com",
+        projectId: "m4-spider",
+        storageBucket: "m4-spider.firebasestorage.app",
+        messagingSenderId: "154970150789",
+        appId: "1:154970150789:web:60796710cacca377edd6ec"
+      };
 
-        const userId = getUserId();
-        const firstUserMsg = currentHistory.find(m => m.role === 'user')?.content || "";
-        const chatTitle = firstUserMsg.toString().substring(0, 40).trim() || "New Chat";
-        const chatsCollection = collection(db, `artifacts/${getAppId()}/users/${userId}/ai_chats`);
+      const app = initializeApp(firebaseConfig, "spider-ai");
+      setDb(getFirestore(app));
+      setAuth(getAuth(app));
+    } catch (e) {
+      console.error("Firebase init error", e);
+    }
+  }, []);
 
-        const chatData = {
-            title: chatTitle,
-            history: JSON.stringify(currentHistory),
-            timestamp: Date.now(),
-            userId
-        };
+  /* ---------------- STREAMING TYPING ---------------- */
+  const typeText = useCallback((text) => {
+    const words = text.split(" ");
+    let index = 0;
 
-        try {
-            const targetId = chatIdOverride || activeChatId;
-            if (targetId) {
-                const chatDocRef = doc(chatsCollection, targetId);
-                await setDoc(chatDocRef, chatData, { merge: true });
-            } else {
-                const docRef = await addDoc(chatsCollection, chatData);
-                setActiveChatId(docRef.id); // Store ID for subsequent messages
-            }
-        } catch (e) {
-            console.error("Error saving to Firestore:", e);
-        }
-    }, [db, auth, activeChatId]);
+    const step = () => {
+      setChatHistory(prev => {
+        const updated = [...prev];
+        const last = updated[updated.length - 1];
+        if (!last || last.role !== "assistant") return prev;
 
-    // ---------- Load recent chats (Sidebar) ----------
-    useEffect(() => {
-        if (!db || !auth?.currentUser) return;
+        last.content +=
+          (last.content ? " " : "") +
+          words.slice(index, index + 3).join(" ");
 
-        const userId = getUserId();
-        const chatsCollection = collection(db, `artifacts/${getAppId()}/users/${userId}/ai_chats`);
-        const q = query(chatsCollection, orderBy("timestamp", "desc"), limit(20));
+        return updated;
+      });
 
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const recent = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            }));
-            setRecentChats(recent);
+      index += 3;
+
+      if (index < words.length) {
+        setTimeout(step, 15);
+      } else {
+        setChatHistory(prev => {
+          const updated = [...prev];
+          updated[updated.length - 1].isStreaming = false;
+          return updated;
         });
-
-        return () => unsubscribe();
-    }, [db, auth]);
-
-    // ---------- Load specific chat ----------
-    const loadChatHistory = async (chatId) => {
-        if (!db || !chatId) return;
-        setActiveChatId(chatId);
-        setIsLoading(true);
-        try {
-            const userId = getUserId();
-            const chatDoc = await getDoc(doc(db, `artifacts/${getAppId()}/users/${userId}/ai_chats`, chatId));
-            if (chatDoc.exists()) {
-                const data = chatDoc.data();
-                setChatHistory(JSON.parse(data.history || '[]'));
-            }
-        } catch (e) {
-            console.error("Load error:", e);
-        } finally {
-            setIsLoading(false);
-        }
+      }
     };
 
-    // ---------- Fast Typing Animation ----------
-    const typeText = useCallback((text, assistantMsgTemplate, finalHistory) => {
-        let currentText = '';
-        const words = text.split(' ');
-        let wordIndex = 0;
-        
-        const typeNextWord = () => {
-            if (wordIndex < words.length) {
-                const chunkSize = Math.floor(Math.random() * 3) + 2;
-                const nextWords = words.slice(wordIndex, wordIndex + chunkSize);
-                currentText += (currentText ? ' ' : '') + nextWords.join(' ');
-                wordIndex += chunkSize;
-                
-                setStreamingMessage({ ...assistantMsgTemplate, content: currentText });
-                setTimeout(typeNextWord, 20);
-            } else {
-                setStreamingMessage(null);
-                const finalMsg = { ...assistantMsgTemplate, content: text };
-                const updatedHistory = [...finalHistory, finalMsg];
-                setChatHistory(updatedHistory);
-                saveChatHistoryToDB(updatedHistory);
-            }
-        };
-        typeNextWord();
-    }, [saveChatHistoryToDB]);
+    step();
+  }, []);
 
-    // ---------- Send Message ----------
-    const handleSendMessage = async () => {
-        if (!message.trim() && !uploadedFile && !uploadedImage) return;
+  /* ---------------- SAVE CHAT ---------------- */
+  const saveChatHistory = useCallback(async (history) => {
+    try {
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(history));
+    } catch {}
 
-        const mode = uploadedFile ? "analyze_file" : (uploadedImage ? "image_edit" : (activeAIMode || "chat"));
-        const userMsg = {
-            role: 'user',
-            content: message,
-            type: mode,
-            fileName: uploadedFile?.name,
-            imageName: uploadedImage?.name,
-            ts: Date.now()
-        };
+    if (!db || !auth?.currentUser || history.length < 2) return;
 
-        const newHistoryWithUser = [...chatHistory, userMsg];
-        setChatHistory(newHistoryWithUser);
-        setMessage('');
-        setIsLoading(true);
-
-        const controller = new AbortController();
-        setAbortController(controller);
-
-        try {
-            // Prepare API Payload
-            let apiPayload = { prompt: message, mode, stream: true };
-            
-            if (mode === "analyze_file" && uploadedFile) {
-                apiPayload.file_content = await (uploadedFile.type.startsWith('text') ? uploadedFile.text() : "base64_data_placeholder");
-                apiPayload.filename = uploadedFile.name;
-            }
-
-            const result = await callFastAPI('/api/generate/text', apiPayload, mode);
-
-            const assistantTemplate = {
-                role: 'assistant',
-                type: result?.base64_image ? 'image' : 'text',
-                base64_image: result?.base64_image,
-                model_used: result?.model_used,
-                ts: Date.now()
-            };
-
-            if (result?.text && !result.base64_image) {
-                typeText(result.text, assistantTemplate, newHistoryWithUser);
-            } else {
-                const finalHistory = [...newHistoryWithUser, { ...assistantTemplate, content: result?.text || 'Done' }];
-                setChatHistory(finalHistory);
-                saveChatHistoryToDB(finalHistory);
-            }
-
-        } catch (error) {
-            const errorMsg = { role: 'assistant', content: `Error: ${error.message}`, ts: Date.now() };
-            setChatHistory(prev => [...prev, errorMsg]);
-        } finally {
-            setIsLoading(false);
-            setUploadedFile(null);
-            setUploadedImage(null);
-        }
-    };
-
-    const handleNewChat = () => {
-        setActiveChatId(null);
-        setChatHistory([{ role: 'assistant', content: 'Welcome! I am Spider AI. How can I help?', type: 'text', ts: Date.now() }]);
-        try { localStorage.removeItem(LOCAL_STORAGE_KEY); } catch(e){}
-    };
-
-    // Auto-scroll logic
-    useEffect(() => {
-        chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [chatHistory, streamingMessage]);
-
-    // ---------- Sub-Components ----------
-    const ChatBubble = ({ message }) => {
-        const isUser = message.role === "user";
-        return (
-            <div className={`flex w-full ${isUser ? "justify-end" : "justify-start"} mb-4`}>
-                <div className={`px-4 py-2 rounded-2xl max-w-[90%] sm:max-w-2xl ${isUser ? "bg-[#00e5ff] text-black" : "bg-[#1a1a1a] text-white"}`}>
-                    {message.base64_image && (
-                        <img src={`data:image/jpeg;base64,${message.base64_image}`} className="rounded-lg mb-2 max-h-64 object-contain" alt="AI Generated" />
-                    )}
-                    <div className="text-sm whitespace-pre-wrap">{message.content}</div>
-                    {message.model_used && <div className="text-[10px] opacity-40 mt-1">Model: {message.model_used}</div>}
-                </div>
-            </div>
-        );
-    };
-
-    return (
-        <div className="flex flex-row h-screen w-full bg-[#0a0a0a] text-white overflow-hidden">
-            {/* Sidebar */}
-            <div className="hidden md:flex flex-col w-64 bg-[#111] border-r border-white/10 p-4">
-                <button onClick={handleNewChat} className="w-full bg-[#00e5ff] text-black font-bold py-2 rounded-lg mb-6 hover:brightness-110 transition">
-                    + New Chat
-                </button>
-                <div className="flex-1 overflow-y-auto space-y-2">
-                    <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest px-2 mb-2">Recent</h3>
-                    {recentChats.map(chat => (
-                        <button 
-                            key={chat.id} 
-                            onClick={() => loadChatHistory(chat.id)}
-                            className={`w-full text-left px-3 py-2 rounded-md text-sm truncate ${activeChatId === chat.id ? 'bg-white/10' : 'hover:bg-white/5'}`}
-                        >
-                            {chat.title}
-                        </button>
-                    ))}
-                </div>
-            </div>
-
-            {/* Main Content */}
-            <div className="flex flex-col flex-1 relative">
-                <div className="flex-1 overflow-y-auto p-4">
-                    <div className="max-w-3xl mx-auto w-full">
-                        {chatHistory.map((msg, i) => <ChatBubble key={i} message={msg} />)}
-                        {streamingMessage && <ChatBubble message={streamingMessage} />}
-                        {isLoading && !streamingMessage && (
-                            <div className="flex justify-start animate-pulse text-xs text-gray-500">Spider AI is thinking...</div>
-                        )}
-                        <div ref={chatEndRef} />
-                    </div>
-                </div>
-
-                {/* Input Area */}
-                <div className="p-4 bg-gradient-to-t from-[#0a0a0a] to-transparent">
-                    <div className="max-w-3xl mx-auto flex items-end gap-2 bg-[#1a1a1a] p-2 rounded-xl border border-white/10">
-                        <textarea 
-                            className="flex-1 bg-transparent border-none focus:ring-0 text-sm py-2 px-2 resize-none max-h-40"
-                            rows={1}
-                            placeholder="Message Spider AI..."
-                            value={message}
-                            onChange={(e) => setMessage(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSendMessage())}
-                        />
-                        <button 
-                            onClick={handleSendMessage}
-                            disabled={isLoading}
-                            className="bg-[#00e5ff] text-black p-2 rounded-lg hover:brightness-110 disabled:opacity-50"
-                        >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
+    const chatsRef = collection(
+      db,
+      `artifacts/${getAppId()}/users/${getUserId()}/ai_chats`
     );
+
+    const title =
+      history.find(m => m.role === "user")?.content?.slice(0, 50) ||
+      "New Chat";
+
+    const payload = {
+      title,
+      history: JSON.stringify(history),
+      timestamp: Date.now(),
+      userId: getUserId()
+    };
+
+    if (activeChatId) {
+      await setDoc(doc(chatsRef, activeChatId), payload, { merge: true });
+    } else {
+      const ref = await addDoc(chatsRef, payload);
+      await setDoc(ref, { id: ref.id }, { merge: true });
+      setActiveChatId(ref.id);
+    }
+  }, [db, auth, activeChatId]);
+
+  /* ---------------- LOAD RECENT CHATS ---------------- */
+  useEffect(() => {
+    if (!db || !auth?.currentUser) return;
+
+    const chatsRef = collection(
+      db,
+      `artifacts/${getAppId()}/users/${getUserId()}/ai_chats`
+    );
+
+    const q = query(chatsRef, orderBy("timestamp", "desc"), limit(20));
+
+    const unsub = onSnapshot(q, snap => {
+      const chats = snap.docs.map(d => ({
+        id: d.id,
+        title: d.data().title || "Untitled Chat",
+        timestamp: d.data().timestamp
+      }));
+      setRecentChats(chats);
+    });
+
+    return () => unsub();
+  }, [db, auth]);
+
+  /* ---------------- LOAD CHAT ---------------- */
+  const loadChatHistory = async (chatId) => {
+    if (!db) return;
+
+    const ref = doc(
+      db,
+      `artifacts/${getAppId()}/users/${getUserId()}/ai_chats/${chatId}`
+    );
+
+    const snap = await getDoc(ref);
+    if (!snap.exists()) return;
+
+    const data = snap.data();
+    setChatHistory(JSON.parse(data.history || "[]"));
+    setActiveChatId(chatId);
+  };
+
+  /* ---------------- AUTO SAVE ---------------- */
+  useEffect(() => {
+    const last = chatHistory[chatHistory.length - 1];
+    if (!last?.isStreaming) {
+      saveChatHistory(chatHistory);
+    }
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatHistory]);
+
+  /* ---------------- SEND MESSAGE ---------------- */
+  const handleSendMessage = async () => {
+    if (!message.trim()) return;
+
+    const userMsg = {
+      role: "user",
+      content: message,
+      type: "text",
+      ts: Date.now()
+    };
+
+    setChatHistory(prev => [
+      ...prev,
+      userMsg,
+      {
+        role: "assistant",
+        content: "",
+        type: "text",
+        isStreaming: true,
+        ts: Date.now()
+      }
+    ]);
+
+    setMessage("");
+    setIsLoading(true);
+
+    try {
+      const res = await callFastAPI("/api/generate/text", {
+        prompt: userMsg.content,
+        mode: "chat"
+      });
+
+      typeText(res?.text || "No response");
+    } catch (e) {
+      setChatHistory(prev => {
+        const u = [...prev];
+        u[u.length - 1] = {
+          role: "assistant",
+          content: "API Error",
+          type: "text"
+        };
+        return u;
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  /* ---------------- UI ---------------- */
+  return (
+    <div className="flex h-full bg-[var(--spider-dark)] text-white">
+      {/* SIDEBAR */}
+      <div className="w-64 hidden md:flex flex-col border-r border-[var(--spider-light)] p-3">
+        <button
+          className="bg-[var(--spider-neon-blue)] text-black py-2 rounded"
+          onClick={() => {
+            setChatHistory(chatHistory.slice(0, 1));
+            setActiveChatId(null);
+          }}
+        >
+          + New Chat
+        </button>
+
+        <div className="mt-4 space-y-1 overflow-y-auto">
+          {recentChats.map(c => (
+            <button
+              key={c.id}
+              onClick={() => loadChatHistory(c.id)}
+              className={`w-full text-left px-2 py-2 rounded ${
+                activeChatId === c.id
+                  ? "bg-[var(--spider-light)]"
+                  : "hover:bg-[var(--spider-light)]"
+              }`}
+            >
+              <div className="truncate">{c.title}</div>
+              <div className="text-xs opacity-60">
+                {new Date(c.timestamp).toLocaleDateString()}
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* CHAT */}
+      <div className="flex flex-col flex-1">
+        <div className="flex-1 overflow-y-auto p-4">
+          {chatHistory.map((m, i) => (
+            <div
+              key={i}
+              className={`mb-2 ${
+                m.role === "user" ? "text-right" : "text-left"
+              }`}
+            >
+              <div className="inline-block px-3 py-2 rounded bg-[var(--spider-light)]">
+                {m.content}
+              </div>
+            </div>
+          ))}
+          <div ref={chatEndRef} />
+        </div>
+
+        <div className="p-3 border-t border-[var(--spider-light)] flex gap-2">
+          <textarea
+            value={message}
+            onChange={e => setMessage(e.target.value)}
+            className="flex-1 bg-transparent border border-[var(--spider-light)] rounded p-2"
+            placeholder="Ask something…"
+            onKeyDown={e => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleSendMessage();
+              }
+            }}
+          />
+          <button
+            onClick={handleSendMessage}
+            className="bg-[var(--spider-neon-blue)] text-black px-4 rounded"
+            disabled={isLoading}
+          >
+            Send
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 };
 // --- END Plus Menu Component ---
 const SpiderVFXApp = () => { /* ... (Remains Placeholder) ... */ return (<div className="flex-grow h-full flex flex-col items-center justify-center bg-black text-white p-8 pattern-vfx-grid overflow-y-auto"><div className="bg-black bg-opacity-80 p-10 rounded-lg text-center shadow-xl"><h1 className="text-4xl font-bold mb-4 text-[var(--spider-neon-blue)]">Spider VFX</h1><p className="text-lg text-gray-400 mb-8">Coming Soon!</p><div className="animate-pulse text-6xl">✨</div></div></div>);};
@@ -2737,6 +2747,7 @@ int main() {
         </>
     );
 }
+
 
 
 
