@@ -428,8 +428,7 @@ const LoginPage = ({ onLoginSuccess, auth }) => {  // Add auth prop
             </div>
         </div>
     );
-};
-}; // <-- Add this closing brace
+
 // Custom inline SVG for the Spider Logo
 const SpiderLogo = () => (
     <svg className="w-12 h-12 text-cyan-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -4045,6 +4044,7 @@ int main() {
         </>
     );
 }
+
 
 
 
