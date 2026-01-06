@@ -2134,10 +2134,12 @@ const SpiderAIApp = ({
     };
 
     // ---------- Optimized Content Processing ----------
-    const processContent = useCallback((text) => {
-        if (!text || typeof text !== "string") {
-            return [{ type: "text", content: text || "" }];
-        }
+
+  // ✅ CORRECT
+const processContent = useCallback((text) => {
+    if (!text || typeof text !== "string") { // Added '||' and fixed spacing
+        return []; // Added return
+    }
 
         const blocks = [];
         const lines = text.split('\n');
@@ -3953,6 +3955,7 @@ int main() {
         </>
     );
 }
+
 
 
 
