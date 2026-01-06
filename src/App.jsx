@@ -1459,6 +1459,17 @@ const SpiderAIApp = ({
     const getAppId = () => typeof __app_id !== 'undefined' ? __app_id : 'default-m4-app';
     const LOCAL_STORAGE_KEY = `spider_chat_history_${getAppId()}_${(currentUser?.email || 'anon')}`;
     
+    // ---------- CRITICAL FIX: Persistent User ID ----------
+    const getPersistentUserId = useCallback(() => {
+        const key = `spider_user_id_${getAppId()}`;
+        let userId = localStorage.getItem(key);
+        if (!userId) {
+            userId = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            localStorage.setItem(key, userId);
+        }
+        return userId;
+    }, [getAppId]);
+
     // IndexedDB configuration
     const DB_NAME = 'SpiderAIChatsDB';
     const DB_VERSION = 1;
@@ -1515,8 +1526,8 @@ const SpiderAIApp = ({
     }, []);
 
     const getUserId = useCallback(() => {
-        return currentUser?.email || currentUser?.id || 'anonymous';
-    }, [currentUser]);
+        return currentUser?.email || currentUser?.id || getPersistentUserId();
+    }, [currentUser, getPersistentUserId]);
 
     // ---------- Load Recent Chats ----------
     const loadRecentChats = useCallback(async () => {
@@ -1770,6 +1781,20 @@ const SpiderAIApp = ({
         }
     };
 
+    // ---------- Auto-detect Image Generation in Chat ----------
+    const detectImageGeneration = (prompt) => {
+        const lowerPrompt = prompt.toLowerCase();
+        const imageTriggers = [
+            'generate image', 'create image', 'make image', 'draw', 'paint',
+            'picture of', 'photo of', 'image of', 'generate a picture',
+            'create a picture', 'make a picture', 'visualize', 'illustrate',
+            'show me an image', 'show me a picture', 'can you draw',
+            'can you create an image', 'can you generate an image'
+        ];
+        
+        return imageTriggers.some(trigger => lowerPrompt.includes(trigger));
+    };
+
     // ---------- File / Image Upload Handlers ----------
     const handleFileUpload = (event) => {
         const file = event?.target?.files?.[0];
@@ -1882,9 +1907,17 @@ const SpiderAIApp = ({
         }
     };
 
-    // ---------- Enhanced Send Message ----------
+    // ---------- Enhanced Send Message with Auto-Detect ----------
     const handleSendMessage = async () => {
         if (!message.trim() && !uploadedFile && !uploadedImage) return;
+
+        // DEBUG LOG
+        console.log('🔍 MEMORY DEBUG:', {
+            persistentId: getPersistentUserId(),
+            currentUser: currentUser,
+            hasFirebaseToken: !!currentUser?.firebaseToken,
+            message: message
+        });
 
         setIsLoading(true);
         const controller = new AbortController();
@@ -1892,12 +1925,16 @@ const SpiderAIApp = ({
 
         const fileCopy = uploadedFile;
         const imageCopy = uploadedImage;
-        const selectedActiveMode = activeAIMode;
-        let mode = selectedActiveMode || "chat";
+        let mode = activeAIMode || "chat";
 
+        // AUTO-DETECT IMAGE GENERATION IN REGULAR CHAT
+        if (!fileCopy && !imageCopy && detectImageGeneration(message)) {
+            mode = 'image_gen';
+        }
+
+        // Override based on file/image uploads
         if (fileCopy) mode = "analyze_file";
         if (imageCopy) mode = "image_edit";
-        if (!fileCopy && !imageCopy && selectedActiveMode === 'image_gen') mode = 'image_gen';
 
         const userMessage = {
             role: 'user',
@@ -1918,9 +1955,13 @@ const SpiderAIApp = ({
             ts: Date.now(),
             isStreaming: true
         };
-        setStreamingMessage(initialStreamMessage);
+        
+        if (mode !== 'image_gen') {
+            setStreamingMessage(initialStreamMessage);
+        }
 
         try {
+            // ============ FILE ANALYSIS ============
             if (mode === "analyze_file" && fileCopy) {
                 let fileContent;
                 
@@ -1954,7 +1995,9 @@ const SpiderAIApp = ({
                     mode: "analyze_file",
                     filename: fileCopy.name,
                     file_content: fileContent,
-                    file_type: fileCopy.type
+                    file_type: fileCopy.type,
+                    user_preference_id: getPersistentUserId(), // ← CRITICAL FIX
+                    firebase_token: currentUser?.firebaseToken || ''
                 };
                 
                 const result = await callFastAPI(apiUrl, apiPayload, mode);
@@ -1979,6 +2022,7 @@ const SpiderAIApp = ({
                     setStreamingMessage(null);
                 }
             }
+            // ============ IMAGE EDIT ============
             else if (mode === "image_edit" && imageCopy) {
                 const base64Image = await new Promise((resolve, reject) => {
                     const reader = new FileReader();
@@ -1999,7 +2043,9 @@ const SpiderAIApp = ({
                     prompt: message || "Edit this image",
                     mode: "image_edit",
                     image: base64Image,
-                    strength: 0.7
+                    strength: 0.7,
+                    user_preference_id: getPersistentUserId(), // ← CRITICAL FIX
+                    firebase_token: currentUser?.firebaseToken || ''
                 };
                 const result = await callFastAPI(apiUrl, apiPayload, mode);
 
@@ -2015,12 +2061,48 @@ const SpiderAIApp = ({
                 setChatHistory(prev => [...prev, assistantMessage]);
                 setStreamingMessage(null);
             }
+            // ============ IMAGE GENERATION (Auto-detected or Manual) ============
+            else if (mode === "image_gen") {
+                const apiUrl = '/api/generate/text';
+                const apiPayload = { 
+                    prompt: message, 
+                    mode: 'image_gen',
+                    aspect_ratio: aspectRatio,
+                    user_preference_id: getPersistentUserId(), // ← CRITICAL FIX
+                    firebase_token: currentUser?.firebaseToken || '',
+                    stream: false // Images don't stream
+                };
+                
+                // Show generating status
+                const generatingMessage = {
+                    role: 'assistant',
+                    content: `🖼️ Generating image: "${message}"...`,
+                    type: 'text',
+                    ts: Date.now()
+                };
+                setChatHistory(prev => [...prev, generatingMessage]);
+                
+                const result = await callFastAPI(apiUrl, apiPayload, mode);
+
+                const assistantMessage = {
+                    role: 'assistant',
+                    content: `✅ Image generated: "${message}"`,
+                    type: 'image',
+                    base64_image: result?.base64_image,
+                    prompt: message,
+                    ts: Date.now()
+                };
+                setChatHistory(prev => [...prev, assistantMessage]);
+            }
+            // ============ NORMAL CHAT / CODE / SEARCH ============
             else {
                 const apiUrl = '/api/generate/text';
                 const apiPayload = { 
                     prompt: message, 
                     mode,
-                    aspect_ratio: mode === 'image_gen' ? aspectRatio : undefined,
+                    aspect_ratio: aspectRatio,
+                    user_preference_id: getPersistentUserId(), // ← CRITICAL FIX
+                    firebase_token: currentUser?.firebaseToken || '',
                     stream: true
                 };
                 
@@ -2162,13 +2244,18 @@ const SpiderAIApp = ({
                         <div className="w-full rounded-lg overflow-hidden bg-black p-0.5 mb-2">
                             <img
                                 src={`data:image/jpeg;base64,${message.base64_image}`}
-                                alt="Generated"
+                                alt={message.prompt || "Generated image"}
                                 className="w-full rounded-lg"
                                 style={{
                                     maxHeight: "250px",
                                     objectFit: "contain",
                                 }}
                             />
+                            {message.prompt && (
+                                <div className="text-xs text-gray-400 mt-1 italic">
+                                    "{message.prompt}"
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -2265,7 +2352,7 @@ const SpiderAIApp = ({
         if (uploadedImage) return "Image Edit";
         if (activeAIMode === 'image_gen') return "Create Image";
         if (activeAIMode === 'image_edit') return "Edit Image";
-        return "Chat / Code";
+        return "Chat / Code / Image Gen";
     };
 
     // ---------- Mobile Sidebar Component ----------
@@ -2593,7 +2680,7 @@ const SpiderAIApp = ({
                                     placeholder={
                                         uploadedImage ? "Describe image edit..." : 
                                         uploadedFile ? "Analyze this file..." : 
-                                        "Type your message..."
+                                        "Type message or 'generate image of...'"
                                     } 
                                     className="w-full bg-transparent text-white focus:outline-none resize-none text-sm max-h-32 overflow-y-auto touch-manipulation"
                                     style={{
@@ -2617,7 +2704,7 @@ const SpiderAIApp = ({
                             </div>
 
                             {/* Aspect Ratio Selector - Mobile */}
-                            {isMobile && activeAIMode === 'image_gen' && (
+                            {isMobile && (activeAIMode === 'image_gen' || detectImageGeneration(message)) && (
                                 <select 
                                     value={aspectRatio} 
                                     onChange={(e) => setAspectRatio(e.target.value)} 
@@ -2626,6 +2713,7 @@ const SpiderAIApp = ({
                                     <option value="1:1">1:1</option>
                                     <option value="16:9">16:9</option>
                                     <option value="9:16">9:16</option>
+                                    <option value="4:3">4:3</option>
                                 </select>
                             )}
 
@@ -2661,7 +2749,6 @@ const SpiderAIApp = ({
         </div>
     );
 };
-
 // --- END Plus Menu Component ---
 const SpiderVFXApp = () => { /* ... (Remains Placeholder) ... */ return (<div className="flex-grow h-full flex flex-col items-center justify-center bg-black text-white p-8 pattern-vfx-grid overflow-y-auto"><div className="bg-black bg-opacity-80 p-10 rounded-lg text-center shadow-xl"><h1 className="text-4xl font-bold mb-4 text-[var(--spider-neon-blue)]">Spider VFX</h1><p className="text-lg text-gray-400 mb-8">Coming Soon!</p><div className="animate-pulse text-6xl">✨</div></div></div>);};
 
@@ -3726,4 +3813,5 @@ int main() {
         </>
     );
 }
+
 
