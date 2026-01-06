@@ -1426,7 +1426,7 @@ const PlusMenu = ({
 };
 
 const SpiderAIApp = ({ 
-    currentUser: initialUser, 
+    currentUser, 
     showModal, 
     callFastAPI, 
     activeAIMode, 
@@ -1450,51 +1450,19 @@ const SpiderAIApp = ({
     const [isDeleting, setIsDeleting] = useState(false);
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [isMobile, setIsMobile] = useState(false);
-    
-    // Firebase states
-    const [firebaseApp, setFirebaseApp] = useState(null);
-    const [auth, setAuth] = useState(null);
-    const [database, setDatabase] = useState(null);
-    const [firebaseUser, setFirebaseUser] = useState(null);
-    const [isSyncing, setIsSyncing] = useState(false);
-    const [syncStatus, setSyncStatus] = useState('idle');
-    const [lastSyncTime, setLastSyncTime] = useState(null);
-    
-    // User profile
-    const [userProfile, setUserProfile] = useState({
-        name: 'Guest User',
-        email: '',
-        profileImage: '',
-        isPro: false,
-        userId: null,
-        settings: {
-            darkMode: true,
-            autoSave: true,
-            typingSpeed: 'fast',
-            autoSync: true
-        }
-    });
-    const [showProfileModal, setShowProfileModal] = useState(false);
 
     const fileInputRef = useRef(null);
     const imageInputRef = useRef(null);
-    const profileImageInputRef = useRef(null);
     const chatEndRef = useRef(null);
     const textareaRef = useRef(null);
 
     const getAppId = () => typeof __app_id !== 'undefined' ? __app_id : 'default-m4-app';
+    const LOCAL_STORAGE_KEY = `spider_chat_history_${getAppId()}_${(currentUser?.email || 'anon')}`;
     
-    // Firebase config
-    const FIREBASE_CONFIG = {
-        apiKey: "AIzaSyBS1aGZZ2RDx2RKji1jOO-7spiY5QzJjh8",
-        authDomain: "m4-spider.firebaseapp.com",
-        projectId: "m4-spider",
-        storageBucket: "m4-spider.firebasestorage.app",
-        messagingSenderId: "154970150789",
-        appId: "1:154970150789:web:60796710cacca377edd6ec",
-        measurementId: "G-TGTWRTF7EX",
-        databaseURL: "https://m4-spider-default-rtdb.firebaseio.com"
-    };
+    // IndexedDB configuration
+    const DB_NAME = 'SpiderAIChatsDB';
+    const DB_VERSION = 1;
+    const STORE_NAME = 'chats';
 
     // ---------- Detect Mobile ----------
     useEffect(() => {
@@ -1520,350 +1488,243 @@ const SpiderAIApp = ({
         }
     }, [message]);
 
-    // ---------- Initialize Firebase ----------
-    useEffect(() => {
-        const initFirebase = async () => {
-            try {
-                console.log('Initializing Firebase...');
-                
-                const app = initializeApp(FIREBASE_CONFIG, 'spider-ai-realtime');
-                const authInstance = getAuth(app);
-                const db = getDatabase(app);
-                
-                setFirebaseApp(app);
-                setAuth(authInstance);
-                setDatabase(db);
-                
-                // Try anonymous sign-in for basic features
-                try {
-                    await signInAnonymously(authInstance);
-                } catch (authError) {
-                    console.log('Using local mode only');
-                }
-                
-                // Listen for auth state
-                const unsubscribe = onAuthStateChanged(authInstance, async (user) => {
-                    console.log('Auth state:', user ? user.uid : 'No user');
-                    setFirebaseUser(user);
-                    
-                    if (user) {
-                        await loadOrCreateUserProfile(user);
-                        startRealtimeSync(user.uid);
-                    } else {
-                        loadLocalData();
-                    }
-                });
-                
-                // Monitor connection
-                const connectedRef = ref(db, '.info/connected');
-                onValue(connectedRef, (snap) => {
-                    setSyncStatus(snap.val() === true ? 'online' : 'offline');
-                });
-                
-                return () => unsubscribe();
-                
-            } catch (error) {
-                console.error('Firebase init failed:', error);
-                loadLocalData();
-            }
-        };
-        
-        initFirebase();
-    }, []);
-
-    // ---------- IndexedDB Functions ----------
-    const openIndexedDB = () => {
+    // ---------- IndexedDB Helper Functions ----------
+    const openDatabase = useCallback(() => {
         return new Promise((resolve, reject) => {
-            const request = indexedDB.open('SpiderAISyncDB', 2);
+            const request = indexedDB.open(DB_NAME, DB_VERSION);
             
-            request.onerror = () => reject(request.error);
-            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => {
+                reject(new Error(`Failed to open database: ${request.error}`));
+            };
+            
+            request.onsuccess = () => {
+                resolve(request.result);
+            };
             
             request.onupgradeneeded = (event) => {
                 const db = event.target.result;
                 
-                if (!db.objectStoreNames.contains('chats')) {
-                    const store = db.createObjectStore('chats', { keyPath: 'id' });
+                if (!db.objectStoreNames.contains(STORE_NAME)) {
+                    const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
                     store.createIndex('userId', 'userId', { unique: false });
-                    store.createIndex('updatedAt', 'updatedAt', { unique: false });
-                }
-                
-                if (!db.objectStoreNames.contains('profiles')) {
-                    db.createObjectStore('profiles', { keyPath: 'userId' });
+                    store.createIndex('timestamp', 'timestamp', { unique: false });
+                    store.createIndex('appId', 'appId', { unique: false });
                 }
             };
         });
-    };
+    }, []);
 
-    const saveToIndexedDB = async (storeName, data) => {
+    const getUserId = useCallback(() => {
+        return currentUser?.email || currentUser?.id || 'anonymous';
+    }, [currentUser]);
+
+    // ---------- Load Recent Chats ----------
+    const loadRecentChats = useCallback(async () => {
         try {
-            const db = await openIndexedDB();
-            const transaction = db.transaction([storeName], 'readwrite');
-            const store = transaction.objectStore(storeName);
+            const db = await openDatabase();
+            const transaction = db.transaction([STORE_NAME], 'readonly');
+            const store = transaction.objectStore(STORE_NAME);
+            const index = store.index('userId');
             
-            if (Array.isArray(data)) {
-                data.forEach(item => store.put(item));
-            } else {
-                store.put(data);
-            }
+            const userId = getUserId();
+            const range = IDBKeyRange.only(userId);
+            const request = index.getAll(range);
             
-            await transaction.complete;
-            db.close();
+            return new Promise((resolve) => {
+                request.onsuccess = () => {
+                    const chats = request.result || [];
+                    const sortedChats = chats
+                        .sort((a, b) => b.timestamp - a.timestamp)
+                        .slice(0, 10)
+                        .map(chat => ({
+                            id: chat.id,
+                            title: chat.title || 'Untitled Chat',
+                            timestamp: chat.timestamp,
+                            mode: chat.mode || 'chat'
+                        }));
+                    
+                    setRecentChats(sortedChats);
+                    resolve(sortedChats);
+                    db.close();
+                };
+                
+                request.onerror = () => {
+                    console.error('Error loading recent chats:', request.error);
+                    setRecentChats([]);
+                    resolve([]);
+                    db.close();
+                };
+            });
         } catch (error) {
-            console.error('Error saving to IndexedDB:', error);
+            console.error('Error in loadRecentChats:', error);
+            setRecentChats([]);
+            return [];
         }
-    };
+    }, [openDatabase, getUserId]);
 
-    const getFromIndexedDB = async (storeName, key) => {
-        try {
-            const db = await openIndexedDB();
-            const transaction = db.transaction([storeName], 'readonly');
-            const store = transaction.objectStore(storeName);
-            
-            if (key) {
-                const request = store.get(key);
-                return new Promise((resolve) => {
-                    request.onsuccess = () => {
-                        resolve(request.result);
-                        db.close();
-                    };
-                    request.onerror = () => {
-                        resolve(null);
-                        db.close();
-                    };
-                });
-            } else {
-                const request = store.getAll();
-                return new Promise((resolve) => {
-                    request.onsuccess = () => {
-                        resolve(request.result || []);
-                        db.close();
-                    };
-                    request.onerror = () => {
-                        resolve([]);
-                        db.close();
-                    };
-                });
-            }
-        } catch (error) {
-            console.error('Error getting from IndexedDB:', error);
-            return key ? null : [];
-        }
-    };
-
-    // ---------- Load Local Data ----------
-    const loadLocalData = async () => {
-        const localChats = await getFromIndexedDB('chats');
-        if (localChats.length > 0) {
-            const sorted = localChats.sort((a, b) => 
-                new Date(b.updatedAt || b.timestamp) - new Date(a.updatedAt || a.timestamp)
-            );
-            setRecentChats(sorted.slice(0, 10));
-            
-            const latestChat = sorted[0];
-            try {
-                const history = JSON.parse(latestChat.history || '[]');
-                if (history.length > 0) {
-                    setChatHistory(history);
-                    setActiveChatId(latestChat.id);
-                }
-            } catch (error) {
-                console.error('Error loading chat:', error);
-            }
-        }
-        
-        const localProfile = await getFromIndexedDB('profiles', 'local');
-        if (localProfile) {
-            setUserProfile(localProfile);
-        }
-    };
-
-    // ---------- User Profile ----------
-    const loadOrCreateUserProfile = async (user) => {
-        if (!database) return;
+    // ---------- Load Specific Chat ----------
+    const loadChatById = useCallback(async (chatId) => {
+        if (!chatId) return;
         
         try {
-            const userId = user.uid;
-            const profileRef = ref(database, `users/${userId}/profile`);
-            const snapshot = await get(profileRef);
+            const db = await openDatabase();
+            const transaction = db.transaction([STORE_NAME], 'readonly');
+            const store = transaction.objectStore(STORE_NAME);
+            const request = store.get(chatId);
             
-            if (snapshot.exists()) {
-                const profileData = snapshot.val();
-                const profile = {
-                    ...profileData,
-                    userId,
-                    settings: {
-                        ...userProfile.settings,
-                        ...(profileData.settings || {})
+            return new Promise((resolve, reject) => {
+                request.onsuccess = () => {
+                    if (request.result) {
+                        const chat = request.result;
+                        try {
+                            const history = JSON.parse(chat.history || '[]');
+                            if (Array.isArray(history) && history.length > 0) {
+                                setChatHistory(history);
+                                setActiveChatId(chatId);
+                                resolve(history);
+                            } else {
+                                throw new Error('Invalid chat history');
+                            }
+                        } catch (parseError) {
+                            console.error('Error parsing chat history:', parseError);
+                            reject(parseError);
+                        }
+                    } else {
+                        reject(new Error('Chat not found'));
                     }
-                };
-                setUserProfile(profile);
-                await saveToIndexedDB('profiles', profile);
-            } else {
-                const newProfile = {
-                    name: user.displayName || user.email?.split('@')[0] || 'User',
-                    email: user.email || '',
-                    profileImage: user.photoURL || '',
-                    isPro: false,
-                    userId,
-                    settings: userProfile.settings,
-                    createdAt: new Date().toISOString()
+                    db.close();
                 };
                 
-                await set(profileRef, newProfile);
-                setUserProfile(newProfile);
-                await saveToIndexedDB('profiles', newProfile);
-            }
+                request.onerror = () => {
+                    reject(request.error);
+                    db.close();
+                };
+            });
         } catch (error) {
-            console.error('Error loading profile:', error);
-            const defaultProfile = {
-                name: user.displayName || user.email?.split('@')[0] || 'User',
-                email: user.email || '',
-                profileImage: user.photoURL || '',
-                isPro: false,
-                userId: user.uid,
-                settings: userProfile.settings
-            };
-            setUserProfile(defaultProfile);
+            console.error('Error in loadChatById:', error);
+            throw error;
         }
-    };
+    }, [openDatabase]);
 
-    const updateProfile = async (updates) => {
-        const updated = { ...userProfile, ...updates };
-        setUserProfile(updated);
+    // ---------- Save Chat History ----------
+    const saveChatHistory = useCallback(async (history) => {
+        if (!Array.isArray(history) || history.length <= 1) return;
         
-        await saveToIndexedDB('profiles', updated);
-        
-        if (firebaseUser && database) {
-            try {
-                const profileRef = ref(database, `users/${firebaseUser.uid}/profile`);
-                await update(profileRef, {
-                    ...updates,
-                    updatedAt: new Date().toISOString()
-                });
-            } catch (error) {
-                console.error('Error updating cloud profile:', error);
-            }
+        // Save to localStorage as backup
+        try {
+            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(history));
+        } catch (e) {
+            console.warn('LocalStorage save failed:', e);
         }
-    };
-
-    // ---------- Realtime Sync ----------
-    const startRealtimeSync = (userId) => {
-        if (!database) return;
         
-        console.log('Starting sync for user:', userId);
-        const userChatsRef = ref(database, `users/${userId}/chats`);
+        const userId = getUserId();
+        const chatTitle = (history[1]?.content || 'New Chat')
+            .toString()
+            .substring(0, 50)
+            .trim() || 'New Chat';
         
-        const unsubscribe = onValue(userChatsRef, (snapshot) => {
-            const data = snapshot.val();
+        const chatData = {
+            id: activeChatId || `chat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            title: chatTitle,
+            history: JSON.stringify(history),
+            timestamp: Date.now(),
+            mode: history[1]?.type || 'chat',
+            userId: userId,
+            appId: getAppId()
+        };
+        
+        try {
+            const db = await openDatabase();
+            const transaction = db.transaction([STORE_NAME], 'readwrite');
+            const store = transaction.objectStore(STORE_NAME);
             
-            if (data) {
-                const chatsArray = Object.entries(data).map(([id, chatData]) => ({
-                    id,
-                    ...chatData,
-                    createdAt: chatData.createdAt ? new Date(chatData.createdAt) : new Date(),
-                    updatedAt: chatData.updatedAt ? new Date(chatData.updatedAt) : new Date()
-                }));
+            store.put(chatData);
+            
+            transaction.oncomplete = () => {
+                if (!activeChatId) {
+                    setActiveChatId(chatData.id);
+                }
+                loadRecentChats();
+                db.close();
+            };
+            
+            transaction.onerror = () => {
+                console.error('Error saving to IndexedDB:', transaction.error);
+                db.close();
+            };
+        } catch (error) {
+            console.error('Error saving chat:', error);
+        }
+    }, [activeChatId, openDatabase, getUserId, loadRecentChats]);
+
+    // ---------- Delete Chat ----------
+    const deleteChat = useCallback(async (chatId) => {
+        if (!chatId) return;
+        
+        setIsDeleting(true);
+        try {
+            const db = await openDatabase();
+            const transaction = db.transaction([STORE_NAME], 'readwrite');
+            const store = transaction.objectStore(STORE_NAME);
+            
+            store.delete(chatId);
+            
+            transaction.oncomplete = () => {
+                if (activeChatId === chatId) {
+                    handleNewChat();
+                }
+                loadRecentChats();
+                db.close();
+                setIsDeleting(false);
+            };
+            
+            transaction.onerror = () => {
+                console.error('Error deleting chat:', transaction.error);
+                db.close();
+                setIsDeleting(false);
+            };
+        } catch (error) {
+            console.error('Error in deleteChat:', error);
+            setIsDeleting(false);
+        }
+    }, [activeChatId, openDatabase, loadRecentChats]);
+
+    // ---------- Initialize ----------
+    useEffect(() => {
+        const initializeChats = async () => {
+            try {
+                await loadRecentChats();
                 
-                const sortedChats = chatsArray.sort((a, b) => 
-                    new Date(b.updatedAt) - new Date(a.updatedAt)
-                );
-                
-                setRecentChats(sortedChats.slice(0, 10));
-                saveToIndexedDB('chats', sortedChats);
-                setLastSyncTime(new Date());
-                
-                if (activeChatId && data[activeChatId]) {
+                if (recentChats.length > 0) {
                     try {
-                        const history = JSON.parse(data[activeChatId].history || '[]');
-                        setChatHistory(history);
+                        await loadChatById(recentChats[0].id);
                     } catch (error) {
-                        console.error('Error parsing chat:', error);
+                        console.log('Starting new chat');
                     }
                 }
+            } catch (error) {
+                console.error('Error initializing chats:', error);
             }
-        }, (error) => {
-            console.error('Sync error:', error);
-        });
+        };
         
-        return unsubscribe;
-    };
+        initializeChats();
+    }, [currentUser]);
 
-    const saveChatToCloud = async (chatData) => {
-        if (!database || !firebaseUser) {
-            await saveToIndexedDB('chats', chatData);
-            return false;
+    // Auto-save chat history
+    useEffect(() => {
+        if (chatHistory.length > 1) {
+            const timeoutId = setTimeout(() => {
+                saveChatHistory(chatHistory);
+            }, 500);
+            
+            return () => clearTimeout(timeoutId);
         }
-        
-        setIsSyncing(true);
-        
-        try {
-            const userId = firebaseUser.uid;
-            const chatRef = ref(database, `users/${userId}/chats/${chatData.id}`);
-            
-            const cloudData = {
-                ...chatData,
-                userId,
-                updatedAt: new Date().toISOString(),
-                device: navigator.userAgent.substring(0, 100),
-                synced: true
-            };
-            
-            await set(chatRef, cloudData);
-            await saveToIndexedDB('chats', chatData);
-            
-            return true;
-        } catch (error) {
-            console.error('Cloud save error:', error);
-            await saveToIndexedDB('chats', chatData);
-            return false;
-        } finally {
-            setIsSyncing(false);
-        }
-    };
+    }, [chatHistory, saveChatHistory]);
 
-    const handleManualSync = async () => {
-        if (!database || !firebaseUser) {
-            showModal('Sync Error', 'Please check your internet connection.');
-            return;
-        }
-        
-        setIsSyncing(true);
-        
-        try {
-            const localChats = await getFromIndexedDB('chats');
-            const uploadPromises = localChats.map(chat => 
-                saveChatToCloud(chat).catch(() => null)
-            );
-            
-            await Promise.all(uploadPromises);
-            
-            const userId = firebaseUser.uid;
-            const chatsRef = ref(database, `users/${userId}/chats`);
-            const snapshot = await get(chatsRef);
-            
-            if (snapshot.exists()) {
-                const cloudChats = snapshot.val();
-                const chatArray = Object.entries(cloudChats).map(([id, data]) => ({
-                    id,
-                    ...data
-                }));
-                
-                const sorted = chatArray.sort((a, b) => 
-                    new Date(b.updatedAt) - new Date(a.updatedAt)
-                );
-                
-                setRecentChats(sorted.slice(0, 10));
-                setLastSyncTime(new Date());
-                
-                showModal('Sync Complete', `Successfully synced ${localChats.length} chats!`);
-            }
-        } catch (error) {
-            showModal('Sync Failed', 'Could not complete sync.');
-        } finally {
-            setIsSyncing(false);
-        }
-    };
+    // Scroll to bottom when chat updates
+    useEffect(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [chatHistory, streamingMessage]);
 
     // ---------- Fast Typing Animation ----------
     const typeText = useCallback((text, onComplete) => {
@@ -1871,9 +1732,6 @@ const SpiderAIApp = ({
             onComplete?.();
             return;
         }
-        
-        const speed = userProfile.settings.typingSpeed === 'slow' ? 50 : 
-                     userProfile.settings.typingSpeed === 'medium' ? 30 : 10;
         
         const words = text.split(' ');
         let currentText = '';
@@ -1890,14 +1748,14 @@ const SpiderAIApp = ({
                     content: currentText
                 }));
                 
-                setTimeout(typeNextWord, speed + Math.random() * 20);
+                setTimeout(typeNextWord, 10 + Math.random() * 20);
             } else {
                 onComplete?.();
             }
         };
         
         typeNextWord();
-    }, [userProfile.settings.typingSpeed]);
+    }, []);
 
     // ---------- Stop Generation ----------
     const handleStopGeneration = () => {
@@ -1912,7 +1770,7 @@ const SpiderAIApp = ({
         }
     };
 
-    // ---------- File / Image Upload ----------
+    // ---------- File / Image Upload Handlers ----------
     const handleFileUpload = (event) => {
         const file = event?.target?.files?.[0];
         if (!file) {
@@ -1949,36 +1807,6 @@ const SpiderAIApp = ({
         setUploadedImage(file);
         setUploadedFile(null);
         setMessage("Transform or edit this image to: ");
-        event.target.value = null;
-    };
-
-    const handleProfileImageUpload = (event) => {
-        const file = event?.target?.files?.[0];
-        if (!file) {
-            if (event) event.target.value = null;
-            return;
-        }
-        
-        if (!file.type.startsWith('image/')) {
-            showModal("File Error", "Please upload a valid image file.");
-            event.target.value = null;
-            return;
-        }
-        
-        if (file.size > 1024 * 1024 * 2) {
-            showModal("File Error", "Image size exceeds 2MB limit.");
-            event.target.value = null;
-            return;
-        }
-        
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            updateProfile({
-                profileImage: e.target.result
-            });
-        };
-        reader.readAsDataURL(file);
-        
         event.target.value = null;
     };
 
@@ -2047,40 +1875,10 @@ const SpiderAIApp = ({
             type: 'text' 
         }];
         setChatHistory(welcome);
-    };
-
-    // ---------- Delete Chat ----------
-    const deleteChat = async (chatId) => {
-        if (!chatId) return;
-        
-        setIsDeleting(true);
-        try {
-            // Delete from cloud
-            if (firebaseUser && database) {
-                const chatRef = ref(database, `users/${firebaseUser.uid}/chats/${chatId}`);
-                await remove(chatRef);
-            }
-            
-            // Delete from local
-            const db = await openIndexedDB();
-            const transaction = db.transaction(['chats'], 'readwrite');
-            const store = transaction.objectStore('chats');
-            await store.delete(chatId);
-            await transaction.complete;
-            db.close();
-            
-            // Update UI
-            if (activeChatId === chatId) {
-                handleNewChat();
-            }
-            
-            const updatedChats = recentChats.filter(chat => chat.id !== chatId);
-            setRecentChats(updatedChats);
-            
-        } catch (error) {
-            console.error('Error deleting chat:', error);
-        } finally {
-            setIsDeleting(false);
+        try { 
+            localStorage.removeItem(LOCAL_STORAGE_KEY); 
+        } catch (e) { 
+            console.warn("Error clearing localStorage:", e);
         }
     };
 
@@ -2110,14 +1908,9 @@ const SpiderAIApp = ({
             ts: Date.now()
         };
 
-        const updatedHistory = [...chatHistory, userMessage];
-        setChatHistory(updatedHistory);
+        setChatHistory(prev => [...prev, userMessage]);
         setMessage('');
 
-        // Auto-save after user message
-        await saveChatHistory(updatedHistory);
-
-        // Initialize streaming message
         const initialStreamMessage = {
             role: 'assistant',
             content: '',
@@ -2176,12 +1969,15 @@ const SpiderAIApp = ({
                     ts: Date.now()
                 };
                 
-                const finalHistory = [...updatedHistory, assistantMessage];
-                setChatHistory(finalHistory);
-                setStreamingMessage(null);
-                
-                // Save chat with AI response
-                await saveChatHistory(finalHistory);
+                if (!result?.base64_image && result?.text) {
+                    typeText(result.text, () => {
+                        setChatHistory(prev => [...prev, assistantMessage]);
+                        setStreamingMessage(null);
+                    });
+                } else {
+                    setChatHistory(prev => [...prev, assistantMessage]);
+                    setStreamingMessage(null);
+                }
             }
             else if (mode === "image_edit" && imageCopy) {
                 const base64Image = await new Promise((resolve, reject) => {
@@ -2216,11 +2012,8 @@ const SpiderAIApp = ({
                     model_used: result?.model_used,
                     ts: Date.now()
                 };
-                
-                const finalHistory = [...updatedHistory, assistantMessage];
-                setChatHistory(finalHistory);
+                setChatHistory(prev => [...prev, assistantMessage]);
                 setStreamingMessage(null);
-                await saveChatHistory(finalHistory);
             }
             else {
                 const apiUrl = '/api/generate/text';
@@ -2244,11 +2037,8 @@ const SpiderAIApp = ({
                             model_used: result?.model_used,
                             ts: Date.now()
                         };
-                        
-                        const finalHistory = [...updatedHistory, assistantMessage];
-                        setChatHistory(finalHistory);
+                        setChatHistory(prev => [...prev, assistantMessage]);
                         setStreamingMessage(null);
-                        saveChatHistory(finalHistory);
                     });
                 } else {
                     const assistantMessage = {
@@ -2260,11 +2050,8 @@ const SpiderAIApp = ({
                         model_used: result?.model_used,
                         ts: Date.now()
                     };
-                    
-                    const finalHistory = [...updatedHistory, assistantMessage];
-                    setChatHistory(finalHistory);
+                    setChatHistory(prev => [...prev, assistantMessage]);
                     setStreamingMessage(null);
-                    await saveChatHistory(finalHistory);
                 }
             }
         } catch (error) {
@@ -2275,11 +2062,8 @@ const SpiderAIApp = ({
                 type: 'text',
                 ts: Date.now()
             };
-            
-            const finalHistory = [...updatedHistory, assistantError];
-            setChatHistory(finalHistory);
+            setChatHistory(prev => [...prev, assistantError]);
             setStreamingMessage(null);
-            await saveChatHistory(finalHistory);
         } finally {
             setAbortController(null);
             setUploadedFile(null);
@@ -2288,39 +2072,7 @@ const SpiderAIApp = ({
         }
     };
 
-    // ---------- Save Chat History ----------
-    const saveChatHistory = async (history) => {
-        if (!Array.isArray(history) || history.length <= 1) return;
-        
-        const chatTitle = (history[1]?.content || 'New Chat')
-            .toString()
-            .substring(0, 50)
-            .trim() || 'New Chat';
-        
-        const chatId = activeChatId || `chat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        const timestamp = Date.now();
-        
-        const chatData = {
-            id: chatId,
-            title: chatTitle,
-            history: JSON.stringify(history),
-            timestamp,
-            updatedAt: new Date().toISOString(),
-            mode: history[1]?.type || 'chat',
-            userId: firebaseUser?.uid || 'anonymous'
-        };
-        
-        // Save to cloud and local
-        await saveChatToCloud(chatData);
-        
-        if (!activeChatId) {
-            setActiveChatId(chatId);
-            // Add to recent chats
-            setRecentChats(prev => [chatData, ...prev.slice(0, 9)]);
-        }
-    };
-
-    // ---------- Chat Bubble Component ----------
+    // ---------- Enhanced Chat Bubble ----------
     const ChatBubble = ({ message }) => {
         useEffect(() => {
             if (typeof window !== "undefined" && window.Prism) {
@@ -2387,22 +2139,35 @@ const SpiderAIApp = ({
             navigator.clipboard.writeText(content);
         };
 
-        const bubbleClass = message.role === "user"
-            ? "bg-[#00e5ff] text-black ml-auto"
-            : "bg-[#004745] text-white mr-auto";
+        const bubbleClass =
+            message.role === "user"
+                ? "bg-[#00e5ff] text-black ml-auto"
+                : "bg-[#004745] text-white mr-auto";
 
         const contentParts = extractCodeBlocks(message.content);
 
         return (
-            <div className={`flex w-full ${message.role === "user" ? "justify-end" : "justify-start"} mb-3 px-2`}>
-                <div className={`px-3 py-2 rounded-xl max-w-[90%] sm:max-w-4xl ${bubbleClass}`}>
+            <div
+                className={`flex w-full ${
+                    message.role === "user" ? "justify-end" : "justify-start"
+                } mb-3 px-2`}
+            >
+                <div
+                    className={`px-3 py-2 rounded-xl max-w-[90%] sm:max-w-4xl ${bubbleClass}`}
+                    style={{
+                        boxShadow: "0 0 0",
+                    }}
+                >
                     {message.type === "image" && message.base64_image && (
                         <div className="w-full rounded-lg overflow-hidden bg-black p-0.5 mb-2">
                             <img
                                 src={`data:image/jpeg;base64,${message.base64_image}`}
                                 alt="Generated"
                                 className="w-full rounded-lg"
-                                style={{ maxHeight: "250px", objectFit: "contain" }}
+                                style={{
+                                    maxHeight: "250px",
+                                    objectFit: "contain",
+                                }}
                             />
                         </div>
                     )}
@@ -2411,17 +2176,39 @@ const SpiderAIApp = ({
                         {contentParts.map((part, index) => {
                             if (part.type === "code") {
                                 return (
-                                    <div key={index} className="rounded-lg overflow-hidden w-full relative group" style={{ background: "#0f0f0f" }}>
+                                    <div
+                                        key={index}
+                                        className="rounded-lg overflow-hidden w-full relative group"
+                                        style={{
+                                            background: "#0f0f0f",
+                                        }}
+                                    >
                                         <div className="absolute top-1 right-1 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                                            <button onClick={() => handleCopyCode(part.content)} className="w-6 h-6 flex items-center justify-center rounded bg-gray-700 hover:bg-gray-600 transition-colors touch-manipulation" title="Copy code">
+                                            <button
+                                                onClick={() => handleCopyCode(part.content)}
+                                                className="w-6 h-6 flex items-center justify-center rounded bg-gray-700 hover:bg-gray-600 transition-colors touch-manipulation"
+                                                title="Copy code"
+                                            >
                                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                                     <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                                                     <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
                                                 </svg>
                                             </button>
                                         </div>
-                                        <pre className="overflow-x-auto p-3 m-0 text-xs sm:text-sm" style={{ background: "#0f0f0f", lineHeight: "1.4", color: "white" }}>
-                                            <code className={`language-${part.language}`}>{part.content}</code>
+
+                                        <pre
+                                            className="overflow-x-auto p-3 m-0 text-xs sm:text-sm"
+                                            style={{
+                                                background: "#0f0f0f",
+                                                lineHeight: "1.4",
+                                                color: "white",
+                                            }}
+                                        >
+                                            <code
+                                                className={`language-${part.language}`}
+                                            >
+                                                {part.content}
+                                            </code>
                                         </pre>
                                     </div>
                                 );
@@ -2429,14 +2216,27 @@ const SpiderAIApp = ({
 
                             if (part.type === "inline-code") {
                                 return (
-                                    <code key={index} className="px-1.5 py-0.5 rounded text-xs sm:text-sm" style={{ background: "#0f0f0f", color: "#00e5ff" }}>
+                                    <code
+                                        key={index}
+                                        className="px-1.5 py-0.5 rounded text-xs sm:text-sm"
+                                        style={{
+                                            background: "#0f0f0f",
+                                            color: "#00e5ff",
+                                        }}
+                                    >
                                         {part.content}
                                     </code>
                                 );
                             }
 
                             return (
-                                <div key={index} className="whitespace-pre-wrap break-words text-sm sm:text-base" style={{ lineHeight: "1.5" }}>
+                                <div
+                                    key={index}
+                                    className="whitespace-pre-wrap break-words text-sm sm:text-base"
+                                    style={{
+                                        lineHeight: "1.5",
+                                    }}
+                                >
                                     {part.content}
                                 </div>
                             );
@@ -2444,8 +2244,14 @@ const SpiderAIApp = ({
                     </div>
 
                     {message.model_used && (
-                        <div className="text-xs pt-1 mt-2 border-t border-gray-700" style={{ opacity: 0.6 }}>
-                            Model: <span className="text-white">{message.model_used}</span>
+                        <div
+                            className="text-xs pt-1 mt-2 border-t border-gray-700"
+                            style={{ opacity: 0.6 }}
+                        >
+                            Model:{" "}
+                            <span className="text-white">
+                                {message.model_used}
+                            </span>
                         </div>
                     )}
                 </div>
@@ -2453,281 +2259,7 @@ const SpiderAIApp = ({
         );
     };
 
-    // ---------- Profile Modal Component ----------
-    const ProfileModal = () => {
-        const [name, setName] = useState(userProfile.name);
-        const [typingSpeed, setTypingSpeed] = useState(userProfile.settings.typingSpeed);
-        const [autoSave, setAutoSave] = useState(userProfile.settings.autoSave);
-        const [autoSync, setAutoSync] = useState(userProfile.settings.autoSync);
-
-        const handleSave = () => {
-            updateProfile({
-                name,
-                settings: {
-                    ...userProfile.settings,
-                    typingSpeed,
-                    autoSave,
-                    autoSync
-                }
-            });
-            setShowProfileModal(false);
-        };
-
-        return (
-            <div className="fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4">
-                <div className="bg-[var(--spider-dark)] rounded-xl max-w-md w-full p-6 border border-[var(--spider-light)]">
-                    <div className="flex justify-between items-center mb-6">
-                        <h2 className="text-xl font-bold text-white">Profile Settings</h2>
-                        <button onClick={() => setShowProfileModal(false)} className="text-gray-400 hover:text-white text-2xl">×</button>
-                    </div>
-
-                    <div className="flex flex-col items-center mb-6">
-                        <div className="relative">
-                            <div className="w-24 h-24 rounded-full overflow-hidden border-2 border-[var(--spider-neon-blue)]">
-                                {userProfile.profileImage ? (
-                                    <img src={userProfile.profileImage} alt="Profile" className="w-full h-full object-cover" />
-                                ) : (
-                                    <div className="w-full h-full bg-[var(--spider-med)] flex items-center justify-center">
-                                        <span className="text-3xl text-white">{userProfile.name.charAt(0).toUpperCase()}</span>
-                                    </div>
-                                )}
-                            </div>
-                            <button onClick={() => profileImageInputRef.current?.click()} className="absolute bottom-0 right-0 bg-[var(--spider-neon-blue)] text-black w-8 h-8 rounded-full flex items-center justify-center hover:opacity-90">
-                                ✏️
-                            </button>
-                        </div>
-                        <input type="file" ref={profileImageInputRef} onChange={handleProfileImageUpload} className="hidden" accept="image/*" />
-                        <p className="text-sm text-gray-400 mt-2">Click pencil to upload image</p>
-                    </div>
-
-                    <div className="mb-4">
-                        <label className="block text-sm font-medium text-gray-300 mb-2">Your Name</label>
-                        <input type="text" value={name} onChange={(e) => setName(e.target.value)} className="w-full bg-[var(--spider-light)] text-white px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--spider-neon-blue)]" placeholder="Enter your name" />
-                    </div>
-
-                    {userProfile.email && (
-                        <div className="mb-4">
-                            <label className="block text-sm font-medium text-gray-300 mb-2">Email</label>
-                            <div className="w-full bg-[var(--spider-light)] text-gray-400 px-3 py-2 rounded-md">{userProfile.email}</div>
-                        </div>
-                    )}
-
-                    <div className="space-y-4 mb-6">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-300 mb-2">Typing Speed</label>
-                            <select value={typingSpeed} onChange={(e) => setTypingSpeed(e.target.value)} className="w-full bg-[var(--spider-light)] text-white px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--spider-neon-blue)]">
-                                <option value="fast">Fast</option>
-                                <option value="medium">Medium</option>
-                                <option value="slow">Slow</option>
-                            </select>
-                        </div>
-
-                        <div className="flex items-center justify-between">
-                            <span className="text-sm text-gray-300">Auto-save chats</span>
-                            <label className="relative inline-flex items-center cursor-pointer">
-                                <input type="checkbox" checked={autoSave} onChange={(e) => setAutoSave(e.target.checked)} className="sr-only peer" />
-                                <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[var(--spider-neon-blue)]"></div>
-                            </label>
-                        </div>
-
-                        <div className="flex items-center justify-between">
-                            <span className="text-sm text-gray-300">Auto-sync across devices</span>
-                            <label className="relative inline-flex items-center cursor-pointer">
-                                <input type="checkbox" checked={autoSync} onChange={(e) => setAutoSync(e.target.checked)} className="sr-only peer" />
-                                <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[var(--spider-neon-blue)]"></div>
-                            </label>
-                        </div>
-                    </div>
-
-                    <div className={`mb-6 p-4 rounded-lg ${userProfile.isPro ? 'bg-gradient-to-r from-purple-600 to-pink-600' : 'bg-[var(--spider-light)]'}`}>
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <h3 className="font-bold text-white">{userProfile.isPro ? '⭐ Pro Member' : 'Free Plan'}</h3>
-                                <p className="text-sm mt-1">{userProfile.isPro ? 'You have access to all premium features!' : 'Upgrade to Pro for advanced features'}</p>
-                            </div>
-                            {!userProfile.isPro && (
-                                <button onClick={() => showModal('Coming Soon', 'Pro features will be available soon! Stay tuned.')} className="bg-yellow-500 hover:bg-yellow-600 text-black font-semibold px-4 py-2 rounded-md text-sm">Upgrade</button>
-                            )}
-                        </div>
-                    </div>
-
-                    <div className="flex space-x-3">
-                        <button onClick={() => setShowProfileModal(false)} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-md transition">Cancel</button>
-                        <button onClick={handleSave} className="flex-1 bg-[var(--spider-neon-blue)] hover:opacity-90 text-black font-semibold px-4 py-2 rounded-md transition">Save Changes</button>
-                    </div>
-                </div>
-            </div>
-        );
-    };
-
-    // ---------- Profile Menu Component ----------
-    const ProfileMenu = () => {
-        const [menuOpen, setMenuOpen] = useState(false);
-
-        return (
-            <div className="relative">
-                <button onClick={() => setMenuOpen(!menuOpen)} className="flex items-center space-x-2 p-2 rounded-lg hover:bg-[var(--spider-light)] transition">
-                    <div className="w-8 h-8 rounded-full overflow-hidden bg-[var(--spider-neon-blue)] flex items-center justify-center">
-                        {userProfile.profileImage ? (
-                            <img src={userProfile.profileImage} alt="Profile" className="w-full h-full object-cover" />
-                        ) : (
-                            <span className="text-black font-bold">{userProfile.name.charAt(0).toUpperCase()}</span>
-                        )}
-                    </div>
-                    <div className="text-left hidden md:block">
-                        <div className="text-sm font-medium truncate">{userProfile.name}</div>
-                        <div className="text-xs text-gray-400 truncate">{firebaseUser ? 'Signed In' : 'Local Only'}</div>
-                    </div>
-                </button>
-
-                {menuOpen && (
-                    <>
-                        <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
-                        <div className="absolute bottom-full right-0 mb-2 bg-[var(--spider-dark)] border border-[var(--spider-light)] rounded-lg shadow-xl w-64 p-2 z-50">
-                            <div className="p-3 border-b border-[var(--spider-light)]">
-                                <div className="flex items-center space-x-3">
-                                    <div className="w-10 h-10 rounded-full overflow-hidden bg-[var(--spider-neon-blue)] flex items-center justify-center">
-                                        {userProfile.profileImage ? (
-                                            <img src={userProfile.profileImage} alt="Profile" className="w-full h-full object-cover" />
-                                        ) : (
-                                            <span className="text-black font-bold text-lg">{userProfile.name.charAt(0).toUpperCase()}</span>
-                                        )}
-                                    </div>
-                                    <div>
-                                        <div className="font-medium">{userProfile.name}</div>
-                                        <div className="text-xs text-gray-400">{userProfile.email || 'Guest User'}</div>
-                                        <div className="text-xs mt-1">
-                                            <span className={`px-2 py-0.5 rounded-full ${userProfile.isPro ? 'bg-yellow-500 text-black' : 'bg-gray-700 text-gray-300'}`}>{userProfile.isPro ? '⭐ Pro' : 'Free'}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="py-2">
-                                <button onClick={() => { setMenuOpen(false); setShowProfileModal(true); }} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center">
-                                    <span className="mr-2">👤</span> Profile Settings
-                                </button>
-                                
-                                <button onClick={() => { setMenuOpen(false); handleManualSync(); }} disabled={isSyncing} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center justify-between disabled:opacity-50">
-                                    <div className="flex items-center">
-                                        <span className="mr-2">🔄</span> 
-                                        {isSyncing ? 'Syncing...' : 'Sync Now'}
-                                    </div>
-                                    {lastSyncTime && <span className="text-xs text-gray-400">{formatTimeSince(lastSyncTime)}</span>}
-                                </button>
-                                
-                                <button onClick={() => { setMenuOpen(false); showModal('Upgrade to Pro', 'Pro features coming soon!\n\n✅ Cross-device sync (available now)\n✅ Advanced AI models\n✅ Priority support\n✅ Longer conversations\n✅ Custom AI assistants'); }} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center justify-between">
-                                    <div className="flex items-center">
-                                        <span className="mr-2">⭐</span> Upgrade to Pro
-                                    </div>
-                                    {!userProfile.isPro && <span className="text-xs bg-yellow-500 text-black px-2 py-0.5 rounded">FREE</span>}
-                                </button>
-                                
-                                <button onClick={() => { setMenuOpen(false); handleNewChat(); }} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center">
-                                    <span className="mr-2">🆕</span> New Chat
-                                </button>
-                            </div>
-
-                            <div className="px-3 py-2 border-t border-[var(--spider-light)] text-xs">
-                                <div className="flex justify-between">
-                                    <span className="text-gray-400">Status:</span>
-                                    <span className={syncStatus === 'online' ? 'text-green-400' : 'text-yellow-400'}>{syncStatus === 'online' ? '✅ Synced' : '⚠️ Offline'}</span>
-                                </div>
-                                <div className="flex justify-between mt-1">
-                                    <span className="text-gray-400">Chats:</span>
-                                    <span>{recentChats.length} saved</span>
-                                </div>
-                            </div>
-                        </div>
-                    </>
-                )}
-            </div>
-        );
-    };
-
-    // ---------- Sync Indicator ----------
-    const SyncIndicator = () => {
-        if (!firebaseUser) return null;
-        
-        return (
-            <div className={`fixed top-4 right-4 px-3 py-1 rounded-full text-xs flex items-center space-x-2 z-50 shadow-lg ${
-                syncStatus === 'online' ? 'bg-green-500 text-white' :
-                syncStatus === 'syncing' ? 'bg-blue-500 text-white' :
-                'bg-yellow-500 text-black'
-            }`}>
-                <div className={`w-2 h-2 rounded-full ${
-                    syncStatus === 'online' ? 'bg-white' :
-                    syncStatus === 'syncing' ? 'animate-pulse bg-white' :
-                    'bg-black'
-                }`}></div>
-                <span>
-                    {syncStatus === 'online' ? 'Synced' :
-                     syncStatus === 'syncing' ? 'Syncing...' :
-                     'Offline'}
-                </span>
-                {lastSyncTime && syncStatus === 'online' && (
-                    <span className="text-xs opacity-75">{formatTimeSince(lastSyncTime)}</span>
-                )}
-            </div>
-        );
-    };
-
-    // ---------- Mobile Sidebar ----------
-    const MobileSidebar = () => {
-        return (
-            <>
-                {sidebarOpen && (
-                    <>
-                        <div className="fixed inset-0 bg-black bg-opacity-50 z-40" onClick={() => setSidebarOpen(false)} />
-                        <div className="fixed left-0 top-0 h-full w-64 bg-[var(--spider-med)] z-50 overflow-y-auto p-4 transform transition-transform duration-300 ease-in-out">
-                            <div className="flex justify-between items-center mb-4">
-                                <h2 className="text-white font-semibold">Chat History</h2>
-                                <button onClick={() => setSidebarOpen(false)} className="text-white hover:text-gray-300 text-xl">×</button>
-                            </div>
-                            
-                            <button onClick={handleNewChat} className="w-full bg-[var(--spider-neon-blue)] text-black text-sm font-semibold py-2.5 px-3 rounded-md hover:opacity-90 transition flex items-center space-x-2 justify-center mb-4 touch-manipulation" disabled={isDeleting}>
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path></svg>
-                                <span>New Chat</span>
-                            </button>
-
-                            <div className="space-y-1">
-                                {recentChats.length > 0 ? (
-                                    recentChats.map((chat) => (
-                                        <div key={chat.id} className="flex items-center group">
-                                            <button onClick={() => { loadChatById(chat.id); setSidebarOpen(false); }} className={`flex-grow text-left px-3 py-2 text-sm rounded hover:bg-[var(--spider-light)] truncate transition-colors ${activeChatId === chat.id ? 'bg-[var(--spider-light)] text-white font-medium' : 'text-[var(--spider-text)] hover:text-white'}`} disabled={isDeleting}>
-                                                <div className="truncate">{chat.title}</div>
-                                                <div className="text-xs text-[var(--spider-text-dim)] mt-0.5">{new Date(chat.updatedAt || chat.timestamp).toLocaleDateString()}</div>
-                                            </button>
-                                            <button onClick={(e) => { e.stopPropagation(); if (window.confirm('Delete this chat?')) { deleteChat(chat.id); } }} className="ml-2 text-red-400 hover:text-red-300 opacity-100 transition-opacity p-1 touch-manipulation" title="Delete chat" disabled={isDeleting}>
-                                                {isDeleting ? <div className="w-3 h-3 border-2 border-red-400 border-t-transparent rounded-full animate-spin"></div> : '×'}
-                                            </button>
-                                        </div>
-                                    ))
-                                ) : (
-                                    <div className="text-center py-4 text-[var(--spider-text-dim)] text-sm">No recent chats</div>
-                                )}
-                            </div>
-
-                            <div className="mt-auto pt-4 border-t border-[var(--spider-light)]">
-                                <ProfileMenu />
-                            </div>
-                        </div>
-                    </>
-                )}
-            </>
-        );
-    };
-
-    // ---------- Helper Functions ----------
-    const formatTimeSince = (date) => {
-        if (!date) return 'never';
-        const seconds = Math.floor((new Date() - new Date(date)) / 1000);
-        if (seconds < 60) return 'just now';
-        if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-        if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-        return `${Math.floor(seconds / 86400)}d ago`;
-    };
-
+    // Helper function for mode display
     const getModeText = () => {
         if (uploadedFile) return "File Analysis";
         if (uploadedImage) return "Image Edit";
@@ -2736,63 +2268,176 @@ const SpiderAIApp = ({
         return "Chat / Code";
     };
 
-    const loadChatById = async (chatId) => {
-        try {
-            const chat = await getFromIndexedDB('chats', chatId);
-            if (chat) {
-                const history = JSON.parse(chat.history || '[]');
-                setChatHistory(history);
-                setActiveChatId(chatId);
-            }
-        } catch (error) {
-            console.error('Error loading chat:', error);
-        }
-    };
+    // ---------- Mobile Sidebar Component ----------
+    const MobileSidebar = () => {
+        return (
+            <>
+                {sidebarOpen && (
+                    <>
+                        <div 
+                            className="fixed inset-0 bg-black bg-opacity-50 z-40"
+                            onClick={() => setSidebarOpen(false)}
+                        />
+                        <div className="fixed left-0 top-0 h-full w-64 bg-[var(--spider-med)] z-50 overflow-y-auto p-4 transform transition-transform duration-300 ease-in-out">
+                            <div className="flex justify-between items-center mb-4">
+                                <h2 className="text-white font-semibold">Chat History</h2>
+                                <button 
+                                    onClick={() => setSidebarOpen(false)}
+                                    className="text-white hover:text-gray-300 text-xl"
+                                >
+                                    ×
+                                </button>
+                            </div>
+                            
+                            <button 
+                                onClick={handleNewChat} 
+                                className="w-full bg-[var(--spider-neon-blue)] text-black text-sm font-semibold py-2.5 px-3 rounded-md hover:opacity-90 transition flex items-center space-x-2 justify-center mb-4 touch-manipulation"
+                                disabled={isDeleting}
+                            >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
+                                </svg>
+                                <span>New Chat</span>
+                            </button>
 
-    // ---------- Scroll to bottom ----------
-    useEffect(() => {
-        chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [chatHistory, streamingMessage]);
+                            <div className="space-y-1">
+                                {recentChats.length > 0 ? (
+                                    recentChats.map((chat) => (
+                                        <div key={chat.id} className="flex items-center group">
+                                            <button 
+                                                onClick={() => {
+                                                    loadChatById(chat.id);
+                                                    setSidebarOpen(false);
+                                                }} 
+                                                className={`flex-grow text-left px-3 py-2 text-sm rounded hover:bg-[var(--spider-light)] truncate transition-colors ${
+                                                    activeChatId === chat.id 
+                                                        ? 'bg-[var(--spider-light)] text-white font-medium' 
+                                                        : 'text-[var(--spider-text)] hover:text-white'
+                                                }`}
+                                                disabled={isDeleting}
+                                            >
+                                                <div className="truncate">{chat.title}</div>
+                                                <div className="text-xs text-[var(--spider-text-dim)] mt-0.5">
+                                                    {new Date(chat.timestamp).toLocaleDateString()}
+                                                </div>
+                                            </button>
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    if (window.confirm('Delete this chat?')) {
+                                                        deleteChat(chat.id);
+                                                    }
+                                                }}
+                                                className="ml-2 text-red-400 hover:text-red-300 opacity-100 transition-opacity p-1 touch-manipulation"
+                                                title="Delete chat"
+                                                disabled={isDeleting}
+                                            >
+                                                {isDeleting ? (
+                                                    <div className="w-3 h-3 border-2 border-red-400 border-t-transparent rounded-full animate-spin"></div>
+                                                ) : (
+                                                    '×'
+                                                )}
+                                            </button>
+                                        </div>
+                                    ))
+                                ) : (
+                                    <div className="text-center py-4 text-[var(--spider-text-dim)] text-sm">
+                                        No recent chats
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="mt-auto pt-4 border-t border-[var(--spider-light)]">
+                                <div className="w-full bg-[var(--spider-med)] text-[var(--spider-text-dim)] text-sm font-semibold py-2 px-3 rounded-md flex items-center space-x-2">
+                                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd"></path>
+                                    </svg>
+                                    <span className="truncate">{currentUser?.name || 'User'}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </>
+                )}
+            </>
+        );
+    };
 
     // ---------- Main JSX ----------
     return (
         <div className="flex flex-row h-full w-full bg-[var(--spider-dark)] text-[var(--spider-text)] overflow-hidden relative">
-            {/* Modals */}
-            {showProfileModal && <ProfileModal />}
+            {/* Mobile Sidebar */}
             <MobileSidebar />
-            <SyncIndicator />
             
             {/* Desktop Sidebar */}
             {!isMobile && (
                 <div className="hidden md:flex flex-col bg-[var(--spider-med)] w-64 p-4 border-r border-[var(--spider-light)] flex-shrink-0 space-y-4 overflow-y-auto">
-                    <button onClick={handleNewChat} className="w-full bg-[var(--spider-neon-blue)] text-black text-sm font-semibold py-2.5 px-3 rounded-md hover:opacity-90 transition flex items-center space-x-2 justify-center" disabled={isDeleting}>
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path></svg>
+                    <button 
+                        onClick={handleNewChat} 
+                        className="w-full bg-[var(--spider-neon-blue)] text-black text-sm font-semibold py-2.5 px-3 rounded-md hover:opacity-90 transition flex items-center space-x-2 justify-center"
+                        disabled={isDeleting}
+                    >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
+                        </svg>
                         <span>New Chat</span>
                     </button>
 
                     <div className="flex-grow pt-4 border-t border-[var(--spider-light)] overflow-y-auto">
-                        <h3 className="text-xs font-semibold uppercase text-[var(--spider-text-dim)] mb-2 px-1">Recent Chats</h3>
+                        <h3 className="text-xs font-semibold uppercase text-[var(--spider-text-dim)] mb-2 px-1">
+                            Recent Chats
+                        </h3>
                         <div className="space-y-1">
                             {recentChats.length > 0 ? (
                                 recentChats.map((chat) => (
                                     <div key={chat.id} className="flex items-center group">
-                                        <button onClick={() => loadChatById(chat.id)} className={`flex-grow text-left px-3 py-2 text-sm rounded hover:bg-[var(--spider-light)] truncate transition-colors ${activeChatId === chat.id ? 'bg-[var(--spider-light)] text-white font-medium' : 'text-[var(--spider-text)] hover:text-white'}`} disabled={isDeleting}>
+                                        <button 
+                                            onClick={() => loadChatById(chat.id)} 
+                                            className={`flex-grow text-left px-3 py-2 text-sm rounded hover:bg-[var(--spider-light)] truncate transition-colors ${
+                                                activeChatId === chat.id 
+                                                    ? 'bg-[var(--spider-light)] text-white font-medium' 
+                                                    : 'text-[var(--spider-text)] hover:text-white'
+                                            }`}
+                                            disabled={isDeleting}
+                                        >
                                             <div className="truncate">{chat.title}</div>
-                                            <div className="text-xs text-[var(--spider-text-dim)] mt-0.5">{new Date(chat.updatedAt || chat.timestamp).toLocaleDateString()} • {chat.mode}</div>
+                                            <div className="text-xs text-[var(--spider-text-dim)] mt-0.5">
+                                                {new Date(chat.timestamp).toLocaleDateString()} • {chat.mode}
+                                            </div>
                                         </button>
-                                        <button onClick={(e) => { e.stopPropagation(); if (window.confirm('Delete this chat?')) { deleteChat(chat.id); } }} className="ml-2 text-red-400 hover:text-red-300 opacity-0 group-hover:opacity-100 transition-opacity p-1" title="Delete chat" disabled={isDeleting}>
-                                            {isDeleting ? <div className="w-3 h-3 border-2 border-red-400 border-t-transparent rounded-full animate-spin"></div> : '×'}
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (window.confirm('Delete this chat?')) {
+                                                    deleteChat(chat.id);
+                                                }
+                                            }}
+                                            className="ml-2 text-red-400 hover:text-red-300 opacity-0 group-hover:opacity-100 transition-opacity p-1"
+                                            title="Delete chat"
+                                            disabled={isDeleting}
+                                        >
+                                            {isDeleting ? (
+                                                <div className="w-3 h-3 border-2 border-red-400 border-t-transparent rounded-full animate-spin"></div>
+                                            ) : (
+                                                '×'
+                                            )}
                                         </button>
                                     </div>
                                 ))
                             ) : (
-                                <div className="text-center py-4 text-[var(--spider-text-dim)] text-sm">No recent chats</div>
+                                <div className="text-center py-4 text-[var(--spider-text-dim)] text-sm">
+                                    No recent chats
+                                </div>
                             )}
                         </div>
                     </div>
 
                     <div className="mt-auto border-t border-[var(--spider-light)] pt-3">
-                        <ProfileMenu />
+                        <div className="w-full bg-[var(--spider-med)] text-[var(--spider-text-dim)] text-sm font-semibold py-2 px-3 rounded-md flex items-center space-x-2">
+                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd"></path>
+                            </svg>
+                            <span className="truncate">{currentUser?.name || 'User'}</span>
+                        </div>
                     </div>
                 </div>
             )}
@@ -2802,26 +2447,43 @@ const SpiderAIApp = ({
                 {/* Mobile Header */}
                 {isMobile && (
                     <div className="flex items-center justify-between p-3 bg-[var(--spider-med)] border-b border-[var(--spider-light)] flex-shrink-0">
-                        <button onClick={() => setSidebarOpen(true)} className="text-white p-2" aria-label="Open menu">
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+                        <button 
+                            onClick={() => setSidebarOpen(true)}
+                            className="text-white p-2"
+                            aria-label="Open menu"
+                        >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                            </svg>
                         </button>
-                        <span className="text-sm font-semibold text-[var(--spider-neon-blue)] truncate">{getModeText()}</span>
-                        <button onClick={handleNewChat} className="text-white p-2" aria-label="New chat">
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path></svg>
+                        <span className="text-sm font-semibold text-[var(--spider-neon-blue)] truncate">
+                            {getModeText()}
+                        </span>
+                        <button 
+                            onClick={handleNewChat}
+                            className="text-white p-2"
+                            aria-label="New chat"
+                        >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
+                            </svg>
                         </button>
                     </div>
                 )}
 
-                {/* Messages */}
+                {/* Messages Container */}
                 <div className="flex-grow overflow-y-auto p-2 sm:p-4 space-y-3 pb-24 sm:pb-4">
                     {chatHistory.map((msg, index) => (
                         <ChatBubble key={`${msg.ts}_${index}`} message={msg} />
                     ))}
                     
+                    {/* Streaming Message */}
                     {streamingMessage && (
                         <div className="flex justify-start mb-3 px-2">
                             <div className="bg-[var(--spider-med)] text-white p-3 rounded-xl max-w-[85%] shadow-md">
-                                <pre className="whitespace-pre-wrap font-sans text-sm break-words">{streamingMessage.content}</pre>
+                                <pre className="whitespace-pre-wrap font-sans text-sm break-words">
+                                    {streamingMessage.content}
+                                </pre>
                                 <div className="flex items-center space-x-2 mt-2">
                                     <div className="flex space-x-1">
                                         <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce"></div>
@@ -2834,6 +2496,7 @@ const SpiderAIApp = ({
                         </div>
                     )}
                     
+                    {/* Loading Indicator */}
                     {isLoading && !streamingMessage && (
                         <div className="flex justify-start mb-3 px-2">
                             <div className="bg-[var(--spider-med)] text-white p-3 rounded-xl max-w-[85%] shadow-md">
@@ -2844,7 +2507,12 @@ const SpiderAIApp = ({
                                         <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
                                     </div>
                                     <span className="text-sm">Processing...</span>
-                                    <button onClick={handleStopGeneration} className="bg-red-500 hover:bg-red-600 text-white text-xs px-2 py-1 rounded transition-colors touch-manipulation">Stop</button>
+                                    <button 
+                                        onClick={handleStopGeneration}
+                                        className="bg-red-500 hover:bg-red-600 text-white text-xs px-2 py-1 rounded transition-colors touch-manipulation"
+                                    >
+                                        Stop
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -2852,21 +2520,44 @@ const SpiderAIApp = ({
                     <div ref={chatEndRef} />
                 </div>
 
-                {/* Hidden inputs */}
-                <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept=".spy,.py,.java,.cpp,.c,.h,.txt,.md,.js,.html,.css,.json,.xml,.csv,.pdf,.doc,.docx,.xls,.xlsx" />
-                <input type="file" ref={imageInputRef} onChange={handleImageUpload} className="hidden" accept="image/*" />
+                {/* Hidden file inputs */}
+                <input 
+                    type="file" 
+                    ref={fileInputRef} 
+                    onChange={handleFileUpload} 
+                    className="hidden" 
+                    accept=".spy,.py,.java,.cpp,.c,.h,.txt,.md,.js,.html,.css,.json,.xml,.csv,.pdf,.doc,.docx,.xls,.xlsx" 
+                />
+                <input 
+                    type="file" 
+                    ref={imageInputRef} 
+                    onChange={handleImageUpload} 
+                    className="hidden" 
+                    accept="image/*" 
+                />
 
-                {/* Input Area */}
-                <div className={`bg-[var(--spider-med)] border-t border-[var(--spider-light)] flex-shrink-0 w-full ${isMobile ? 'fixed bottom-0 left-0 right-0 p-2' : 'p-3'}`}>
+                {/* Input Area - Fixed at bottom on mobile */}
+                <div className={`bg-[var(--spider-med)] border-t border-[var(--spider-light)] flex-shrink-0 w-full ${
+                    isMobile ? 'fixed bottom-0 left-0 right-0 p-2' : 'p-3'
+                }`}>
                     <div className="max-w-4xl mx-auto">
+                        {/* Mode Display - Desktop only */}
                         {!isMobile && (
                             <div className="flex justify-between items-center mb-2">
                                 <span className="flex items-center text-sm text-[var(--spider-neon-blue)] font-semibold">
                                     {getModeText()}
-                                    {activeChatId && <span className="ml-2 text-xs text-[var(--spider-text-dim)]">(Auto-saved)</span>}
+                                    {activeChatId && (
+                                        <span className="ml-2 text-xs text-[var(--spider-text-dim)]">
+                                            (Auto-saved)
+                                        </span>
+                                    )}
                                 </span>
                                 {activeAIMode === 'image_gen' && (
-                                    <select value={aspectRatio} onChange={(e) => setAspectRatio(e.target.value)} className="bg-[var(--spider-light)] text-[var(--spider-text)] p-1 rounded-md text-xs focus:outline-none touch-manipulation">
+                                    <select 
+                                        value={aspectRatio} 
+                                        onChange={(e) => setAspectRatio(e.target.value)} 
+                                        className="bg-[var(--spider-light)] text-[var(--spider-text)] p-1 rounded-md text-xs focus:outline-none touch-manipulation"
+                                    >
                                         <option value="1:1">1:1 Square</option>
                                         <option value="16:9">16:9 Landscape</option>
                                         <option value="9:16">9:16 Portrait</option>
@@ -2876,47 +2567,95 @@ const SpiderAIApp = ({
                             </div>
                         )}
 
+                        {/* Uploaded File/Image Indicator */}
                         {(uploadedFile || uploadedImage) && (
                             <div className="mb-2 text-xs text-green-400 p-2 bg-[var(--spider-dark)] rounded-md flex justify-between items-center">
                                 <span className="truncate">
                                     {uploadedFile ? `📄 ${uploadedFile.name}` : uploadedImage ? `🖼 ${uploadedImage.name}` : ''}
                                 </span>
-                                <button onClick={() => { setUploadedFile(null); setUploadedImage(null); }} className="text-red-400 hover:text-red-300 ml-3 font-bold flex-shrink-0 touch-manipulation">×</button>
+                                <button 
+                                    onClick={() => { 
+                                        setUploadedFile(null); 
+                                        setUploadedImage(null); 
+                                    }} 
+                                    className="text-red-400 hover:text-red-300 ml-3 font-bold flex-shrink-0 touch-manipulation"
+                                >
+                                    ×
+                                </button>
                             </div>
                         )}
 
+                        {/* Input Controls */}
                         <div className="flex items-end w-full space-x-2">
                             <div className="flex-1 bg-[var(--spider-light)] rounded-lg p-2 min-h-[44px]">
                                 <textarea 
                                     ref={textareaRef}
-                                    placeholder={uploadedImage ? "Describe image edit..." : uploadedFile ? "Analyze this file..." : "Type your message..."} 
+                                    placeholder={
+                                        uploadedImage ? "Describe image edit..." : 
+                                        uploadedFile ? "Analyze this file..." : 
+                                        "Type your message..."
+                                    } 
                                     className="w-full bg-transparent text-white focus:outline-none resize-none text-sm max-h-32 overflow-y-auto touch-manipulation"
-                                    style={{ minHeight: '24px', maxHeight: '120px', WebkitAppearance: 'none', MozAppearance: 'none', appearance: 'none' }}
+                                    style={{
+                                        minHeight: '24px',
+                                        maxHeight: '120px',
+                                        WebkitAppearance: 'none',
+                                        MozAppearance: 'none',
+                                        appearance: 'none'
+                                    }}
                                     value={message} 
                                     onChange={(e) => setMessage(e.target.value)} 
-                                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } }} 
+                                    onKeyDown={(e) => { 
+                                        if (e.key === 'Enter' && !e.shiftKey) { 
+                                            e.preventDefault(); 
+                                            handleSendMessage(); 
+                                        } 
+                                    }} 
                                     rows={1}
                                     disabled={isLoading}
                                 />
                             </div>
 
+                            {/* Aspect Ratio Selector - Mobile */}
                             {isMobile && activeAIMode === 'image_gen' && (
-                                <select value={aspectRatio} onChange={(e) => setAspectRatio(e.target.value)} className="bg-[var(--spider-light)] text-[var(--spider-text)] p-2 rounded-md text-xs focus:outline-none touch-manipulation h-10">
+                                <select 
+                                    value={aspectRatio} 
+                                    onChange={(e) => setAspectRatio(e.target.value)} 
+                                    className="bg-[var(--spider-light)] text-[var(--spider-text)] p-2 rounded-md text-xs focus:outline-none touch-manipulation h-10"
+                                >
                                     <option value="1:1">1:1</option>
                                     <option value="16:9">16:9</option>
                                     <option value="9:16">9:16</option>
                                 </select>
                             )}
 
-                            <PlusMenu setActiveAIMode={setActiveAIMode} fileInputRef={fileInputRef} imageInputRef={imageInputRef} />
+                            {/* Plus Menu */}
+                            <PlusMenu 
+                                setActiveAIMode={setActiveAIMode} 
+                                fileInputRef={fileInputRef} 
+                                imageInputRef={imageInputRef} 
+                            />
 
-                            <button onClick={handleSendMessage} className="bg-[var(--spider-neon-blue)] text-black font-semibold px-4 py-2 rounded-md hover:opacity-90 transition duration-200 flex-shrink-0 h-10 flex items-center justify-center min-w-[44px] touch-manipulation" disabled={(!message.trim() && !uploadedFile && !uploadedImage) || isLoading} aria-label="Send message">
-                                {isLoading ? <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin"></div> : <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>}
+                            {/* Send Button */}
+                            <button 
+                                onClick={handleSendMessage} 
+                                className="bg-[var(--spider-neon-blue)] text-black font-semibold px-4 py-2 rounded-md hover:opacity-90 transition duration-200 flex-shrink-0 h-10 flex items-center justify-center min-w-[44px] touch-manipulation" 
+                                disabled={(!message.trim() && !uploadedFile && !uploadedImage) || isLoading}
+                                aria-label="Send message"
+                            >
+                                {isLoading ? (
+                                    <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
+                                ) : (
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
+                                    </svg>
+                                )}
                             </button>
                         </div>
                     </div>
                 </div>
 
+                {/* Add padding for mobile input area */}
                 {isMobile && <div className="h-20" />}
             </div>
         </div>
@@ -3987,3 +3726,4 @@ int main() {
         </>
     );
 }
+
