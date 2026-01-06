@@ -1425,7 +1425,6 @@ const PlusMenu = ({
         </div>
     );
 };
-
 const SpiderAIApp = ({ 
     currentUser, 
     showModal, 
@@ -1836,54 +1835,86 @@ const SpiderAIApp = ({
         event.target.value = null;
     };
 
-    // ---------- PlusMenu Component ----------
+    // ---------- Fixed PlusMenu Component ----------
     const PlusMenu = ({ setActiveAIMode: _setActiveAIMode, fileInputRef, imageInputRef }) => {
         const [open, setOpen] = useState(false);
+        const menuRef = useRef(null);
 
-        const onUploadFile = () => {
+        // Close menu when clicking outside
+        useEffect(() => {
+            const handleClickOutside = (event) => {
+                if (menuRef.current && !menuRef.current.contains(event.target)) {
+                    setOpen(false);
+                }
+            };
+
+            if (open) {
+                document.addEventListener('mousedown', handleClickOutside);
+                document.addEventListener('touchstart', handleClickOutside);
+            }
+
+            return () => {
+                document.removeEventListener('mousedown', handleClickOutside);
+                document.removeEventListener('touchstart', handleClickOutside);
+            };
+        }, [open]);
+
+        const onUploadFile = (e) => {
+            e.stopPropagation();
             setOpen(false);
             if (typeof _setActiveAIMode === 'function') _setActiveAIMode('file_analysis');
             setTimeout(() => fileInputRef.current?.click(), 50);
         };
 
-        const onUploadImage = () => {
+        const onUploadImage = (e) => {
+            e.stopPropagation();
             setOpen(false);
             if (typeof _setActiveAIMode === 'function') _setActiveAIMode('image_edit');
             setTimeout(() => imageInputRef.current?.click(), 50);
         };
 
-        const onGenImage = () => {
+        const onGenImage = (e) => {
+            e.stopPropagation();
             setOpen(false);
             if (typeof _setActiveAIMode === 'function') _setActiveAIMode('image_gen');
         };
 
+        const handleToggleMenu = (e) => {
+            e.stopPropagation();
+            setOpen(!open);
+        };
+
         return (
-            <div className="relative">
+            <div className="relative" ref={menuRef}>
                 <button 
-                    onClick={() => setOpen(o => !o)} 
-                    className="bg-[var(--spider-light)] text-white w-10 h-10 rounded-md flex items-center justify-center hover:opacity-90 transition touch-manipulation"
+                    onClick={handleToggleMenu} 
+                    className="bg-[var(--spider-light)] text-white w-10 h-10 rounded-md flex items-center justify-center hover:opacity-90 transition touch-manipulation active:scale-95"
                     aria-label="Open menu"
+                    aria-expanded={open}
                 >
-                    +
+                    {open ? '×' : '+'}
                 </button>
                 {open && (
-                    <>
-                        <div 
-                            className="fixed inset-0 z-40" 
-                            onClick={() => setOpen(false)}
-                        />
-                        <div className="absolute bottom-12 right-0 bg-[var(--spider-dark)] border border-[var(--spider-light)] rounded-md shadow-lg w-40 p-2 z-50">
-                            <button onClick={onUploadFile} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center touch-manipulation">
-                                <span className="mr-2">📄</span> Upload File
-                            </button>
-                            <button onClick={onUploadImage} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center touch-manipulation">
-                                <span className="mr-2">🖼</span> Upload Image
-                            </button>
-                            <button onClick={onGenImage} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center touch-manipulation">
-                                <span className="mr-2">🎨</span> Create Image
-                            </button>
-                        </div>
-                    </>
+                    <div className="absolute bottom-12 right-0 bg-[var(--spider-dark)] border border-[var(--spider-light)] rounded-md shadow-lg w-40 p-2 z-50">
+                        <button 
+                            onClick={onUploadFile} 
+                            className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center touch-manipulation active:scale-95 transition-colors"
+                        >
+                            <span className="mr-2">📄</span> Upload File
+                        </button>
+                        <button 
+                            onClick={onUploadImage} 
+                            className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center touch-manipulation active:scale-95 transition-colors"
+                        >
+                            <span className="mr-2">🖼</span> Upload Image
+                        </button>
+                        <button 
+                            onClick={onGenImage} 
+                            className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center touch-manipulation active:scale-95 transition-colors"
+                        >
+                            <span className="mr-2">🎨</span> Create Image
+                        </button>
+                    </div>
                 )}
             </div>
         );
@@ -2134,12 +2165,10 @@ const SpiderAIApp = ({
     };
 
     // ---------- Optimized Content Processing ----------
-
-  // ✅ CORRECT
-const processContent = useCallback((text) => {
-    if (!text || typeof text !== "string") { // Added '||' and fixed spacing
-        return []; // Added return
-    }
+    const processContent = useCallback((text) => {
+        if (!text || typeof text !== "string") {
+            return [{ type: "text", content: text || "" }];
+        }
 
         const blocks = [];
         const lines = text.split('\n');
@@ -3955,6 +3984,7 @@ int main() {
         </>
     );
 }
+
 
 
 
