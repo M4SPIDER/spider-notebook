@@ -1426,6 +1426,7 @@ const PlusMenu = ({
     );
 };
 
+
 const SpiderAIApp = ({ 
     currentUser, 
     showModal, 
@@ -1451,7 +1452,6 @@ const SpiderAIApp = ({
     const [isDeleting, setIsDeleting] = useState(false);
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [isMobile, setIsMobile] = useState(false);
-    const [copyStatus, setCopyStatus] = useState({}); // Track copy status per code block
 
     const fileInputRef = useRef(null);
     const imageInputRef = useRef(null);
@@ -1500,66 +1500,6 @@ const SpiderAIApp = ({
             textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 120) + 'px';
         }
     }, [message]);
-
-    // ---------- Copy to Clipboard Function ----------
-    const copyToClipboard = useCallback(async (text, id) => {
-        try {
-            // Try modern clipboard API first
-            if (navigator.clipboard && window.isSecureContext) {
-                await navigator.clipboard.writeText(text);
-                setCopyStatus(prev => ({ ...prev, [id]: 'success' }));
-                
-                // Reset status after 2 seconds
-                setTimeout(() => {
-                    setCopyStatus(prev => ({ ...prev, [id]: null }));
-                }, 2000);
-                return true;
-            } else {
-                // Fallback for older browsers or insecure contexts
-                const textArea = document.createElement('textarea');
-                textArea.value = text;
-                textArea.style.position = 'fixed';
-                textArea.style.left = '-999999px';
-                textArea.style.top = '-999999px';
-                document.body.appendChild(textArea);
-                textArea.focus();
-                textArea.select();
-                
-                try {
-                    const successful = document.execCommand('copy');
-                    document.body.removeChild(textArea);
-                    
-                    if (successful) {
-                        setCopyStatus(prev => ({ ...prev, [id]: 'success' }));
-                        setTimeout(() => {
-                            setCopyStatus(prev => ({ ...prev, [id]: null }));
-                        }, 2000);
-                        return true;
-                    } else {
-                        setCopyStatus(prev => ({ ...prev, [id]: 'error' }));
-                        setTimeout(() => {
-                            setCopyStatus(prev => ({ ...prev, [id]: null }));
-                        }, 2000);
-                        return false;
-                    }
-                } catch (err) {
-                    document.body.removeChild(textArea);
-                    setCopyStatus(prev => ({ ...prev, [id]: 'error' }));
-                    setTimeout(() => {
-                        setCopyStatus(prev => ({ ...prev, [id]: null }));
-                    }, 2000);
-                    return false;
-                }
-            }
-        } catch (err) {
-            console.error('Failed to copy:', err);
-            setCopyStatus(prev => ({ ...prev, [id]: 'error' }));
-            setTimeout(() => {
-                setCopyStatus(prev => ({ ...prev, [id]: null }));
-            }, 2000);
-            return false;
-        }
-    }, []);
 
     // ---------- IndexedDB Helper Functions ----------
     const openDatabase = useCallback(() => {
@@ -2202,11 +2142,6 @@ const SpiderAIApp = ({
             }
         }, [message]);
 
-        // Generate unique ID for each code block
-        const generateCodeBlockId = useCallback((content, index) => {
-            return `code-${Date.now()}-${index}-${message.ts}`;
-        }, [message.ts]);
-
         // Extract different content types (code, tables, text)
         const extractContentBlocks = (text) => {
             if (!text || typeof text !== "string")
@@ -2306,6 +2241,10 @@ const SpiderAIApp = ({
             }
             
             return parts;
+        };
+
+        const handleCopyCode = (content) => {
+            navigator.clipboard.writeText(content);
         };
 
         const renderTable = (tableText) => {
@@ -2438,50 +2377,26 @@ const SpiderAIApp = ({
                     {/* Content Blocks */}
                     <div className="space-y-3">
                         {contentParts.map((part, index) => {
-                            const codeBlockId = generateCodeBlockId(part.content, index);
-                            const copyState = copyStatus[codeBlockId];
-
                             if (part.type === "code") {
                                 return (
                                     <div
-                                        key={codeBlockId}
+                                        key={index}
                                         className="rounded-lg overflow-hidden relative group"
                                         style={{
                                             background: "#0f0f0f",
                                         }}
                                     >
-                                        <div className="absolute top-2 right-2 flex items-center gap-2">
-                                            {copyState === 'success' && (
-                                                <div className="text-green-400 text-xs font-medium bg-green-900 px-2 py-1 rounded">
-                                                    ✓ Copied!
-                                                </div>
-                                            )}
-                                            {copyState === 'error' && (
-                                                <div className="text-red-400 text-xs font-medium bg-red-900 px-2 py-1 rounded">
-                                                    Copy failed
-                                                </div>
-                                            )}
+                                        <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
                                             <button
-                                                onClick={() => copyToClipboard(part.content, codeBlockId)}
-                                                className="w-8 h-8 flex items-center justify-center rounded bg-gray-800 hover:bg-gray-700 transition-colors touch-manipulation border border-gray-700"
-                                                title="Copy code to clipboard"
-                                                aria-label="Copy code"
+                                                onClick={() => handleCopyCode(part.content)}
+                                                className="w-8 h-8 flex items-center justify-center rounded bg-gray-800 hover:bg-gray-700 transition-colors touch-manipulation"
+                                                title="Copy code"
                                             >
-                                                {copyState === 'success' ? (
-                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="3">
-                                                        <polyline points="20 6 9 17 4 12"></polyline>
-                                                    </svg>
-                                                ) : (
-                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                                                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                                                    </svg>
-                                                )}
+                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                                </svg>
                                             </button>
-                                        </div>
-
-                                        <div className="px-4 pt-2 pb-1 text-xs text-gray-400 border-b border-gray-800">
-                                            {part.language || 'text'}
                                         </div>
 
                                         <pre
@@ -2947,7 +2862,6 @@ const SpiderAIApp = ({
         </div>
     );
 };
-
 
 // --- END Plus Menu Component ---
 const SpiderVFXApp = () => { /* ... (Remains Placeholder) ... */ return (<div className="flex-grow h-full flex flex-col items-center justify-center bg-black text-white p-8 pattern-vfx-grid overflow-y-auto"><div className="bg-black bg-opacity-80 p-10 rounded-lg text-center shadow-xl"><h1 className="text-4xl font-bold mb-4 text-[var(--spider-neon-blue)]">Spider VFX</h1><p className="text-lg text-gray-400 mb-8">Coming Soon!</p><div className="animate-pulse text-6xl">✨</div></div></div>);};
@@ -4013,6 +3927,7 @@ int main() {
         </>
     );
 }
+
 
 
 
