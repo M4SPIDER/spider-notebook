@@ -5,12 +5,9 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 // ----------------------------------------------------------------------
 // FIREBASE IMPORTS (REQUIRED FOR PERSISTENCE) - NOW ACTIVE
 import { initializeApp } from "firebase/app";
-import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, updateProfile } from "firebase/auth";
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged,signInAnonymously , signOut, updateProfile } from "firebase/auth";
 import { getFirestore, collection, query, where, addDoc, getDocs, onSnapshot, setDoc, doc, limit } from "firebase/firestore"; // Added 'limit'
 import SpyDocs from './SpyDocs';
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, onAuthStateChanged, signInAnonymously } from 'firebase/auth';
 import { getDatabase, ref, set, get, update, onValue, push, remove, query, orderByChild, limitToLast } from 'firebase/database';
 
 
@@ -3942,6 +3939,7 @@ int main() {
         </>
     );
 }
+
 
 
 
