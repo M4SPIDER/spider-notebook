@@ -1375,12 +1375,11 @@ const PlusMenu = ({
         </div>
     );
 };
-
 const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setActiveAIMode, uploadedFile, setUploadedFile, uploadedImage, setUploadedImage }) => {
     // ---------- State ----------
     const [message, setMessage] = useState('');
     const [chatHistory, setChatHistory] = useState([
-        { role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }
+        { role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text', ts: Date.now() }
     ]);
     const [activeChatId, setActiveChatId] = useState(null);
     const [recentChats, setRecentChats] = useState([]);
@@ -1398,6 +1397,7 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
     const [auth, setAuth] = useState(null);
 
     const getAppId = () => typeof __app_id !== 'undefined' ? __app_id : 'default-m4-app';
+    const getUserId = () => auth?.currentUser?.uid || currentUser?.email || 'anonymous';
     const LOCAL_STORAGE_KEY = `spider_chat_history_${getAppId()}_${(currentUser?.email || 'anon')}`;
 
     // ---------- Firebase init ----------
@@ -1427,834 +1427,252 @@ const SpiderAIApp = ({ currentUser, showModal, callFastAPI, activeAIMode, setAct
         }
     }, []);
 
-    const getUserId = () => auth?.currentUser?.uid || currentUser?.email || 'anonymous';
+    // ---------- Save chat history (The Fixed Logic) ----------
+    const saveChatHistoryToDB = useCallback(async (currentHistory, chatIdOverride = null) => {
+        if (!Array.isArray(currentHistory) || currentHistory.length <= 1) return;
 
-    // ---------- Fast Typing Animation ----------
-    const typeText = useCallback((text, onComplete) => {
-        const words = text.split(' ');
-        let currentText = '';
-        let wordIndex = 0;
-        
-        const typeNextWord = () => {
-            if (wordIndex < words.length) {
-                // Type 2-4 words at a time for faster appearance
-                const wordsToAdd = words.slice(wordIndex, wordIndex + 2 + Math.floor(Math.random() * 3));
-                currentText += (currentText ? ' ' : '') + wordsToAdd.join(' ');
-                wordIndex += wordsToAdd.length;
-                
-                setStreamingMessage(prev => ({
-                    ...prev,
-                    content: currentText
-                }));
-                
-                // Very fast typing speed (10-30ms)
-                setTimeout(typeNextWord, 10 + Math.random() * 20);
-            } else {
-                onComplete?.();
-            }
-        };
-        
-        typeNextWord();
-    }, []);
-
-    // ---------- Stop Generation ----------
-    const handleStopGeneration = () => {
-        if (abortController) {
-            abortController.abort();
-            setAbortController(null);
-        }
-        setIsLoading(false);
-        if (streamingMessage) {
-            setChatHistory(prev => [...prev, streamingMessage]);
-            setStreamingMessage(null);
-        }
-    };
-
-    // ---------- Load recent chats & history ----------
-    const loadChatHistory = useCallback(async (chatId = null) => {
-        if (db && auth?.currentUser?.uid) {
-            const userId = getUserId();
-            const chatsCollection = collection(db, `artifacts/${getAppId()}/users/${userId}/ai_chats`);
-
-            try {
-                const q = query(chatsCollection, limit(10));
-                const unsubscribe = onSnapshot(q, (snapshot) => {
-                    const recent = snapshot.docs.map(doc => ({
-                        id: doc.id,
-                        title: doc.data().title || 'Untitled Chat',
-                        timestamp: doc.data().timestamp || Date.now()
-                    })).sort((a, b) => b.timestamp - a.timestamp);
-                    setRecentChats(recent);
-                });
-
-                if (chatId) {
-                    try {
-                        const chatSnap = await getDocs(query(chatsCollection, where('id', '==', chatId), limit(1)));
-                        if (chatSnap.docs.length > 0) {
-                            const data = chatSnap.docs[0].data();
-                            const parsed = JSON.parse(data.history || '[]');
-                            setChatHistory(Array.isArray(parsed) && parsed.length ? parsed : [{ role: 'assistant', content: 'Welcome! I am Spider AI.', type: 'text' }]);
-                            setActiveChatId(chatId);
-                            return unsubscribe;
-                        }
-                    } catch (e) {
-                        console.error("Error loading specific chat:", e);
-                    }
-                }
-
-                setChatHistory(prev => {
-                    if (prev && prev.length && prev.some(m => m.role !== 'assistant')) {
-                        return prev;
-                    }
-                    return [{ role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }];
-                });
-                setActiveChatId(null);
-                
-                return unsubscribe;
-
-            } catch (e) {
-                console.error("Error listening to recent chats:", e);
-            }
-        }
-
-        // Fallback: localStorage
-        try {
-            const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
-            if (raw) {
-                const parsed = JSON.parse(raw);
-                setChatHistory(Array.isArray(parsed) && parsed.length ? parsed : [{ role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }]);
-            } else {
-                setChatHistory([{ role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }]);
-            }
-            setRecentChats([]);
-            setActiveChatId(null);
-        } catch (e) {
-            console.error("Error reading localStorage history:", e);
-            setChatHistory([{ role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }]);
-        }
-    }, [db, auth, currentUser]);
-
-    // ---------- Save chat history ----------
-    const saveChatHistory = useCallback(async (currentHistory) => {
-        if (!Array.isArray(currentHistory)) return;
-
+        // 1. Always save to LocalStorage for quick recovery
         try {
             localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(currentHistory));
-        } catch (e) {
-            console.warn("LocalStorage save failed:", e);
-        }
+        } catch (e) { console.warn("LocalStorage save failed", e); }
 
-        if (!db || !auth?.currentUser?.uid) return;
-        if (currentHistory.length <= 1) return;
+        // 2. Save to Firestore
+        if (!db || !getUserId()) return;
 
         const userId = getUserId();
-        const chatTitle = (currentHistory[1]?.content || "").toString().substring(0, 50).trim() || "New Chat";
+        const firstUserMsg = currentHistory.find(m => m.role === 'user')?.content || "";
+        const chatTitle = firstUserMsg.toString().substring(0, 40).trim() || "New Chat";
         const chatsCollection = collection(db, `artifacts/${getAppId()}/users/${userId}/ai_chats`);
 
         const chatData = {
             title: chatTitle,
             history: JSON.stringify(currentHistory),
             timestamp: Date.now(),
-            mode: currentHistory[1]?.type || 'chat',
             userId
         };
 
         try {
-            if (activeChatId) {
-                const chatDocRef = doc(chatsCollection, activeChatId);
+            const targetId = chatIdOverride || activeChatId;
+            if (targetId) {
+                const chatDocRef = doc(chatsCollection, targetId);
                 await setDoc(chatDocRef, chatData, { merge: true });
             } else {
                 const docRef = await addDoc(chatsCollection, chatData);
-                setActiveChatId(docRef.id);
+                setActiveChatId(docRef.id); // Store ID for subsequent messages
             }
         } catch (e) {
             console.error("Error saving to Firestore:", e);
         }
-    }, [db, auth, activeChatId, currentUser]);
+    }, [db, auth, activeChatId]);
 
-    // ---------- Initialize on mount ----------
+    // ---------- Load recent chats (Sidebar) ----------
     useEffect(() => {
-        loadChatHistory(null);
+        if (!db || !auth?.currentUser) return;
+
+        const userId = getUserId();
+        const chatsCollection = collection(db, `artifacts/${getAppId()}/users/${userId}/ai_chats`);
+        const q = query(chatsCollection, orderBy("timestamp", "desc"), limit(20));
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const recent = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+            }));
+            setRecentChats(recent);
+        });
+
+        return () => unsubscribe();
     }, [db, auth]);
 
-    useEffect(() => {
-        chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-        if (chatHistory && chatHistory.length) saveChatHistory(chatHistory);
-    }, [chatHistory, saveChatHistory]);
-
-    // ---------- File / Image upload handlers ----------
-    const handleFileUpload = (event) => {
-        const file = event?.target?.files?.[0];
-        if (!file) {
-            if (event) event.target.value = null;
-            return;
-        }
-        if (file.size > 1024 * 1024 * 10) {
-            showModal("File Error", "File size exceeds 10MB limit.");
-            event.target.value = null;
-            return;
-        }
-        setUploadedFile(file);
-        setUploadedImage(null);
-        setMessage(`Analyze the contents of ${file.name}.`);
-        event.target.value = null;
-    };
-
-    const handleImageUpload = (event) => {
-        const file = event?.target?.files?.[0];
-        if (!file) {
-            if (event) event.target.value = null;
-            return;
-        }
-        if (!file.type.startsWith('image/')) {
-            showModal("File Error", "Please upload a valid image file.");
-            event.target.value = null;
-            return;
-        }
-        if (file.size > 1024 * 1024 * 5) {
-            showModal("File Error", "Image size exceeds 5MB limit.");
-            event.target.value = null;
-            return;
-        }
-        setUploadedImage(file);
-        setUploadedFile(null);
-        setMessage("Transform or edit this image to: ");
-        event.target.value = null;
-    };
-
-    // ---------- PlusMenu ----------
-    const PlusMenu = ({ setActiveAIMode: _setActiveAIMode, fileInputRef, imageInputRef }) => {
-        const [open, setOpen] = useState(false);
-
-        const onUploadFile = () => {
-            setOpen(false);
-            if (typeof _setActiveAIMode === 'function') _setActiveAIMode('file_analysis');
-            setTimeout(() => fileInputRef.current?.click(), 50);
-        };
-
-        const onUploadImage = () => {
-            setOpen(false);
-            if (typeof _setActiveAIMode === 'function') _setActiveAIMode('image_edit');
-            setTimeout(() => imageInputRef.current?.click(), 50);
-        };
-
-        const onGenImage = () => {
-            setOpen(false);
-            if (typeof _setActiveAIMode === 'function') _setActiveAIMode('image_gen');
-        };
-
-        return (
-            <div className="relative">
-                <button onClick={() => setOpen(o => !o)} className="bg-[var(--spider-light)] text-white px-3 py-2 rounded-md h-10 flex items-center justify-center hover:opacity-90">+</button>
-                {open && (
-                    <div className="absolute bottom-12 right-0 bg-[var(--spider-dark)] border border-[var(--spider-light)] rounded-md shadow-lg w-40 p-2 z-50">
-                        <button onClick={onUploadFile} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm">📄 Upload File</button>
-                        <button onClick={onUploadImage} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm">🖼 Upload Image</button>
-                        <button onClick={onGenImage} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm">🎨 Create Image (Gen)</button>
-                    </div>
-                )}
-            </div>
-        );
-    };
-
-    // ---------- New Chat handler ----------
-    const handleNewChat = () => {
-        setUploadedFile(null);
-        setUploadedImage(null);
-        setActiveAIMode && setActiveAIMode('chat');
-        setActiveChatId(null);
-        const welcome = [{ role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }];
-        setChatHistory(welcome);
-        try { localStorage.removeItem(LOCAL_STORAGE_KEY); } catch (e) { }
-        loadChatHistory(null);
-    };
-
-    // ---------- Enhanced Send Message with Streaming ----------
-    const handleSendMessage = async () => {
-        if (!message.trim() && !uploadedFile && !uploadedImage) return;
-
+    // ---------- Load specific chat ----------
+    const loadChatHistory = async (chatId) => {
+        if (!db || !chatId) return;
+        setActiveChatId(chatId);
         setIsLoading(true);
-        const controller = new AbortController();
-        setAbortController(controller);
-
-        const fileCopy = uploadedFile;
-        const imageCopy = uploadedImage;
-        const selectedActiveMode = activeAIMode;
-        let mode = selectedActiveMode || "chat";
-
-        if (fileCopy) mode = "analyze_file";
-        if (imageCopy) mode = "image_edit";
-        if (!fileCopy && !imageCopy && selectedActiveMode === 'image_gen') mode = 'image_gen';
-
-        const userMessage = {
-            role: 'user',
-            content: message,
-            type: mode,
-            fileName: fileCopy ? fileCopy.name : undefined,
-            imageName: imageCopy ? imageCopy.name : undefined,
-            ts: Date.now()
-        };
-
-        setChatHistory(prev => [...prev, userMessage]);
-        setMessage('');
-
-        // Initialize streaming message
-        const initialStreamMessage = {
-            role: 'assistant',
-            content: '',
-            type: 'text',
-            ts: Date.now(),
-            isStreaming: true
-        };
-        setStreamingMessage(initialStreamMessage);
-
         try {
-            // FILE ANALYSIS
-            if (mode === "analyze_file" && fileCopy) {
-                let fileContent;
-                
-                if (fileCopy.type.startsWith('text/') || 
-                    fileCopy.name.endsWith('.txt') || 
-                    fileCopy.name.endsWith('.py') ||
-                    fileCopy.name.endsWith('.js') ||
-                    fileCopy.name.endsWith('.html') ||
-                    fileCopy.name.endsWith('.css') ||
-                    fileCopy.name.endsWith('.md')) {
-                    fileContent = await fileCopy.text();
-                } else {
-                    fileContent = await new Promise((resolve, reject) => {
-                        const reader = new FileReader();
-                        reader.onload = () => {
-                            try {
-                                const base64 = reader.result.split(",")[1];
-                                resolve(base64);
-                            } catch (e) {
-                                reject(e);
-                            }
-                        };
-                        reader.onerror = (err) => reject(err);
-                        reader.readAsDataURL(fileCopy);
-                    });
-                }
-
-                const apiUrl = '/api/generate/text';
-                const apiPayload = {
-                    prompt: message || `Analyze the contents of ${fileCopy.name}`,
-                    mode: "analyze_file",
-                    filename: fileCopy.name,
-                    file_content: fileContent,
-                    file_type: fileCopy.type
-                };
-                
-                const result = await callFastAPI(apiUrl, apiPayload, mode);
-
-                const assistantMessage = {
-                    role: 'assistant',
-                    content: result?.text || 'File analysis complete.',
-                    type: result?.base64_image ? 'image' : 'text',
-                    base64_image: result?.base64_image,
-                    sources: result?.sources,
-                    model_used: result?.model_used,
-                    ts: Date.now()
-                };
-                
-                // Use typing animation for text responses
-                if (!result?.base64_image && result?.text) {
-                    typeText(result.text, () => {
-                        setChatHistory(prev => [...prev, assistantMessage]);
-                        setStreamingMessage(null);
-                    });
-                } else {
-                    setChatHistory(prev => [...prev, assistantMessage]);
-                    setStreamingMessage(null);
-                }
+            const userId = getUserId();
+            const chatDoc = await getDoc(doc(db, `artifacts/${getAppId()}/users/${userId}/ai_chats`, chatId));
+            if (chatDoc.exists()) {
+                const data = chatDoc.data();
+                setChatHistory(JSON.parse(data.history || '[]'));
             }
-
-            // IMAGE EDIT
-            else if (mode === "image_edit" && imageCopy) {
-                const base64Image = await new Promise((resolve, reject) => {
-                    const reader = new FileReader();
-                    reader.onload = () => {
-                        try {
-                            const b = reader.result.split(",")[1];
-                            resolve(b);
-                        } catch (e) {
-                            reject(e);
-                        }
-                    };
-                    reader.onerror = (err) => reject(err);
-                    reader.readAsDataURL(imageCopy);
-                });
-
-                const apiUrl = '/api/generate/text';
-                const apiPayload = {
-                    prompt: message || "Edit this image",
-                    mode: "image_edit",
-                    image: base64Image,
-                    strength: 0.7
-                };
-                const result = await callFastAPI(apiUrl, apiPayload, mode);
-
-                const assistantMessage = {
-                    role: 'assistant',
-                    content: result?.text || 'Image edited.',
-                    type: result?.base64_image ? 'image' : 'text',
-                    base64_image: result?.base64_image,
-                    sources: result?.sources,
-                    model_used: result?.model_used,
-                    ts: Date.now()
-                };
-                setChatHistory(prev => [...prev, assistantMessage]);
-                setStreamingMessage(null);
-            }
-
-            // IMAGE GEN or CHAT with streaming
-            else {
-                const apiUrl = '/api/generate/text';
-                const apiPayload = { 
-                    prompt: message, 
-                    mode,
-                    aspect_ratio: mode === 'image_gen' ? aspectRatio : undefined,
-                    stream: true // Enable streaming
-                };
-                
-                const result = await callFastAPI(apiUrl, apiPayload, mode);
-
-                if (result?.text) {
-                    // Use fast typing animation for text responses
-                    typeText(result.text, () => {
-                        const assistantMessage = {
-                            role: 'assistant',
-                            content: result.text,
-                            type: result?.base64_image ? 'image' : 'text',
-                            base64_image: result?.base64_image,
-                            sources: result?.sources,
-                            model_used: result?.model_used,
-                            ts: Date.now()
-                        };
-                        setChatHistory(prev => [...prev, assistantMessage]);
-                        setStreamingMessage(null);
-                    });
-                } else {
-                    const assistantMessage = {
-                        role: 'assistant',
-                        content: result?.text || 'Response received.',
-                        type: result?.base64_image ? 'image' : 'text',
-                        base64_image: result?.base64_image,
-                        sources: result?.sources,
-                        model_used: result?.model_used,
-                        ts: Date.now()
-                    };
-                    setChatHistory(prev => [...prev, assistantMessage]);
-                    setStreamingMessage(null);
-                }
-            }
-        } catch (error) {
-            console.error('API ERROR:', error);
-            const assistantError = {
-                role: 'assistant',
-                content: `[API ERROR] ${error?.message || 'Something went wrong.'}`,
-                type: 'text',
-                ts: Date.now()
-            };
-            setChatHistory(prev => [...prev, assistantError]);
-            setStreamingMessage(null);
+        } catch (e) {
+            console.error("Load error:", e);
         } finally {
-            setAbortController(null);
-            setUploadedFile(null);
-            setUploadedImage(null);
             setIsLoading(false);
         }
     };
 
-    // ---------- Enhanced Chat Bubble with Fixed Code Box ----------
-  const ChatBubble = ({ message }) => {
+    // ---------- Fast Typing Animation ----------
+    const typeText = useCallback((text, assistantMsgTemplate, finalHistory) => {
+        let currentText = '';
+        const words = text.split(' ');
+        let wordIndex = 0;
+        
+        const typeNextWord = () => {
+            if (wordIndex < words.length) {
+                const chunkSize = Math.floor(Math.random() * 3) + 2;
+                const nextWords = words.slice(wordIndex, wordIndex + chunkSize);
+                currentText += (currentText ? ' ' : '') + nextWords.join(' ');
+                wordIndex += chunkSize;
+                
+                setStreamingMessage({ ...assistantMsgTemplate, content: currentText });
+                setTimeout(typeNextWord, 20);
+            } else {
+                setStreamingMessage(null);
+                const finalMsg = { ...assistantMsgTemplate, content: text };
+                const updatedHistory = [...finalHistory, finalMsg];
+                setChatHistory(updatedHistory);
+                saveChatHistoryToDB(updatedHistory);
+            }
+        };
+        typeNextWord();
+    }, [saveChatHistoryToDB]);
 
-    /* ---------------- PRISM HIGHLIGHT ---------------- */
+    // ---------- Send Message ----------
+    const handleSendMessage = async () => {
+        if (!message.trim() && !uploadedFile && !uploadedImage) return;
+
+        const mode = uploadedFile ? "analyze_file" : (uploadedImage ? "image_edit" : (activeAIMode || "chat"));
+        const userMsg = {
+            role: 'user',
+            content: message,
+            type: mode,
+            fileName: uploadedFile?.name,
+            imageName: uploadedImage?.name,
+            ts: Date.now()
+        };
+
+        const newHistoryWithUser = [...chatHistory, userMsg];
+        setChatHistory(newHistoryWithUser);
+        setMessage('');
+        setIsLoading(true);
+
+        const controller = new AbortController();
+        setAbortController(controller);
+
+        try {
+            // Prepare API Payload
+            let apiPayload = { prompt: message, mode, stream: true };
+            
+            if (mode === "analyze_file" && uploadedFile) {
+                apiPayload.file_content = await (uploadedFile.type.startsWith('text') ? uploadedFile.text() : "base64_data_placeholder");
+                apiPayload.filename = uploadedFile.name;
+            }
+
+            const result = await callFastAPI('/api/generate/text', apiPayload, mode);
+
+            const assistantTemplate = {
+                role: 'assistant',
+                type: result?.base64_image ? 'image' : 'text',
+                base64_image: result?.base64_image,
+                model_used: result?.model_used,
+                ts: Date.now()
+            };
+
+            if (result?.text && !result.base64_image) {
+                typeText(result.text, assistantTemplate, newHistoryWithUser);
+            } else {
+                const finalHistory = [...newHistoryWithUser, { ...assistantTemplate, content: result?.text || 'Done' }];
+                setChatHistory(finalHistory);
+                saveChatHistoryToDB(finalHistory);
+            }
+
+        } catch (error) {
+            const errorMsg = { role: 'assistant', content: `Error: ${error.message}`, ts: Date.now() };
+            setChatHistory(prev => [...prev, errorMsg]);
+        } finally {
+            setIsLoading(false);
+            setUploadedFile(null);
+            setUploadedImage(null);
+        }
+    };
+
+    const handleNewChat = () => {
+        setActiveChatId(null);
+        setChatHistory([{ role: 'assistant', content: 'Welcome! I am Spider AI. How can I help?', type: 'text', ts: Date.now() }]);
+        try { localStorage.removeItem(LOCAL_STORAGE_KEY); } catch(e){}
+    };
+
+    // Auto-scroll logic
     useEffect(() => {
-        if (typeof window !== "undefined" && window.Prism) {
-            window.Prism.highlightAll();
-        }
-    }, [message]);
+        chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [chatHistory, streamingMessage]);
 
-    /* ---------------- CODE PARSER ---------------- */
-    const extractCodeBlocks = (text) => {
-        if (!text || typeof text !== "string")
-            return [{ type: "text", content: text || "" }];
-
-        const codeBlockRegex = /```(\w+)?\s*\n?([\s\S]*?)```/g;
-        const inlineCodeRegex = /`([^`]+)`/g;
-
-        const parts = [];
-        let last = 0;
-        let match;
-
-        while ((match = codeBlockRegex.exec(text))) {
-            if (match.index > last) {
-                parts.push({
-                    type: "text",
-                    content: text.slice(last, match.index),
-                });
-            }
-
-            parts.push({
-                type: "code",
-                language: match[1] || "text",
-                content: match[2].trim(),
-            });
-
-            last = match.index + match[0].length;
-        }
-
-        if (last < text.length) {
-            const rem = text.slice(last);
-            let idx = 0;
-
-            for (const m of rem.matchAll(inlineCodeRegex)) {
-                if (m.index > idx) {
-                    parts.push({
-                        type: "text",
-                        content: rem.slice(idx, m.index),
-                    });
-                }
-
-                parts.push({ type: "inline-code", content: m[1] });
-                idx = m.index + m[0].length;
-            }
-
-            if (idx < rem.length) {
-                parts.push({
-                    type: "text",
-                    content: rem.slice(idx),
-                });
-            }
-        }
-
-        return parts;
-    };
-
-    /* ---------------- COPY FUNCTION ---------------- */
-    const handleCopyCode = (content) => {
-        navigator.clipboard.writeText(content);
-    };
-
-    /* ---------------- BUBBLE STYLE ---------------- */
-    const bubbleClass =
-        message.role === "user"
-            ? "bg-[#00e5ff] text-black ml-auto"
-            : "bg-[#004745] text-white mr-auto";
-
-    const contentParts = extractCodeBlocks(message.content);
-
-    return (
-        <div
-            className={`flex w-full ${
-                message.role === "user" ? "justify-end" : "justify-start"
-            } mb-2`}
-        >
-            <div
-                className={`px-2 py-1.5 rounded-xl max-w-[95%] sm:max-w-4xl ${bubbleClass}`}
-                style={{
-                    boxShadow: "0 0 0",
-                }}
-            >
-
-                {/* ---------- IMAGE ---------- */
-                message.type === "image" && message.base64_image && (
-                    <div className="w-full rounded-lg overflow-hidden bg-black p-0.5 mb-1">
-                        <img
-                            src={`data:image/jpeg;base64,${message.base64_image}`}
-                            alt="Generated"
-                            className="w-full rounded-lg"
-                            style={{
-                                maxHeight: "300px",
-                                objectFit: "contain",
-                            }}
-                        />
-                    </div>
-                )}
-
-                {/* ---------- TEXT + CODE ---------- */}
-                <div className="space-y-1">
-                    {contentParts.map((part, index) => {
-
-                        /* ---- CODE BLOCK WITH COPY BUTTON ---- */
-                        if (part.type === "code") {
-                            return (
-                                <div
-                                    key={index}
-                                    className="rounded-lg overflow-hidden w-full relative group"
-                                    style={{
-                                        background: "#0f0f0f",
-                                    }}
-                                >
-                                    {/* COPY & EDIT BUTTONS */}
-                                    <div className="absolute top-1 right-1 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                                        {/* COPY BUTTON - Small square */}
-                                        <button
-                                            onClick={() => handleCopyCode(part.content)}
-                                            className="w-4 h-4 flex items-center justify-center rounded bg-gray-700 hover:bg-gray-600 transition-colors"
-                                            title="Copy code"
-                                        >
-                                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                                            </svg>
-                                        </button>
-                                        
-                                        {/* EDIT BUTTON - Small pencil */}
-                                        <button
-                                            className="w-4 h-4 flex items-center justify-center rounded bg-gray-700 hover:bg-gray-600 transition-colors"
-                                            title="Edit code"
-                                        >
-                                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                            </svg>
-                                        </button>
-                                    </div>
-
-                                    <pre
-                                        className="overflow-x-auto p-2 m-0"
-                                        style={{
-                                            background: "#0f0f0f",
-                                            fontSize: "13px",
-                                            lineHeight: "1.4",
-                                            color: "white",
-                                        }}
-                                    >
-                                        <code
-                                            className={`language-${part.language}`}
-                                        >
-                                            {part.content}
-                                        </code>
-                                    </pre>
-                                </div>
-                            );
-                        }
-
-                        /* ---- INLINE CODE ---- */
-                        if (part.type === "inline-code") {
-                            return (
-                                <code
-                                    key={index}
-                                    className="px-1 py-0.5 rounded text-xs"
-                                    style={{
-                                        background: "#0f0f0f",
-                                        color: "#00e5ff",
-                                    }}
-                                >
-                                    {part.content}
-                                </code>
-                            );
-                        }
-
-                        /* ---- NORMAL TEXT ---- */
-                        return (
-                            <div
-                                key={index}
-                                className="whitespace-pre-wrap break-words"
-                                style={{
-                                    fontSize: "13px",
-                                    lineHeight: "1.4",
-                                }}
-                            >
-                                {part.content}
-                            </div>
-                        );
-                    })}
+    // ---------- Sub-Components ----------
+    const ChatBubble = ({ message }) => {
+        const isUser = message.role === "user";
+        return (
+            <div className={`flex w-full ${isUser ? "justify-end" : "justify-start"} mb-4`}>
+                <div className={`px-4 py-2 rounded-2xl max-w-[90%] sm:max-w-2xl ${isUser ? "bg-[#00e5ff] text-black" : "bg-[#1a1a1a] text-white"}`}>
+                    {message.base64_image && (
+                        <img src={`data:image/jpeg;base64,${message.base64_image}`} className="rounded-lg mb-2 max-h-64 object-contain" alt="AI Generated" />
+                    )}
+                    <div className="text-sm whitespace-pre-wrap">{message.content}</div>
+                    {message.model_used && <div className="text-[10px] opacity-40 mt-1">Model: {message.model_used}</div>}
                 </div>
-
-                {/* ---------- MODEL NAME ---------- */
-                message.model_used && (
-                    <div
-                        className="text-xs pt-0.5"
-                        style={{ opacity: 0.6 }}
-                    >
-                        Model:{" "}
-                        <span className="text-white">
-                            {message.model_used}
-                        </span>
-                    </div>
-                )}
             </div>
-        </div>
-    );
-};
-    const isImageMode = !!uploadedImage;
-    const isFileMode = !!uploadedFile;
-
-    const getModeText = () => {
-        if (uploadedFile) return "File Analysis";
-        if (uploadedImage) return "Image Editing";
-        if (activeAIMode === 'image_gen') return "Create Image (Gen)";
-        if (activeAIMode === 'image_edit') return "Edit/Transform Image";
-        return "Chat / Code";
+        );
     };
 
-    // ---------- JSX ----------
     return (
-        <div className="flex flex-row h-full flex-grow bg-[var(--spider-dark)] text-[var(--spider-text)] overflow-hidden">
-            {/* Left Sidebar */}
-            <div className="hidden md:flex flex-col bg-[var(--spider-med)] w-64 p-4 border-r border-[var(--spider-light)] flex-shrink-0 space-y-4 overflow-y-auto">
-                <button onClick={handleNewChat} className="w-full bg-[var(--spider-neon-blue)] text-black text-sm font-semibold py-2.5 px-3 rounded-md hover:opacity-90 transition flex items-center space-x-2 justify-center">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path></svg>
-                    <span>New Chat</span>
+        <div className="flex flex-row h-screen w-full bg-[#0a0a0a] text-white overflow-hidden">
+            {/* Sidebar */}
+            <div className="hidden md:flex flex-col w-64 bg-[#111] border-r border-white/10 p-4">
+                <button onClick={handleNewChat} className="w-full bg-[#00e5ff] text-black font-bold py-2 rounded-lg mb-6 hover:brightness-110 transition">
+                    + New Chat
                 </button>
-
-                <div className="flex-grow pt-4 border-t border-[var(--spider-light)] overflow-y-auto">
-                    <h3 className="text-xs font-semibold uppercase text-[var(--spider-text-dim)] mb-2 px-1">Recent Chats</h3>
-                    <div className="space-y-1">
-                        {recentChats.length > 0 ? (
-                            recentChats.map((chat) => (
-                                <button 
-                                    key={chat.id} 
-                                    onClick={() => loadChatHistory(chat.id)} 
-                                    className={`block w-full text-left px-3 py-2 text-sm rounded hover:bg-[var(--spider-light)] truncate transition-colors ${
-                                        activeChatId === chat.id 
-                                            ? 'bg-[var(--spider-light)] text-white font-medium' 
-                                            : 'text-[var(--spider-text)] hover:text-white'
-                                    }`}
-                                >
-                                    <div className="truncate">{chat.title}</div>
-                                    <div className="text-xs text-[var(--spider-text-dim)] mt-1">
-                                        {new Date(chat.timestamp).toLocaleDateString()}
-                                    </div>
-                                </button>
-                            ))
-                        ) : (
-                            <div className="text-center py-4 text-[var(--spider-text-dim)] text-sm">
-                                No recent chats
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                <div className="mt-auto border-t border-[var(--spider-light)] pt-3">
-                    <button className="w-full bg-[var(--spider-med)] text-[var(--spider-text-dim)] text-sm font-semibold py-2 px-3 rounded-md hover:bg-[var(--spider-light)] hover:text-white transition flex items-center space-x-2 text-left">
-                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd"></path></svg>
-                        <span className="truncate">{currentUser?.name || 'User'}</span>
-                    </button>
+                <div className="flex-1 overflow-y-auto space-y-2">
+                    <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest px-2 mb-2">Recent</h3>
+                    {recentChats.map(chat => (
+                        <button 
+                            key={chat.id} 
+                            onClick={() => loadChatHistory(chat.id)}
+                            className={`w-full text-left px-3 py-2 rounded-md text-sm truncate ${activeChatId === chat.id ? 'bg-white/10' : 'hover:bg-white/5'}`}
+                        >
+                            {chat.title}
+                        </button>
+                    ))}
                 </div>
             </div>
 
-            {/* Main Chat Area */}
-            <div className="flex flex-col flex-1 h-full min-h-0">
-                {/* Messages */}
-                <div className="flex-grow overflow-y-auto p-4 space-y-4">
-                    {chatHistory.map((msg, index) => (
-                        <ChatBubble key={index} message={msg} />
-                    ))}
-                    
-                    {/* Streaming Message */}
-                    {streamingMessage && (
-                        <div className="flex justify-start mb-4">
-                            <div className="bg-[var(--spider-med)] text-white p-3 rounded-xl max-w-[85%] shadow-md">
-                                <pre className="whitespace-pre-wrap font-sans text-sm break-words">
-                                    {streamingMessage.content}
-                                </pre>
-                                <div className="flex items-center space-x-2 mt-2">
-                                    <div className="flex space-x-1">
-                                        <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce"></div>
-                                        <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                                        <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                                    </div>
-                                    <span className="text-xs text-[var(--spider-text-dim)]">AI is typing...</span>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                    
-                    {/* Loading Indicator with Stop Button */}
-                    {isLoading && !streamingMessage && (
-                        <div className="flex justify-start mb-4">
-                            <div className="bg-[var(--spider-med)] text-white p-3 rounded-xl max-w-[85%] shadow-md">
-                                <div className="flex items-center space-x-3">
-                                    <div className="flex space-x-1">
-                                        <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce"></div>
-                                        <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                                        <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                                    </div>
-                                    <span className="text-sm">Processing your request...</span>
-                                    <button 
-                                        onClick={handleStopGeneration}
-                                        className="bg-red-500 hover:bg-red-600 text-white text-xs px-2 py-1 rounded transition-colors"
-                                    >
-                                        Stop
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                    <div ref={chatEndRef} />
+            {/* Main Content */}
+            <div className="flex flex-col flex-1 relative">
+                <div className="flex-1 overflow-y-auto p-4">
+                    <div className="max-w-3xl mx-auto w-full">
+                        {chatHistory.map((msg, i) => <ChatBubble key={i} message={msg} />)}
+                        {streamingMessage && <ChatBubble message={streamingMessage} />}
+                        {isLoading && !streamingMessage && (
+                            <div className="flex justify-start animate-pulse text-xs text-gray-500">Spider AI is thinking...</div>
+                        )}
+                        <div ref={chatEndRef} />
+                    </div>
                 </div>
 
-                {/* Hidden inputs */}
-                <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept=".spy,.py,.java,.cpp,.c,.h,.txt,.md,.js,.html,.css,.json,.xml,.csv" />
-                <input type="file" ref={imageInputRef} onChange={handleImageUpload} className="hidden" accept="image/*" />
-
-                {/* Input area */}
-                <div className="bg-[var(--spider-med)] p-3 border-t border-[var(--spider-light)] flex-shrink-0">
-                    <div className="max-w-4xl mx-auto">
-                        <div className="flex justify-between items-center mb-3">
-                            <span className="flex items-center text-sm text-[var(--spider-neon-blue)] font-semibold">{getModeText()} Mode</span>
-                            {activeAIMode === 'image_gen' && (
-                                <select value={aspectRatio} onChange={(e) => setAspectRatio(e.target.value)} className="bg-[var(--spider-light)] text-[var(--spider-text)] p-1 rounded-md text-xs focus:outline-none">
-                                    <option value="1:1">1:1 Square</option>
-                                    <option value="16:9">16:9 Landscape</option>
-                                    <option value="9:16">9:16 Portrait</option>
-                                </select>
-                            )}
-                        </div>
-
-                        {(uploadedFile || uploadedImage) && (
-                            <div className="mb-2 text-xs text-green-400 p-2 bg-[var(--spider-dark)] rounded-md flex justify-between items-center">
-                                <span className="truncate">
-                                    {uploadedFile ? `File: ${uploadedFile.name}` : uploadedImage ? `Image: ${uploadedImage.name}` : ''}
-                                </span>
-                                <button onClick={() => { setUploadedFile(null); setUploadedImage(null); }} className="text-red-400 hover:text-red-300 ml-3 font-bold flex-shrink-0">×</button>
-                            </div>
-                        )}
-
-                        <div className="flex items-end w-full space-x-2">
-                            <div className="flex-1 bg-[var(--spider-light)] rounded-lg p-2">
-                                <textarea 
-                                    placeholder={isImageMode ? "Describe the image..." : isFileMode ? "What should I analyze?" : "Ask a question or request code..."} 
-                                    className="w-full bg-transparent text-white focus:outline-none resize-none text-sm max-h-32 overflow-y-auto" 
-                                    value={message} 
-                                    onChange={(e) => setMessage(e.target.value)} 
-                                    onKeyDown={(e) => { 
-                                        if (e.key === 'Enter' && !e.shiftKey) { 
-                                            e.preventDefault(); 
-                                            handleSendMessage(); 
-                                        } 
-                                    }} 
-                                    rows={1} 
-                                    disabled={isLoading}
-                                />
-                            </div>
-
-                            <PlusMenu setActiveAIMode={setActiveAIMode} fileInputRef={fileInputRef} imageInputRef={imageInputRef} />
-
-                            <button 
-                                onClick={handleSendMessage} 
-                                className="bg-[var(--spider-neon-blue)] text-black font-semibold px-4 py-2 rounded-md hover:opacity-90 transition duration-200 flex-shrink-0 h-10 flex items-center justify-center" 
-                                disabled={(!message.trim() && !uploadedFile && !uploadedImage) || isLoading}
-                            >
-                                {isLoading ? (
-                                    <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
-                                ) : (
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
-                                )}
-                            </button>
-                        </div>
+                {/* Input Area */}
+                <div className="p-4 bg-gradient-to-t from-[#0a0a0a] to-transparent">
+                    <div className="max-w-3xl mx-auto flex items-end gap-2 bg-[#1a1a1a] p-2 rounded-xl border border-white/10">
+                        <textarea 
+                            className="flex-1 bg-transparent border-none focus:ring-0 text-sm py-2 px-2 resize-none max-h-40"
+                            rows={1}
+                            placeholder="Message Spider AI..."
+                            value={message}
+                            onChange={(e) => setMessage(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSendMessage())}
+                        />
+                        <button 
+                            onClick={handleSendMessage}
+                            disabled={isLoading}
+                            className="bg-[#00e5ff] text-black p-2 rounded-lg hover:brightness-110 disabled:opacity-50"
+                        >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
+                        </button>
                     </div>
                 </div>
             </div>
         </div>
     );
 };
-
 // --- END Plus Menu Component ---
 const SpiderVFXApp = () => { /* ... (Remains Placeholder) ... */ return (<div className="flex-grow h-full flex flex-col items-center justify-center bg-black text-white p-8 pattern-vfx-grid overflow-y-auto"><div className="bg-black bg-opacity-80 p-10 rounded-lg text-center shadow-xl"><h1 className="text-4xl font-bold mb-4 text-[var(--spider-neon-blue)]">Spider VFX</h1><p className="text-lg text-gray-400 mb-8">Coming Soon!</p><div className="animate-pulse text-6xl">✨</div></div></div>);};
 
@@ -3319,6 +2737,7 @@ int main() {
         </>
     );
 }
+
 
 
 
