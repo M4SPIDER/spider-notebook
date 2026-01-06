@@ -1,3 +1,4 @@
+
 // ----------------------------------------------------------------------
 // React Imports
 // ----------------------------------------------------------------------
@@ -1459,7 +1460,7 @@ const SpiderAIApp = ({
     const getAppId = () => typeof __app_id !== 'undefined' ? __app_id : 'default-m4-app';
     const LOCAL_STORAGE_KEY = `spider_chat_history_${getAppId()}_${(currentUser?.email || 'anon')}`;
     
-    // ---------- CRITICAL FIX: Persistent User ID ----------
+    // ---------- Persistent User ID ----------
     const getPersistentUserId = useCallback(() => {
         const key = `spider_user_id_${getAppId()}`;
         let userId = localStorage.getItem(key);
@@ -1475,7 +1476,7 @@ const SpiderAIApp = ({
     const DB_VERSION = 1;
     const STORE_NAME = 'chats';
 
-    // ---------- Detect Mobile ----------
+    // ---------- Detect Mobile & Responsive ----------
     useEffect(() => {
         const checkMobile = () => {
             const mobile = window.innerWidth <= 768;
@@ -1781,7 +1782,7 @@ const SpiderAIApp = ({
         }
     };
 
-    // ---------- Auto-detect Image Generation in Chat ----------
+    // ---------- Auto-detect Image Generation ----------
     const detectImageGeneration = (prompt) => {
         const lowerPrompt = prompt.toLowerCase();
         const imageTriggers = [
@@ -1907,15 +1908,14 @@ const SpiderAIApp = ({
         }
     };
 
-    // ---------- Enhanced Send Message with Auto-Detect ----------
+    // ---------- Enhanced Send Message ----------
     const handleSendMessage = async () => {
         if (!message.trim() && !uploadedFile && !uploadedImage) return;
 
-        // DEBUG LOG
+        // Debug log
         console.log('🔍 MEMORY DEBUG:', {
             persistentId: getPersistentUserId(),
             currentUser: currentUser,
-            hasFirebaseToken: !!currentUser?.firebaseToken,
             message: message
         });
 
@@ -1927,7 +1927,7 @@ const SpiderAIApp = ({
         const imageCopy = uploadedImage;
         let mode = activeAIMode || "chat";
 
-        // AUTO-DETECT IMAGE GENERATION IN REGULAR CHAT
+        // Auto-detect image generation
         if (!fileCopy && !imageCopy && detectImageGeneration(message)) {
             mode = 'image_gen';
         }
@@ -1948,15 +1948,15 @@ const SpiderAIApp = ({
         setChatHistory(prev => [...prev, userMessage]);
         setMessage('');
 
-        const initialStreamMessage = {
-            role: 'assistant',
-            content: '',
-            type: 'text',
-            ts: Date.now(),
-            isStreaming: true
-        };
-        
+        // Only show streaming for text responses
         if (mode !== 'image_gen') {
+            const initialStreamMessage = {
+                role: 'assistant',
+                content: '',
+                type: 'text',
+                ts: Date.now(),
+                isStreaming: true
+            };
             setStreamingMessage(initialStreamMessage);
         }
 
@@ -1996,7 +1996,7 @@ const SpiderAIApp = ({
                     filename: fileCopy.name,
                     file_content: fileContent,
                     file_type: fileCopy.type,
-                    user_preference_id: getPersistentUserId(), // ← CRITICAL FIX
+                    user_preference_id: getPersistentUserId(),
                     firebase_token: currentUser?.firebaseToken || ''
                 };
                 
@@ -2007,8 +2007,6 @@ const SpiderAIApp = ({
                     content: result?.text || 'File analysis complete.',
                     type: result?.base64_image ? 'image' : 'text',
                     base64_image: result?.base64_image,
-                    sources: result?.sources,
-                    model_used: result?.model_used,
                     ts: Date.now()
                 };
                 
@@ -2044,64 +2042,51 @@ const SpiderAIApp = ({
                     mode: "image_edit",
                     image: base64Image,
                     strength: 0.7,
-                    user_preference_id: getPersistentUserId(), // ← CRITICAL FIX
+                    user_preference_id: getPersistentUserId(),
                     firebase_token: currentUser?.firebaseToken || ''
                 };
                 const result = await callFastAPI(apiUrl, apiPayload, mode);
 
                 const assistantMessage = {
                     role: 'assistant',
-                    content: result?.text || 'Image edited.',
-                    type: result?.base64_image ? 'image' : 'text',
+                    content: '',
+                    type: 'image',
                     base64_image: result?.base64_image,
-                    sources: result?.sources,
-                    model_used: result?.model_used,
                     ts: Date.now()
                 };
                 setChatHistory(prev => [...prev, assistantMessage]);
                 setStreamingMessage(null);
             }
-            // ============ IMAGE GENERATION (Auto-detected or Manual) ============
+            // ============ IMAGE GENERATION ============
             else if (mode === "image_gen") {
                 const apiUrl = '/api/generate/text';
                 const apiPayload = { 
                     prompt: message, 
                     mode: 'image_gen',
                     aspect_ratio: aspectRatio,
-                    user_preference_id: getPersistentUserId(), // ← CRITICAL FIX
+                    user_preference_id: getPersistentUserId(),
                     firebase_token: currentUser?.firebaseToken || '',
-                    stream: false // Images don't stream
+                    stream: false
                 };
-                
-                // Show generating status
-                const generatingMessage = {
-                    role: 'assistant',
-                    content: `🖼️ Generating image: "${message}"...`,
-                    type: 'text',
-                    ts: Date.now()
-                };
-                setChatHistory(prev => [...prev, generatingMessage]);
                 
                 const result = await callFastAPI(apiUrl, apiPayload, mode);
 
                 const assistantMessage = {
                     role: 'assistant',
-                    content: `✅ Image generated: "${message}"`,
+                    content: '',
                     type: 'image',
                     base64_image: result?.base64_image,
-                    prompt: message,
                     ts: Date.now()
                 };
                 setChatHistory(prev => [...prev, assistantMessage]);
             }
-            // ============ NORMAL CHAT / CODE / SEARCH ============
+            // ============ NORMAL CHAT ============
             else {
                 const apiUrl = '/api/generate/text';
                 const apiPayload = { 
                     prompt: message, 
                     mode,
-                    aspect_ratio: aspectRatio,
-                    user_preference_id: getPersistentUserId(), // ← CRITICAL FIX
+                    user_preference_id: getPersistentUserId(),
                     firebase_token: currentUser?.firebaseToken || '',
                     stream: true
                 };
@@ -2113,10 +2098,7 @@ const SpiderAIApp = ({
                         const assistantMessage = {
                             role: 'assistant',
                             content: result.text,
-                            type: result?.base64_image ? 'image' : 'text',
-                            base64_image: result?.base64_image,
-                            sources: result?.sources,
-                            model_used: result?.model_used,
+                            type: 'text',
                             ts: Date.now()
                         };
                         setChatHistory(prev => [...prev, assistantMessage]);
@@ -2125,11 +2107,8 @@ const SpiderAIApp = ({
                 } else {
                     const assistantMessage = {
                         role: 'assistant',
-                        content: result?.text || 'Response received.',
-                        type: result?.base64_image ? 'image' : 'text',
-                        base64_image: result?.base64_image,
-                        sources: result?.sources,
-                        model_used: result?.model_used,
+                        content: result?.text || '',
+                        type: 'text',
                         ts: Date.now()
                     };
                     setChatHistory(prev => [...prev, assistantMessage]);
@@ -2154,7 +2133,7 @@ const SpiderAIApp = ({
         }
     };
 
-    // ---------- Enhanced Chat Bubble ----------
+    // ---------- Enhanced Chat Bubble with Table Support ----------
     const ChatBubble = ({ message }) => {
         useEffect(() => {
             if (typeof window !== "undefined" && window.Prism) {
@@ -2162,58 +2141,104 @@ const SpiderAIApp = ({
             }
         }, [message]);
 
-        const extractCodeBlocks = (text) => {
+        // Extract different content types (code, tables, text)
+        const extractContentBlocks = (text) => {
             if (!text || typeof text !== "string")
                 return [{ type: "text", content: text || "" }];
 
-            const codeBlockRegex = /```(\w+)?\s*\n?([\s\S]*?)```/g;
-            const inlineCodeRegex = /`([^`]+)`/g;
-
             const parts = [];
-            let last = 0;
-            let match;
+            let remaining = text;
 
-            while ((match = codeBlockRegex.exec(text))) {
-                if (match.index > last) {
-                    parts.push({
-                        type: "text",
-                        content: text.slice(last, match.index),
-                    });
+            // First check for code blocks
+            const codeBlockRegex = /```(\w+)?\s*\n?([\s\S]*?)```/g;
+            let match;
+            let lastIndex = 0;
+
+            while ((match = codeBlockRegex.exec(text)) !== null) {
+                // Add text before code block
+                if (match.index > lastIndex) {
+                    const textBefore = text.slice(lastIndex, match.index);
+                    if (textBefore.trim()) {
+                        parts.push(...processTextForTables(textBefore));
+                    }
                 }
 
+                // Add code block
                 parts.push({
                     type: "code",
                     language: match[1] || "text",
                     content: match[2].trim(),
                 });
 
-                last = match.index + match[0].length;
+                lastIndex = match.index + match[0].length;
             }
 
-            if (last < text.length) {
-                const rem = text.slice(last);
-                let idx = 0;
+            // Add remaining text
+            if (lastIndex < text.length) {
+                const remainingText = text.slice(lastIndex);
+                if (remainingText.trim()) {
+                    parts.push(...processTextForTables(remainingText));
+                }
+            }
 
-                for (const m of rem.matchAll(inlineCodeRegex)) {
-                    if (m.index > idx) {
-                        parts.push({
-                            type: "text",
-                            content: rem.slice(idx, m.index),
-                        });
+            return parts;
+        };
+
+        // Process text to detect tables
+        const processTextForTables = (text) => {
+            const parts = [];
+            
+            // Simple table detection - look for markdown table pattern
+            const lines = text.split('\n');
+            let tableLines = [];
+            let currentPart = [];
+            
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                
+                // Check if this line looks like a table row (contains | and not a code fence)
+                if (line.includes('|') && !line.trim().startsWith('```')) {
+                    tableLines.push(line);
+                    
+                    // Check if next line is a separator (contains |-| pattern)
+                    if (i + 1 < lines.length && lines[i + 1].match(/^[\s\|:-]+$/)) {
+                        tableLines.push(lines[i + 1]);
+                        i++; // Skip separator line
                     }
-
-                    parts.push({ type: "inline-code", content: m[1] });
-                    idx = m.index + m[0].length;
-                }
-
-                if (idx < rem.length) {
-                    parts.push({
-                        type: "text",
-                        content: rem.slice(idx),
-                    });
+                } else {
+                    // If we have collected table lines and this isn't a table line
+                    if (tableLines.length >= 2) {
+                        // Save the table
+                        parts.push({
+                            type: "table",
+                            content: tableLines.join('\n'),
+                        });
+                        tableLines = [];
+                    }
+                    
+                    // Add non-table text
+                    if (line.trim()) {
+                        currentPart.push(line);
+                    }
                 }
             }
-
+            
+            // Handle any remaining table lines
+            if (tableLines.length >= 2) {
+                parts.push({
+                    type: "table",
+                    content: tableLines.join('\n'),
+                });
+            }
+            
+            // Add any remaining text
+            if (currentPart.length > 0) {
+                parts.push({
+                    type: "text",
+                    content: currentPart.join('\n'),
+                });
+            }
+            
             return parts;
         };
 
@@ -2221,62 +2246,152 @@ const SpiderAIApp = ({
             navigator.clipboard.writeText(content);
         };
 
+        const renderTable = (tableText) => {
+            const rows = tableText.trim().split('\n').filter(r => r.trim());
+            if (rows.length < 2) return null;
+
+            const headers = rows[0].split('|').filter(c => c.trim()).map(c => c.trim());
+            const separator = rows[1];
+            const dataRows = rows.slice(2).filter(r => r.includes('|'));
+
+            // Determine column alignments from separator
+            const alignments = separator.split('|').filter(c => c.trim()).map(col => {
+                if (col.startsWith(':') && col.endsWith(':')) return 'center';
+                if (col.endsWith(':')) return 'right';
+                return 'left';
+            });
+
+            return (
+                <div className="overflow-x-auto my-3 rounded-lg border border-[var(--spider-light)] bg-[var(--spider-dark)]">
+                    <table className="min-w-full divide-y divide-[var(--spider-light)]">
+                        <thead>
+                            <tr className="bg-[var(--spider-med)]">
+                                {headers.map((header, idx) => (
+                                    <th 
+                                        key={idx}
+                                        className={`px-4 py-3 text-left text-sm font-semibold text-white border-r border-[var(--spider-light)] last:border-r-0 ${
+                                            alignments[idx] === 'center' ? 'text-center' :
+                                            alignments[idx] === 'right' ? 'text-right' : 'text-left'
+                                        }`}
+                                        style={{ 
+                                            minWidth: headers.length > 4 ? '120px' : 'auto',
+                                            maxWidth: headers.length > 4 ? '200px' : 'auto'
+                                        }}
+                                    >
+                                        {header}
+                                    </th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[var(--spider-light)]">
+                            {dataRows.map((row, rowIdx) => {
+                                const cells = row.split('|').filter(c => c.trim()).map(c => c.trim());
+                                return (
+                                    <tr 
+                                        key={rowIdx} 
+                                        className={`${
+                                            rowIdx % 2 === 0 
+                                                ? 'bg-[var(--spider-dark)]' 
+                                                : 'bg-[#0a2a2a]'
+                                        } hover:bg-[var(--spider-light)] transition-colors`}
+                                    >
+                                        {cells.map((cell, cellIdx) => (
+                                            <td 
+                                                key={cellIdx}
+                                                className={`px-4 py-3 text-sm text-white border-r border-[var(--spider-light)] last:border-r-0 ${
+                                                    alignments[cellIdx] === 'center' ? 'text-center' :
+                                                    alignments[cellIdx] === 'right' ? 'text-right' : 'text-left'
+                                                }`}
+                                                style={{ 
+                                                    wordBreak: 'break-word',
+                                                    overflowWrap: 'break-word'
+                                                }}
+                                            >
+                                                {cell.includes('✓') ? (
+                                                    <span className="text-green-400 font-bold">✓</span>
+                                                ) : cell.includes('✗') ? (
+                                                    <span className="text-red-400 font-bold">✗</span>
+                                                ) : cell.includes('⭐') ? (
+                                                    <span className="text-yellow-400">{'⭐'.repeat(cell.match(/⭐/g)?.length || 1)}</span>
+                                                ) : cell.includes('🔴') ? (
+                                                    <span className="text-red-400">🔴</span>
+                                                ) : cell.includes('🟡') ? (
+                                                    <span className="text-yellow-400">🟡</span>
+                                                ) : cell.includes('🟢') ? (
+                                                    <span className="text-green-400">🟢</span>
+                                                ) : (
+                                                    cell
+                                                )}
+                                            </td>
+                                        ))}
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+            );
+        };
+
         const bubbleClass =
             message.role === "user"
                 ? "bg-[#00e5ff] text-black ml-auto"
                 : "bg-[#004745] text-white mr-auto";
 
-        const contentParts = extractCodeBlocks(message.content);
+        const contentParts = extractContentBlocks(message.content);
 
         return (
             <div
                 className={`flex w-full ${
                     message.role === "user" ? "justify-end" : "justify-start"
-                } mb-3 px-2`}
+                } mb-4 px-2`}
             >
                 <div
-                    className={`px-3 py-2 rounded-xl max-w-[90%] sm:max-w-4xl ${bubbleClass}`}
+                    className={`px-4 py-3 rounded-2xl max-w-[95%] sm:max-w-4xl ${bubbleClass}`}
                     style={{
-                        boxShadow: "0 0 0",
+                        boxShadow: "0 4px 12px rgba(0, 0, 0, 0.1)",
                     }}
                 >
+                    {/* Image Display - Clean & Simple */}
                     {message.type === "image" && message.base64_image && (
-                        <div className="w-full rounded-lg overflow-hidden bg-black p-0.5 mb-2">
+                        <div className="w-full rounded-xl overflow-hidden bg-black mb-3">
                             <img
                                 src={`data:image/jpeg;base64,${message.base64_image}`}
-                                alt={message.prompt || "Generated image"}
-                                className="w-full rounded-lg"
+                                alt="AI Generated"
+                                className="w-full h-auto"
                                 style={{
-                                    maxHeight: "250px",
+                                    maxHeight: "400px",
                                     objectFit: "contain",
+                                    display: "block"
+                                }}
+                                onError={(e) => {
+                                    e.target.style.display = 'none';
+                                    e.target.parentElement.innerHTML = 
+                                        '<div class="p-4 text-center text-gray-400">Image failed to load</div>';
                                 }}
                             />
-                            {message.prompt && (
-                                <div className="text-xs text-gray-400 mt-1 italic">
-                                    "{message.prompt}"
-                                </div>
-                            )}
                         </div>
                     )}
 
-                    <div className="space-y-2">
+                    {/* Content Blocks */}
+                    <div className="space-y-3">
                         {contentParts.map((part, index) => {
                             if (part.type === "code") {
                                 return (
                                     <div
                                         key={index}
-                                        className="rounded-lg overflow-hidden w-full relative group"
+                                        className="rounded-lg overflow-hidden relative group"
                                         style={{
                                             background: "#0f0f0f",
                                         }}
                                     >
-                                        <div className="absolute top-1 right-1 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                                        <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
                                             <button
                                                 onClick={() => handleCopyCode(part.content)}
-                                                className="w-6 h-6 flex items-center justify-center rounded bg-gray-700 hover:bg-gray-600 transition-colors touch-manipulation"
+                                                className="w-8 h-8 flex items-center justify-center rounded bg-gray-800 hover:bg-gray-700 transition-colors touch-manipulation"
                                                 title="Copy code"
                                             >
-                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                                     <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                                                     <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
                                                 </svg>
@@ -2284,16 +2399,14 @@ const SpiderAIApp = ({
                                         </div>
 
                                         <pre
-                                            className="overflow-x-auto p-3 m-0 text-xs sm:text-sm"
+                                            className="overflow-x-auto p-4 m-0 text-sm"
                                             style={{
                                                 background: "#0f0f0f",
-                                                lineHeight: "1.4",
+                                                lineHeight: "1.5",
                                                 color: "white",
                                             }}
                                         >
-                                            <code
-                                                className={`language-${part.language}`}
-                                            >
+                                            <code className={`language-${part.language}`}>
                                                 {part.content}
                                             </code>
                                         </pre>
@@ -2301,46 +2414,31 @@ const SpiderAIApp = ({
                                 );
                             }
 
-                            if (part.type === "inline-code") {
+                            if (part.type === "table") {
                                 return (
-                                    <code
-                                        key={index}
-                                        className="px-1.5 py-0.5 rounded text-xs sm:text-sm"
-                                        style={{
-                                            background: "#0f0f0f",
-                                            color: "#00e5ff",
-                                        }}
-                                    >
-                                        {part.content}
-                                    </code>
+                                    <div key={index}>
+                                        {renderTable(part.content)}
+                                    </div>
                                 );
                             }
 
-                            return (
-                                <div
-                                    key={index}
-                                    className="whitespace-pre-wrap break-words text-sm sm:text-base"
-                                    style={{
-                                        lineHeight: "1.5",
-                                    }}
-                                >
-                                    {part.content}
-                                </div>
-                            );
+                            if (part.type === "text") {
+                                return (
+                                    <div
+                                        key={index}
+                                        className="whitespace-pre-wrap break-words text-sm sm:text-base leading-relaxed"
+                                        style={{
+                                            lineHeight: "1.6",
+                                        }}
+                                    >
+                                        {part.content}
+                                    </div>
+                                );
+                            }
+
+                            return null;
                         })}
                     </div>
-
-                    {message.model_used && (
-                        <div
-                            className="text-xs pt-1 mt-2 border-t border-gray-700"
-                            style={{ opacity: 0.6 }}
-                        >
-                            Model:{" "}
-                            <span className="text-white">
-                                {message.model_used}
-                            </span>
-                        </div>
-                    )}
                 </div>
             </div>
         );
@@ -2352,7 +2450,7 @@ const SpiderAIApp = ({
         if (uploadedImage) return "Image Edit";
         if (activeAIMode === 'image_gen') return "Create Image";
         if (activeAIMode === 'image_edit') return "Edit Image";
-        return "Chat / Code / Image Gen";
+        return "Chat / Code / Image";
     };
 
     // ---------- Mobile Sidebar Component ----------
@@ -2362,7 +2460,7 @@ const SpiderAIApp = ({
                 {sidebarOpen && (
                     <>
                         <div 
-                            className="fixed inset-0 bg-black bg-opacity-50 z-40"
+                            className="fixed inset-0 bg-black bg-opacity-50 z-40 touch-none"
                             onClick={() => setSidebarOpen(false)}
                         />
                         <div className="fixed left-0 top-0 h-full w-64 bg-[var(--spider-med)] z-50 overflow-y-auto p-4 transform transition-transform duration-300 ease-in-out">
@@ -2370,7 +2468,7 @@ const SpiderAIApp = ({
                                 <h2 className="text-white font-semibold">Chat History</h2>
                                 <button 
                                     onClick={() => setSidebarOpen(false)}
-                                    className="text-white hover:text-gray-300 text-xl"
+                                    className="text-white hover:text-gray-300 text-2xl p-1 touch-manipulation"
                                 >
                                     ×
                                 </button>
@@ -2378,7 +2476,7 @@ const SpiderAIApp = ({
                             
                             <button 
                                 onClick={handleNewChat} 
-                                className="w-full bg-[var(--spider-neon-blue)] text-black text-sm font-semibold py-2.5 px-3 rounded-md hover:opacity-90 transition flex items-center space-x-2 justify-center mb-4 touch-manipulation"
+                                className="w-full bg-[var(--spider-neon-blue)] text-black text-sm font-semibold py-3 px-4 rounded-lg hover:opacity-90 transition flex items-center space-x-2 justify-center mb-4 touch-manipulation active:scale-95"
                                 disabled={isDeleting}
                             >
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2396,7 +2494,7 @@ const SpiderAIApp = ({
                                                     loadChatById(chat.id);
                                                     setSidebarOpen(false);
                                                 }} 
-                                                className={`flex-grow text-left px-3 py-2 text-sm rounded hover:bg-[var(--spider-light)] truncate transition-colors ${
+                                                className={`flex-grow text-left px-3 py-3 text-sm rounded-lg hover:bg-[var(--spider-light)] truncate transition-colors active:scale-95 ${
                                                     activeChatId === chat.id 
                                                         ? 'bg-[var(--spider-light)] text-white font-medium' 
                                                         : 'text-[var(--spider-text)] hover:text-white'
@@ -2404,7 +2502,7 @@ const SpiderAIApp = ({
                                                 disabled={isDeleting}
                                             >
                                                 <div className="truncate">{chat.title}</div>
-                                                <div className="text-xs text-[var(--spider-text-dim)] mt-0.5">
+                                                <div className="text-xs text-[var(--spider-text-dim)] mt-1">
                                                     {new Date(chat.timestamp).toLocaleDateString()}
                                                 </div>
                                             </button>
@@ -2415,12 +2513,12 @@ const SpiderAIApp = ({
                                                         deleteChat(chat.id);
                                                     }
                                                 }}
-                                                className="ml-2 text-red-400 hover:text-red-300 opacity-100 transition-opacity p-1 touch-manipulation"
+                                                className="ml-2 text-red-400 hover:text-red-300 opacity-100 transition-opacity p-2 touch-manipulation active:scale-95"
                                                 title="Delete chat"
                                                 disabled={isDeleting}
                                             >
                                                 {isDeleting ? (
-                                                    <div className="w-3 h-3 border-2 border-red-400 border-t-transparent rounded-full animate-spin"></div>
+                                                    <div className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin"></div>
                                                 ) : (
                                                     '×'
                                                 )}
@@ -2428,17 +2526,19 @@ const SpiderAIApp = ({
                                         </div>
                                     ))
                                 ) : (
-                                    <div className="text-center py-4 text-[var(--spider-text-dim)] text-sm">
+                                    <div className="text-center py-6 text-[var(--spider-text-dim)] text-sm">
                                         No recent chats
                                     </div>
                                 )}
                             </div>
 
                             <div className="mt-auto pt-4 border-t border-[var(--spider-light)]">
-                                <div className="w-full bg-[var(--spider-med)] text-[var(--spider-text-dim)] text-sm font-semibold py-2 px-3 rounded-md flex items-center space-x-2">
-                                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                                        <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd"></path>
-                                    </svg>
+                                <div className="w-full bg-[var(--spider-med)] text-[var(--spider-text-dim)] text-sm font-semibold py-3 px-4 rounded-lg flex items-center space-x-3">
+                                    <div className="w-8 h-8 rounded-full bg-[var(--spider-light)] flex items-center justify-center">
+                                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                            <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd"></path>
+                                        </svg>
+                                    </div>
                                     <span className="truncate">{currentUser?.name || 'User'}</span>
                                 </div>
                             </div>
@@ -2460,7 +2560,7 @@ const SpiderAIApp = ({
                 <div className="hidden md:flex flex-col bg-[var(--spider-med)] w-64 p-4 border-r border-[var(--spider-light)] flex-shrink-0 space-y-4 overflow-y-auto">
                     <button 
                         onClick={handleNewChat} 
-                        className="w-full bg-[var(--spider-neon-blue)] text-black text-sm font-semibold py-2.5 px-3 rounded-md hover:opacity-90 transition flex items-center space-x-2 justify-center"
+                        className="w-full bg-[var(--spider-neon-blue)] text-black text-sm font-semibold py-3 px-4 rounded-lg hover:opacity-90 transition flex items-center space-x-2 justify-center active:scale-95"
                         disabled={isDeleting}
                     >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2479,7 +2579,7 @@ const SpiderAIApp = ({
                                     <div key={chat.id} className="flex items-center group">
                                         <button 
                                             onClick={() => loadChatById(chat.id)} 
-                                            className={`flex-grow text-left px-3 py-2 text-sm rounded hover:bg-[var(--spider-light)] truncate transition-colors ${
+                                            className={`flex-grow text-left px-3 py-2 text-sm rounded-lg hover:bg-[var(--spider-light)] truncate transition-colors active:scale-95 ${
                                                 activeChatId === chat.id 
                                                     ? 'bg-[var(--spider-light)] text-white font-medium' 
                                                     : 'text-[var(--spider-text)] hover:text-white'
@@ -2487,7 +2587,7 @@ const SpiderAIApp = ({
                                             disabled={isDeleting}
                                         >
                                             <div className="truncate">{chat.title}</div>
-                                            <div className="text-xs text-[var(--spider-text-dim)] mt-0.5">
+                                            <div className="text-xs text-[var(--spider-text-dim)] mt-1">
                                                 {new Date(chat.timestamp).toLocaleDateString()} • {chat.mode}
                                             </div>
                                         </button>
@@ -2498,12 +2598,12 @@ const SpiderAIApp = ({
                                                     deleteChat(chat.id);
                                                 }
                                             }}
-                                            className="ml-2 text-red-400 hover:text-red-300 opacity-0 group-hover:opacity-100 transition-opacity p-1"
+                                            className="ml-2 text-red-400 hover:text-red-300 opacity-0 group-hover:opacity-100 transition-opacity p-2 active:scale-95"
                                             title="Delete chat"
                                             disabled={isDeleting}
                                         >
                                             {isDeleting ? (
-                                                <div className="w-3 h-3 border-2 border-red-400 border-t-transparent rounded-full animate-spin"></div>
+                                                <div className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin"></div>
                                             ) : (
                                                 '×'
                                             )}
@@ -2511,7 +2611,7 @@ const SpiderAIApp = ({
                                     </div>
                                 ))
                             ) : (
-                                <div className="text-center py-4 text-[var(--spider-text-dim)] text-sm">
+                                <div className="text-center py-6 text-[var(--spider-text-dim)] text-sm">
                                     No recent chats
                                 </div>
                             )}
@@ -2519,10 +2619,12 @@ const SpiderAIApp = ({
                     </div>
 
                     <div className="mt-auto border-t border-[var(--spider-light)] pt-3">
-                        <div className="w-full bg-[var(--spider-med)] text-[var(--spider-text-dim)] text-sm font-semibold py-2 px-3 rounded-md flex items-center space-x-2">
-                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd"></path>
-                            </svg>
+                        <div className="w-full bg-[var(--spider-med)] text-[var(--spider-text-dim)] text-sm font-semibold py-3 px-4 rounded-lg flex items-center space-x-3">
+                            <div className="w-8 h-8 rounded-full bg-[var(--spider-light)] flex items-center justify-center">
+                                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd"></path>
+                                </svg>
+                            </div>
                             <span className="truncate">{currentUser?.name || 'User'}</span>
                         </div>
                     </div>
@@ -2536,22 +2638,22 @@ const SpiderAIApp = ({
                     <div className="flex items-center justify-between p-3 bg-[var(--spider-med)] border-b border-[var(--spider-light)] flex-shrink-0">
                         <button 
                             onClick={() => setSidebarOpen(true)}
-                            className="text-white p-2"
+                            className="text-white p-2 touch-manipulation active:scale-95"
                             aria-label="Open menu"
                         >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path>
                             </svg>
                         </button>
-                        <span className="text-sm font-semibold text-[var(--spider-neon-blue)] truncate">
+                        <span className="text-sm font-semibold text-[var(--spider-neon-blue)] truncate px-2">
                             {getModeText()}
                         </span>
                         <button 
                             onClick={handleNewChat}
-                            className="text-white p-2"
+                            className="text-white p-2 touch-manipulation active:scale-95"
                             aria-label="New chat"
                         >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
                             </svg>
                         </button>
@@ -2559,19 +2661,19 @@ const SpiderAIApp = ({
                 )}
 
                 {/* Messages Container */}
-                <div className="flex-grow overflow-y-auto p-2 sm:p-4 space-y-3 pb-24 sm:pb-4">
+                <div className="flex-grow overflow-y-auto p-2 sm:p-4 space-y-4 pb-28 sm:pb-4">
                     {chatHistory.map((msg, index) => (
                         <ChatBubble key={`${msg.ts}_${index}`} message={msg} />
                     ))}
                     
                     {/* Streaming Message */}
                     {streamingMessage && (
-                        <div className="flex justify-start mb-3 px-2">
-                            <div className="bg-[var(--spider-med)] text-white p-3 rounded-xl max-w-[85%] shadow-md">
-                                <pre className="whitespace-pre-wrap font-sans text-sm break-words">
+                        <div className="flex justify-start mb-4 px-2">
+                            <div className="bg-[var(--spider-med)] text-white p-4 rounded-2xl max-w-[95%] shadow-md border border-[var(--spider-light)]">
+                                <pre className="whitespace-pre-wrap font-sans text-sm break-words leading-relaxed">
                                     {streamingMessage.content}
                                 </pre>
-                                <div className="flex items-center space-x-2 mt-2">
+                                <div className="flex items-center space-x-2 mt-3">
                                     <div className="flex space-x-1">
                                         <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce"></div>
                                         <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
@@ -2585,8 +2687,8 @@ const SpiderAIApp = ({
                     
                     {/* Loading Indicator */}
                     {isLoading && !streamingMessage && (
-                        <div className="flex justify-start mb-3 px-2">
-                            <div className="bg-[var(--spider-med)] text-white p-3 rounded-xl max-w-[85%] shadow-md">
+                        <div className="flex justify-start mb-4 px-2">
+                            <div className="bg-[var(--spider-med)] text-white p-4 rounded-2xl max-w-[95%] shadow-md border border-[var(--spider-light)]">
                                 <div className="flex items-center space-x-3">
                                     <div className="flex space-x-1">
                                         <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce"></div>
@@ -2596,7 +2698,7 @@ const SpiderAIApp = ({
                                     <span className="text-sm">Processing...</span>
                                     <button 
                                         onClick={handleStopGeneration}
-                                        className="bg-red-500 hover:bg-red-600 text-white text-xs px-2 py-1 rounded transition-colors touch-manipulation"
+                                        className="bg-red-500 hover:bg-red-600 text-white text-xs px-3 py-1.5 rounded-lg transition-colors touch-manipulation active:scale-95"
                                     >
                                         Stop
                                     </button>
@@ -2623,14 +2725,14 @@ const SpiderAIApp = ({
                     accept="image/*" 
                 />
 
-                {/* Input Area - Fixed at bottom on mobile */}
+                {/* Input Area - Optimized for all devices */}
                 <div className={`bg-[var(--spider-med)] border-t border-[var(--spider-light)] flex-shrink-0 w-full ${
-                    isMobile ? 'fixed bottom-0 left-0 right-0 p-2' : 'p-3'
+                    isMobile ? 'fixed bottom-0 left-0 right-0 p-3' : 'p-4'
                 }`}>
-                    <div className="max-w-4xl mx-auto">
+                    <div className="max-w-5xl mx-auto">
                         {/* Mode Display - Desktop only */}
                         {!isMobile && (
-                            <div className="flex justify-between items-center mb-2">
+                            <div className="flex justify-between items-center mb-3">
                                 <span className="flex items-center text-sm text-[var(--spider-neon-blue)] font-semibold">
                                     {getModeText()}
                                     {activeChatId && (
@@ -2643,7 +2745,7 @@ const SpiderAIApp = ({
                                     <select 
                                         value={aspectRatio} 
                                         onChange={(e) => setAspectRatio(e.target.value)} 
-                                        className="bg-[var(--spider-light)] text-[var(--spider-text)] p-1 rounded-md text-xs focus:outline-none touch-manipulation"
+                                        className="bg-[var(--spider-light)] text-[var(--spider-text)] px-3 py-1.5 rounded-lg text-sm focus:outline-none touch-manipulation active:scale-95"
                                     >
                                         <option value="1:1">1:1 Square</option>
                                         <option value="16:9">16:9 Landscape</option>
@@ -2656,16 +2758,26 @@ const SpiderAIApp = ({
 
                         {/* Uploaded File/Image Indicator */}
                         {(uploadedFile || uploadedImage) && (
-                            <div className="mb-2 text-xs text-green-400 p-2 bg-[var(--spider-dark)] rounded-md flex justify-between items-center">
-                                <span className="truncate">
-                                    {uploadedFile ? `📄 ${uploadedFile.name}` : uploadedImage ? `🖼 ${uploadedImage.name}` : ''}
+                            <div className="mb-3 text-xs text-green-400 p-3 bg-[var(--spider-dark)] rounded-lg flex justify-between items-center border border-green-800">
+                                <span className="truncate flex items-center space-x-2">
+                                    {uploadedFile ? (
+                                        <>
+                                            <span>📄</span>
+                                            <span>{uploadedFile.name}</span>
+                                        </>
+                                    ) : uploadedImage ? (
+                                        <>
+                                            <span>🖼</span>
+                                            <span>{uploadedImage.name}</span>
+                                        </>
+                                    ) : ''}
                                 </span>
                                 <button 
                                     onClick={() => { 
                                         setUploadedFile(null); 
                                         setUploadedImage(null); 
                                     }} 
-                                    className="text-red-400 hover:text-red-300 ml-3 font-bold flex-shrink-0 touch-manipulation"
+                                    className="text-red-400 hover:text-red-300 ml-3 font-bold flex-shrink-0 touch-manipulation active:scale-95 p-1"
                                 >
                                     ×
                                 </button>
@@ -2673,22 +2785,23 @@ const SpiderAIApp = ({
                         )}
 
                         {/* Input Controls */}
-                        <div className="flex items-end w-full space-x-2">
-                            <div className="flex-1 bg-[var(--spider-light)] rounded-lg p-2 min-h-[44px]">
+                        <div className="flex items-end w-full space-x-3">
+                            <div className="flex-1 bg-[var(--spider-light)] rounded-xl p-3 min-h-[48px] border border-[var(--spider-light)]">
                                 <textarea 
                                     ref={textareaRef}
                                     placeholder={
-                                        uploadedImage ? "Describe image edit..." : 
-                                        uploadedFile ? "Analyze this file..." : 
-                                        "Type message or 'generate image of...'"
+                                        uploadedImage ? "Describe how to edit this image..." : 
+                                        uploadedFile ? `Analyze "${uploadedFile.name}"...` : 
+                                        "Message Spider AI... (Try: 'generate image of...' or 'compare React vs Vue')"
                                     } 
-                                    className="w-full bg-transparent text-white focus:outline-none resize-none text-sm max-h-32 overflow-y-auto touch-manipulation"
+                                    className="w-full bg-transparent text-white focus:outline-none resize-none text-sm sm:text-base max-h-32 overflow-y-auto touch-manipulation"
                                     style={{
                                         minHeight: '24px',
                                         maxHeight: '120px',
                                         WebkitAppearance: 'none',
                                         MozAppearance: 'none',
-                                        appearance: 'none'
+                                        appearance: 'none',
+                                        lineHeight: '1.5'
                                     }}
                                     value={message} 
                                     onChange={(e) => setMessage(e.target.value)} 
@@ -2708,12 +2821,11 @@ const SpiderAIApp = ({
                                 <select 
                                     value={aspectRatio} 
                                     onChange={(e) => setAspectRatio(e.target.value)} 
-                                    className="bg-[var(--spider-light)] text-[var(--spider-text)] p-2 rounded-md text-xs focus:outline-none touch-manipulation h-10"
+                                    className="bg-[var(--spider-light)] text-[var(--spider-text)] px-3 py-2 rounded-lg text-xs focus:outline-none touch-manipulation active:scale-95 h-12"
                                 >
                                     <option value="1:1">1:1</option>
                                     <option value="16:9">16:9</option>
                                     <option value="9:16">9:16</option>
-                                    <option value="4:3">4:3</option>
                                 </select>
                             )}
 
@@ -2727,15 +2839,15 @@ const SpiderAIApp = ({
                             {/* Send Button */}
                             <button 
                                 onClick={handleSendMessage} 
-                                className="bg-[var(--spider-neon-blue)] text-black font-semibold px-4 py-2 rounded-md hover:opacity-90 transition duration-200 flex-shrink-0 h-10 flex items-center justify-center min-w-[44px] touch-manipulation" 
+                                className="bg-[var(--spider-neon-blue)] text-black font-semibold px-5 py-3 rounded-xl hover:opacity-90 transition duration-200 flex-shrink-0 h-12 flex items-center justify-center min-w-[52px] touch-manipulation active:scale-95 shadow-lg" 
                                 disabled={(!message.trim() && !uploadedFile && !uploadedImage) || isLoading}
                                 aria-label="Send message"
                             >
                                 {isLoading ? (
-                                    <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
+                                    <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
                                 ) : (
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
                                     </svg>
                                 )}
                             </button>
@@ -2743,8 +2855,8 @@ const SpiderAIApp = ({
                     </div>
                 </div>
 
-                {/* Add padding for mobile input area */}
-                {isMobile && <div className="h-20" />}
+                {/* Add safe area padding for mobile */}
+                {isMobile && <div className="h-24" />}
             </div>
         </div>
     );
@@ -3813,5 +3925,6 @@ int main() {
         </>
     );
 }
+
 
 
