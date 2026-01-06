@@ -1425,6 +1425,8 @@ const PlusMenu = ({
         </div>
     );
 };
+
+
 const SpiderAIApp = ({ 
     currentUser, 
     showModal, 
@@ -1944,7 +1946,7 @@ const SpiderAIApp = ({
         if (!message.trim() && !uploadedFile && !uploadedImage) return;
 
         // Debug log
-        console.log('🔍 MEMORY DEBUG:', {
+        console.log('🔍 Sending message:', {
             persistentId: getPersistentUserId(),
             currentUser: currentUser,
             message: message
@@ -2031,7 +2033,19 @@ const SpiderAIApp = ({
                     firebase_token: currentUser?.firebaseToken || ''
                 };
                 
+                console.log('📤 Sending file analysis request:', {
+                    url: apiUrl,
+                    mode: mode,
+                    filename: fileCopy.name
+                });
+                
                 const result = await callFastAPI(apiUrl, apiPayload, mode);
+
+                console.log('📥 Received file analysis response:', {
+                    hasText: !!result?.text,
+                    hasImage: !!result?.base64_image,
+                    textLength: result?.text?.length
+                });
 
                 const assistantMessage = {
                     role: 'assistant',
@@ -2076,6 +2090,13 @@ const SpiderAIApp = ({
                     user_preference_id: getPersistentUserId(),
                     firebase_token: currentUser?.firebaseToken || ''
                 };
+                
+                console.log('📤 Sending image edit request:', {
+                    url: apiUrl,
+                    mode: mode,
+                    imageSize: base64Image.length
+                });
+                
                 const result = await callFastAPI(apiUrl, apiPayload, mode);
 
                 const assistantMessage = {
@@ -2100,6 +2121,12 @@ const SpiderAIApp = ({
                     stream: false
                 };
                 
+                console.log('📤 Sending image generation request:', {
+                    url: apiUrl,
+                    mode: mode,
+                    prompt: message.substring(0, 100)
+                });
+                
                 const result = await callFastAPI(apiUrl, apiPayload, mode);
 
                 const assistantMessage = {
@@ -2122,7 +2149,18 @@ const SpiderAIApp = ({
                     stream: true
                 };
                 
+                console.log('📤 Sending chat request:', {
+                    url: apiUrl,
+                    mode: mode,
+                    prompt: message.substring(0, 100)
+                });
+                
                 const result = await callFastAPI(apiUrl, apiPayload, mode);
+
+                console.log('📥 Received chat response:', {
+                    hasText: !!result?.text,
+                    textLength: result?.text?.length
+                });
 
                 if (result?.text) {
                     typeText(result.text, () => {
@@ -2147,7 +2185,7 @@ const SpiderAIApp = ({
                 }
             }
         } catch (error) {
-            console.error('API ERROR:', error);
+            console.error('❌ API ERROR:', error);
             const assistantError = {
                 role: 'assistant',
                 content: `[API ERROR] ${error?.message || 'Something went wrong.'}`,
@@ -3984,6 +4022,7 @@ int main() {
         </>
     );
 }
+
 
 
 
