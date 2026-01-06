@@ -1349,7 +1349,6 @@ const SpiderNotebookApp = ({
     );
 };
 
-
 const SpiderAIApp = ({ 
     currentUser, 
     showModal, 
@@ -1760,90 +1759,92 @@ const SpiderAIApp = ({
         event.target.value = null;
     };
 
-    // ---------- Fixed PlusMenu Component ----------
-    const PlusMenu = ({ setActiveAIMode: _setActiveAIMode, fileInputRef, imageInputRef }) => {
-        const [open, setOpen] = useState(false);
-        const menuRef = useRef(null);
+    // ---------- Fixed PlusMenu Component (Memoized) ----------
+    const PlusMenu = useMemo(() => {
+        return React.memo(({ setActiveAIMode: _setActiveAIMode, fileInputRef, imageInputRef }) => {
+            const [open, setOpen] = useState(false);
+            const menuRef = useRef(null);
 
-        // Close menu when clicking outside
-        useEffect(() => {
-            const handleClickOutside = (event) => {
-                if (menuRef.current && !menuRef.current.contains(event.target)) {
-                    setOpen(false);
+            // Close menu when clicking outside
+            useEffect(() => {
+                const handleClickOutside = (event) => {
+                    if (menuRef.current && !menuRef.current.contains(event.target)) {
+                        setOpen(false);
+                    }
+                };
+
+                if (open) {
+                    document.addEventListener('mousedown', handleClickOutside);
+                    document.addEventListener('touchstart', handleClickOutside);
                 }
+
+                return () => {
+                    document.removeEventListener('mousedown', handleClickOutside);
+                    document.removeEventListener('touchstart', handleClickOutside);
+                };
+            }, [open]);
+
+            const onUploadFile = (e) => {
+                e.stopPropagation();
+                setOpen(false);
+                if (typeof _setActiveAIMode === 'function') _setActiveAIMode('file_analysis');
+                setTimeout(() => fileInputRef.current?.click(), 50);
             };
 
-            if (open) {
-                document.addEventListener('mousedown', handleClickOutside);
-                document.addEventListener('touchstart', handleClickOutside);
-            }
-
-            return () => {
-                document.removeEventListener('mousedown', handleClickOutside);
-                document.removeEventListener('touchstart', handleClickOutside);
+            const onUploadImage = (e) => {
+                e.stopPropagation();
+                setOpen(false);
+                if (typeof _setActiveAIMode === 'function') _setActiveAIMode('image_edit');
+                setTimeout(() => imageInputRef.current?.click(), 50);
             };
-        }, [open]);
 
-        const onUploadFile = (e) => {
-            e.stopPropagation();
-            setOpen(false);
-            if (typeof _setActiveAIMode === 'function') _setActiveAIMode('file_analysis');
-            setTimeout(() => fileInputRef.current?.click(), 50);
-        };
+            const onGenImage = (e) => {
+                e.stopPropagation();
+                setOpen(false);
+                if (typeof _setActiveAIMode === 'function') _setActiveAIMode('image_gen');
+            };
 
-        const onUploadImage = (e) => {
-            e.stopPropagation();
-            setOpen(false);
-            if (typeof _setActiveAIMode === 'function') _setActiveAIMode('image_edit');
-            setTimeout(() => imageInputRef.current?.click(), 50);
-        };
+            const handleToggleMenu = (e) => {
+                e.stopPropagation();
+                setOpen(!open);
+            };
 
-        const onGenImage = (e) => {
-            e.stopPropagation();
-            setOpen(false);
-            if (typeof _setActiveAIMode === 'function') _setActiveAIMode('image_gen');
-        };
-
-        const handleToggleMenu = (e) => {
-            e.stopPropagation();
-            setOpen(!open);
-        };
-
-        return (
-            <div className="relative" ref={menuRef}>
-                <button 
-                    onClick={handleToggleMenu} 
-                    className="bg-[var(--spider-light)] text-white w-10 h-10 rounded-md flex items-center justify-center hover:opacity-90 transition touch-manipulation active:scale-95"
-                    aria-label="Open menu"
-                    aria-expanded={open}
-                >
-                    {open ? '×' : '+'}
-                </button>
-                {open && (
-                    <div className="absolute bottom-12 right-0 bg-[var(--spider-dark)] border border-[var(--spider-light)] rounded-md shadow-lg w-40 p-2 z-50">
-                        <button 
-                            onClick={onUploadFile} 
-                            className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center touch-manipulation active:scale-95 transition-colors"
-                        >
-                            <span className="mr-2">📄</span> Upload File
-                        </button>
-                        <button 
-                            onClick={onUploadImage} 
-                            className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center touch-manipulation active:scale-95 transition-colors"
-                        >
-                            <span className="mr-2">🖼</span> Upload Image
-                        </button>
-                        <button 
-                            onClick={onGenImage} 
-                            className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center touch-manipulation active:scale-95 transition-colors"
-                        >
-                            <span className="mr-2">🎨</span> Create Image
-                        </button>
-                    </div>
-                )}
-            </div>
-        );
-    };
+            return (
+                <div className="relative" ref={menuRef}>
+                    <button 
+                        onClick={handleToggleMenu} 
+                        className="bg-[var(--spider-light)] text-white w-10 h-10 rounded-md flex items-center justify-center hover:opacity-90 transition touch-manipulation active:scale-95"
+                        aria-label="Open menu"
+                        aria-expanded={open}
+                    >
+                        {open ? '×' : '+'}
+                    </button>
+                    {open && (
+                        <div className="absolute bottom-12 right-0 bg-[var(--spider-dark)] border border-[var(--spider-light)] rounded-md shadow-lg w-40 p-2 z-50">
+                            <button 
+                                onClick={onUploadFile} 
+                                className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center touch-manipulation active:scale-95 transition-colors"
+                            >
+                                <span className="mr-2">📄</span> Upload File
+                            </button>
+                            <button 
+                                onClick={onUploadImage} 
+                                className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center touch-manipulation active:scale-95 transition-colors"
+                            >
+                                <span className="mr-2">🖼</span> Upload Image
+                            </button>
+                            <button 
+                                onClick={onGenImage} 
+                                className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center touch-manipulation active:scale-95 transition-colors"
+                            >
+                                <span className="mr-2">🎨</span> Create Image
+                            </button>
+                        </div>
+                    )}
+                </div>
+            );
+        });
+    }, []);
 
     // ---------- New Chat Handler ----------
     const handleNewChat = () => {
@@ -1868,8 +1869,7 @@ const SpiderAIApp = ({
     const handleSendMessage = async () => {
         if (!message.trim() && !uploadedFile && !uploadedImage) return;
 
-        // Debug log
-        console.log('🔍 Sending message:', {
+        console.log('Sending message:', {
             persistentId: getPersistentUserId(),
             currentUser: currentUser,
             message: message
@@ -1917,7 +1917,7 @@ const SpiderAIApp = ({
         }
 
         try {
-            // ============ FILE ANALYSIS ============
+            // FILE ANALYSIS
             if (mode === "analyze_file" && fileCopy) {
                 let fileContent;
                 
@@ -1956,7 +1956,7 @@ const SpiderAIApp = ({
                     firebase_token: currentUser?.firebaseToken || ''
                 };
                 
-                console.log('📤 Sending file analysis request:', {
+                console.log('Sending file analysis request:', {
                     url: apiUrl,
                     mode: mode,
                     filename: fileCopy.name
@@ -1964,7 +1964,7 @@ const SpiderAIApp = ({
                 
                 const result = await callFastAPI(apiUrl, apiPayload, mode);
 
-                console.log('📥 Received file analysis response:', {
+                console.log('Received file analysis response:', {
                     hasText: !!result?.text,
                     hasImage: !!result?.base64_image,
                     textLength: result?.text?.length
@@ -1988,7 +1988,7 @@ const SpiderAIApp = ({
                     setStreamingMessage(null);
                 }
             }
-            // ============ IMAGE EDIT ============
+            // IMAGE EDIT
             else if (mode === "image_edit" && imageCopy) {
                 const base64Image = await new Promise((resolve, reject) => {
                     const reader = new FileReader();
@@ -2014,7 +2014,7 @@ const SpiderAIApp = ({
                     firebase_token: currentUser?.firebaseToken || ''
                 };
                 
-                console.log('📤 Sending image edit request:', {
+                console.log('Sending image edit request:', {
                     url: apiUrl,
                     mode: mode,
                     imageSize: base64Image.length
@@ -2032,7 +2032,7 @@ const SpiderAIApp = ({
                 setChatHistory(prev => [...prev, assistantMessage]);
                 setStreamingMessage(null);
             }
-            // ============ IMAGE GENERATION ============
+            // IMAGE GENERATION
             else if (mode === "image_gen") {
                 const apiUrl = '/api/generate/text';
                 const apiPayload = { 
@@ -2044,7 +2044,7 @@ const SpiderAIApp = ({
                     stream: false
                 };
                 
-                console.log('📤 Sending image generation request:', {
+                console.log('Sending image generation request:', {
                     url: apiUrl,
                     mode: mode,
                     prompt: message.substring(0, 100)
@@ -2061,7 +2061,7 @@ const SpiderAIApp = ({
                 };
                 setChatHistory(prev => [...prev, assistantMessage]);
             }
-            // ============ NORMAL CHAT ============
+            // NORMAL CHAT
             else {
                 const apiUrl = '/api/generate/text';
                 const apiPayload = { 
@@ -2072,7 +2072,7 @@ const SpiderAIApp = ({
                     stream: true
                 };
                 
-                console.log('📤 Sending chat request:', {
+                console.log('Sending chat request:', {
                     url: apiUrl,
                     mode: mode,
                     prompt: message.substring(0, 100)
@@ -2080,7 +2080,7 @@ const SpiderAIApp = ({
                 
                 const result = await callFastAPI(apiUrl, apiPayload, mode);
 
-                console.log('📥 Received chat response:', {
+                console.log('Received chat response:', {
                     hasText: !!result?.text,
                     textLength: result?.text?.length
                 });
@@ -2108,7 +2108,7 @@ const SpiderAIApp = ({
                 }
             }
         } catch (error) {
-            console.error('❌ API ERROR:', error);
+            console.error('API ERROR:', error);
             const assistantError = {
                 role: 'assistant',
                 content: `[API ERROR] ${error?.message || 'Something went wrong.'}`,
@@ -2260,7 +2260,7 @@ const SpiderAIApp = ({
 
     // ---------- Optimized Chat Bubble ----------
     const ChatBubble = useMemo(() => {
-        return ({ message }) => {
+        return React.memo(({ message }) => {
             const [contentBlocks, setContentBlocks] = useState([]);
 
             useEffect(() => {
@@ -2460,7 +2460,7 @@ const SpiderAIApp = ({
                     </div>
                 </div>
             );
-        };
+        });
     }, [processContent]);
 
     // Helper function for mode display
@@ -2473,100 +2473,102 @@ const SpiderAIApp = ({
     };
 
     // ---------- Mobile Sidebar Component ----------
-    const MobileSidebar = () => {
-        return (
-            <>
-                {sidebarOpen && (
-                    <>
-                        <div 
-                            className="fixed inset-0 bg-black bg-opacity-50 z-40 touch-none"
-                            onClick={() => setSidebarOpen(false)}
-                        />
-                        <div className="fixed left-0 top-0 h-full w-64 bg-[var(--spider-med)] z-50 overflow-y-auto p-4 transform transition-transform duration-300 ease-in-out">
-                            <div className="flex justify-between items-center mb-4">
-                                <h2 className="text-white font-semibold">Chat History</h2>
+    const MobileSidebar = useMemo(() => {
+        return () => {
+            return (
+                <>
+                    {sidebarOpen && (
+                        <>
+                            <div 
+                                className="fixed inset-0 bg-black bg-opacity-50 z-40 touch-none"
+                                onClick={() => setSidebarOpen(false)}
+                            />
+                            <div className="fixed left-0 top-0 h-full w-64 bg-[var(--spider-med)] z-50 overflow-y-auto p-4 transform transition-transform duration-300 ease-in-out">
+                                <div className="flex justify-between items-center mb-4">
+                                    <h2 className="text-white font-semibold">Chat History</h2>
+                                    <button 
+                                        onClick={() => setSidebarOpen(false)}
+                                        className="text-white hover:text-gray-300 text-2xl p-1 touch-manipulation"
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+                                
                                 <button 
-                                    onClick={() => setSidebarOpen(false)}
-                                    className="text-white hover:text-gray-300 text-2xl p-1 touch-manipulation"
+                                    onClick={handleNewChat} 
+                                    className="w-full bg-[var(--spider-neon-blue)] text-black text-sm font-semibold py-3 px-4 rounded-lg hover:opacity-90 transition flex items-center space-x-2 justify-center mb-4 touch-manipulation active:scale-95"
+                                    disabled={isDeleting}
                                 >
-                                    ×
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
+                                    </svg>
+                                    <span>New Chat</span>
                                 </button>
-                            </div>
-                            
-                            <button 
-                                onClick={handleNewChat} 
-                                className="w-full bg-[var(--spider-neon-blue)] text-black text-sm font-semibold py-3 px-4 rounded-lg hover:opacity-90 transition flex items-center space-x-2 justify-center mb-4 touch-manipulation active:scale-95"
-                                disabled={isDeleting}
-                            >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
-                                </svg>
-                                <span>New Chat</span>
-                            </button>
 
-                            <div className="space-y-1">
-                                {recentChats.length > 0 ? (
-                                    recentChats.map((chat) => (
-                                        <div key={chat.id} className="flex items-center group">
-                                            <button 
-                                                onClick={() => {
-                                                    loadChatById(chat.id);
-                                                    setSidebarOpen(false);
-                                                }} 
-                                                className={`flex-grow text-left px-3 py-3 text-sm rounded-lg hover:bg-[var(--spider-light)] truncate transition-colors active:scale-95 ${
-                                                    activeChatId === chat.id 
-                                                        ? 'bg-[var(--spider-light)] text-white font-medium' 
-                                                        : 'text-[var(--spider-text)] hover:text-white'
-                                                }`}
-                                                disabled={isDeleting}
-                                            >
-                                                <div className="truncate">{chat.title}</div>
-                                                <div className="text-xs text-[var(--spider-text-dim)] mt-1">
-                                                    {new Date(chat.timestamp).toLocaleDateString()}
-                                                </div>
-                                            </button>
-                                            <button
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    if (window.confirm('Delete this chat?')) {
-                                                        deleteChat(chat.id);
-                                                    }
-                                                }}
-                                                className="ml-2 text-red-400 hover:text-red-300 opacity-100 transition-opacity p-2 touch-manipulation active:scale-95"
-                                                title="Delete chat"
-                                                disabled={isDeleting}
-                                            >
-                                                {isDeleting ? (
-                                                    <div className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin"></div>
-                                                ) : (
-                                                    '×'
-                                                )}
-                                            </button>
+                                <div className="space-y-1">
+                                    {recentChats.length > 0 ? (
+                                        recentChats.map((chat) => (
+                                            <div key={chat.id} className="flex items-center group">
+                                                <button 
+                                                    onClick={() => {
+                                                        loadChatById(chat.id);
+                                                        setSidebarOpen(false);
+                                                    }} 
+                                                    className={`flex-grow text-left px-3 py-3 text-sm rounded-lg hover:bg-[var(--spider-light)] truncate transition-colors active:scale-95 ${
+                                                        activeChatId === chat.id 
+                                                            ? 'bg-[var(--spider-light)] text-white font-medium' 
+                                                            : 'text-[var(--spider-text)] hover:text-white'
+                                                    }`}
+                                                    disabled={isDeleting}
+                                                >
+                                                    <div className="truncate">{chat.title}</div>
+                                                    <div className="text-xs text-[var(--spider-text-dim)] mt-1">
+                                                        {new Date(chat.timestamp).toLocaleDateString()}
+                                                    </div>
+                                                </button>
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        if (window.confirm('Delete this chat?')) {
+                                                            deleteChat(chat.id);
+                                                        }
+                                                    }}
+                                                    className="ml-2 text-red-400 hover:text-red-300 opacity-100 transition-opacity p-2 touch-manipulation active:scale-95"
+                                                    title="Delete chat"
+                                                    disabled={isDeleting}
+                                                >
+                                                    {isDeleting ? (
+                                                        <div className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin"></div>
+                                                    ) : (
+                                                        '×'
+                                                    )}
+                                                </button>
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <div className="text-center py-6 text-[var(--spider-text-dim)] text-sm">
+                                            No recent chats
                                         </div>
-                                    ))
-                                ) : (
-                                    <div className="text-center py-6 text-[var(--spider-text-dim)] text-sm">
-                                        No recent chats
-                                    </div>
-                                )}
-                            </div>
+                                    )}
+                                </div>
 
-                            <div className="mt-auto pt-4 border-t border-[var(--spider-light)]">
-                                <div className="w-full bg-[var(--spider-med)] text-[var(--spider-text-dim)] text-sm font-semibold py-3 px-4 rounded-lg flex items-center space-x-3">
-                                    <div className="w-8 h-8 rounded-full bg-[var(--spider-light)] flex items-center justify-center">
-                                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                                            <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd"></path>
-                                        </svg>
+                                <div className="mt-auto pt-4 border-t border-[var(--spider-light)]">
+                                    <div className="w-full bg-[var(--spider-med)] text-[var(--spider-text-dim)] text-sm font-semibold py-3 px-4 rounded-lg flex items-center space-x-3">
+                                        <div className="w-8 h-8 rounded-full bg-[var(--spider-light)] flex items-center justify-center">
+                                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd"></path>
+                                            </svg>
+                                        </div>
+                                        <span className="truncate">{currentUser?.name || 'User'}</span>
                                     </div>
-                                    <span className="truncate">{currentUser?.name || 'User'}</span>
                                 </div>
                             </div>
-                        </div>
-                    </>
-                )}
-            </>
-        );
-    };
+                        </>
+                    )}
+                </>
+            );
+        };
+    }, [sidebarOpen, recentChats, activeChatId, isDeleting, currentUser, loadChatById, deleteChat, handleNewChat]);
 
     // ---------- Main JSX ----------
     return (
@@ -3945,6 +3947,7 @@ int main() {
         </>
     );
 }
+
 
 
 
