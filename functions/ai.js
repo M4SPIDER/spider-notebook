@@ -8,8 +8,8 @@
 ============================================================ */
 
 /* ===== CONFIG ===== */
-const MEMORY_MESSAGE_LIMIT = 2000;
-const MEMORY_TRIM_TARGET = 2000;
+const MEMORY_MESSAGE_LIMIT = 200;
+const MEMORY_TRIM_TARGET = 200;
 const MEMORY_TTL_DAYS = 30;
 const MEMORY_SUMMARY_TRIGGER = 300;
 const MEMORY_USER_KEY_PREFIX = "chat_memory_v2:"; 
@@ -360,12 +360,13 @@ export async function onRequest(context) {
     }
     
     if (isKvBound) {
-      if (lower.includes("delete memory: all") || lower.includes("reset all") || lower.includes("delete all")) {
-        await env.CHAT_KV.put(memoryKey, "[]");
-        return new Response("All memory cleared.", {
-          headers: { ...corsHeaders, "content-type": "text/plain" }
-        });
-      }
+      // TEMPORARILY DISABLED (5 MINS)
+      // if (lower.includes("delete memory: all") || lower.includes("reset all") || lower.includes("delete all")) {
+      //   await env.CHAT_KV.put(memoryKey, "[]");
+      //   return new Response("All memory cleared.", {
+      //     headers: { ...corsHeaders, "content-type": "text/plain" }
+      //   });
+      // }
 
       if (lower.includes("delete memory:")) {
         const cmd = lower.replace("delete memory:", "").trim();
