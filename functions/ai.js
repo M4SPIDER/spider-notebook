@@ -1,9 +1,10 @@
 /* ============================================================
- SPIDER AI — V4.6 (LOOP TERMINATOR FIX)
- - FIXED: Added `repetition_penalty` to all model calls to kill loops immediately.
- - FIXED: Enhanced `sanitizeOutput` to detect and cut repetitive phrases before they hit memory.
- - FIXED: Preserved all 700+ lines of logic (Firebase, Image Gen, Search, File Analysis).
- - STATUS: STABLE & SAVAGE.
+  SPIDER AI — V4.7 (PRIVACY & ISOLATION FIX)
+  - FIXED: Memory Isolation. Now uses IP-based fallback if no ID is sent.
+  - FIXED: Prevents "Shared History" bug where users saw others' chats.
+  - RETAINED: Loop Terminator, Repetition Penalty, Telugu Mode, Savage Mode.
+  - RETAINED: All 800 lines of logic (Firebase, Image Gen, Search, File Analysis).
+  - STATUS: SECURE & STABLE.
 ============================================================ */
 
 /* ===== CONFIG ===== */
@@ -11,7 +12,7 @@ const MEMORY_MESSAGE_LIMIT = 200;
 const MEMORY_TRIM_TARGET = 200;
 const MEMORY_TTL_DAYS = 30;
 const MEMORY_SUMMARY_TRIGGER = 300;
-const MEMORY_USER_KEY_PREFIX = "chat_memory:";
+const MEMORY_USER_KEY_PREFIX = "chat_memory_v2:"; // Changed prefix to reset bad cache
 const FIREBASE_PROJECT_ID = "m4-spider";
 
 /* ===== TELUGU TRIGGER WORDS ===== */
@@ -35,7 +36,7 @@ function buildTeluguRegex(words) {
 }
 const TELUGU_TRIGGER_REGEX = buildTeluguRegex(TELUGU_TRIGGER_WORDS);
 
-/* ===== NEW PATCH: REQUIRE 2+ TELUGU WORDS ===== */
+/* ===== REQUIRE 2+ TELUGU WORDS ===== */
 function shouldTriggerTelugu(message) {
   if (!message || typeof message !== "string") return false;
   const words = message.toLowerCase().split(/\s+/);
@@ -47,8 +48,7 @@ function shouldTriggerTelugu(message) {
 }
 
 /* ============================================================
-MAIN SYSTEM PROMPT (IMPROVED)
- - includes emoji rule and think 10-15 times instruction
+  MAIN SYSTEM PROMPT
 ============================================================ */
 const SPIDER_SYSTEM_PROMPT =
 "You are M4 Spider AI, made by M4 Spider 🕷️🤖.\n" +
@@ -65,7 +65,7 @@ const SPIDER_SYSTEM_PROMPT =
 "- Use emojis freely in every reply 😜🎉.\n";
 
 /* ============================================================
-FIREBASE TOKEN VERIFIER
+  FIREBASE TOKEN VERIFIER
 ============================================================ */
 
 async function verifyFirebaseToken(idToken) {
@@ -112,7 +112,7 @@ async function verifyFirebaseToken(idToken) {
 }
 
 /* ============================================================
-MODE DETECTOR
+  MODE DETECTOR
 ============================================================ */
 
 function detectMode(prompt, file_content, filename) {
@@ -127,10 +127,7 @@ function detectMode(prompt, file_content, filename) {
 }
 
 /* ============================================================
-SANITIZATION & UTILITIES
- - sanitizeOutput: ensures user never sees raw JSON or internal tags
- - looksLikeJSON: heuristics to find pure-JSON replies and remove/wrap them
- - extractSearchInstruction: detects internal JSON/markers the model might output
+  SANITIZATION & UTILITIES
 ============================================================ */
 
 function looksLikeJSON(s) {
@@ -168,11 +165,8 @@ function sanitizeOutput(raw) {
   raw = raw.replace(/\s{2,}/g, " ").trim();
 
   // *** LOOP BREAKER 3000 ***
-  // If the same 20+ char string repeats within the text, chop it off.
-  // This prevents saving "Nuvvu eppudu Nuvvu eppudu" into memory.
   const loopCheck = raw.length > 100;
   if (loopCheck) {
-      // Simple heuristic: split by punctuation, check for adjacent duplicates
       const sentences = raw.split(/[.!?]/).filter(s => s.trim().length > 5);
       const unique = [];
       let lastS = "";
@@ -183,10 +177,7 @@ function sanitizeOutput(raw) {
               lastS = sTrim;
           }
       }
-      // If we compressed it significantly, rebuild (simple approach)
       if (unique.length < sentences.length * 0.8) {
-          // Reconstruct to be safe, but typically just taking the cleaned raw is better if subtle.
-          // For severe loops, we truncate.
           const middle = Math.floor(raw.length / 2);
           const firstHalf = raw.substring(0, middle);
           const secondHalf = raw.substring(middle);
@@ -199,16 +190,14 @@ function sanitizeOutput(raw) {
   // Ensure sentence ends with punctuation (FIX: Only add if no punctuation AND no trailing emoji)
   if (raw && !/[.!?…]$/.test(raw) && !/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/u.test(raw.slice(-1))) raw = raw + ".";
 
-  // Keep emojis intact
   return raw.trim();
 }
 
-/* Detect internal search instruction: returns {action, query} or null. */
+/* Detect internal search instruction */
 function extractSearchInstruction(text) {
   if (!text || typeof text !== "string") return null;
   const t = text.trim();
 
-  // Try JSON first
   try {
     const maybe = JSON.parse(t);
     if (maybe && maybe.action && maybe.query) {
@@ -216,7 +205,6 @@ function extractSearchInstruction(text) {
     }
   } catch (_) {}
 
-  // Look for inline JSON-like substring
   const jsonMatch = t.match(/\{[^}]*"action"[^}]*\}/);
   if (jsonMatch) {
     try {
@@ -227,7 +215,6 @@ function extractSearchInstruction(text) {
     } catch (_) {}
   }
 
-  // Hashtag/keyword forms
   const hashMatch = t.match(/#?search[:\s]+(.+)/i);
   if (hashMatch && hashMatch[1]) {
     return { action: "search", query: hashMatch[1].trim() };
@@ -252,14 +239,13 @@ async function getMemoryFromKV(env, memoryKey) {
 async function saveMemoryToKV(env, memoryKey, mem) {
   try {
     if (!env.CHAT_KV) throw new Error("CHAT_KV is not bound.");
-    // Setting expiration for safety
     await env.CHAT_KV.put(memoryKey, JSON.stringify(mem), { expirationTtl: MEMORY_TTL_DAYS * 24 * 60 * 60 });
   } catch (e) {
     console.error("Error saving KV memory for key:", memoryKey, e);
   }
 }
 
-/* ================== COMPRESSION (uses your SPY_AI model) ============= */
+/* ================== COMPRESSION ============= */
 
 async function compressMemoryIfNeeded(env, memoryArr) {
   if (memoryArr.length < MEMORY_SUMMARY_TRIGGER) return memoryArr;
@@ -297,12 +283,28 @@ async function compressMemoryIfNeeded(env, memoryArr) {
 }
 
 /* ============================================================
-MAIN HANDLER
+  MAIN HANDLER
 ============================================================ */
 
 export async function onRequest(context) {
   const request = context.request;
   const env = context.env;
+
+  // Handle CORS Preflight
+  if (request.method === "OPTIONS") {
+    return new Response(null, {
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+      },
+    });
+  }
+
+  const corsHeaders = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "Content-Type",
+  };
 
   try {
     /* ================ CRITICAL BINDING CHECKS ================= */
@@ -315,7 +317,7 @@ export async function onRequest(context) {
     if (!isAiBound) {
       return new Response(
         "CRITICAL ERROR: The AI Model binding (SPY_AI) is missing. Please check your Worker AI configuration in wrangler.toml.",
-        { headers: { "content-type": "text/plain" }, status: 500 }
+        { headers: { ...corsHeaders, "content-type": "text/plain" }, status: 500 }
       );
     }
 
@@ -352,7 +354,6 @@ export async function onRequest(context) {
         body = {};
       }
     } else {
-      // fallback: try to read text body
       try {
         const t = await request.text();
         if (t) {
@@ -367,14 +368,43 @@ export async function onRequest(context) {
     const { prompt, mode, image, strength, filename } = body;
     let currentMode = mode || detectMode(prompt, combinedFileContent, filename);
 
-    /* ================ USER IDENTIFICATION ================ */
+    /* ================ USER IDENTIFICATION (PRIVACY FIX) ================ 
+       1. Check for Firebase Token (Highest Auth)
+       2. Check for Client ID (IndexedDB/LocalStorage ID passed from frontend)
+       3. Fallback to IP Address (Lowest Auth, but prevents global sharing)
+    */
 
-    let userId = "anon-default";
-    if (body.user_preference_id) userId = body.user_preference_id.toString();
+    let userId = null;
+    let userType = "anon";
+
+    // Method 1: Explicit Client ID (from IndexDB/LocalStorage)
+    if (body.user_preference_id) {
+        const pid = body.user_preference_id.toString().trim();
+        if (pid && pid !== "undefined" && pid !== "null") {
+            userId = "custom:" + pid;
+            userType = "custom";
+        }
+    }
+
+    // Method 2: Firebase Auth (Overrides Client ID)
     if (body.firebase_token) {
       const decoded = await verifyFirebaseToken(body.firebase_token);
-      if (decoded && decoded.user_id) userId = decoded.user_id;
+      if (decoded && decoded.user_id) {
+          userId = "firebase:" + decoded.user_id;
+          userType = "firebase";
+      }
     }
+
+    // Method 3: IP Fallback (CRITICAL FIX for Shared History Bug)
+    // If no ID is provided, use IP address to isolate this user from others.
+    if (!userId) {
+        const ip = request.headers.get("CF-Connecting-IP") || "unknown-ip";
+        // Create a hash or just use the IP string directly
+        userId = "ip:" + ip;
+        userType = "ip_fallback";
+    }
+
+    // Generate strict memory key
     const memoryKey = MEMORY_USER_KEY_PREFIX + userId;
 
     /* ================ LOAD MEMORY ===================== */
@@ -384,9 +414,8 @@ export async function onRequest(context) {
     const cutoff = Date.now() - MEMORY_TTL_DAYS * 24 * 60 * 60 * 1000;
     memory = memory.filter(m => (m.ts || 0) >= cutoff);
 
-    // compress if needed
+    // Compress if needed
     if (isKvBound && memory.length >= MEMORY_SUMMARY_TRIGGER) memory = await compressMemoryIfNeeded(env, memory);
-
     if (memory.length > MEMORY_MESSAGE_LIMIT) memory = memory.slice(-MEMORY_MESSAGE_LIMIT);
 
     /* ============= DELETE MEMORY HANDLES =============== */
@@ -401,15 +430,15 @@ export async function onRequest(context) {
       !lower.includes("delete all") &&
       !lower.includes("reset all")) {
       return new Response("Specify delete memory: all / last / first / <index> / keyword", {
-        headers: { "content-type": "text/plain" }
+        headers: { ...corsHeaders, "content-type": "text/plain" }
       });
     }
     
     if (isKvBound) {
       if (lower.includes("delete memory: all") || lower.includes("reset all") || lower.includes("delete all")) {
         await env.CHAT_KV.put(memoryKey, "[]");
-        return new Response("All memory cleared 😎🔥", {
-          headers: { "content-type": "text/plain" }
+        return new Response("All memory cleared for you 😎🔥", {
+          headers: { ...corsHeaders, "content-type": "text/plain" }
         });
       }
 
@@ -418,25 +447,25 @@ export async function onRequest(context) {
         if (cmd === "last") {
           memory.pop();
           await saveMemoryToKV(env, memoryKey, memory);
-          return new Response("Deleted last entry 👍", { headers: { "content-type": "text/plain" }});
+          return new Response("Deleted last entry 👍", { headers: { ...corsHeaders, "content-type": "text/plain" }});
         }
         if (cmd === "first") {
           memory.shift();
           await saveMemoryToKV(env, memoryKey, memory);
-          return new Response("Deleted first entry 👍", { headers: { "content-type": "text/plain" }});
+          return new Response("Deleted first entry 👍", { headers: { ...corsHeaders, "content-type": "text/plain" }});
         }
         const idx = parseInt(cmd);
         if (!isNaN(idx)) {
           if (idx >= 1 && idx <= memory.length) {
             memory.splice(idx - 1, 1);
             await saveMemoryToKV(env, memoryKey, memory);
-            return new Response("Entry removed 😃", { headers: { "content-type": "text/plain" }});
+            return new Response("Entry removed 😃", { headers: { ...corsHeaders, "content-type": "text/plain" }});
           }
-          return new Response("Invalid index 😅", { headers: { "content-type": "text/plain" }});
+          return new Response("Invalid index 😅", { headers: { ...corsHeaders, "content-type": "text/plain" }});
         }
         memory = memory.filter(m => !m.content.toLowerCase().includes(cmd));
         await saveMemoryToKV(env, memoryKey, memory);
-        return new Response("Matching entries deleted 👍", { headers: { "content-type": "text/plain" }});
+        return new Response("Matching entries deleted 👍", { headers: { ...corsHeaders, "content-type": "text/plain" }});
       }
     }
     
@@ -452,7 +481,6 @@ export async function onRequest(context) {
       const lastMessage = memory.length ? memory[memory.length - 1] : null;
       const lastNorm = lastMessage ? norm(lastMessage.content) : "";
 
-      // Only prevent adding exact duplicates
       if (newNorm !== lastNorm) {
         memory.push({ role: "user", content: userMessage, ts: Date.now() });
       } else if (lastMessage && lastMessage.role === "user") {
@@ -479,11 +507,10 @@ export async function onRequest(context) {
       .join("\n");
 
 
-    /* ============= NEW: ASSISTANT REPLY SAVE HELPER ===================== */
+    /* ============= ASSISTANT REPLY SAVE HELPER ===================== */
 
     async function saveAssistantReply(replyContent) {
       if (isKvBound && replyContent) {
-        // DOUBLE CHECK: Sanitize again before saving to prevent loops in history
         const cleanReply = sanitizeOutput(replyContent);
         memory.push({ role: "assistant", content: cleanReply, ts: Date.now() });
         if (memory.length > MEMORY_MESSAGE_LIMIT) memory = memory.slice(-MEMORY_MESSAGE_LIMIT);
@@ -536,7 +563,7 @@ export async function onRequest(context) {
 
       if (contentToAnalyze.trim().length === 0) {
         const emptyMsg = "I'm sorry, mama — I can't analyze the file because it's empty. Ee file empty undhi ra! 😔";
-        return new Response(emptyMsg, { headers: { "content-type": "text/plain" } });
+        return new Response(emptyMsg, { headers: { ...corsHeaders, "content-type": "text/plain" } });
       }
 
       const aPrompt =
@@ -565,7 +592,6 @@ ${contentToAnalyze}
       messages.push({ role: "system", content: "Memory:\n" + memorySummary });
       messages.push({ role: "user", content: aPrompt });
 
-      // FIXED: Added repetition_penalty to stop loops in code analysis
       const result = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", { 
           messages,
           repetition_penalty: 1.2,
@@ -578,7 +604,7 @@ ${contentToAnalyze}
       await saveAssistantReply(responseText);
 
       const finalText = `Here’s a clean breakdown of ${receivedFilename}, now including suggested code fixes! 👇🔥\n\n${responseText}\n\nIf you want more personalization, improvements, or a complete rewrite, let me know what needs to change. 😎🕷️`;
-      return new Response(finalText, { headers: { "content-type": "text/plain" } });
+      return new Response(finalText, { headers: { ...corsHeaders, "content-type": "text/plain" } });
     }
 
     /* ============================================================
@@ -591,7 +617,7 @@ ${contentToAnalyze}
         "@cf/stabilityai/stable-diffusion-xl-base-1.0",
         { prompt: enhanced }
       );
-      return new Response(img, { headers: { "content-type": "image/png" } });
+      return new Response(img, { headers: { ...corsHeaders, "content-type": "image/png" } });
     }
 
     /* ============================================================
@@ -608,7 +634,7 @@ ${contentToAnalyze}
           strength: (strength || body.strength || 0.7)
         }
       );
-      return new Response(img, { headers: { "content-type": "image/png" } });
+      return new Response(img, { headers: { ...corsHeaders, "content-type": "image/png" } });
     }
 
     /* ============================================================
@@ -628,12 +654,11 @@ ${contentToAnalyze}
     baseMessages.push({ role: "system", content: searchInstruction });
     baseMessages.push({ role: "user", content: prompt || "" });
 
-    // FIXED: Added repetition_penalty to stop the main chat loops
     const aiResp = await env.SPY_AI.run(
       "@cf/mistralai/mistral-small-3.1-24b-instruct",
       { 
           messages: baseMessages,
-          repetition_penalty: 1.2, // KEY FIX: Penalizes repeated tokens heavily
+          repetition_penalty: 1.2,
           temperature: 0.7 
       }
     );
@@ -642,14 +667,14 @@ ${contentToAnalyze}
     let instruction = extractSearchInstruction(rawText);
 
     /* ===========================
-       If model wants search (Explicit search only)
+       If model wants search
        =========================== */
 
     if (instruction && instruction.action === "search") {
       if (!env.TAVILY_API_KEY) {
         const noSearchMsg = `Yo, I tried to search for "${instruction.query}", but the TAVILY_API_KEY is missing, mama! 🔑 No current info for you. Try setting the secret! 😅`;
         await saveAssistantReply(noSearchMsg);
-        return new Response(noSearchMsg, { headers: { "content-type": "text/plain" } });
+        return new Response(noSearchMsg, { headers: { ...corsHeaders, "content-type": "text/plain" } });
       }
       
       const query = (instruction.query || prompt || "").slice(0, 800);
@@ -672,7 +697,6 @@ ${contentToAnalyze}
       sumMessages.push({ role: "system", content: "Memory:\n" + memorySummary });
       sumMessages.push({ role: "user", content: searchSummaryPrompt });
 
-      // FIXED: Added repetition_penalty to search summary generation too
       const final = await env.SPY_AI.run(
         "@cf/mistralai/mistral-small-3.1-24b-instruct",
         { 
@@ -684,7 +708,6 @@ ${contentToAnalyze}
 
       let clean = sanitizeOutput(extractText(final));
 
-      // Ensure emojis present if user didn't say 'no emojis'
       const lowerPrompt = (prompt || "").toLowerCase();
       if (!lowerPrompt.includes("no emojis") && !lowerPrompt.includes("no emoji") && !/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/u.test(clean)) {
         clean = clean + " 😎🔥"; 
@@ -692,16 +715,15 @@ ${contentToAnalyze}
 
       await saveAssistantReply(clean);
 
-      return new Response(clean, { headers: { "content-type": "text/plain" } });
+      return new Response(clean, { headers: { ...corsHeaders, "content-type": "text/plain" } });
     }
 
     /* ===========================
-       If no search needed → Direct reply
+       If no search needed
        =========================== */
 
     let clean = sanitizeOutput(rawText);
 
-    // If user didn't say 'no emojis', ensure the reply includes at least one emoji.
     const lowerPrompt = (prompt || "").toLowerCase();
     if (!lowerPrompt.includes("no emojis") && !lowerPrompt.includes("no emoji")) {
       if (!/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/u.test(clean)) {
@@ -711,21 +733,20 @@ ${contentToAnalyze}
 
     await saveAssistantReply(clean);
 
-    return new Response(clean, { headers: { "content-type": "text/plain" } });
+    return new Response(clean, { headers: { ...corsHeaders, "content-type": "text/plain" } });
 
   } catch (error) {
     console.error("Fatal Worker Error:", error);
     return new Response(
       `Spider AI crashed internally 😭. Details: ${error.message || 'Unknown error. Check logs.'}`,
-      { headers: { "content-type": "text/plain" }, status: 500 }
+      { headers: { "Access-Control-Allow-Origin": "*", "content-type": "text/plain" }, status: 500 }
     );
   }
 } // END onRequest
 
 
 /* ============================================================
- TAVILY SEARCH
- - Requires secret TAVILY_API_KEY set via `wrangler secret put TAVILY_API_KEY` or Dashboard.
+  TAVILY SEARCH
 ============================================================ */
 
 async function runTavilySearch(env, query) {
@@ -761,7 +782,7 @@ async function runTavilySearch(env, query) {
 }
 
 /* ============================================================
- EXTRACT TEXT FROM MODEL RESPONSE (robust)
+  EXTRACT TEXT FROM MODEL RESPONSE
 ============================================================ */
 
 function extractText(resp) {
@@ -789,7 +810,3 @@ function extractText(resp) {
     return "";
   }
 }
-
-/* ============================================================
- END OF FILE
-============================================================ */
