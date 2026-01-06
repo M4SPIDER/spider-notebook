@@ -8,8 +8,8 @@
 ============================================================ */
 
 /* ===== CONFIG ===== */
-const MEMORY_MESSAGE_LIMIT = 200;
-const MEMORY_TRIM_TARGET = 200;
+const MEMORY_MESSAGE_LIMIT = 2000;
+const MEMORY_TRIM_TARGET = 2000;
 const MEMORY_TTL_DAYS = 30;
 const MEMORY_SUMMARY_TRIGGER = 300;
 const MEMORY_USER_KEY_PREFIX = "chat_memory_v2:"; 
