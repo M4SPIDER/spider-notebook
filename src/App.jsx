@@ -1454,6 +1454,7 @@ const PlusMenu = ({
         </div>
     );
 };
+
 const SpiderAIApp = ({ 
     currentUser: initialUser, 
     showModal, 
@@ -1464,9 +1465,9 @@ const SpiderAIApp = ({
     setUploadedFile, 
     uploadedImage, 
     setUploadedImage,
-    auth,           // Receive auth prop
-    database,       // Receive database prop
-    isLoggedIn      // Receive login status
+    auth,
+    database,
+    isLoggedIn
 }) => {
     // ---------- State ----------
     const [message, setMessage] = useState('');
@@ -1482,6 +1483,13 @@ const SpiderAIApp = ({
     const [isDeleting, setIsDeleting] = useState(false);
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [isMobile, setIsMobile] = useState(false);
+    
+    // ---------- Refs ----------
+    const fileInputRef = useRef(null);
+    const imageInputRef = useRef(null);
+    const textareaRef = useRef(null);
+    const profileImageInputRef = useRef(null);
+    const chatEndRef = useRef(null);
     
     // Firebase states - use props instead of local initialization
     const [firebaseUser, setFirebaseUser] = useState(null);
@@ -4040,6 +4048,7 @@ int main() {
         </>
     );
 }
+
 
 
 
