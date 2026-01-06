@@ -1,10 +1,10 @@
 /* ============================================================
-  SPIDER AI — V6.3 (STABLE, RAW OUTPUT, RETRY-LOGIC)
-  - CRITICAL CHANGE: Removed sanitizeOutput entirely as requested.
-  - LOGIC: Output is now 100% raw from the model to prevent formatting issues.
-  - FEATURE: Exponential backoff retry logic retained.
-  - FEATURE: Auto-Hindi/Telugu detection retained.
-  - STATUS: RAW OUTPUT MODE.
+  SPIDER AI — V6.4 (RAW CORE)
+  - SYSTEM: Minimal System Prompt (No personality/identity).
+  - INPUT: Image prompts are passed raw (no auto-enhancement).
+  - LOGIC: Removed all language triggers (Hindi/Telugu) and slang modes.
+  - OUTPUT: 100% Raw model output (No emojis forced).
+  - FEATURE: Retry logic & Search retained for functionality.
 ============================================================ */
 
 /* ===== CONFIG ===== */
@@ -20,83 +20,14 @@ const FIREBASE_PROJECT_ID = "m4-spider";
 const AI_RETRY_LIMIT = 2;
 const AI_RETRY_DELAY_BASE = 1000; // 1 second
 
-/* ===== TELUGU TRIGGER WORDS ===== */
-const TELUGU_TRIGGER_WORDS = [
-  "ra","mama","bro","anna","bhai","macha","bossu","babu","nanna","ayya",
-  "guru","machi","bhayya","mamma","pilla","raayya","oye","baaga","asalu","bayya",
-  "em","enti","endi","emi","ente","ante","ante ga","le","avunu","kadhu",
-  "ikkada","akkada","ekkada","ipudu","ipude","nenu","nuvvu","neeku","neetho","mana",
-  "meeru","mee","emanna","emi le","emi ra","emi cheppav","yela","yela unnav","yela unnavra",
-  "em chesthunav","yela unnav","inka em","inka cheppu","inka em matter","em scene",
-  "scene enti","panulu emi","yem ayindi","chill mama","ayyayyo","ayyayyo mama","ayyo",
-  "le mama","anta ga","asalu","chusava","chusava mama","unda","unna","unnav",
-  "ekkada unnav","nuvvu ekkada","em ra","enti ra","em le","naa peru","mass ga"
-];
-
-function buildTeluguRegex(words) {
-  const sorted = [...words].sort((a,b)=>b.length - a.length);
-  const escaped = sorted.map(w => w.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&"));
-  const pattern = "\\b(?:" + escaped.join("|") + ")\\b";
-  return new RegExp(pattern, "iu");
-}
-const TELUGU_TRIGGER_REGEX = buildTeluguRegex(TELUGU_TRIGGER_WORDS);
-
-/* ===== REQUIRE 2+ TELUGU WORDS ===== */
-function shouldTriggerTelugu(message) {
-  if (!message || typeof message !== "string") return false;
-  const words = message.toLowerCase().split(/\s+/);
-  let count = 0;
-  for (const w of words) {
-    if (TELUGU_TRIGGER_WORDS.includes(w)) count++;
-  }
-  return count >= 2;
-}
-
-/* ===== HINDI TRIGGER WORDS ===== */
-const HINDI_TRIGGER_WORDS = [
-  "kya", "kaise", "kab", "kahan", "kyun", "main", "tum", "aap", "hum",
-  "haan", "nahi", "theek", "acha", "bhai", "dost", "yaar", "namaste",
-  "shukriya", "dhanyavad", "madad", "sun", "suno", "bolo", "batao",
-  "karo", "kar", "raha", "rahe", "thi", "tha", "hai", "hain", "karna",
-  "chahiye", "lekin", "magar", "agar", "phir", "baad", "pehle", "samjhe",
-  "matlab", "bilkul", "kaam", "naam", "aaj", "kal", "abhi"
-];
-
-/* ===== REQUIRE 2+ HINDI WORDS ===== */
-function shouldTriggerHindi(message) {
-  if (!message || typeof message !== "string") return false;
-  const words = message.toLowerCase().split(/\s+/);
-  let count = 0;
-  for (const w of words) {
-    if (HINDI_TRIGGER_WORDS.includes(w)) count++;
-  }
-  return count >= 2;
-}
-
 /* ============================================================
-  MAIN SYSTEM PROMPT
+  MINIMAL SYSTEM PROMPT
 ============================================================ */
 const SPIDER_SYSTEM_PROMPT =
-"You are M4 Spider AI, made by M4 Spider 🕷️🤖.\n" +
-"- Always say you are M4 Spider AI created by M4 Spider 👑.\n" +
-"- Talk friendly, casual, and human like a close friend 😎🤝.\n" +
-"- Use emojis freely in every reply 😜🎉.\n" +
-"\n" +
-"LANGUAGE RULE:\n" +
-"- You can understand and speak ANY language (Hindi, Spanish, Telugu, French, etc.).\n" +
-"- DEFAULT OUTPUT: Use English letters (Transliteration) for non-English languages unless the user explicitly asks for the native script.\n" +
-"- Example: Instead of 'नमस्ते', say 'Namaste'.\n" +
-"\n" +
-"FORMATTING & KNOWLEDGE:\n" +
-"- Use Markdown Tables for comparisons. Make them clean and detailed.\n" +
-"- Use Lists for steps.\n" +
-"- Be highly intelligent, detailed, and precise, matching the quality of GPT-4 or DeepSeek.\n" +
-"\n" +
-"CODE BLOCK RULE (STRICT):\n" +
-"- **ALWAYS** use markdown code blocks for code: ```language\\ncode here\\n```.\n" +
-"- **NEVER** write code as plain text.\n" +
-"- **PROVIDE COMPLETE CODE:** Do NOT use placeholders like `// ... rest of code` or `<!-- existing code -->`. Write out the FULL file every time.\n" +
-"- Add comments to explain complex logic.\n";
+"You are a helpful AI assistant.\n" +
+"Provide direct, accurate, and concise responses.\n" +
+"Use Markdown for formatting where appropriate.\n" +
+"Always use Markdown code blocks for code snippets.";
 
 /* ============================================================
   FIREBASE TOKEN VERIFIER
@@ -269,14 +200,6 @@ async function compressMemoryIfNeeded(env, memoryArr) {
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-/**
- * Executes an AI model request with exponential backoff retry logic.
- * This ensures transient failures in the Worker AI platform don't crash the request immediately.
- * * @param {Object} env - The environment bindings.
- * @param {string} model - The model ID string.
- * @param {Object} input - The input payload for the model.
- * @returns {Promise<any>} - The model response.
- */
 async function runAIWithRetry(env, model, input) {
   let lastError = null;
   // Attempt 0 is the first try, then retries up to limit
@@ -439,7 +362,7 @@ export async function onRequest(context) {
     if (isKvBound) {
       if (lower.includes("delete memory: all") || lower.includes("reset all") || lower.includes("delete all")) {
         await env.CHAT_KV.put(memoryKey, "[]");
-        return new Response("All memory cleared for you 😎🔥", {
+        return new Response("All memory cleared.", {
           headers: { ...corsHeaders, "content-type": "text/plain" }
         });
       }
@@ -449,25 +372,25 @@ export async function onRequest(context) {
         if (cmd === "last") {
           memory.pop();
           await saveMemoryToKV(env, memoryKey, memory);
-          return new Response("Deleted last entry 👍", { headers: { ...corsHeaders, "content-type": "text/plain" }});
+          return new Response("Deleted last entry.", { headers: { ...corsHeaders, "content-type": "text/plain" }});
         }
         if (cmd === "first") {
           memory.shift();
           await saveMemoryToKV(env, memoryKey, memory);
-          return new Response("Deleted first entry 👍", { headers: { ...corsHeaders, "content-type": "text/plain" }});
+          return new Response("Deleted first entry.", { headers: { ...corsHeaders, "content-type": "text/plain" }});
         }
         const idx = parseInt(cmd);
         if (!isNaN(idx)) {
           if (idx >= 1 && idx <= memory.length) {
             memory.splice(idx - 1, 1);
             await saveMemoryToKV(env, memoryKey, memory);
-            return new Response("Entry removed 😃", { headers: { ...corsHeaders, "content-type": "text/plain" }});
+            return new Response("Entry removed.", { headers: { ...corsHeaders, "content-type": "text/plain" }});
           }
-          return new Response("Invalid index 😅", { headers: { ...corsHeaders, "content-type": "text/plain" }});
+          return new Response("Invalid index.", { headers: { ...corsHeaders, "content-type": "text/plain" }});
         }
         memory = memory.filter(m => !m.content.toLowerCase().includes(cmd));
         await saveMemoryToKV(env, memoryKey, memory);
-        return new Response("Matching entries deleted 👍", { headers: { ...corsHeaders, "content-type": "text/plain" }});
+        return new Response("Matching entries deleted.", { headers: { ...corsHeaders, "content-type": "text/plain" }});
       }
     }
     
@@ -509,7 +432,6 @@ export async function onRequest(context) {
     /* ============= ASSISTANT REPLY SAVE HELPER ===================== */
     async function saveAssistantReply(replyContent) {
       if (isKvBound && replyContent) {
-        // We save the content to KV memory so the conversation context persists.
         memory.push({ role: "assistant", content: replyContent, ts: Date.now() });
         if (memory.length > MEMORY_MESSAGE_LIMIT) memory = memory.slice(-MEMORY_MESSAGE_LIMIT);
         await saveMemoryToKV(env, memoryKey, memory);
@@ -517,40 +439,7 @@ export async function onRequest(context) {
     }
 
     /* ============================================================
-       AUTO LANGUAGE/SLANG MODES + EXTRA SYSTEM INSTRUCTIONS
-       ============================================================ */
-    let forceTeluguSlang = false;
-    if (shouldTriggerTelugu(prompt || "")) forceTeluguSlang = true;
-
-    let forceHindiMode = false;
-    if (shouldTriggerHindi(prompt || "")) forceHindiMode = true;
-
-    let forceSavage = false;
-    if ((prompt || "").toLowerCase().includes("savage mode") ||
-        (prompt || "").toLowerCase().includes("roast mode") ||
-        (prompt || "").toLowerCase().includes("be savage")) {
-      forceSavage = true;
-    }
-
-    const extraSystemInstructions = [];
-    if (forceTeluguSlang) {
-      extraSystemInstructions.push(
-        "User message contains Telugu. Respond in STRICT Telangana slang using English transliteration only. Do NOT use Andhra/textbook Telugu."
-      );
-    }
-    if (forceHindiMode) {
-      extraSystemInstructions.push(
-        "User message contains Hindi. Respond in casual Hindi using English transliteration (Hinglish). Be friendly and natural."
-      );
-    }
-    if (forceSavage) {
-      extraSystemInstructions.push(
-        "Savage mode enabled. Use playful Telangana-style roast. Be humorous, bold, and non-offensive."
-      );
-    }
-
-    /* ============================================================
-       FILE ANALYSIS MODE (PRO QUALITY)
+       FILE ANALYSIS MODE
        ============================================================ */
     if (currentMode === "analyze_file") {
       const receivedFilename = String(body.filename || filename || "unknown");
@@ -561,46 +450,20 @@ export async function onRequest(context) {
         .replace(/(\r\n|\r)/g, '\n');
 
       if (contentToAnalyze.trim().length === 0) {
-        const emptyMsg = "I'm sorry, mama — I can't analyze the file because it's empty. Ee file empty undhi ra! 😔";
-        return new Response(emptyMsg, { headers: { ...corsHeaders, "content-type": "text/plain" } });
+        return new Response("File is empty.", { headers: { ...corsHeaders, "content-type": "text/plain" } });
       }
 
       const aPrompt =
-`You are an expert Senior Software Engineer and Code Auditor. 
-Your task is to analyze the following file and provide a high-quality, structured report.
-
-**CRITICAL FORMATTING RULES:**
-1. Use Markdown Headers (###) for sections.
-2. Use Markdown Tables for any data comparisons.
-3. **MANDATORY:** All code must be inside Markdown Code Blocks (\`\`\`language ... \`\`\`).
-4. **COMPLETE CODE:** If fixing code, output the ENTIRE file/function. Do not abbreviate.
-
-**Analysis Structure:**
-### 1. Overview
-Brief summary of what this file does.
-
-### 2. Logic Walkthrough
-Explain the core logic flow clearly.
-
-### 3. Key Issues & Bugs
-Identify logical errors, security risks, or performance bottlenecks.
-
-### 4. Suggested Fixes (The most important part)
-Provide **Complete, Runnable Code Blocks** for the fixes. 
-Rewrite the function/component correctly and completely.
-
+`Analyze the following file.
 Filename: ${receivedFilename}
-
 File Content:
-${contentToAnalyze}
-`;
+${contentToAnalyze}`;
 
       const messages = [
-        { role: "system", content: SPIDER_SYSTEM_PROMPT }
+        { role: "system", content: SPIDER_SYSTEM_PROMPT },
+        { role: "system", content: "Memory:\n" + memorySummary },
+        { role: "user", content: aPrompt }
       ];
-      if (extraSystemInstructions.length) messages.push({ role: "system", content: extraSystemInstructions.join("\n") });
-      messages.push({ role: "system", content: "Memory:\n" + memorySummary });
-      messages.push({ role: "user", content: aPrompt });
 
       // USE RETRY LOGIC HERE
       const result = await runAIWithRetry(env, "@cf/mistralai/mistral-small-3.1-24b-instruct", { 
@@ -610,12 +473,11 @@ ${contentToAnalyze}
       });
       
       const responseTextRaw = extractText(result);
-      // RAW OUTPUT: No sanitization
       const responseText = responseTextRaw;
 
       await saveAssistantReply(responseText);
 
-      const finalText = `Here’s the deep dive analysis for ${receivedFilename}! 👇🔥\n\n${responseText}\n\nNeed more changes? Just ask, mama! 😎🕷️`;
+      const finalText = `Analysis for ${receivedFilename}:\n\n${responseText}`;
       return new Response(finalText, { headers: { ...corsHeaders, "content-type": "text/plain" } });
     }
 
@@ -624,9 +486,9 @@ ${contentToAnalyze}
     ============================================================ */
     if (currentMode === "image_gen") {
       try {
-        const enhanced = (prompt || "") + ", ultra detailed, cinematic lighting, hdr, 8k clarity";
-        // USE RETRY LOGIC HERE
-        const img = await runAIWithRetry(env, "@cf/stabilityai/stable-diffusion-xl-base-1.0", { prompt: enhanced });
+        // Raw prompt - no enhancements
+        const rawPrompt = prompt || "";
+        const img = await runAIWithRetry(env, "@cf/stabilityai/stable-diffusion-xl-base-1.0", { prompt: rawPrompt });
         return new Response(img, { headers: { ...corsHeaders, "content-type": "image/png" } });
       } catch (e) {
         return new Response("Image Generation Failed: " + e.message, { headers: { ...corsHeaders, "content-type": "text/plain" } });
@@ -638,16 +500,16 @@ ${contentToAnalyze}
     ============================================================ */
     if (currentMode === "image_edit") {
       try {
-        const enhanced = (prompt || "") + ", detailed render, hdr, cinematic";
-        // USE RETRY LOGIC HERE
+         // Raw prompt - no enhancements
+        const rawPrompt = prompt || "";
         const img = await runAIWithRetry(env, "@cf/stabilityai/stable-diffusion-xl-base-1.0", {
-            prompt: enhanced,
+            prompt: rawPrompt,
             image: (image || body.image),
             strength: (strength || body.strength || 0.7)
         });
         return new Response(img, { headers: { ...corsHeaders, "content-type": "image/png" } });
       } catch (e) {
-        return new Response("Image Edit Failed (Fallback error): " + e.message, { headers: { ...corsHeaders, "content-type": "text/plain" } });
+        return new Response("Image Edit Failed: " + e.message, { headers: { ...corsHeaders, "content-type": "text/plain" } });
       }
     }
 
@@ -655,13 +517,11 @@ ${contentToAnalyze}
        NORMAL CHAT + AUTO SEARCH (TAVILY)
     ============================================================ */
     const searchInstruction =
-      "If you need up-to-date information or external knowledge, internally mark it with {\"action\":\"search\",\"query\":\"...\"}. Do NOT return JSON to the user.";
+      "If you need external knowledge, internally mark it with {\"action\":\"search\",\"query\":\"...\"}.";
 
     const baseMessages = [
       { role: "system", content: SPIDER_SYSTEM_PROMPT }
     ];
-    if (extraSystemInstructions.length)
-      baseMessages.push({ role: "system", content: extraSystemInstructions.join("\n") });
 
     baseMessages.push({ role: "system", content: "Memory:\n" + memorySummary });
     baseMessages.push({ role: "system", content: searchInstruction });
@@ -682,7 +542,7 @@ ${contentToAnalyze}
        =========================== */
     if (instruction && instruction.action === "search") {
       if (!env.TAVILY_API_KEY) {
-        const noSearchMsg = `Yo, I tried to search for "${instruction.query}", but the TAVILY_API_KEY is missing, mama! 🔑 No current info for you. Try setting the secret! 😅`;
+        const noSearchMsg = `Search failed: TAVILY_API_KEY is missing.`;
         await saveAssistantReply(noSearchMsg);
         return new Response(noSearchMsg, { headers: { ...corsHeaders, "content-type": "text/plain" } });
       }
@@ -692,17 +552,15 @@ ${contentToAnalyze}
       const results = await runTavilySearch(env, query);
 
       const searchSummaryPrompt =
-        `Here are Tavily search results:\n\nAnswer: ${results.answer || "No direct answer."}\n\nTop Sources:\n` +
+        `Search results:\n\nAnswer: ${results.answer || "No direct answer."}\n\nTop Sources:\n` +
         (results.results || [])
           .map(r => "- " + (r.url || r.title || "").trim())
           .join("\n") +
-        `\n\nUsing ONLY the above information, answer the user's original question clearly and include emoji(s) where appropriate. Use Markdown Tables if comparing data.`;
+        `\n\nUsing this information, answer the user's question.`;
 
       const sumMessages = [
         { role: "system", content: SPIDER_SYSTEM_PROMPT }
       ];
-      if (extraSystemInstructions.length)
-        sumMessages.push({ role: "system", content: extraSystemInstructions.join("\n") });
 
       sumMessages.push({ role: "system", content: "Memory:\n" + memorySummary });
       sumMessages.push({ role: "user", content: searchSummaryPrompt });
@@ -716,14 +574,7 @@ ${contentToAnalyze}
 
       // RAW OUTPUT: No sanitization
       let clean = extractText(final);
-
-      const lowerPrompt = (prompt || "").toLowerCase();
-      if (!lowerPrompt.includes("no emojis") && !lowerPrompt.includes("no emoji") && !/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/u.test(clean)) {
-        clean = clean + " 😎🔥"; 
-      }
-
       await saveAssistantReply(clean);
-
       return new Response(clean, { headers: { ...corsHeaders, "content-type": "text/plain" } });
     }
 
@@ -733,22 +584,13 @@ ${contentToAnalyze}
     
     // RAW OUTPUT: No sanitization
     let clean = rawText;
-
-    const lowerPrompt = (prompt || "").toLowerCase();
-    if (!lowerPrompt.includes("no emojis") && !lowerPrompt.includes("no emoji")) {
-      if (!/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/u.test(clean)) {
-        clean = clean + " 🙂";
-      }
-    }
-
     await saveAssistantReply(clean);
-
     return new Response(clean, { headers: { ...corsHeaders, "content-type": "text/plain" } });
 
   } catch (error) {
     console.error("Fatal Worker Error:", error);
     return new Response(
-      `Spider AI crashed internally 😭. Details: ${error.message || 'Unknown error. Check logs.'}`,
+      `Internal Error: ${error.message}`,
       { headers: { "Access-Control-Allow-Origin": "*", "content-type": "text/plain" }, status: 500 }
     );
   }
@@ -756,7 +598,7 @@ ${contentToAnalyze}
 
 
 /* ============================================================
-  TAVILY SEARCH (FIXED URL SYNTAX)
+  TAVILY SEARCH
 ============================================================ */
 
 async function runTavilySearch(env, query) {
@@ -766,15 +608,14 @@ async function runTavilySearch(env, query) {
   }
 
   try {
-    // CRITICAL FIX: Direct URL string, no Markdown syntax
     const response = await fetch("https://api.tavily.com/search", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": apiKey // Tavily uses the key directly in Auth header or body depending on docs, standard is Auth header for many, but Tavily often accepts it in body. Using header as per common practice.
+        "Authorization": apiKey 
       },
       body: JSON.stringify({
-        api_key: apiKey, // Redundant safety: Tavily often expects it in body too
+        api_key: apiKey,
         query,
         include_answer: true,
         search_depth: "advanced"
@@ -794,8 +635,6 @@ async function runTavilySearch(env, query) {
 
 /* ============================================================
   EXTRACT TEXT FROM MODEL RESPONSE
-  - Handles various response formats from different AI models.
-  - Ensures a string is always returned.
 ============================================================ */
 
 function extractText(resp) {
