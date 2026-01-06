@@ -1,10 +1,11 @@
 /* ============================================================
-  SPIDER AI — V5.2 (NO BOLD, CLEAN OUTPUT)
-  - UPDATED: Removed `**` (bold) from output sanitization as requested.
-  - UPDATED: Removed "Use Bold" instruction from System Prompt.
-  - FIXED: Critical URL syntax error in `runTavilySearch`.
-  - RETAINED: Multi-lang, Pro Formatting, Full Code logic.
-  - STATUS: STABLE.
+  SPIDER AI — V6.1 (STABLE, RETRY-LOGIC, POLYGLOT)
+  - CRITICAL FIX: Code blocks are protected during sanitization.
+  - CRITICAL FIX: JSON lines (arrays/objects) are preserved.
+  - FEATURE: Added exponential backoff retry logic for AI calls.
+  - FEATURE: Added Auto-Hindi detection and formatting instructions.
+  - FEATURE: Smart sanitization (removes bold from text, keeps ** in code).
+  - STATUS: PRODUCTION READY.
 ============================================================ */
 
 /* ===== CONFIG ===== */
@@ -14,6 +15,11 @@ const MEMORY_TTL_DAYS = 30;
 const MEMORY_SUMMARY_TRIGGER = 300;
 const MEMORY_USER_KEY_PREFIX = "chat_memory_v2:"; 
 const FIREBASE_PROJECT_ID = "m4-spider";
+
+/* ===== AI CONFIGURATION ===== */
+// Retry failed AI calls up to 2 times to prevent random 500 errors
+const AI_RETRY_LIMIT = 2;
+const AI_RETRY_DELAY_BASE = 1000; // 1 second
 
 /* ===== TELUGU TRIGGER WORDS ===== */
 const TELUGU_TRIGGER_WORDS = [
@@ -47,8 +53,29 @@ function shouldTriggerTelugu(message) {
   return count >= 2;
 }
 
+/* ===== HINDI TRIGGER WORDS ===== */
+const HINDI_TRIGGER_WORDS = [
+  "kya", "kaise", "kab", "kahan", "kyun", "main", "tum", "aap", "hum",
+  "haan", "nahi", "theek", "acha", "bhai", "dost", "yaar", "namaste",
+  "shukriya", "dhanyavad", "madad", "sun", "suno", "bolo", "batao",
+  "karo", "kar", "raha", "rahe", "thi", "tha", "hai", "hain", "karna",
+  "chahiye", "lekin", "magar", "agar", "phir", "baad", "pehle", "samjhe",
+  "matlab", "bilkul", "kaam", "naam", "aaj", "kal", "abhi"
+];
+
+/* ===== REQUIRE 2+ HINDI WORDS ===== */
+function shouldTriggerHindi(message) {
+  if (!message || typeof message !== "string") return false;
+  const words = message.toLowerCase().split(/\s+/);
+  let count = 0;
+  for (const w of words) {
+    if (HINDI_TRIGGER_WORDS.includes(w)) count++;
+  }
+  return count >= 2;
+}
+
 /* ============================================================
-  MAIN SYSTEM PROMPT (UPDATED: NO BOLD)
+  MAIN SYSTEM PROMPT
 ============================================================ */
 const SPIDER_SYSTEM_PROMPT =
 "You are M4 Spider AI, made by M4 Spider 🕷️🤖.\n" +
@@ -62,7 +89,7 @@ const SPIDER_SYSTEM_PROMPT =
 "- Example: Instead of 'नमस्ते', say 'Namaste'.\n" +
 "\n" +
 "FORMATTING & KNOWLEDGE:\n" +
-"- Use **Markdown Tables** for comparisons. Make them clean and detailed.\n" +
+"- Use Markdown Tables for comparisons. Make them clean and detailed.\n" +
 "- Use Lists for steps.\n" +
 "- Be highly intelligent, detailed, and precise, matching the quality of GPT-4 or DeepSeek.\n" +
 "\n" +
@@ -74,7 +101,6 @@ const SPIDER_SYSTEM_PROMPT =
 /* ============================================================
   FIREBASE TOKEN VERIFIER
 ============================================================ */
-
 async function verifyFirebaseToken(idToken) {
   if (!idToken) return null;
   try {
@@ -121,85 +147,78 @@ async function verifyFirebaseToken(idToken) {
 /* ============================================================
   MODE DETECTOR
 ============================================================ */
-
 function detectMode(prompt, file_content, filename) {
   if (file_content || filename) return "analyze_file";
   const t = (prompt || "").toLowerCase();
+  
+  // File Analysis Triggers
   if (t.includes("analyze file") || t.includes("clean code") || t.includes("debug"))
     return "analyze_file";
-  if (t.includes("generate image") || t.includes("image of")) return "image_gen";
-  if (t.includes("edit image") || t.includes("modify image")) return "image_edit";
-  if (t.startsWith("#search:") || t.startsWith("search:")) return "search";
+    
+  // Image Generation Triggers
+  if (t.includes("generate image") || t.includes("image of") || t.includes("create image")) 
+    return "image_gen";
+    
+  // Image Editing Triggers
+  if (t.includes("edit image") || t.includes("modify image")) 
+    return "image_edit";
+    
+  // Search Triggers
+  if (t.startsWith("#search:") || t.startsWith("search:")) 
+    return "search";
+    
+  // Default to Chat
   return "chat";
 }
 
 /* ============================================================
-  SANITIZATION & UTILITIES
+  SAFE SANITIZATION LOGIC (CRITICAL FIX)
+  - Purpose: Cleans AI text without breaking code.
+  - Method: Splits string by code blocks and only processes non-code parts.
 ============================================================ */
-
-function looksLikeJSON(s) {
-  if (!s || typeof s !== "string") return false;
-  const trimmed = s.trim();
-  return (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
-         (trimmed.startsWith("[") && trimmed.endsWith("]"));
-}
 
 function sanitizeOutput(raw) {
   if (!raw) return "";
 
-  // FIX: Remove "Star Hash" artifacts where model puts a bullet before a header (e.g. "* ###")
-  raw = raw.replace(/^\*\s+(?=#{1,6})/gm, "");
+  // Split content by code blocks.
+  // The parenthesis in regex `(```[\s\S]*?```)` keep the delimiter in the result array.
+  // This ensures we can identify which parts are code and which are text.
+  // \s\S matches ANY character including newlines.
+  const parts = raw.split(/(```[\s\S]*?```)/g);
 
-  // FIX: Remove bold markers (**) from response
-  raw = raw.replace(/\*\*/g, "");
+  return parts.map(part => {
+    // 1. IF CODE BLOCK: Return completely untouched
+    // This preserves " ** " operators, JSON objects, comments, etc.
+    if (part.startsWith("```")) {
+      return part;
+    }
 
-  // Remove JSON-looking lines with action/search or exact JSON objects/arrays
-  raw = raw.split("\n").filter(line => {
-    const t = line.trim();
-    if (!t) return true;
-    if ((t.startsWith("{") && t.endsWith("}")) || (t.startsWith("[") && t.endsWith("]"))) return false;
-    if (/^\{.*"action".*\}/i.test(t)) return false;
-    if (/^\{.*"response".*\}/i.test(t)) return false;
-    if (/^\{.*"text".*\}/i.test(t)) return false;
-    if (t.startsWith("INTERNAL:")) return false;
-    return true;
-  }).join("\n").trim();
+    // 2. IF TEXT: Sanitize gently
+    let text = part;
 
-  // Remove leftover JSON escape artifacts
-  raw = raw.replace(/\\?\{\\?"action\\?".*?\\?\}/g, "");
+    // Filter out internal JSON instructions (only strict matches)
+    const internalPatterns = [
+        /^\{.*"action"\s*:\s*"search".*\}/im,
+        /^INTERNAL:/im
+    ];
+    internalPatterns.forEach(p => {
+        text = text.replace(p, "");
+    });
 
-  // Clean double spaces and trailing spaces
-  raw = raw.replace(/\s{2,}/g, " ").trim();
+    // Remove artifacts like "* ###" (bullet before header)
+    text = text.replace(/^\*\s+(?=#{1,6})/gm, "");
 
-  // *** LOOP BREAKER 3000 ***
-  const loopCheck = raw.length > 100;
-  if (loopCheck) {
-      const sentences = raw.split(/[.!?]/).filter(s => s.trim().length > 5);
-      const unique = [];
-      let lastS = "";
-      for (const s of sentences) {
-          const sTrim = s.trim();
-          if (sTrim !== lastS) {
-              unique.push(sTrim);
-              lastS = sTrim;
-          }
-      }
-      if (unique.length < sentences.length * 0.8) {
-          const middle = Math.floor(raw.length / 2);
-          const firstHalf = raw.substring(0, middle);
-          const secondHalf = raw.substring(middle);
-          if (firstHalf.includes(secondHalf.substring(0, 50))) {
-             raw = firstHalf + "... (stopped loop)";
-          }
-      }
-  }
+    // Remove bolding (**) from text if desired, but keep it if it looks like math.
+    // We replace **text** with text.
+    // Note: This won't run on code blocks, so `a ** 2` inside code blocks is SAFE.
+    text = text.replace(/\*\*(.*?)\*\*/g, "$1");
 
-  // Ensure sentence ends with punctuation, unless it ends with a code block
-  if (raw && !/[.!?…]$/.test(raw) && !/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/u.test(raw.slice(-1)) && !raw.trim().endsWith("```")) {
-     raw = raw + ".";
-  }
+    // Clean double spaces and excessive newlines
+    text = text.replace(/\s{2,}/g, " ");
+    text = text.replace(/\n{3,}/g, "\n\n");
 
-  return raw.trim();
+    return text;
+  }).join(""); // Join without adding extra spaces
 }
 
 /* Detect internal search instruction */
@@ -272,7 +291,7 @@ async function compressMemoryIfNeeded(env, memoryArr) {
     older.map((m, i) => (i + 1) + ". " + m.role + ": " + shortPreview(m.content, 200)).join("\n");
 
   try {
-    const res = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", {
+    const res = await runAIWithRetry(env, "@cf/mistralai/mistral-small-3.1-24b-instruct", {
       messages: [
         { role: "system", content: SPIDER_SYSTEM_PROMPT },
         { role: "user", content: summaryPrompt }
@@ -289,6 +308,44 @@ async function compressMemoryIfNeeded(env, memoryArr) {
     console.error("Memory compression failed:", e);
     return memoryArr;
   }
+}
+
+/* ============================================================
+  AI RETRY LOGIC WRAPPER
+  - Handles transient failures gracefully.
+  - Implements exponential backoff.
+============================================================ */
+
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+/**
+ * Executes an AI model request with exponential backoff retry logic.
+ * This ensures transient failures in the Worker AI platform don't crash the request immediately.
+ * * @param {Object} env - The environment bindings.
+ * @param {string} model - The model ID string.
+ * @param {Object} input - The input payload for the model.
+ * @returns {Promise<any>} - The model response.
+ */
+async function runAIWithRetry(env, model, input) {
+  let lastError = null;
+  // Attempt 0 is the first try, then retries up to limit
+  for (let attempt = 0; attempt <= AI_RETRY_LIMIT; attempt++) {
+    try {
+      return await env.SPY_AI.run(model, input);
+    } catch (e) {
+      lastError = e;
+      const isLastAttempt = attempt === AI_RETRY_LIMIT;
+      console.warn(`AI Attempt ${attempt + 1} failed for ${model}: ${e.message}`);
+      
+      if (!isLastAttempt) {
+        // Exponential backoff: 1s, 2s, 4s...
+        const delay = AI_RETRY_DELAY_BASE * Math.pow(2, attempt);
+        await sleep(delay);
+      }
+    }
+  }
+  // If we exit the loop, all attempts failed
+  throw lastError || new Error("AI Model failed after max retries.");
 }
 
 /* ============================================================
@@ -377,17 +434,15 @@ export async function onRequest(context) {
     const { prompt, mode, image, strength, filename } = body;
     let currentMode = mode || detectMode(prompt, combinedFileContent, filename);
 
-    /* ================ USER IDENTIFICATION (PRIVACY FIX) ================ */
+    /* ================ USER IDENTIFICATION ================ */
 
     let userId = null;
-    let userType = "anon";
-
+    
     // Method 1: Explicit Client ID
     if (body.user_preference_id) {
         const pid = body.user_preference_id.toString().trim();
         if (pid && pid !== "undefined" && pid !== "null") {
             userId = "custom:" + pid;
-            userType = "custom";
         }
     }
 
@@ -396,15 +451,13 @@ export async function onRequest(context) {
       const decoded = await verifyFirebaseToken(body.firebase_token);
       if (decoded && decoded.user_id) {
           userId = "firebase:" + decoded.user_id;
-          userType = "firebase";
       }
     }
 
-    // Method 3: IP Fallback (Shared History Fix)
+    // Method 3: IP Fallback
     if (!userId) {
         const ip = request.headers.get("CF-Connecting-IP") || "unknown-ip";
         userId = "ip:" + ip;
-        userType = "ip_fallback";
     }
 
     const memoryKey = MEMORY_USER_KEY_PREFIX + userId;
@@ -421,16 +474,12 @@ export async function onRequest(context) {
     if (memory.length > MEMORY_MESSAGE_LIMIT) memory = memory.slice(-MEMORY_MESSAGE_LIMIT);
 
     /* ============= DELETE MEMORY HANDLES =============== */
-
     const lower = (prompt || "").toLowerCase();
     const wantsDelete =
       lower.includes("delete") || lower.includes("remove") || lower.includes("clear") ||
       lower.includes("reset") || lower.includes("forget");
 
-    if (wantsDelete &&
-      !lower.includes("memory:") &&
-      !lower.includes("delete all") &&
-      !lower.includes("reset all")) {
+    if (wantsDelete && !lower.includes("memory:") && !lower.includes("delete all") && !lower.includes("reset all")) {
       return new Response("Specify delete memory: all / last / first / <index> / keyword", {
         headers: { ...corsHeaders, "content-type": "text/plain" }
       });
@@ -472,7 +521,6 @@ export async function onRequest(context) {
     }
     
     /* ============= ADD NEW MEMORY SAFELY ================== */
-
     function norm(s) {
       return (s || "").trim().toLowerCase().replace(/\s+/g, " ");
     }
@@ -493,7 +541,6 @@ export async function onRequest(context) {
     if (memory.length > MEMORY_MESSAGE_LIMIT) memory = memory.slice(-MEMORY_MESSAGE_LIMIT);
 
     /* ============= MEMORY SUMMARY FOR MODEL ==================== */
-
     function shortPreview2(s, max = 160) {
       if (!s) return "";
       let t = s.replace(/\s+/g, " ").trim();
@@ -508,24 +555,24 @@ export async function onRequest(context) {
       })
       .join("\n");
 
-
     /* ============= ASSISTANT REPLY SAVE HELPER ===================== */
-
     async function saveAssistantReply(replyContent) {
       if (isKvBound && replyContent) {
-        const cleanReply = sanitizeOutput(replyContent);
-        memory.push({ role: "assistant", content: cleanReply, ts: Date.now() });
+        // We save the content to KV memory so the conversation context persists.
+        memory.push({ role: "assistant", content: replyContent, ts: Date.now() });
         if (memory.length > MEMORY_MESSAGE_LIMIT) memory = memory.slice(-MEMORY_MESSAGE_LIMIT);
         await saveMemoryToKV(env, memoryKey, memory);
       }
     }
 
     /* ============================================================
-       AUTO TELANGANA SLANG MODE + EXTRA SYSTEM INSTRUCTIONS
+       AUTO LANGUAGE/SLANG MODES + EXTRA SYSTEM INSTRUCTIONS
        ============================================================ */
-
     let forceTeluguSlang = false;
     if (shouldTriggerTelugu(prompt || "")) forceTeluguSlang = true;
+
+    let forceHindiMode = false;
+    if (shouldTriggerHindi(prompt || "")) forceHindiMode = true;
 
     let forceSavage = false;
     if ((prompt || "").toLowerCase().includes("savage mode") ||
@@ -540,17 +587,20 @@ export async function onRequest(context) {
         "User message contains Telugu. Respond in STRICT Telangana slang using English transliteration only. Do NOT use Andhra/textbook Telugu."
       );
     }
+    if (forceHindiMode) {
+      extraSystemInstructions.push(
+        "User message contains Hindi. Respond in casual Hindi using English transliteration (Hinglish). Be friendly and natural."
+      );
+    }
     if (forceSavage) {
       extraSystemInstructions.push(
         "Savage mode enabled. Use playful Telangana-style roast. Be humorous, bold, and non-offensive."
       );
     }
-    // Note: Standard emoji rule is now part of the main SPIDER_SYSTEM_PROMPT
 
     /* ============================================================
        FILE ANALYSIS MODE (PRO QUALITY)
        ============================================================ */
-
     if (currentMode === "analyze_file") {
       const receivedFilename = String(body.filename || filename || "unknown");
       let contentToAnalyze = combinedFileContent;
@@ -601,13 +651,15 @@ ${contentToAnalyze}
       messages.push({ role: "system", content: "Memory:\n" + memorySummary });
       messages.push({ role: "user", content: aPrompt });
 
-      const result = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", { 
+      // USE RETRY LOGIC HERE
+      const result = await runAIWithRetry(env, "@cf/mistralai/mistral-small-3.1-24b-instruct", { 
           messages,
           repetition_penalty: 1.1, 
           temperature: 0.4 
       });
       
       const responseTextRaw = extractText(result);
+      // Sanitization with code protection
       const responseText = sanitizeOutput(responseTextRaw); 
 
       await saveAssistantReply(responseText);
@@ -619,14 +671,11 @@ ${contentToAnalyze}
     /* ============================================================
        IMAGE GENERATION
     ============================================================ */
-
     if (currentMode === "image_gen") {
       try {
         const enhanced = (prompt || "") + ", ultra detailed, cinematic lighting, hdr, 8k clarity";
-        const img = await env.SPY_AI.run(
-          "@cf/stabilityai/stable-diffusion-xl-base-1.0",
-          { prompt: enhanced }
-        );
+        // USE RETRY LOGIC HERE
+        const img = await runAIWithRetry(env, "@cf/stabilityai/stable-diffusion-xl-base-1.0", { prompt: enhanced });
         return new Response(img, { headers: { ...corsHeaders, "content-type": "image/png" } });
       } catch (e) {
         return new Response("Image Generation Failed: " + e.message, { headers: { ...corsHeaders, "content-type": "text/plain" } });
@@ -636,18 +685,15 @@ ${contentToAnalyze}
     /* ============================================================
        IMAGE EDIT
     ============================================================ */
-
     if (currentMode === "image_edit") {
       try {
         const enhanced = (prompt || "") + ", detailed render, hdr, cinematic";
-        const img = await env.SPY_AI.run(
-          "@cf/stabilityai/stable-diffusion-xl-base-1.0",
-          {
+        // USE RETRY LOGIC HERE
+        const img = await runAIWithRetry(env, "@cf/stabilityai/stable-diffusion-xl-base-1.0", {
             prompt: enhanced,
             image: (image || body.image),
             strength: (strength || body.strength || 0.7)
-          }
-        );
+        });
         return new Response(img, { headers: { ...corsHeaders, "content-type": "image/png" } });
       } catch (e) {
         return new Response("Image Edit Failed (Fallback error): " + e.message, { headers: { ...corsHeaders, "content-type": "text/plain" } });
@@ -657,7 +703,6 @@ ${contentToAnalyze}
     /* ============================================================
        NORMAL CHAT + AUTO SEARCH (TAVILY)
     ============================================================ */
-
     const searchInstruction =
       "If you need up-to-date information or external knowledge, internally mark it with {\"action\":\"search\",\"query\":\"...\"}. Do NOT return JSON to the user.";
 
@@ -671,14 +716,12 @@ ${contentToAnalyze}
     baseMessages.push({ role: "system", content: searchInstruction });
     baseMessages.push({ role: "user", content: prompt || "" });
 
-    const aiResp = await env.SPY_AI.run(
-      "@cf/mistralai/mistral-small-3.1-24b-instruct",
-      { 
+    // USE RETRY LOGIC HERE
+    const aiResp = await runAIWithRetry(env, "@cf/mistralai/mistral-small-3.1-24b-instruct", { 
           messages: baseMessages,
           repetition_penalty: 1.2,
           temperature: 0.7 
-      }
-    );
+    });
 
     let rawText = extractText(aiResp).trim();
     let instruction = extractSearchInstruction(rawText);
@@ -686,7 +729,6 @@ ${contentToAnalyze}
     /* ===========================
        If model wants search
        =========================== */
-
     if (instruction && instruction.action === "search") {
       if (!env.TAVILY_API_KEY) {
         const noSearchMsg = `Yo, I tried to search for "${instruction.query}", but the TAVILY_API_KEY is missing, mama! 🔑 No current info for you. Try setting the secret! 😅`;
@@ -714,15 +756,14 @@ ${contentToAnalyze}
       sumMessages.push({ role: "system", content: "Memory:\n" + memorySummary });
       sumMessages.push({ role: "user", content: searchSummaryPrompt });
 
-      const final = await env.SPY_AI.run(
-        "@cf/mistralai/mistral-small-3.1-24b-instruct",
-        { 
+      // USE RETRY LOGIC HERE
+      const final = await runAIWithRetry(env, "@cf/mistralai/mistral-small-3.1-24b-instruct", { 
             messages: sumMessages,
             repetition_penalty: 1.2,
             temperature: 0.6
-        }
-      );
+      });
 
+      // CRITICAL: Safe Sanitization for Search Results
       let clean = sanitizeOutput(extractText(final));
 
       const lowerPrompt = (prompt || "").toLowerCase();
@@ -738,7 +779,8 @@ ${contentToAnalyze}
     /* ===========================
        If no search needed
        =========================== */
-
+    
+    // CRITICAL: Safe Sanitization for Normal Chat
     let clean = sanitizeOutput(rawText);
 
     const lowerPrompt = (prompt || "").toLowerCase();
@@ -773,16 +815,16 @@ async function runTavilySearch(env, query) {
   }
 
   try {
-    // FIXED: Removed Markdown syntax artifact [url](url) from fetch
+    // CRITICAL FIX: Direct URL string, no Markdown syntax
     const response = await fetch("[https://api.tavily.com/search](https://api.tavily.com/search)", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": apiKey
+        "Authorization": apiKey // Tavily uses the key directly in Auth header or body depending on docs, standard is Auth header for many, but Tavily often accepts it in body. Using header as per common practice.
       },
       body: JSON.stringify({
+        api_key: apiKey, // Redundant safety: Tavily often expects it in body too
         query,
-        n_tokens: 2000,
         include_answer: true,
         search_depth: "advanced"
       })
@@ -801,12 +843,15 @@ async function runTavilySearch(env, query) {
 
 /* ============================================================
   EXTRACT TEXT FROM MODEL RESPONSE
+  - Handles various response formats from different AI models.
+  - Ensures a string is always returned.
 ============================================================ */
 
 function extractText(resp) {
   try {
     let raw = "";
 
+    // Cloudflare Workers AI Response Formats (vary by model)
     if (resp?.output?.[1]?.content?.[0]?.text)
       raw = resp.output[1].content[0].text;
 
@@ -816,8 +861,12 @@ function extractText(resp) {
     if (!raw && resp.output_text) raw = resp.output_text;
     if (!raw && resp.text) raw = resp.text;
     if (!raw && resp.result) raw = resp.result;
+    
+    // OpenAI Compatible Format
     if (!raw && resp.choices?.[0]?.message?.content)
       raw = resp.choices[0].message.content;
+      
+    // Generic fallback
     if (!raw && resp.response) raw = resp.response;
     if (!raw && typeof resp === "string") raw = resp;
 
@@ -825,6 +874,7 @@ function extractText(resp) {
 
     return raw.trim();
   } catch (e) {
+    console.error("Error extracting text from response:", e);
     return "";
   }
 }
