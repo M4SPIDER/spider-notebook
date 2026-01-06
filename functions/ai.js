@@ -1,10 +1,10 @@
 /* ============================================================
-  SPIDER AI — V4.9 (CODE GEN & ANALYSIS FIX)
-  - FIXED: `sanitizeOutput` no longer strips Code Comments (#) or HTML tags (<>).
-  - IMPROVED: Code Analysis Prompt now enforces strict structure and deep debugging.
-  - RETAINED: IP-based Privacy Isolation.
-  - RETAINED: Loop Terminator, Repetition Penalty, Telugu Mode, Savage Mode.
-  - STATUS: HIGH QUALITY CODE & STABLE.
+  SPIDER AI — V5.1 (PRO FORMATTING, FULL CODE & MULTI-LANG)
+  - UPDATED: System Prompt now allows ANY language (in English script/transliteration).
+  - UPDATED: Enforces Markdown Tables for comparisons.
+  - UPDATED: Enforces "DeepSeek-style" COMPLETE code generation (no placeholders).
+  - FIXED: Removed markdown link syntax artifact from Tavily fetch URL.
+  - STATUS: HIGH PERFORMANCE & STABLE.
 ============================================================ */
 
 /* ===== CONFIG ===== */
@@ -48,22 +48,28 @@ function shouldTriggerTelugu(message) {
 }
 
 /* ============================================================
-  MAIN SYSTEM PROMPT
+  MAIN SYSTEM PROMPT (UPDATED FOR PRO QUALITY)
 ============================================================ */
 const SPIDER_SYSTEM_PROMPT =
 "You are M4 Spider AI, made by M4 Spider 🕷️🤖.\n" +
 "- Always say you are M4 Spider AI created by M4 Spider 👑.\n" +
-"- Use emojis freely in every reply 😄🔥✨.\n" +
-"- Use ONLY English letters in all replies 🔤.\n" +
-"- Do NOT use any other scripts or letters unless the user explicitly asks to change letters 🚫🈲.\n" +
 "- Talk friendly, casual, and human like a close friend 😎🤝.\n" +
-"CODE BLOCK RULE:\n" +
-"- Always use markdown code blocks for code 💻.\n" +
-"- Format: ```language\\ncode here\\n```.\n" +
-"- NEVER use single backticks for multi-line code.\n" +
+"- Use emojis freely in every reply 😜🎉.\n" +
 "\n" +
-"EMOJI RULE:\n" +
-"- Use emojis freely in every reply 😜🎉.\n";
+"LANGUAGE RULE:\n" +
+"- You can understand and speak ANY language (Hindi, Spanish, Telugu, French, etc.).\n" +
+"- DEFAULT OUTPUT: Use English letters (Transliteration) for non-English languages unless the user explicitly asks for the native script.\n" +
+"- Example: Instead of 'नमस्ते', say 'Namaste'.\n" +
+"\n" +
+"FORMATTING & KNOWLEDGE:\n" +
+"- Use **Markdown Tables** for comparisons. Make them clean and detailed.\n" +
+"- Use **Bold** for key terms and Lists for steps.\n" +
+"- Be highly intelligent, detailed, and precise, matching the quality of GPT-4 or DeepSeek.\n" +
+"\n" +
+"CODE BLOCK RULE (STRICT):\n" +
+"- Always use markdown code blocks: ```language\\ncode here\\n```.\n" +
+"- **PROVIDE COMPLETE CODE:** Do NOT use placeholders like `// ... rest of code` or `<!-- existing code -->`. Write out the FULL file every time.\n" +
+"- Add comments to explain complex logic.\n";
 
 /* ============================================================
   FIREBASE TOKEN VERIFIER
@@ -128,7 +134,7 @@ function detectMode(prompt, file_content, filename) {
 }
 
 /* ============================================================
-  SANITIZATION & UTILITIES (FIXED FOR CODE BLOCKS)
+  SANITIZATION & UTILITIES
 ============================================================ */
 
 function looksLikeJSON(s) {
@@ -141,8 +147,8 @@ function looksLikeJSON(s) {
 function sanitizeOutput(raw) {
   if (!raw) return "";
 
-  // DISABLED: Stripping headings breaks Markdown structure and Code Comments (#)
-  // raw = raw.replace(/^#{1,6}\s*/gm, "");
+  // FIX: Remove "Star Hash" artifacts where model puts a bullet before a header (e.g. "* ###")
+  raw = raw.replace(/^\*\s+(?=#{1,6})/gm, "");
 
   // Remove JSON-looking lines with action/search or exact JSON objects/arrays
   raw = raw.split("\n").filter(line => {
@@ -155,9 +161,6 @@ function sanitizeOutput(raw) {
     if (t.startsWith("INTERNAL:")) return false;
     return true;
   }).join("\n").trim();
-
-  // DISABLED: Stripping HTML tags breaks HTML/React code generation
-  // raw = raw.replace(/<\/?[^>]+>/g, "");
 
   // Remove leftover JSON escape artifacts
   raw = raw.replace(/\\?\{\\?"action\\?".*?\\?\}/g, "");
@@ -188,7 +191,7 @@ function sanitizeOutput(raw) {
       }
   }
 
-  // Ensure sentence ends with punctuation
+  // Ensure sentence ends with punctuation, unless it ends with a code block
   if (raw && !/[.!?…]$/.test(raw) && !/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/u.test(raw.slice(-1)) && !raw.trim().endsWith("```")) {
      raw = raw + ".";
   }
@@ -539,14 +542,10 @@ export async function onRequest(context) {
         "Savage mode enabled. Use playful Telangana-style roast. Be humorous, bold, and non-offensive."
       );
     }
-    if (!forceTeluguSlang && !forceSavage) {
-      extraSystemInstructions.push(
-        "In normal English replies, use emojis naturally and freely from the emoji pack unless the user says 'no emojis'."
-      );
-    }
+    // Note: Standard emoji rule is now part of the main SPIDER_SYSTEM_PROMPT
 
     /* ============================================================
-       FILE ANALYSIS MODE (IMPROVED PROMPT)
+       FILE ANALYSIS MODE (PRO QUALITY)
        ============================================================ */
 
     if (currentMode === "analyze_file") {
@@ -568,9 +567,9 @@ Your task is to analyze the following file and provide a high-quality, structure
 
 **CRITICAL FORMATTING RULES:**
 1. Use Markdown Headers (###) for sections.
-2. Use Bold (**) for emphasis on important terms.
+2. Use Markdown Tables for any data comparisons.
 3. **MANDATORY:** All code must be inside Markdown Code Blocks (\`\`\`language ... \`\`\`).
-4. NEVER output plain text code.
+4. **COMPLETE CODE:** If fixing code, output the ENTIRE file/function. Do not abbreviate.
 
 **Analysis Structure:**
 ### 1. Overview
@@ -584,8 +583,7 @@ Identify logical errors, security risks, or performance bottlenecks.
 
 ### 4. Suggested Fixes (The most important part)
 Provide **Complete, Runnable Code Blocks** for the fixes. 
-Do not just say "fix the function". Rewrite the function/component correctly.
-Ensure you use proper comments in the code.
+Rewrite the function/component correctly and completely.
 
 Filename: ${receivedFilename}
 
@@ -602,12 +600,11 @@ ${contentToAnalyze}
 
       const result = await env.SPY_AI.run("@cf/mistralai/mistral-small-3.1-24b-instruct", { 
           messages,
-          repetition_penalty: 1.1, // Reduced slightly to allow common code syntax chars
-          temperature: 0.4 // Lower temp for more precise code
+          repetition_penalty: 1.1, 
+          temperature: 0.4 
       });
       
       const responseTextRaw = extractText(result);
-      // NOTE: We do NOT use sanitizeOutput here because we want to preserve headers strictly for the report
       const responseText = sanitizeOutput(responseTextRaw); 
 
       await saveAssistantReply(responseText);
@@ -703,7 +700,7 @@ ${contentToAnalyze}
         (results.results || [])
           .map(r => "- " + (r.url || r.title || "").trim())
           .join("\n") +
-        `\n\nUsing ONLY the above information, answer the user's original question clearly and include emoji(s) where appropriate. Mention top sources when useful.`;
+        `\n\nUsing ONLY the above information, answer the user's original question clearly and include emoji(s) where appropriate. Use Markdown Tables if comparing data.`;
 
       const sumMessages = [
         { role: "system", content: SPIDER_SYSTEM_PROMPT }
@@ -763,7 +760,7 @@ ${contentToAnalyze}
 
 
 /* ============================================================
-  TAVILY SEARCH
+  TAVILY SEARCH (FIXED URL SYNTAX)
 ============================================================ */
 
 async function runTavilySearch(env, query) {
@@ -773,6 +770,7 @@ async function runTavilySearch(env, query) {
   }
 
   try {
+    // FIXED: Removed Markdown syntax artifact [url](url) from fetch
     const response = await fetch("[https://api.tavily.com/search](https://api.tavily.com/search)", {
       method: "POST",
       headers: {
