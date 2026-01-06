@@ -1,15 +1,63 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
 // ----------------------------------------------------------------------
-// NOTE: For true cross-platform persistence, you must use a deployed
-// Firebase project with Firestore enabled.
+// React Imports
 // ----------------------------------------------------------------------
-// FIREBASE IMPORTS (REQUIRED FOR PERSISTENCE) - NOW ACTIVE
-import { initializeApp } from "firebase/app";
-import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged,signInAnonymously , signOut, updateProfile } from "firebase/auth";
-import { getFirestore, collection, query, where, addDoc, getDocs, onSnapshot, setDoc, doc, limit } from "firebase/firestore"; // Added 'limit'
-import SpyDocs from './SpyDocs';
-import { getDatabase, ref, set, get, update, onValue, push, remove, query, orderByChild, limitToLast } from 'firebase/database';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 
+// ----------------------------------------------------------------------
+// Firebase Core
+// ----------------------------------------------------------------------
+import { initializeApp } from 'firebase/app';
+
+// ----------------------------------------------------------------------
+// Firebase Auth
+// ----------------------------------------------------------------------
+import {
+  getAuth,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signInAnonymously,
+  signOut,
+  updateProfile
+} from 'firebase/auth';
+
+// ----------------------------------------------------------------------
+// Firebase Firestore (Chat history / Docs)
+// ----------------------------------------------------------------------
+import {
+  getFirestore,
+  collection,
+  query,
+  where,
+  addDoc,
+  getDocs,
+  onSnapshot,
+  setDoc,
+  doc,
+  limit
+} from 'firebase/firestore';
+
+// ----------------------------------------------------------------------
+// Firebase Realtime Database (Streaming / Live messages)
+// ----------------------------------------------------------------------
+import {
+  getDatabase,
+  ref,
+  set,
+  get,
+  update,
+  onValue,
+  push,
+  remove,
+  query as rtdbQuery,
+  orderByChild,
+  limitToLast
+} from 'firebase/database';
+
+// ----------------------------------------------------------------------
+// Local Imports
+// ----------------------------------------------------------------------
+import SpyDocs from './SpyDocs';
 
 // --- Extracted Info from PDF ---
 const pdfContent = `
@@ -3939,6 +3987,7 @@ int main() {
         </>
     );
 }
+
 
 
 
