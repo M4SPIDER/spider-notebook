@@ -1360,7 +1360,7 @@ const SpiderAIApp = ({
     uploadedImage, 
     setUploadedImage 
 }) => {
-    // State
+    // ---------- State ----------
     const [message, setMessage] = useState('');
     const [chatHistory, setChatHistory] = useState([
         { role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }
@@ -1383,7 +1383,7 @@ const SpiderAIApp = ({
     const getAppId = () => typeof __app_id !== 'undefined' ? __app_id : 'default-m4-app';
     const LOCAL_STORAGE_KEY = `spider_chat_history_${getAppId()}_${(currentUser?.email || 'anon')}`;
     
-    // Persistent User ID
+    // ---------- Persistent User ID ----------
     const getPersistentUserId = useCallback(() => {
         const key = `spider_user_id_${getAppId()}`;
         let userId = localStorage.getItem(key);
@@ -1399,7 +1399,7 @@ const SpiderAIApp = ({
     const DB_VERSION = 1;
     const STORE_NAME = 'chats';
 
-    // Detect Mobile & Responsive
+    // ---------- Detect Mobile & Responsive ----------
     useEffect(() => {
         const checkMobile = () => {
             const mobile = window.innerWidth <= 768;
@@ -1415,7 +1415,7 @@ const SpiderAIApp = ({
         return () => window.removeEventListener('resize', checkMobile);
     }, []);
 
-    // Auto-resize textarea
+    // ---------- Auto-resize textarea ----------
     useEffect(() => {
         if (textareaRef.current) {
             textareaRef.current.style.height = 'auto';
@@ -1423,7 +1423,7 @@ const SpiderAIApp = ({
         }
     }, [message]);
 
-    // IndexedDB Helper Functions
+    // ---------- IndexedDB Helper Functions ----------
     const openDatabase = useCallback(() => {
         return new Promise((resolve, reject) => {
             const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -1453,7 +1453,7 @@ const SpiderAIApp = ({
         return currentUser?.email || currentUser?.id || getPersistentUserId();
     }, [currentUser, getPersistentUserId]);
 
-    // Load Recent Chats
+    // ---------- Load Recent Chats ----------
     const loadRecentChats = useCallback(async () => {
         try {
             const db = await openDatabase();
@@ -1497,7 +1497,7 @@ const SpiderAIApp = ({
         }
     }, [openDatabase, getUserId]);
 
-    // Load Specific Chat
+    // ---------- Load Specific Chat ----------
     const loadChatById = useCallback(async (chatId) => {
         if (!chatId) return;
         
@@ -1541,10 +1541,11 @@ const SpiderAIApp = ({
         }
     }, [openDatabase]);
 
-    // Save Chat History
+    // ---------- Save Chat History ----------
     const saveChatHistory = useCallback(async (history) => {
         if (!Array.isArray(history) || history.length <= 1) return;
         
+        // Save to localStorage as backup
         try {
             localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(history));
         } catch (e) {
@@ -1591,7 +1592,7 @@ const SpiderAIApp = ({
         }
     }, [activeChatId, openDatabase, getUserId, loadRecentChats]);
 
-    // Delete Chat
+    // ---------- Delete Chat ----------
     const deleteChat = useCallback(async (chatId) => {
         if (!chatId) return;
         
@@ -1623,7 +1624,7 @@ const SpiderAIApp = ({
         }
     }, [activeChatId, openDatabase, loadRecentChats]);
 
-    // Initialize
+    // ---------- Initialize ----------
     useEffect(() => {
         const initializeChats = async () => {
             try {
@@ -1660,7 +1661,7 @@ const SpiderAIApp = ({
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [chatHistory, streamingMessage]);
 
-    // Fast Typing Animation
+    // ---------- Fast Typing Animation ----------
     const typeText = useCallback((text, onComplete) => {
         if (!text) {
             onComplete?.();
@@ -1691,7 +1692,7 @@ const SpiderAIApp = ({
         typeNextWord();
     }, []);
 
-    // Stop Generation
+    // ---------- Stop Generation ----------
     const handleStopGeneration = () => {
         if (abortController) {
             abortController.abort();
@@ -1704,28 +1705,7 @@ const SpiderAIApp = ({
         }
     };
 
-    // Clean text from backend responses - REMOVES # AND * CHARACTERS
-    const cleanBackendText = useCallback((text) => {
-        if (!text || typeof text !== 'string') return text || '';
-        
-        // Remove standalone # and * characters but preserve markdown patterns
-        let cleaned = text
-            // Remove standalone # characters (not part of markdown headers)
-            .replace(/(?<!\n|^)#(?!\s)/g, '')
-            // Remove standalone * characters (not part of markdown emphasis)
-            .replace(/(?<!\s)\*(?!\s)/g, '')
-            // Remove * at start of lines without proper markdown
-            .replace(/^\*(\s+|$)/gm, '$1')
-            // Remove # at start of lines without proper markdown
-            .replace(/^#(\s+|$)/gm, '$1')
-            // Clean up extra spaces
-            .replace(/\s+/g, ' ')
-            .trim();
-        
-        return cleaned;
-    }, []);
-
-    // Auto-detect Image Generation
+    // ---------- Auto-detect Image Generation ----------
     const detectImageGeneration = (prompt) => {
         const lowerPrompt = prompt.toLowerCase();
         const imageTriggers = [
@@ -1739,7 +1719,7 @@ const SpiderAIApp = ({
         return imageTriggers.some(trigger => lowerPrompt.includes(trigger));
     };
 
-    // File / Image Upload Handlers
+    // ---------- File / Image Upload Handlers ----------
     const handleFileUpload = (event) => {
         const file = event?.target?.files?.[0];
         if (!file) {
@@ -1779,12 +1759,13 @@ const SpiderAIApp = ({
         event.target.value = null;
     };
 
-    // Fixed PlusMenu Component
+    // ---------- Fixed PlusMenu Component (Memoized) ----------
     const PlusMenu = useMemo(() => {
         return React.memo(({ setActiveAIMode: _setActiveAIMode, fileInputRef, imageInputRef }) => {
             const [open, setOpen] = useState(false);
             const menuRef = useRef(null);
 
+            // Close menu when clicking outside
             useEffect(() => {
                 const handleClickOutside = (event) => {
                     if (menuRef.current && !menuRef.current.contains(event.target)) {
@@ -1865,7 +1846,7 @@ const SpiderAIApp = ({
         });
     }, []);
 
-    // New Chat Handler
+    // ---------- New Chat Handler ----------
     const handleNewChat = () => {
         setUploadedFile(null);
         setUploadedImage(null);
@@ -1884,7 +1865,7 @@ const SpiderAIApp = ({
         }
     };
 
-    // Enhanced Send Message
+    // ---------- Enhanced Send Message ----------
     const handleSendMessage = async () => {
         if (!message.trim() && !uploadedFile && !uploadedImage) return;
 
@@ -1902,10 +1883,12 @@ const SpiderAIApp = ({
         const imageCopy = uploadedImage;
         let mode = activeAIMode || "chat";
 
+        // Auto-detect image generation
         if (!fileCopy && !imageCopy && detectImageGeneration(message)) {
             mode = 'image_gen';
         }
 
+        // Override based on file/image uploads
         if (fileCopy) mode = "analyze_file";
         if (imageCopy) mode = "image_edit";
 
@@ -1921,6 +1904,7 @@ const SpiderAIApp = ({
         setChatHistory(prev => [...prev, userMessage]);
         setMessage('');
 
+        // Only show streaming for text responses
         if (mode !== 'image_gen') {
             const initialStreamMessage = {
                 role: 'assistant',
@@ -1986,19 +1970,16 @@ const SpiderAIApp = ({
                     textLength: result?.text?.length
                 });
 
-                // CLEAN THE TEXT FROM BACKEND
-                const cleanedText = cleanBackendText(result?.text || 'File analysis complete.');
-
                 const assistantMessage = {
                     role: 'assistant',
-                    content: cleanedText,
+                    content: result?.text || 'File analysis complete.',
                     type: result?.base64_image ? 'image' : 'text',
                     base64_image: result?.base64_image,
                     ts: Date.now()
                 };
                 
-                if (!result?.base64_image && cleanedText) {
-                    typeText(cleanedText, () => {
+                if (!result?.base64_image && result?.text) {
+                    typeText(result.text, () => {
                         setChatHistory(prev => [...prev, assistantMessage]);
                         setStreamingMessage(null);
                     });
@@ -2105,13 +2086,10 @@ const SpiderAIApp = ({
                 });
 
                 if (result?.text) {
-                    // CLEAN THE TEXT FROM BACKEND BEFORE DISPLAYING
-                    const cleanedText = cleanBackendText(result.text);
-                    
-                    typeText(cleanedText, () => {
+                    typeText(result.text, () => {
                         const assistantMessage = {
                             role: 'assistant',
-                            content: cleanedText,
+                            content: result.text,
                             type: 'text',
                             ts: Date.now()
                         };
@@ -2121,7 +2099,7 @@ const SpiderAIApp = ({
                 } else {
                     const assistantMessage = {
                         role: 'assistant',
-                        content: '',
+                        content: result?.text || '',
                         type: 'text',
                         ts: Date.now()
                     };
@@ -2147,17 +2125,14 @@ const SpiderAIApp = ({
         }
     };
 
-    // Optimized Content Processing with character cleaning
+    // ---------- Optimized Content Processing ----------
     const processContent = useCallback((text) => {
         if (!text || typeof text !== "string") {
             return [{ type: "text", content: text || "" }];
         }
 
-        // Clean the text first
-        const cleanedText = cleanBackendText(text);
-        
         const blocks = [];
-        const lines = cleanedText.split('\n');
+        const lines = text.split('\n');
         let currentBlock = { type: "text", content: "" };
         let inCodeBlock = false;
         let codeLanguage = "";
@@ -2187,12 +2162,14 @@ const SpiderAIApp = ({
             // Handle code blocks
             if (line.trim().startsWith('```')) {
                 if (!inCodeBlock) {
+                    // Start of code block
                     flushCurrentBlock();
                     flushTable();
                     inCodeBlock = true;
                     codeLanguage = line.trim().replace(/```/g, '').trim();
                     codeContent = "";
                 } else {
+                    // End of code block
                     inCodeBlock = false;
                     blocks.push({
                         type: "code",
@@ -2215,12 +2192,14 @@ const SpiderAIApp = ({
                 !trimmedLine.startsWith('|--') &&
                 trimmedLine.match(/[^\s|:-]/)) {
                 
+                // Check if this is a table separator line
                 const isSeparator = trimmedLine.match(/^[\s|:-]+$/);
                 
                 if (!isSeparator || (isSeparator && tableRows.length > 0)) {
                     tableRows.push(line);
                 }
                 
+                // Check if next lines are also part of table
                 let j = i + 1;
                 while (j < lines.length && lines[j].trim().includes('|') && !lines[j].trim().startsWith('```')) {
                     tableRows.push(lines[j]);
@@ -2228,14 +2207,16 @@ const SpiderAIApp = ({
                 }
                 
                 if (j > i + 1) {
-                    i = j - 1;
+                    i = j - 1; // Skip processed lines
                 }
                 
+                // If we have at least 2 rows (header + data), it's a table
                 if (tableRows.length >= 2) {
                     flushCurrentBlock();
                     flushTable();
                     continue;
                 } else {
+                    // Not a table, add to current text block
                     tableRows.forEach(row => {
                         currentBlock.content += row + '\n';
                     });
@@ -2243,6 +2224,7 @@ const SpiderAIApp = ({
                     continue;
                 }
             } else {
+                // Flush any pending table rows
                 if (tableRows.length > 0) {
                     tableRows.forEach(row => {
                         currentBlock.content += row + '\n';
@@ -2260,9 +2242,11 @@ const SpiderAIApp = ({
             }
         }
 
+        // Flush any remaining content
         flushCurrentBlock();
         flushTable();
 
+        // If we ended in a code block (unclosed), add it as code
         if (inCodeBlock && codeContent.trim()) {
             blocks.push({
                 type: "code",
@@ -2272,9 +2256,9 @@ const SpiderAIApp = ({
         }
 
         return blocks;
-    }, [cleanBackendText]);
+    }, []);
 
-    // Optimized Chat Bubble
+    // ---------- Optimized Chat Bubble ----------
     const ChatBubble = useMemo(() => {
         return React.memo(({ message }) => {
             const [contentBlocks, setContentBlocks] = useState([]);
@@ -2283,6 +2267,7 @@ const SpiderAIApp = ({
                 const blocks = processContent(message.content);
                 setContentBlocks(blocks);
                 
+                // Apply syntax highlighting
                 if (typeof window !== "undefined" && window.Prism) {
                     setTimeout(() => {
                         window.Prism.highlightAll();
@@ -2302,6 +2287,7 @@ const SpiderAIApp = ({
                 const separator = rows[1];
                 const dataRows = rows.slice(2).filter(r => r.includes('|'));
 
+                // Determine column alignments from separator
                 const alignments = separator.split('|').filter(c => c.trim()).map(col => {
                     if (col.startsWith(':') && col.endsWith(':')) return 'center';
                     if (col.endsWith(':')) return 'right';
@@ -2354,7 +2340,21 @@ const SpiderAIApp = ({
                                                         overflowWrap: 'break-word'
                                                     }}
                                                 >
-                                                    {cell}
+                                                    {cell.includes('✓') ? (
+                                                        <span className="text-green-400 font-bold">✓</span>
+                                                    ) : cell.includes('✗') ? (
+                                                        <span className="text-red-400 font-bold">✗</span>
+                                                    ) : cell.includes('⭐') ? (
+                                                        <span className="text-yellow-400">{'⭐'.repeat(cell.match(/⭐/g)?.length || 1)}</span>
+                                                    ) : cell.includes('🔴') ? (
+                                                        <span className="text-red-400">🔴</span>
+                                                    ) : cell.includes('🟡') ? (
+                                                        <span className="text-yellow-400">🟡</span>
+                                                    ) : cell.includes('🟢') ? (
+                                                        <span className="text-green-400">🟢</span>
+                                                    ) : (
+                                                        cell
+                                                    )}
                                                 </td>
                                             ))}
                                         </tr>
@@ -2472,7 +2472,7 @@ const SpiderAIApp = ({
         return "Chat / Code / Image";
     };
 
-    // Mobile Sidebar Component
+    // ---------- Mobile Sidebar Component ----------
     const MobileSidebar = useMemo(() => {
         return () => {
             return (
@@ -2570,7 +2570,7 @@ const SpiderAIApp = ({
         };
     }, [sidebarOpen, recentChats, activeChatId, isDeleting, currentUser, loadChatById, deleteChat, handleNewChat]);
 
-    // Main JSX
+    // ---------- Main JSX ----------
     return (
         <div className="flex flex-row h-full w-full bg-[var(--spider-dark)] text-[var(--spider-text)] overflow-hidden relative">
             {/* Mobile Sidebar */}
@@ -2746,7 +2746,7 @@ const SpiderAIApp = ({
                     accept="image/*" 
                 />
 
-                {/* Input Area */}
+                {/* Input Area - Optimized for all devices */}
                 <div className={`bg-[var(--spider-med)] border-t border-[var(--spider-light)] flex-shrink-0 w-full ${
                     isMobile ? 'fixed bottom-0 left-0 right-0 p-3' : 'p-4'
                 }`}>
@@ -2882,6 +2882,7 @@ const SpiderAIApp = ({
         </div>
     );
 };
+
 // --- END Plus Menu Component ---
 const SpiderVFXApp = () => { /* ... (Remains Placeholder) ... */ return (<div className="flex-grow h-full flex flex-col items-center justify-center bg-black text-white p-8 pattern-vfx-grid overflow-y-auto"><div className="bg-black bg-opacity-80 p-10 rounded-lg text-center shadow-xl"><h1 className="text-4xl font-bold mb-4 text-[var(--spider-neon-blue)]">Spider VFX</h1><p className="text-lg text-gray-400 mb-8">Coming Soon!</p><div className="animate-pulse text-6xl">✨</div></div></div>);};
 
@@ -3946,6 +3947,7 @@ int main() {
         </>
     );
 }
+
 
 
 
