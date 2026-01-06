@@ -1375,6 +1375,7 @@ const PlusMenu = ({
         </div>
     );
 };
+
 const SpiderAIApp = ({ 
     currentUser, 
     showModal, 
@@ -1398,10 +1399,13 @@ const SpiderAIApp = ({
     const [abortController, setAbortController] = useState(null);
     const [streamingMessage, setStreamingMessage] = useState(null);
     const [isDeleting, setIsDeleting] = useState(false);
+    const [sidebarOpen, setSidebarOpen] = useState(false);
+    const [isMobile, setIsMobile] = useState(false);
 
     const fileInputRef = useRef(null);
     const imageInputRef = useRef(null);
     const chatEndRef = useRef(null);
+    const textareaRef = useRef(null);
 
     const getAppId = () => typeof __app_id !== 'undefined' ? __app_id : 'default-m4-app';
     const LOCAL_STORAGE_KEY = `spider_chat_history_${getAppId()}_${(currentUser?.email || 'anon')}`;
@@ -1410,6 +1414,30 @@ const SpiderAIApp = ({
     const DB_NAME = 'SpiderAIChatsDB';
     const DB_VERSION = 1;
     const STORE_NAME = 'chats';
+
+    // ---------- Detect Mobile ----------
+    useEffect(() => {
+        const checkMobile = () => {
+            const mobile = window.innerWidth <= 768;
+            setIsMobile(mobile);
+            if (mobile) {
+                setSidebarOpen(false);
+            }
+        };
+        
+        checkMobile();
+        window.addEventListener('resize', checkMobile);
+        
+        return () => window.removeEventListener('resize', checkMobile);
+    }, []);
+
+    // ---------- Auto-resize textarea ----------
+    useEffect(() => {
+        if (textareaRef.current) {
+            textareaRef.current.style.height = 'auto';
+            textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 120) + 'px';
+        }
+    }, [message]);
 
     // ---------- IndexedDB Helper Functions ----------
     const openDatabase = useCallback(() => {
@@ -1427,7 +1455,6 @@ const SpiderAIApp = ({
             request.onupgradeneeded = (event) => {
                 const db = event.target.result;
                 
-                // Create object store if it doesn't exist
                 if (!db.objectStoreNames.contains(STORE_NAME)) {
                     const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
                     store.createIndex('userId', 'userId', { unique: false });
@@ -1562,14 +1589,13 @@ const SpiderAIApp = ({
             const transaction = db.transaction([STORE_NAME], 'readwrite');
             const store = transaction.objectStore(STORE_NAME);
             
-            // Save to IndexedDB
             store.put(chatData);
             
             transaction.oncomplete = () => {
                 if (!activeChatId) {
                     setActiveChatId(chatData.id);
                 }
-                loadRecentChats(); // Refresh recent chats list
+                loadRecentChats();
                 db.close();
             };
             
@@ -1595,11 +1621,9 @@ const SpiderAIApp = ({
             store.delete(chatId);
             
             transaction.oncomplete = () => {
-                // If deleting the active chat, start a new one
                 if (activeChatId === chatId) {
                     handleNewChat();
                 }
-                // Refresh recent chats
                 loadRecentChats();
                 db.close();
                 setIsDeleting(false);
@@ -1622,12 +1646,11 @@ const SpiderAIApp = ({
             try {
                 await loadRecentChats();
                 
-                // Try to load the most recent chat
                 if (recentChats.length > 0) {
                     try {
                         await loadChatById(recentChats[0].id);
                     } catch (error) {
-                        console.log('Could not load recent chat, starting new chat');
+                        console.log('Starting new chat');
                     }
                 }
             } catch (error) {
@@ -1638,7 +1661,7 @@ const SpiderAIApp = ({
         initializeChats();
     }, [currentUser]);
 
-    // Auto-save chat history when it changes
+    // Auto-save chat history
     useEffect(() => {
         if (chatHistory.length > 1) {
             const timeoutId = setTimeout(() => {
@@ -1667,7 +1690,6 @@ const SpiderAIApp = ({
         
         const typeNextWord = () => {
             if (wordIndex < words.length) {
-                // Type 2-4 words at a time for faster appearance
                 const wordsToAdd = words.slice(wordIndex, wordIndex + 2 + Math.floor(Math.random() * 3));
                 currentText += (currentText ? ' ' : '') + wordsToAdd.join(' ');
                 wordIndex += wordsToAdd.length;
@@ -1677,7 +1699,6 @@ const SpiderAIApp = ({
                     content: currentText
                 }));
                 
-                // Very fast typing speed (10-30ms)
                 setTimeout(typeNextWord, 10 + Math.random() * 20);
             } else {
                 onComplete?.();
@@ -1765,22 +1786,29 @@ const SpiderAIApp = ({
             <div className="relative">
                 <button 
                     onClick={() => setOpen(o => !o)} 
-                    className="bg-[var(--spider-light)] text-white px-3 py-2 rounded-md h-10 flex items-center justify-center hover:opacity-90 transition"
+                    className="bg-[var(--spider-light)] text-white w-10 h-10 rounded-md flex items-center justify-center hover:opacity-90 transition touch-manipulation"
+                    aria-label="Open menu"
                 >
                     +
                 </button>
                 {open && (
-                    <div className="absolute bottom-12 right-0 bg-[var(--spider-dark)] border border-[var(--spider-light)] rounded-md shadow-lg w-40 p-2 z-50">
-                        <button onClick={onUploadFile} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center">
-                            <span className="mr-2">📄</span> Upload File
-                        </button>
-                        <button onClick={onUploadImage} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center">
-                            <span className="mr-2">🖼</span> Upload Image
-                        </button>
-                        <button onClick={onGenImage} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center">
-                            <span className="mr-2">🎨</span> Create Image
-                        </button>
-                    </div>
+                    <>
+                        <div 
+                            className="fixed inset-0 z-40" 
+                            onClick={() => setOpen(false)}
+                        />
+                        <div className="absolute bottom-12 right-0 bg-[var(--spider-dark)] border border-[var(--spider-light)] rounded-md shadow-lg w-40 p-2 z-50">
+                            <button onClick={onUploadFile} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center touch-manipulation">
+                                <span className="mr-2">📄</span> Upload File
+                            </button>
+                            <button onClick={onUploadImage} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center touch-manipulation">
+                                <span className="mr-2">🖼</span> Upload Image
+                            </button>
+                            <button onClick={onGenImage} className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center touch-manipulation">
+                                <span className="mr-2">🎨</span> Create Image
+                            </button>
+                        </div>
+                    </>
                 )}
             </div>
         );
@@ -1834,7 +1862,6 @@ const SpiderAIApp = ({
         setChatHistory(prev => [...prev, userMessage]);
         setMessage('');
 
-        // Initialize streaming message
         const initialStreamMessage = {
             role: 'assistant',
             content: '',
@@ -1845,7 +1872,6 @@ const SpiderAIApp = ({
         setStreamingMessage(initialStreamMessage);
 
         try {
-            // FILE ANALYSIS
             if (mode === "analyze_file" && fileCopy) {
                 let fileContent;
                 
@@ -1904,8 +1930,6 @@ const SpiderAIApp = ({
                     setStreamingMessage(null);
                 }
             }
-
-            // IMAGE EDIT
             else if (mode === "image_edit" && imageCopy) {
                 const base64Image = await new Promise((resolve, reject) => {
                     const reader = new FileReader();
@@ -1942,8 +1966,6 @@ const SpiderAIApp = ({
                 setChatHistory(prev => [...prev, assistantMessage]);
                 setStreamingMessage(null);
             }
-
-            // IMAGE GEN or CHAT with streaming
             else {
                 const apiUrl = '/api/generate/text';
                 const apiPayload = { 
@@ -2001,16 +2023,14 @@ const SpiderAIApp = ({
         }
     };
 
-    // ---------- Enhanced Chat Bubble with Fixed Code Box ----------
+    // ---------- Enhanced Chat Bubble ----------
     const ChatBubble = ({ message }) => {
-        // Highlight code with Prism
         useEffect(() => {
             if (typeof window !== "undefined" && window.Prism) {
                 window.Prism.highlightAll();
             }
         }, [message]);
 
-        // Extract code blocks from text
         const extractCodeBlocks = (text) => {
             if (!text || typeof text !== "string")
                 return [{ type: "text", content: text || "" }];
@@ -2066,12 +2086,10 @@ const SpiderAIApp = ({
             return parts;
         };
 
-        // Copy code to clipboard
         const handleCopyCode = (content) => {
             navigator.clipboard.writeText(content);
         };
 
-        // Bubble styling
         const bubbleClass =
             message.role === "user"
                 ? "bg-[#00e5ff] text-black ml-auto"
@@ -2083,15 +2101,14 @@ const SpiderAIApp = ({
             <div
                 className={`flex w-full ${
                     message.role === "user" ? "justify-end" : "justify-start"
-                } mb-4`}
+                } mb-3 px-2`}
             >
                 <div
-                    className={`px-3 py-2 rounded-xl max-w-[95%] sm:max-w-4xl ${bubbleClass}`}
+                    className={`px-3 py-2 rounded-xl max-w-[90%] sm:max-w-4xl ${bubbleClass}`}
                     style={{
                         boxShadow: "0 0 0",
                     }}
                 >
-                    {/* Image display */}
                     {message.type === "image" && message.base64_image && (
                         <div className="w-full rounded-lg overflow-hidden bg-black p-0.5 mb-2">
                             <img
@@ -2099,17 +2116,15 @@ const SpiderAIApp = ({
                                 alt="Generated"
                                 className="w-full rounded-lg"
                                 style={{
-                                    maxHeight: "300px",
+                                    maxHeight: "250px",
                                     objectFit: "contain",
                                 }}
                             />
                         </div>
                     )}
 
-                    {/* Text and code content */}
                     <div className="space-y-2">
                         {contentParts.map((part, index) => {
-                            // Code block with copy button
                             if (part.type === "code") {
                                 return (
                                     <div
@@ -2119,12 +2134,10 @@ const SpiderAIApp = ({
                                             background: "#0f0f0f",
                                         }}
                                     >
-                                        {/* Copy & Edit buttons */}
                                         <div className="absolute top-1 right-1 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                                            {/* Copy button */}
                                             <button
                                                 onClick={() => handleCopyCode(part.content)}
-                                                className="w-6 h-6 flex items-center justify-center rounded bg-gray-700 hover:bg-gray-600 transition-colors"
+                                                className="w-6 h-6 flex items-center justify-center rounded bg-gray-700 hover:bg-gray-600 transition-colors touch-manipulation"
                                                 title="Copy code"
                                             >
                                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -2135,10 +2148,9 @@ const SpiderAIApp = ({
                                         </div>
 
                                         <pre
-                                            className="overflow-x-auto p-3 m-0"
+                                            className="overflow-x-auto p-3 m-0 text-xs sm:text-sm"
                                             style={{
                                                 background: "#0f0f0f",
-                                                fontSize: "13px",
                                                 lineHeight: "1.4",
                                                 color: "white",
                                             }}
@@ -2153,12 +2165,11 @@ const SpiderAIApp = ({
                                 );
                             }
 
-                            // Inline code
                             if (part.type === "inline-code") {
                                 return (
                                     <code
                                         key={index}
-                                        className="px-1.5 py-0.5 rounded text-sm"
+                                        className="px-1.5 py-0.5 rounded text-xs sm:text-sm"
                                         style={{
                                             background: "#0f0f0f",
                                             color: "#00e5ff",
@@ -2169,13 +2180,11 @@ const SpiderAIApp = ({
                                 );
                             }
 
-                            // Normal text
                             return (
                                 <div
                                     key={index}
-                                    className="whitespace-pre-wrap break-words"
+                                    className="whitespace-pre-wrap break-words text-sm sm:text-base"
                                     style={{
-                                        fontSize: "14px",
                                         lineHeight: "1.5",
                                     }}
                                 >
@@ -2185,7 +2194,6 @@ const SpiderAIApp = ({
                         })}
                     </div>
 
-                    {/* Model name */}
                     {message.model_used && (
                         <div
                             className="text-xs pt-1 mt-2 border-t border-gray-700"
@@ -2205,101 +2213,224 @@ const SpiderAIApp = ({
     // Helper function for mode display
     const getModeText = () => {
         if (uploadedFile) return "File Analysis";
-        if (uploadedImage) return "Image Editing";
+        if (uploadedImage) return "Image Edit";
         if (activeAIMode === 'image_gen') return "Create Image";
-        if (activeAIMode === 'image_edit') return "Edit/Transform Image";
+        if (activeAIMode === 'image_edit') return "Edit Image";
         return "Chat / Code";
     };
 
-    // ---------- JSX ----------
-    return (
-        <div className="flex flex-row h-full flex-grow bg-[var(--spider-dark)] text-[var(--spider-text)] overflow-hidden">
-            {/* Left Sidebar */}
-            <div className="hidden md:flex flex-col bg-[var(--spider-med)] w-64 p-4 border-r border-[var(--spider-light)] flex-shrink-0 space-y-4 overflow-y-auto">
-                {/* New Chat Button */}
-                <button 
-                    onClick={handleNewChat} 
-                    className="w-full bg-[var(--spider-neon-blue)] text-black text-sm font-semibold py-2.5 px-3 rounded-md hover:opacity-90 transition flex items-center space-x-2 justify-center"
-                    disabled={isDeleting}
-                >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
-                    </svg>
-                    <span>New Chat</span>
-                </button>
-
-                {/* Recent Chats Section */}
-                <div className="flex-grow pt-4 border-t border-[var(--spider-light)] overflow-y-auto">
-                    <h3 className="text-xs font-semibold uppercase text-[var(--spider-text-dim)] mb-2 px-1">
-                        Recent Chats
-                    </h3>
-                    <div className="space-y-1">
-                        {recentChats.length > 0 ? (
-                            recentChats.map((chat) => (
-                                <div key={chat.id} className="flex items-center group">
-                                    <button 
-                                        onClick={() => loadChatById(chat.id)} 
-                                        className={`flex-grow text-left px-3 py-2 text-sm rounded hover:bg-[var(--spider-light)] truncate transition-colors ${
-                                            activeChatId === chat.id 
-                                                ? 'bg-[var(--spider-light)] text-white font-medium' 
-                                                : 'text-[var(--spider-text)] hover:text-white'
-                                        }`}
-                                        disabled={isDeleting}
-                                    >
-                                        <div className="truncate">{chat.title}</div>
-                                        <div className="text-xs text-[var(--spider-text-dim)] mt-0.5">
-                                            {new Date(chat.timestamp).toLocaleDateString()} • {chat.mode}
-                                        </div>
-                                    </button>
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            if (window.confirm('Delete this chat?')) {
-                                                deleteChat(chat.id);
-                                            }
-                                        }}
-                                        className="ml-2 text-red-400 hover:text-red-300 opacity-0 group-hover:opacity-100 transition-opacity p-1"
-                                        title="Delete chat"
-                                        disabled={isDeleting}
-                                    >
-                                        {isDeleting ? (
-                                            <div className="w-3 h-3 border-2 border-red-400 border-t-transparent rounded-full animate-spin"></div>
-                                        ) : (
-                                            '×'
-                                        )}
-                                    </button>
-                                </div>
-                            ))
-                        ) : (
-                            <div className="text-center py-4 text-[var(--spider-text-dim)] text-sm">
-                                No recent chats
+    // ---------- Mobile Sidebar Component ----------
+    const MobileSidebar = () => {
+        return (
+            <>
+                {sidebarOpen && (
+                    <>
+                        <div 
+                            className="fixed inset-0 bg-black bg-opacity-50 z-40"
+                            onClick={() => setSidebarOpen(false)}
+                        />
+                        <div className="fixed left-0 top-0 h-full w-64 bg-[var(--spider-med)] z-50 overflow-y-auto p-4 transform transition-transform duration-300 ease-in-out">
+                            <div className="flex justify-between items-center mb-4">
+                                <h2 className="text-white font-semibold">Chat History</h2>
+                                <button 
+                                    onClick={() => setSidebarOpen(false)}
+                                    className="text-white hover:text-gray-300 text-xl"
+                                >
+                                    ×
+                                </button>
                             </div>
-                        )}
-                    </div>
-                </div>
+                            
+                            <button 
+                                onClick={handleNewChat} 
+                                className="w-full bg-[var(--spider-neon-blue)] text-black text-sm font-semibold py-2.5 px-3 rounded-md hover:opacity-90 transition flex items-center space-x-2 justify-center mb-4 touch-manipulation"
+                                disabled={isDeleting}
+                            >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
+                                </svg>
+                                <span>New Chat</span>
+                            </button>
 
-                {/* User Info */}
-                <div className="mt-auto border-t border-[var(--spider-light)] pt-3">
-                    <div className="w-full bg-[var(--spider-med)] text-[var(--spider-text-dim)] text-sm font-semibold py-2 px-3 rounded-md flex items-center space-x-2">
-                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd"></path>
+                            <div className="space-y-1">
+                                {recentChats.length > 0 ? (
+                                    recentChats.map((chat) => (
+                                        <div key={chat.id} className="flex items-center group">
+                                            <button 
+                                                onClick={() => {
+                                                    loadChatById(chat.id);
+                                                    setSidebarOpen(false);
+                                                }} 
+                                                className={`flex-grow text-left px-3 py-2 text-sm rounded hover:bg-[var(--spider-light)] truncate transition-colors ${
+                                                    activeChatId === chat.id 
+                                                        ? 'bg-[var(--spider-light)] text-white font-medium' 
+                                                        : 'text-[var(--spider-text)] hover:text-white'
+                                                }`}
+                                                disabled={isDeleting}
+                                            >
+                                                <div className="truncate">{chat.title}</div>
+                                                <div className="text-xs text-[var(--spider-text-dim)] mt-0.5">
+                                                    {new Date(chat.timestamp).toLocaleDateString()}
+                                                </div>
+                                            </button>
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    if (window.confirm('Delete this chat?')) {
+                                                        deleteChat(chat.id);
+                                                    }
+                                                }}
+                                                className="ml-2 text-red-400 hover:text-red-300 opacity-100 transition-opacity p-1 touch-manipulation"
+                                                title="Delete chat"
+                                                disabled={isDeleting}
+                                            >
+                                                {isDeleting ? (
+                                                    <div className="w-3 h-3 border-2 border-red-400 border-t-transparent rounded-full animate-spin"></div>
+                                                ) : (
+                                                    '×'
+                                                )}
+                                            </button>
+                                        </div>
+                                    ))
+                                ) : (
+                                    <div className="text-center py-4 text-[var(--spider-text-dim)] text-sm">
+                                        No recent chats
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="mt-auto pt-4 border-t border-[var(--spider-light)]">
+                                <div className="w-full bg-[var(--spider-med)] text-[var(--spider-text-dim)] text-sm font-semibold py-2 px-3 rounded-md flex items-center space-x-2">
+                                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd"></path>
+                                    </svg>
+                                    <span className="truncate">{currentUser?.name || 'User'}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </>
+                )}
+            </>
+        );
+    };
+
+    // ---------- Main JSX ----------
+    return (
+        <div className="flex flex-row h-full w-full bg-[var(--spider-dark)] text-[var(--spider-text)] overflow-hidden relative">
+            {/* Mobile Sidebar */}
+            <MobileSidebar />
+            
+            {/* Desktop Sidebar */}
+            {!isMobile && (
+                <div className="hidden md:flex flex-col bg-[var(--spider-med)] w-64 p-4 border-r border-[var(--spider-light)] flex-shrink-0 space-y-4 overflow-y-auto">
+                    <button 
+                        onClick={handleNewChat} 
+                        className="w-full bg-[var(--spider-neon-blue)] text-black text-sm font-semibold py-2.5 px-3 rounded-md hover:opacity-90 transition flex items-center space-x-2 justify-center"
+                        disabled={isDeleting}
+                    >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
                         </svg>
-                        <span className="truncate">{currentUser?.name || 'User'}</span>
+                        <span>New Chat</span>
+                    </button>
+
+                    <div className="flex-grow pt-4 border-t border-[var(--spider-light)] overflow-y-auto">
+                        <h3 className="text-xs font-semibold uppercase text-[var(--spider-text-dim)] mb-2 px-1">
+                            Recent Chats
+                        </h3>
+                        <div className="space-y-1">
+                            {recentChats.length > 0 ? (
+                                recentChats.map((chat) => (
+                                    <div key={chat.id} className="flex items-center group">
+                                        <button 
+                                            onClick={() => loadChatById(chat.id)} 
+                                            className={`flex-grow text-left px-3 py-2 text-sm rounded hover:bg-[var(--spider-light)] truncate transition-colors ${
+                                                activeChatId === chat.id 
+                                                    ? 'bg-[var(--spider-light)] text-white font-medium' 
+                                                    : 'text-[var(--spider-text)] hover:text-white'
+                                            }`}
+                                            disabled={isDeleting}
+                                        >
+                                            <div className="truncate">{chat.title}</div>
+                                            <div className="text-xs text-[var(--spider-text-dim)] mt-0.5">
+                                                {new Date(chat.timestamp).toLocaleDateString()} • {chat.mode}
+                                            </div>
+                                        </button>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (window.confirm('Delete this chat?')) {
+                                                    deleteChat(chat.id);
+                                                }
+                                            }}
+                                            className="ml-2 text-red-400 hover:text-red-300 opacity-0 group-hover:opacity-100 transition-opacity p-1"
+                                            title="Delete chat"
+                                            disabled={isDeleting}
+                                        >
+                                            {isDeleting ? (
+                                                <div className="w-3 h-3 border-2 border-red-400 border-t-transparent rounded-full animate-spin"></div>
+                                            ) : (
+                                                '×'
+                                            )}
+                                        </button>
+                                    </div>
+                                ))
+                            ) : (
+                                <div className="text-center py-4 text-[var(--spider-text-dim)] text-sm">
+                                    No recent chats
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="mt-auto border-t border-[var(--spider-light)] pt-3">
+                        <div className="w-full bg-[var(--spider-med)] text-[var(--spider-text-dim)] text-sm font-semibold py-2 px-3 rounded-md flex items-center space-x-2">
+                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd"></path>
+                            </svg>
+                            <span className="truncate">{currentUser?.name || 'User'}</span>
+                        </div>
                     </div>
                 </div>
-            </div>
+            )}
 
             {/* Main Chat Area */}
-            <div className="flex flex-col flex-1 h-full min-h-0">
+            <div className="flex flex-col flex-1 h-full min-h-0 w-full">
+                {/* Mobile Header */}
+                {isMobile && (
+                    <div className="flex items-center justify-between p-3 bg-[var(--spider-med)] border-b border-[var(--spider-light)] flex-shrink-0">
+                        <button 
+                            onClick={() => setSidebarOpen(true)}
+                            className="text-white p-2"
+                            aria-label="Open menu"
+                        >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                            </svg>
+                        </button>
+                        <span className="text-sm font-semibold text-[var(--spider-neon-blue)] truncate">
+                            {getModeText()}
+                        </span>
+                        <button 
+                            onClick={handleNewChat}
+                            className="text-white p-2"
+                            aria-label="New chat"
+                        >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
+                            </svg>
+                        </button>
+                    </div>
+                )}
+
                 {/* Messages Container */}
-                <div className="flex-grow overflow-y-auto p-4 space-y-4">
+                <div className="flex-grow overflow-y-auto p-2 sm:p-4 space-y-3 pb-24 sm:pb-4">
                     {chatHistory.map((msg, index) => (
                         <ChatBubble key={`${msg.ts}_${index}`} message={msg} />
                     ))}
                     
                     {/* Streaming Message */}
                     {streamingMessage && (
-                        <div className="flex justify-start mb-4">
+                        <div className="flex justify-start mb-3 px-2">
                             <div className="bg-[var(--spider-med)] text-white p-3 rounded-xl max-w-[85%] shadow-md">
                                 <pre className="whitespace-pre-wrap font-sans text-sm break-words">
                                     {streamingMessage.content}
@@ -2316,9 +2447,9 @@ const SpiderAIApp = ({
                         </div>
                     )}
                     
-                    {/* Loading Indicator with Stop Button */}
+                    {/* Loading Indicator */}
                     {isLoading && !streamingMessage && (
-                        <div className="flex justify-start mb-4">
+                        <div className="flex justify-start mb-3 px-2">
                             <div className="bg-[var(--spider-med)] text-white p-3 rounded-xl max-w-[85%] shadow-md">
                                 <div className="flex items-center space-x-3">
                                     <div className="flex space-x-1">
@@ -2326,10 +2457,10 @@ const SpiderAIApp = ({
                                         <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
                                         <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
                                     </div>
-                                    <span className="text-sm">Processing your request...</span>
+                                    <span className="text-sm">Processing...</span>
                                     <button 
                                         onClick={handleStopGeneration}
-                                        className="bg-red-500 hover:bg-red-600 text-white text-xs px-2 py-1 rounded transition-colors"
+                                        className="bg-red-500 hover:bg-red-600 text-white text-xs px-2 py-1 rounded transition-colors touch-manipulation"
                                     >
                                         Stop
                                     </button>
@@ -2356,45 +2487,49 @@ const SpiderAIApp = ({
                     accept="image/*" 
                 />
 
-                {/* Input Area */}
-                <div className="bg-[var(--spider-med)] p-3 border-t border-[var(--spider-light)] flex-shrink-0">
+                {/* Input Area - Fixed at bottom on mobile */}
+                <div className={`bg-[var(--spider-med)] border-t border-[var(--spider-light)] flex-shrink-0 w-full ${
+                    isMobile ? 'fixed bottom-0 left-0 right-0 p-2' : 'p-3'
+                }`}>
                     <div className="max-w-4xl mx-auto">
-                        {/* Mode Display */}
-                        <div className="flex justify-between items-center mb-3">
-                            <span className="flex items-center text-sm text-[var(--spider-neon-blue)] font-semibold">
-                                {getModeText()} Mode
-                                {activeChatId && (
-                                    <span className="ml-2 text-xs text-[var(--spider-text-dim)]">
-                                        (Auto-saved)
-                                    </span>
+                        {/* Mode Display - Desktop only */}
+                        {!isMobile && (
+                            <div className="flex justify-between items-center mb-2">
+                                <span className="flex items-center text-sm text-[var(--spider-neon-blue)] font-semibold">
+                                    {getModeText()}
+                                    {activeChatId && (
+                                        <span className="ml-2 text-xs text-[var(--spider-text-dim)]">
+                                            (Auto-saved)
+                                        </span>
+                                    )}
+                                </span>
+                                {activeAIMode === 'image_gen' && (
+                                    <select 
+                                        value={aspectRatio} 
+                                        onChange={(e) => setAspectRatio(e.target.value)} 
+                                        className="bg-[var(--spider-light)] text-[var(--spider-text)] p-1 rounded-md text-xs focus:outline-none touch-manipulation"
+                                    >
+                                        <option value="1:1">1:1 Square</option>
+                                        <option value="16:9">16:9 Landscape</option>
+                                        <option value="9:16">9:16 Portrait</option>
+                                        <option value="4:3">4:3 Standard</option>
+                                    </select>
                                 )}
-                            </span>
-                            {activeAIMode === 'image_gen' && (
-                                <select 
-                                    value={aspectRatio} 
-                                    onChange={(e) => setAspectRatio(e.target.value)} 
-                                    className="bg-[var(--spider-light)] text-[var(--spider-text)] p-1 rounded-md text-xs focus:outline-none"
-                                >
-                                    <option value="1:1">1:1 Square</option>
-                                    <option value="16:9">16:9 Landscape</option>
-                                    <option value="9:16">9:16 Portrait</option>
-                                    <option value="4:3">4:3 Standard</option>
-                                </select>
-                            )}
-                        </div>
+                            </div>
+                        )}
 
                         {/* Uploaded File/Image Indicator */}
                         {(uploadedFile || uploadedImage) && (
                             <div className="mb-2 text-xs text-green-400 p-2 bg-[var(--spider-dark)] rounded-md flex justify-between items-center">
                                 <span className="truncate">
-                                    {uploadedFile ? `📄 File: ${uploadedFile.name}` : uploadedImage ? `🖼 Image: ${uploadedImage.name}` : ''}
+                                    {uploadedFile ? `📄 ${uploadedFile.name}` : uploadedImage ? `🖼 ${uploadedImage.name}` : ''}
                                 </span>
                                 <button 
                                     onClick={() => { 
                                         setUploadedFile(null); 
                                         setUploadedImage(null); 
                                     }} 
-                                    className="text-red-400 hover:text-red-300 ml-3 font-bold flex-shrink-0"
+                                    className="text-red-400 hover:text-red-300 ml-3 font-bold flex-shrink-0 touch-manipulation"
                                 >
                                     ×
                                 </button>
@@ -2403,14 +2538,22 @@ const SpiderAIApp = ({
 
                         {/* Input Controls */}
                         <div className="flex items-end w-full space-x-2">
-                            <div className="flex-1 bg-[var(--spider-light)] rounded-lg p-2">
+                            <div className="flex-1 bg-[var(--spider-light)] rounded-lg p-2 min-h-[44px]">
                                 <textarea 
+                                    ref={textareaRef}
                                     placeholder={
-                                        uploadedImage ? "Describe the image transformation..." : 
-                                        uploadedFile ? "What should I analyze in this file?" : 
-                                        "Ask a question or request code..."
+                                        uploadedImage ? "Describe image edit..." : 
+                                        uploadedFile ? "Analyze this file..." : 
+                                        "Type your message..."
                                     } 
-                                    className="w-full bg-transparent text-white focus:outline-none resize-none text-sm max-h-32 overflow-y-auto" 
+                                    className="w-full bg-transparent text-white focus:outline-none resize-none text-sm max-h-32 overflow-y-auto touch-manipulation"
+                                    style={{
+                                        minHeight: '24px',
+                                        maxHeight: '120px',
+                                        WebkitAppearance: 'none',
+                                        MozAppearance: 'none',
+                                        appearance: 'none'
+                                    }}
                                     value={message} 
                                     onChange={(e) => setMessage(e.target.value)} 
                                     onKeyDown={(e) => { 
@@ -2419,10 +2562,23 @@ const SpiderAIApp = ({
                                             handleSendMessage(); 
                                         } 
                                     }} 
-                                    rows={1} 
+                                    rows={1}
                                     disabled={isLoading}
                                 />
                             </div>
+
+                            {/* Aspect Ratio Selector - Mobile */}
+                            {isMobile && activeAIMode === 'image_gen' && (
+                                <select 
+                                    value={aspectRatio} 
+                                    onChange={(e) => setAspectRatio(e.target.value)} 
+                                    className="bg-[var(--spider-light)] text-[var(--spider-text)] p-2 rounded-md text-xs focus:outline-none touch-manipulation h-10"
+                                >
+                                    <option value="1:1">1:1</option>
+                                    <option value="16:9">16:9</option>
+                                    <option value="9:16">9:16</option>
+                                </select>
+                            )}
 
                             {/* Plus Menu */}
                             <PlusMenu 
@@ -2434,8 +2590,9 @@ const SpiderAIApp = ({
                             {/* Send Button */}
                             <button 
                                 onClick={handleSendMessage} 
-                                className="bg-[var(--spider-neon-blue)] text-black font-semibold px-4 py-2 rounded-md hover:opacity-90 transition duration-200 flex-shrink-0 h-10 flex items-center justify-center" 
+                                className="bg-[var(--spider-neon-blue)] text-black font-semibold px-4 py-2 rounded-md hover:opacity-90 transition duration-200 flex-shrink-0 h-10 flex items-center justify-center min-w-[44px] touch-manipulation" 
                                 disabled={(!message.trim() && !uploadedFile && !uploadedImage) || isLoading}
+                                aria-label="Send message"
                             >
                                 {isLoading ? (
                                     <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
@@ -2448,6 +2605,9 @@ const SpiderAIApp = ({
                         </div>
                     </div>
                 </div>
+
+                {/* Add padding for mobile input area */}
+                {isMobile && <div className="h-20" />}
             </div>
         </div>
     );
@@ -3516,6 +3676,7 @@ int main() {
         </>
     );
 }
+
 
 
 
