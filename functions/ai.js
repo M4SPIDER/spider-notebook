@@ -1,10 +1,10 @@
 /* ============================================================
-  SPIDER AI — V5.1 (PRO FORMATTING, FULL CODE & MULTI-LANG)
-  - UPDATED: System Prompt now allows ANY language (in English script/transliteration).
-  - UPDATED: Enforces Markdown Tables for comparisons.
-  - UPDATED: Enforces "DeepSeek-style" COMPLETE code generation (no placeholders).
-  - FIXED: Removed markdown link syntax artifact from Tavily fetch URL.
-  - STATUS: HIGH PERFORMANCE & STABLE.
+  SPIDER AI — V5.2 (NO BOLD, CLEAN OUTPUT)
+  - UPDATED: Removed `**` (bold) from output sanitization as requested.
+  - UPDATED: Removed "Use Bold" instruction from System Prompt.
+  - FIXED: Critical URL syntax error in `runTavilySearch`.
+  - RETAINED: Multi-lang, Pro Formatting, Full Code logic.
+  - STATUS: STABLE.
 ============================================================ */
 
 /* ===== CONFIG ===== */
@@ -48,7 +48,7 @@ function shouldTriggerTelugu(message) {
 }
 
 /* ============================================================
-  MAIN SYSTEM PROMPT (UPDATED FOR PRO QUALITY)
+  MAIN SYSTEM PROMPT (UPDATED: NO BOLD)
 ============================================================ */
 const SPIDER_SYSTEM_PROMPT =
 "You are M4 Spider AI, made by M4 Spider 🕷️🤖.\n" +
@@ -63,7 +63,7 @@ const SPIDER_SYSTEM_PROMPT =
 "\n" +
 "FORMATTING & KNOWLEDGE:\n" +
 "- Use **Markdown Tables** for comparisons. Make them clean and detailed.\n" +
-"- Use **Bold** for key terms and Lists for steps.\n" +
+"- Use Lists for steps.\n" +
 "- Be highly intelligent, detailed, and precise, matching the quality of GPT-4 or DeepSeek.\n" +
 "\n" +
 "CODE BLOCK RULE (STRICT):\n" +
@@ -149,6 +149,9 @@ function sanitizeOutput(raw) {
 
   // FIX: Remove "Star Hash" artifacts where model puts a bullet before a header (e.g. "* ###")
   raw = raw.replace(/^\*\s+(?=#{1,6})/gm, "");
+
+  // FIX: Remove bold markers (**) from response
+  raw = raw.replace(/\*\*/g, "");
 
   // Remove JSON-looking lines with action/search or exact JSON objects/arrays
   raw = raw.split("\n").filter(line => {
