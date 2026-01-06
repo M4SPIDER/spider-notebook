@@ -1,11 +1,10 @@
 /* ============================================================
-  SPIDER AI — V6.1 (STABLE, RETRY-LOGIC, POLYGLOT)
-  - CRITICAL FIX: Code blocks are protected during sanitization.
-  - CRITICAL FIX: JSON lines (arrays/objects) are preserved.
-  - FEATURE: Added exponential backoff retry logic for AI calls.
-  - FEATURE: Added Auto-Hindi detection and formatting instructions.
-  - FEATURE: Smart sanitization (removes bold from text, keeps ** in code).
-  - STATUS: PRODUCTION READY.
+  SPIDER AI — V6.3 (STABLE, RAW OUTPUT, RETRY-LOGIC)
+  - CRITICAL CHANGE: Removed sanitizeOutput entirely as requested.
+  - LOGIC: Output is now 100% raw from the model to prevent formatting issues.
+  - FEATURE: Exponential backoff retry logic retained.
+  - FEATURE: Auto-Hindi/Telugu detection retained.
+  - STATUS: RAW OUTPUT MODE.
 ============================================================ */
 
 /* ===== CONFIG ===== */
@@ -94,7 +93,8 @@ const SPIDER_SYSTEM_PROMPT =
 "- Be highly intelligent, detailed, and precise, matching the quality of GPT-4 or DeepSeek.\n" +
 "\n" +
 "CODE BLOCK RULE (STRICT):\n" +
-"- Always use markdown code blocks: ```language\\ncode here\\n```.\n" +
+"- **ALWAYS** use markdown code blocks for code: ```language\\ncode here\\n```.\n" +
+"- **NEVER** write code as plain text.\n" +
 "- **PROVIDE COMPLETE CODE:** Do NOT use placeholders like `// ... rest of code` or `<!-- existing code -->`. Write out the FULL file every time.\n" +
 "- Add comments to explain complex logic.\n";
 
@@ -169,56 +169,6 @@ function detectMode(prompt, file_content, filename) {
     
   // Default to Chat
   return "chat";
-}
-
-/* ============================================================
-  SAFE SANITIZATION LOGIC (CRITICAL FIX)
-  - Purpose: Cleans AI text without breaking code.
-  - Method: Splits string by code blocks and only processes non-code parts.
-============================================================ */
-
-function sanitizeOutput(raw) {
-  if (!raw) return "";
-
-  // Split content by code blocks.
-  // The parenthesis in regex `(```[\s\S]*?```)` keep the delimiter in the result array.
-  // This ensures we can identify which parts are code and which are text.
-  // \s\S matches ANY character including newlines.
-  const parts = raw.split(/(```[\s\S]*?```)/g);
-
-  return parts.map(part => {
-    // 1. IF CODE BLOCK: Return completely untouched
-    // This preserves " ** " operators, JSON objects, comments, etc.
-    if (part.startsWith("```")) {
-      return part;
-    }
-
-    // 2. IF TEXT: Sanitize gently
-    let text = part;
-
-    // Filter out internal JSON instructions (only strict matches)
-    const internalPatterns = [
-        /^\{.*"action"\s*:\s*"search".*\}/im,
-        /^INTERNAL:/im
-    ];
-    internalPatterns.forEach(p => {
-        text = text.replace(p, "");
-    });
-
-    // Remove artifacts like "* ###" (bullet before header)
-    text = text.replace(/^\*\s+(?=#{1,6})/gm, "");
-
-    // Remove bolding (**) from text if desired, but keep it if it looks like math.
-    // We replace **text** with text.
-    // Note: This won't run on code blocks, so `a ** 2` inside code blocks is SAFE.
-    text = text.replace(/\*\*(.*?)\*\*/g, "$1");
-
-    // Clean double spaces and excessive newlines
-    text = text.replace(/\s{2,}/g, " ");
-    text = text.replace(/\n{3,}/g, "\n\n");
-
-    return text;
-  }).join(""); // Join without adding extra spaces
 }
 
 /* Detect internal search instruction */
@@ -298,7 +248,8 @@ async function compressMemoryIfNeeded(env, memoryArr) {
       ]
     });
 
-    const summary = sanitizeOutput(extractText(res)).trim();
+    // RAW OUTPUT: No sanitization here
+    const summary = extractText(res).trim();
 
     return [
       { role: "system_summary", content: summary, ts: Date.now() },
@@ -659,8 +610,8 @@ ${contentToAnalyze}
       });
       
       const responseTextRaw = extractText(result);
-      // Sanitization with code protection
-      const responseText = sanitizeOutput(responseTextRaw); 
+      // RAW OUTPUT: No sanitization
+      const responseText = responseTextRaw;
 
       await saveAssistantReply(responseText);
 
@@ -763,8 +714,8 @@ ${contentToAnalyze}
             temperature: 0.6
       });
 
-      // CRITICAL: Safe Sanitization for Search Results
-      let clean = sanitizeOutput(extractText(final));
+      // RAW OUTPUT: No sanitization
+      let clean = extractText(final);
 
       const lowerPrompt = (prompt || "").toLowerCase();
       if (!lowerPrompt.includes("no emojis") && !lowerPrompt.includes("no emoji") && !/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/u.test(clean)) {
@@ -780,8 +731,8 @@ ${contentToAnalyze}
        If no search needed
        =========================== */
     
-    // CRITICAL: Safe Sanitization for Normal Chat
-    let clean = sanitizeOutput(rawText);
+    // RAW OUTPUT: No sanitization
+    let clean = rawText;
 
     const lowerPrompt = (prompt || "").toLowerCase();
     if (!lowerPrompt.includes("no emojis") && !lowerPrompt.includes("no emoji")) {
@@ -816,7 +767,7 @@ async function runTavilySearch(env, query) {
 
   try {
     // CRITICAL FIX: Direct URL string, no Markdown syntax
-    const response = await fetch("[https://api.tavily.com/search](https://api.tavily.com/search)", {
+    const response = await fetch("https://api.tavily.com/search", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
