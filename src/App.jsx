@@ -1348,83 +1348,6 @@ const SpiderNotebookApp = ({
         </div>
     );
 };
-// --- THIS IS THE END OF THE REFACTORED COMPONENT ---
-
-
-// --- NEW Plus Menu Component (For AI Chat App) ---
-const PlusMenu = ({ 
-    setActiveAIMode, 
-    fileInputRef, 
-    imageInputRef, 
-}) => {
-    const [isMenuOpen, setIsMenuOpen] = useState(false);
-    
-    // Helper function to handle mode switching and file/image selection
-    const handleMenuItemClick = (mode, ref) => {
-        setActiveAIMode(mode);
-        setIsMenuOpen(false); // Close menu
-        
-        // If a ref is provided (for upload modes), trigger click immediately
-        if (ref) {
-            // Use setTimeout to ensure the React state update for activeAIMode completes
-            // before we fire the native file dialog, ensuring the mode is ready for the response.
-            setTimeout(() => ref.current?.click(), 0);
-        }
-    };
-
-    // Menu Item list
-    const menuItems = [
-        { label: "Deep Research / Code", mode: 'chat', onClick: () => handleMenuItemClick('chat'), icon: (
-            <svg className="w-5 h-5 text-[var(--spider-neon-blue)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
-        )},
-        { label: "Add Files for Analysis", mode: 'file_analysis', onClick: () => handleMenuItemClick('file_analysis', fileInputRef), icon: (
-            <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-        )},
-        { label: "Create Image (Gen)", mode: 'image_gen', onClick: () => handleMenuItemClick('image_gen'), icon: (
-            <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L14 14m-2-4h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
-        )},
-        { label: "Edit/Transform Image", mode: 'image_edit', onClick: () => handleMenuItemClick('image_edit', imageInputRef), icon: (
-            <svg className="w-5 h-5 text-pink-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
-        )},
-    ];
-
-    return (
-        <div className="relative z-10 mr-2">
-            {/* Plus Button */}
-            <button
-                onClick={() => setIsMenuOpen(prev => !prev)}
-                className={`p-2 rounded-full transition duration-200 h-10 w-10 flex items-center justify-center flex-shrink-0 ${
-                    isMenuOpen ? 'bg-[var(--spider-neon-blue)] text-black rotate-45' : 'bg-[var(--spider-light)] text-white hover:bg-[var(--spider-neon-blue)] hover:text-black'
-                }`}
-                title="AI Tools"
-            >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path></svg>
-            </button>
-
-            {/* Dropdown Menu */}
-            {isMenuOpen && (
-                <div className="absolute bottom-full right-0 mb-3 w-64 bg-[var(--spider-dark)] border border-[var(--spider-neon-blue)] rounded-lg shadow-2xl overflow-hidden animate-fade-in-up-once">
-                    <ul className="py-2">
-                        {menuItems.map(item => (
-                            <li key={item.mode}>
-                                <button
-                                    onClick={item.onClick}
-                                    className="w-full text-left px-4 py-2 text-sm text-[var(--spider-text)] hover:bg-[var(--spider-light)] flex items-center space-x-3 transition duration-150"
-                                >
-                                    {/* Using a span for consistent vertical alignment of icon/text */}
-                                    <span className="flex items-center justify-center w-5 h-5">
-                                        {item.icon}
-                                    </span>
-                                    <span>{item.label}</span>
-                                </button>
-                            </li>
-                        ))}
-                    </ul>
-                </div>
-            )}
-        </div>
-    );
-};
 
 
 const SpiderAIApp = ({ 
@@ -4022,6 +3945,7 @@ int main() {
         </>
     );
 }
+
 
 
 
