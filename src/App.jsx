@@ -1426,7 +1426,6 @@ const PlusMenu = ({
     );
 };
 
-
 const SpiderAIApp = ({ 
     currentUser, 
     showModal, 
@@ -2134,316 +2133,343 @@ const SpiderAIApp = ({
         }
     };
 
-    // ---------- Enhanced Chat Bubble with Table Support ----------
-    const ChatBubble = ({ message }) => {
-        useEffect(() => {
-            if (typeof window !== "undefined" && window.Prism) {
-                window.Prism.highlightAll();
+    // ---------- Optimized Content Processing ----------
+    const processContent = useCallback((text) => {
+        if (!text || typeof text !== "string") {
+            return [{ type: "text", content: text || "" }];
+        }
+
+        const blocks = [];
+        const lines = text.split('\n');
+        let currentBlock = { type: "text", content: "" };
+        let inCodeBlock = false;
+        let codeLanguage = "";
+        let codeContent = "";
+        let tableRows = [];
+
+        const flushCurrentBlock = () => {
+            if (currentBlock.content.trim()) {
+                blocks.push({ ...currentBlock });
+                currentBlock = { type: "text", content: "" };
             }
-        }, [message]);
-
-        // Extract different content types (code, tables, text)
-        const extractContentBlocks = (text) => {
-            if (!text || typeof text !== "string")
-                return [{ type: "text", content: text || "" }];
-
-            const parts = [];
-            let remaining = text;
-
-            // First check for code blocks
-            const codeBlockRegex = /```(\w+)?\s*\n?([\s\S]*?)```/g;
-            let match;
-            let lastIndex = 0;
-
-            while ((match = codeBlockRegex.exec(text)) !== null) {
-                // Add text before code block
-                if (match.index > lastIndex) {
-                    const textBefore = text.slice(lastIndex, match.index);
-                    if (textBefore.trim()) {
-                        parts.push(...processTextForTables(textBefore));
-                    }
-                }
-
-                // Add code block
-                parts.push({
-                    type: "code",
-                    language: match[1] || "text",
-                    content: match[2].trim(),
-                });
-
-                lastIndex = match.index + match[0].length;
-            }
-
-            // Add remaining text
-            if (lastIndex < text.length) {
-                const remainingText = text.slice(lastIndex);
-                if (remainingText.trim()) {
-                    parts.push(...processTextForTables(remainingText));
-                }
-            }
-
-            return parts;
         };
 
-        // Process text to detect tables
-        const processTextForTables = (text) => {
-            const parts = [];
-            
-            // Simple table detection - look for markdown table pattern
-            const lines = text.split('\n');
-            let tableLines = [];
-            let currentPart = [];
-            
-            for (let i = 0; i < lines.length; i++) {
-                const line = lines[i];
-                
-                // Check if this line looks like a table row (contains | and not a code fence)
-                if (line.includes('|') && !line.trim().startsWith('```')) {
-                    tableLines.push(line);
-                    
-                    // Check if next line is a separator (contains |-| pattern)
-                    if (i + 1 < lines.length && lines[i + 1].match(/^[\s\|:-]+$/)) {
-                        tableLines.push(lines[i + 1]);
-                        i++; // Skip separator line
-                    }
-                } else {
-                    // If we have collected table lines and this isn't a table line
-                    if (tableLines.length >= 2) {
-                        // Save the table
-                        parts.push({
-                            type: "table",
-                            content: tableLines.join('\n'),
-                        });
-                        tableLines = [];
-                    }
-                    
-                    // Add non-table text
-                    if (line.trim()) {
-                        currentPart.push(line);
-                    }
-                }
-            }
-            
-            // Handle any remaining table lines
-            if (tableLines.length >= 2) {
-                parts.push({
+        const flushTable = () => {
+            if (tableRows.length >= 2) {
+                blocks.push({
                     type: "table",
-                    content: tableLines.join('\n'),
+                    content: tableRows.join('\n')
                 });
+                tableRows = [];
             }
-            
-            // Add any remaining text
-            if (currentPart.length > 0) {
-                parts.push({
-                    type: "text",
-                    content: currentPart.join('\n'),
-                });
-            }
-            
-            return parts;
         };
 
-        const handleCopyCode = (content) => {
-            navigator.clipboard.writeText(content);
-        };
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
 
-        const renderTable = (tableText) => {
-            const rows = tableText.trim().split('\n').filter(r => r.trim());
-            if (rows.length < 2) return null;
+            // Handle code blocks
+            if (line.trim().startsWith('```')) {
+                if (!inCodeBlock) {
+                    // Start of code block
+                    flushCurrentBlock();
+                    flushTable();
+                    inCodeBlock = true;
+                    codeLanguage = line.trim().replace(/```/g, '').trim();
+                    codeContent = "";
+                } else {
+                    // End of code block
+                    inCodeBlock = false;
+                    blocks.push({
+                        type: "code",
+                        language: codeLanguage || "text",
+                        content: codeContent.trim()
+                    });
+                }
+                continue;
+            }
 
-            const headers = rows[0].split('|').filter(c => c.trim()).map(c => c.trim());
-            const separator = rows[1];
-            const dataRows = rows.slice(2).filter(r => r.includes('|'));
+            if (inCodeBlock) {
+                codeContent += line + '\n';
+                continue;
+            }
 
-            // Determine column alignments from separator
-            const alignments = separator.split('|').filter(c => c.trim()).map(col => {
-                if (col.startsWith(':') && col.endsWith(':')) return 'center';
-                if (col.endsWith(':')) return 'right';
-                return 'left';
+            // Handle tables
+            const trimmedLine = line.trim();
+            if (trimmedLine.includes('|') && 
+                !trimmedLine.includes('```') && 
+                !trimmedLine.startsWith('|--') &&
+                trimmedLine.match(/[^\s|:-]/)) {
+                
+                // Check if this is a table separator line
+                const isSeparator = trimmedLine.match(/^[\s|:-]+$/);
+                
+                if (!isSeparator || (isSeparator && tableRows.length > 0)) {
+                    tableRows.push(line);
+                }
+                
+                // Check if next lines are also part of table
+                let j = i + 1;
+                while (j < lines.length && lines[j].trim().includes('|') && !lines[j].trim().startsWith('```')) {
+                    tableRows.push(lines[j]);
+                    j++;
+                }
+                
+                if (j > i + 1) {
+                    i = j - 1; // Skip processed lines
+                }
+                
+                // If we have at least 2 rows (header + data), it's a table
+                if (tableRows.length >= 2) {
+                    flushCurrentBlock();
+                    flushTable();
+                    continue;
+                } else {
+                    // Not a table, add to current text block
+                    tableRows.forEach(row => {
+                        currentBlock.content += row + '\n';
+                    });
+                    tableRows = [];
+                    continue;
+                }
+            } else {
+                // Flush any pending table rows
+                if (tableRows.length > 0) {
+                    tableRows.forEach(row => {
+                        currentBlock.content += row + '\n';
+                    });
+                    tableRows = [];
+                }
+            }
+
+            // Regular text
+            if (line.trim() === '') {
+                flushCurrentBlock();
+                currentBlock.content += '\n';
+            } else {
+                currentBlock.content += line + '\n';
+            }
+        }
+
+        // Flush any remaining content
+        flushCurrentBlock();
+        flushTable();
+
+        // If we ended in a code block (unclosed), add it as code
+        if (inCodeBlock && codeContent.trim()) {
+            blocks.push({
+                type: "code",
+                language: codeLanguage || "text",
+                content: codeContent.trim()
             });
+        }
 
-            return (
-                <div className="overflow-x-auto my-3 rounded-lg border border-[var(--spider-light)] bg-[var(--spider-dark)]">
-                    <table className="min-w-full divide-y divide-[var(--spider-light)]">
-                        <thead>
-                            <tr className="bg-[var(--spider-med)]">
-                                {headers.map((header, idx) => (
-                                    <th 
-                                        key={idx}
-                                        className={`px-4 py-3 text-left text-sm font-semibold text-white border-r border-[var(--spider-light)] last:border-r-0 ${
-                                            alignments[idx] === 'center' ? 'text-center' :
-                                            alignments[idx] === 'right' ? 'text-right' : 'text-left'
-                                        }`}
-                                        style={{ 
-                                            minWidth: headers.length > 4 ? '120px' : 'auto',
-                                            maxWidth: headers.length > 4 ? '200px' : 'auto'
-                                        }}
-                                    >
-                                        {header}
-                                    </th>
-                                ))}
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-[var(--spider-light)]">
-                            {dataRows.map((row, rowIdx) => {
-                                const cells = row.split('|').filter(c => c.trim()).map(c => c.trim());
-                                return (
-                                    <tr 
-                                        key={rowIdx} 
-                                        className={`${
-                                            rowIdx % 2 === 0 
-                                                ? 'bg-[var(--spider-dark)]' 
-                                                : 'bg-[#0a2a2a]'
-                                        } hover:bg-[var(--spider-light)] transition-colors`}
-                                    >
-                                        {cells.map((cell, cellIdx) => (
-                                            <td 
-                                                key={cellIdx}
-                                                className={`px-4 py-3 text-sm text-white border-r border-[var(--spider-light)] last:border-r-0 ${
-                                                    alignments[cellIdx] === 'center' ? 'text-center' :
-                                                    alignments[cellIdx] === 'right' ? 'text-right' : 'text-left'
-                                                }`}
-                                                style={{ 
-                                                    wordBreak: 'break-word',
-                                                    overflowWrap: 'break-word'
-                                                }}
-                                            >
-                                                {cell.includes('✓') ? (
-                                                    <span className="text-green-400 font-bold">✓</span>
-                                                ) : cell.includes('✗') ? (
-                                                    <span className="text-red-400 font-bold">✗</span>
-                                                ) : cell.includes('⭐') ? (
-                                                    <span className="text-yellow-400">{'⭐'.repeat(cell.match(/⭐/g)?.length || 1)}</span>
-                                                ) : cell.includes('🔴') ? (
-                                                    <span className="text-red-400">🔴</span>
-                                                ) : cell.includes('🟡') ? (
-                                                    <span className="text-yellow-400">🟡</span>
-                                                ) : cell.includes('🟢') ? (
-                                                    <span className="text-green-400">🟢</span>
-                                                ) : (
-                                                    cell
-                                                )}
-                                            </td>
-                                        ))}
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
-                </div>
-            );
-        };
+        return blocks;
+    }, []);
 
-        const bubbleClass =
-            message.role === "user"
+    // ---------- Optimized Chat Bubble ----------
+    const ChatBubble = useMemo(() => {
+        return ({ message }) => {
+            const [contentBlocks, setContentBlocks] = useState([]);
+
+            useEffect(() => {
+                const blocks = processContent(message.content);
+                setContentBlocks(blocks);
+                
+                // Apply syntax highlighting
+                if (typeof window !== "undefined" && window.Prism) {
+                    setTimeout(() => {
+                        window.Prism.highlightAll();
+                    }, 50);
+                }
+            }, [message.content, processContent]);
+
+            const handleCopyCode = (content) => {
+                navigator.clipboard.writeText(content);
+            };
+
+            const renderTable = (tableText) => {
+                const rows = tableText.trim().split('\n').filter(r => r.trim());
+                if (rows.length < 2) return null;
+
+                const headers = rows[0].split('|').filter(c => c.trim()).map(c => c.trim());
+                const separator = rows[1];
+                const dataRows = rows.slice(2).filter(r => r.includes('|'));
+
+                // Determine column alignments from separator
+                const alignments = separator.split('|').filter(c => c.trim()).map(col => {
+                    if (col.startsWith(':') && col.endsWith(':')) return 'center';
+                    if (col.endsWith(':')) return 'right';
+                    return 'left';
+                });
+
+                return (
+                    <div className="overflow-x-auto my-3 rounded-lg border border-[var(--spider-light)] bg-[var(--spider-dark)]">
+                        <table className="min-w-full divide-y divide-[var(--spider-light)]">
+                            <thead>
+                                <tr className="bg-[var(--spider-med)]">
+                                    {headers.map((header, idx) => (
+                                        <th 
+                                            key={idx}
+                                            className={`px-4 py-3 text-left text-sm font-semibold text-white border-r border-[var(--spider-light)] last:border-r-0 ${
+                                                alignments[idx] === 'center' ? 'text-center' :
+                                                alignments[idx] === 'right' ? 'text-right' : 'text-left'
+                                            }`}
+                                            style={{ 
+                                                minWidth: headers.length > 4 ? '120px' : 'auto',
+                                                maxWidth: headers.length > 4 ? '200px' : 'auto'
+                                            }}
+                                        >
+                                            {header}
+                                        </th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-[var(--spider-light)]">
+                                {dataRows.map((row, rowIdx) => {
+                                    const cells = row.split('|').filter(c => c.trim()).map(c => c.trim());
+                                    return (
+                                        <tr 
+                                            key={rowIdx} 
+                                            className={`${
+                                                rowIdx % 2 === 0 
+                                                    ? 'bg-[var(--spider-dark)]' 
+                                                    : 'bg-[#0a2a2a]'
+                                            } hover:bg-[var(--spider-light)] transition-colors`}
+                                        >
+                                            {cells.map((cell, cellIdx) => (
+                                                <td 
+                                                    key={cellIdx}
+                                                    className={`px-4 py-3 text-sm text-white border-r border-[var(--spider-light)] last:border-r-0 ${
+                                                        alignments[cellIdx] === 'center' ? 'text-center' :
+                                                        alignments[cellIdx] === 'right' ? 'text-right' : 'text-left'
+                                                    }`}
+                                                    style={{ 
+                                                        wordBreak: 'break-word',
+                                                        overflowWrap: 'break-word'
+                                                    }}
+                                                >
+                                                    {cell.includes('✓') ? (
+                                                        <span className="text-green-400 font-bold">✓</span>
+                                                    ) : cell.includes('✗') ? (
+                                                        <span className="text-red-400 font-bold">✗</span>
+                                                    ) : cell.includes('⭐') ? (
+                                                        <span className="text-yellow-400">{'⭐'.repeat(cell.match(/⭐/g)?.length || 1)}</span>
+                                                    ) : cell.includes('🔴') ? (
+                                                        <span className="text-red-400">🔴</span>
+                                                    ) : cell.includes('🟡') ? (
+                                                        <span className="text-yellow-400">🟡</span>
+                                                    ) : cell.includes('🟢') ? (
+                                                        <span className="text-green-400">🟢</span>
+                                                    ) : (
+                                                        cell
+                                                    )}
+                                                </td>
+                                            ))}
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                );
+            };
+
+            const bubbleClass = message.role === "user"
                 ? "bg-[#00e5ff] text-black ml-auto"
                 : "bg-[#004745] text-white mr-auto";
 
-        const contentParts = extractContentBlocks(message.content);
-
-        return (
-            <div
-                className={`flex w-full ${
-                    message.role === "user" ? "justify-end" : "justify-start"
-                } mb-4 px-2`}
-            >
+            return (
                 <div
-                    className={`px-4 py-3 rounded-2xl max-w-[95%] sm:max-w-4xl ${bubbleClass}`}
-                    style={{
-                        boxShadow: "0 4px 12px rgba(0, 0, 0, 0.1)",
-                    }}
+                    className={`flex w-full ${
+                        message.role === "user" ? "justify-end" : "justify-start"
+                    } mb-4 px-2`}
                 >
-                    {/* Image Display - Clean & Simple */}
-                    {message.type === "image" && message.base64_image && (
-                        <div className="w-full rounded-xl overflow-hidden bg-black mb-3">
-                            <img
-                                src={`data:image/jpeg;base64,${message.base64_image}`}
-                                alt="AI Generated"
-                                className="w-full h-auto"
-                                style={{
-                                    maxHeight: "400px",
-                                    objectFit: "contain",
-                                    display: "block"
-                                }}
-                                onError={(e) => {
-                                    e.target.style.display = 'none';
-                                    e.target.parentElement.innerHTML = 
-                                        '<div class="p-4 text-center text-gray-400">Image failed to load</div>';
-                                }}
-                            />
-                        </div>
-                    )}
+                    <div
+                        className={`px-4 py-3 rounded-2xl max-w-[95%] sm:max-w-4xl ${bubbleClass}`}
+                        style={{
+                            boxShadow: "0 4px 12px rgba(0, 0, 0, 0.1)",
+                        }}
+                    >
+                        {/* Image Display */}
+                        {message.type === "image" && message.base64_image && (
+                            <div className="w-full rounded-xl overflow-hidden bg-black mb-3">
+                                <img
+                                    src={`data:image/jpeg;base64,${message.base64_image}`}
+                                    alt="AI Generated"
+                                    className="w-full h-auto"
+                                    style={{
+                                        maxHeight: "400px",
+                                        objectFit: "contain",
+                                        display: "block"
+                                    }}
+                                    onError={(e) => {
+                                        e.target.style.display = 'none';
+                                        e.target.parentElement.innerHTML = 
+                                            '<div class="p-4 text-center text-gray-400">Image failed to load</div>';
+                                    }}
+                                />
+                            </div>
+                        )}
 
-                    {/* Content Blocks */}
-                    <div className="space-y-3">
-                        {contentParts.map((part, index) => {
-                            if (part.type === "code") {
-                                return (
-                                    <div
-                                        key={index}
-                                        className="rounded-lg overflow-hidden relative group"
-                                        style={{
-                                            background: "#0f0f0f",
-                                        }}
-                                    >
-                                        <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                                            <button
-                                                onClick={() => handleCopyCode(part.content)}
-                                                className="w-8 h-8 flex items-center justify-center rounded bg-gray-800 hover:bg-gray-700 transition-colors touch-manipulation"
-                                                title="Copy code"
-                                            >
-                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                                                </svg>
-                                            </button>
-                                        </div>
-
-                                        <pre
-                                            className="overflow-x-auto p-4 m-0 text-sm"
-                                            style={{
-                                                background: "#0f0f0f",
-                                                lineHeight: "1.5",
-                                                color: "white",
-                                            }}
+                        {/* Content Blocks */}
+                        <div className="space-y-3">
+                            {contentBlocks.map((block, index) => {
+                                if (block.type === "code") {
+                                    return (
+                                        <div
+                                            key={index}
+                                            className="rounded-lg overflow-hidden relative group"
+                                            style={{ background: "#0f0f0f" }}
                                         >
-                                            <code className={`language-${part.language}`}>
-                                                {part.content}
-                                            </code>
-                                        </pre>
-                                    </div>
-                                );
-                            }
+                                            <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                                                <button
+                                                    onClick={() => handleCopyCode(block.content)}
+                                                    className="w-8 h-8 flex items-center justify-center rounded bg-gray-800 hover:bg-gray-700 transition-colors touch-manipulation"
+                                                    title="Copy code"
+                                                >
+                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                                    </svg>
+                                                </button>
+                                            </div>
+                                            <pre className="overflow-x-auto p-4 m-0 text-sm" style={{ background: "#0f0f0f", lineHeight: "1.5", color: "white" }}>
+                                                <code className={`language-${block.language}`}>
+                                                    {block.content}
+                                                </code>
+                                            </pre>
+                                        </div>
+                                    );
+                                }
 
-                            if (part.type === "table") {
-                                return (
-                                    <div key={index}>
-                                        {renderTable(part.content)}
-                                    </div>
-                                );
-                            }
+                                if (block.type === "table") {
+                                    return (
+                                        <div key={index}>
+                                            {renderTable(block.content)}
+                                        </div>
+                                    );
+                                }
 
-                            if (part.type === "text") {
-                                return (
-                                    <div
-                                        key={index}
-                                        className="whitespace-pre-wrap break-words text-sm sm:text-base leading-relaxed"
-                                        style={{
-                                            lineHeight: "1.6",
-                                        }}
-                                    >
-                                        {part.content}
-                                    </div>
-                                );
-                            }
+                                if (block.type === "text") {
+                                    return (
+                                        <div
+                                            key={index}
+                                            className="whitespace-pre-wrap break-words text-sm sm:text-base leading-relaxed"
+                                            style={{ lineHeight: "1.6" }}
+                                        >
+                                            {block.content}
+                                        </div>
+                                    );
+                                }
 
-                            return null;
-                        })}
+                                return null;
+                            })}
+                        </div>
                     </div>
                 </div>
-            </div>
-        );
-    };
+            );
+        };
+    }, [processContent]);
 
     // Helper function for mode display
     const getModeText = () => {
@@ -2862,7 +2888,6 @@ const SpiderAIApp = ({
         </div>
     );
 };
-
 // --- END Plus Menu Component ---
 const SpiderVFXApp = () => { /* ... (Remains Placeholder) ... */ return (<div className="flex-grow h-full flex flex-col items-center justify-center bg-black text-white p-8 pattern-vfx-grid overflow-y-auto"><div className="bg-black bg-opacity-80 p-10 rounded-lg text-center shadow-xl"><h1 className="text-4xl font-bold mb-4 text-[var(--spider-neon-blue)]">Spider VFX</h1><p className="text-lg text-gray-400 mb-8">Coming Soon!</p><div className="animate-pulse text-6xl">✨</div></div></div>);};
 
@@ -3927,6 +3952,7 @@ int main() {
         </>
     );
 }
+
 
 
 
