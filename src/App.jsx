@@ -4221,10 +4221,10 @@ export default function App() {
 // 🔥 SPIDER AI — Cloudflare GPT-120B + SDXL Integration (FINAL VERSION)
 // 🔥 UPDATED: Spider AI Cloudflare Integration
 // 🔥 SPIDER AI — Cloudflare GPT-120B + SDXL Integration (FINAL VERSION)
-const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat") => {
+const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat", options = {}) => {
     
     // ==========================================================
-    // 🔥 THE REAL FIX IS HERE: This sends the *entire* payload.
+    // 🔥 THE REAL FIX: Pass options.signal and return raw 'res' for streams
     // ==========================================================
     
     let fetchOptions = {
@@ -4232,14 +4232,22 @@ const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat") =>
         headers: {
             "Content-Type": "application/json"
         },
-        // Stringify the *entire* payload object from handleSendMessage
-        // This now includes file_content, filename, image, etc.
-        body: JSON.stringify(payload) 
+        // Stringify the entire payload (includes file_content, images, etc.)
+        body: JSON.stringify(payload),
+        // Allows the frontend to cancel the request via handleStopGeneration
+        signal: options.signal 
     };
 
     try {
         // Use the new fetchOptions, sending to the /ai worker endpoint
         const res = await fetch("/ai", fetchOptions);
+
+        // ---------------- STREAMING HANDLER (NEW) ----------------
+        // If the frontend explicitly passed { stream: true } in the options,
+        // we return the raw Response object so res.body.getReader() works.
+        if (options.stream) {
+            return res; 
+        }
 
         const contentType = res.headers.get("content-type") || "";
 
@@ -4267,18 +4275,17 @@ const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat") =>
             return { error: "Empty response from Spider AI." };
         }
 
-        // Spider AI 2.0 always returns plain text from backend
-        // (search → summarized result, or direct answer)
+        // Spider AI 2.0 returns plain text for non-streaming requests
         return {
             text: rawText,
             raw: rawText
         };
 
     } catch (err) {
+        // Return error object instead of throwing to avoid breaking the UI flow
         return { error: err.message };
     }
-}, []);  
-
+}, []);
     
     // --- WebSocket Handlers (NEW) ---
     // Helper function to append plain text to terminal output
@@ -5005,6 +5012,7 @@ int main() {
         </>
     );
 }
+
 
 
 
