@@ -792,13 +792,21 @@ export async function onRequest(context) {
     */
     if (currentMode === "analyze_file") {
       const fileNameStr = filename || "unknown_file";
-      const analysisPrompt = 
-        `Analyze the following file: '${fileNameStr}'.\n` +
-        `Tasks:\n` +
-        `1. Explain the logic.\n` +
-        `2. Find bugs or security issues.\n` +
-        `3. Provide FIXED code (complete file).\n\n` +
-        `FILE CONTENT:\n\`\`\`\n${combinedFileContent}\n\`\`\``;
+const analysisPrompt =
+  `Analyze the following file: '${fileNameStr}'.\n` +
+  `Tasks:\n` +
+  `1. Explain the logic clearly.\n` +
+  `2. Find bugs or security issues.\n` +
+  `3. Provide FIXED code (complete file).\n\n` +
+  `Rules:\n` +
+  `- Use strict analysis style (like ChatGPT code analysis).\n` +
+  `- Use Markdown formatting correctly.\n` +
+  `- DO NOT use bold (**).\n` +
+  `- DO NOT generate headers without space after # (no ###Title).\n` +
+  `- Always use headers as '# Title', '## Title', '### Title'.\n` +
+  `- Do NOT skip any part of the file.\n` +
+  `- Do NOT use placeholders.\n\n` +
+  `FILE CONTENT:\n\`\`\`\n${combinedFileContent}\n\`\`\``;
 
       const messages = [
         finalSystemMessage,
