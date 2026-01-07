@@ -1,7 +1,7 @@
 /**
  * =========================================================
  * SPIDER AI — FINAL STABLE BACKEND
- * SDXL + KV + STREAMING (SSE FIXED)
+ * Fake Streaming + SDXL + KV + File Analysis
  * Author: M4 Spider
  * =========================================================
  */
@@ -10,7 +10,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.0.6";
+const VERSION = "9.1.0";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -65,7 +65,7 @@ async function saveMemory(env, key, mem) {
 }
 
 //////////////////////////////
-// AI CALL (NON-STREAM)
+// AI CALL
 //////////////////////////////
 async function runAi(env, model, payload) {
   for (let i = 0; i <= AI_RETRY_LIMIT; i++) {
@@ -106,10 +106,13 @@ export async function onRequest(context) {
 
   try {
     const payload = await request.json();
+
     const {
       prompt = "",
       mode = "chat",
       stream = false,
+      file_content = "",
+      filename = "",
       user_preference_id = "anon",
       aspect_ratio = "1:1"
     } = payload;
@@ -117,67 +120,65 @@ export async function onRequest(context) {
     const memKey = AI_MEMORY_USER_KEY_PREFIX + user_preference_id;
 
     //////////////////////////////////////////////////////
-    // STREAM MODE (SSE — FRONTEND COMPATIBLE)
+    // STREAM MODE (FAKE STREAMING — STABLE)
     //////////////////////////////////////////////////////
     if (mode === "stream" || stream === true) {
       const encoder = new TextEncoder();
-      const decoder = new TextDecoder();
 
       const streamResp = new ReadableStream({
         async start(controller) {
           try {
-            const aiStream = await env.SPY_AI.run(
+            // ---------------------------------------
+            // BUILD CONTEXT-AWARE PROMPT
+            // ---------------------------------------
+            let finalPrompt = prompt;
+
+            if (mode === "analyze_file" && file_content) {
+              finalPrompt = `
+FILE NAME:
+${filename || "unknown"}
+
+FILE CONTENT:
+${file_content}
+
+USER REQUEST:
+${prompt}
+`;
+            }
+
+            // ---------------------------------------
+            // SINGLE AI CALL
+            // ---------------------------------------
+            const res = await runAi(
+              env,
               "@cf/mistralai/mistral-small-3.1-24b-instruct",
               {
                 messages: [
                   {
                     role: "system",
                     content:
-                      "Output clean text only. Keep code blocks, tables, and LaTeX unchanged."
+                      "You are Spider AI. Output clean text. Keep code blocks, tables, and LaTeX unchanged."
                   },
-                  { role: "user", content: prompt }
+                  { role: "user", content: finalPrompt }
                 ],
-                stream: true
+                max_tokens: 8192,
+                temperature: 0.7
               }
             );
 
-            const reader = aiStream.getReader();
+            const text = extractText(res) || "";
+            const chunks = text.match(/[\s\S]{1,120}/g) || [];
 
-            while (true) {
-              const { value, done } = await reader.read();
-              if (done) break;
-
-              const decoded = decoder.decode(value, { stream: true });
-
-              for (const line of decoded.split("\n")) {
-                if (!line.trim()) continue;
-
-                let parsed;
-                try {
-                  parsed = JSON.parse(line);
-                } catch {
-                  continue;
-                }
-
-                const token = parsed?.response;
-                if (!token) continue;
-
-                const cleanToken = token
-                  .replace(/#\*[\s\S]*?\*#/g, "")
-                  .replace(/#\*/g, "")
-                  .replace(/\*#/g, "")
-                  .replace(/\*\*(.*?)\*\*/g, "$1")
-                  .replace(/\*(.*?)\*/g, "$1")
-                  .replace(/__(.*?)__/g, "$1")
-                  .replace(/_(.*?)_/g, "$1")
-                  .replace(/^\s*#{1,6}\s*/gm, "");
-
-                controller.enqueue(
-                  encoder.encode(
-                    `data: ${JSON.stringify({ response: cleanToken })}\n\n`
-                  )
-                );
-              }
+            // ---------------------------------------
+            // STREAM CHUNKS
+            // ---------------------------------------
+            for (const chunk of chunks) {
+              controller.enqueue(
+                encoder.encode(
+                  `data: ${JSON.stringify({ text: chunk })}\n\n`
+                )
+              );
+              await sleep(15);
             }
 
             controller.enqueue(
@@ -188,7 +189,9 @@ export async function onRequest(context) {
           } catch (err) {
             controller.enqueue(
               encoder.encode(
-                `data: ${JSON.stringify({ response: "[Stream Error] " + err.message })}\n\n`
+                `data: ${JSON.stringify({
+                  text: "\n[Spider AI Stream Error]\n" + err.message
+                })}\n\n`
               )
             );
             controller.close();
@@ -225,11 +228,25 @@ export async function onRequest(context) {
     }
 
     //////////////////////
-    // NORMAL CHAT (KV)
+    // NORMAL CHAT / FILE ANALYSIS (KV)
     //////////////////////
     let memory = await getMemory(env, memKey);
 
-    memory.push({ role: "user", content: prompt, ts: Date.now() });
+    let finalPrompt = prompt;
+    if (mode === "analyze_file" && file_content) {
+      finalPrompt = `
+FILE NAME:
+${filename || "unknown"}
+
+FILE CONTENT:
+${file_content}
+
+USER REQUEST:
+${prompt}
+`;
+    }
+
+    memory.push({ role: "user", content: finalPrompt, ts: Date.now() });
     memory = memory.slice(-AI_MEMORY_TRIM_TARGET);
 
     const systemPrompt = `
