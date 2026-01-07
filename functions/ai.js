@@ -1,18 +1,19 @@
 /* ========================================================================================
-   SPIDER AI — V8.1.1 (REGEX & CODE BLOCK PROTECTION)
+   SPIDER AI — V8.1.2 (HEADER ARTIFACT CLEANUP)
    -------------------------------------------------------------------------------------
    AUTHOR: M4 Spider 🕷️🤖
    DATE: 2026-01-07
-   VERSION: 8.1.1 (Stable AI Release)
+   VERSION: 8.1.2 (Stable AI Release)
    
    DESCRIPTION:
    This is the core brain of Spider AI. It runs on Cloudflare Workers and acts as a 
    central intelligence hub. It orchestrates Multi-Modal AI models, persistent KV memory, 
    external search tools, and complex language processing.
 
-   CHANGELOG V8.1.1:
+   CHANGELOG V8.1.2:
+   - FIXED: Enhanced regex to catch multi-char artifacts (e.g., "**#") before headers.
+   - FIXED: Cleaned bolding attached to hashes (e.g., "###**").
    - PROTECTED: Code blocks are now immune to formatting cleaners.
-   - FIXED: Aggressively removes "*#" and "**#" patterns from text headers.
    - BRANDING: "Spider AI" identity reinforced across all logic blocks.
    - ADDED: "System Health" AI diagnostic mode.
    - UPDATED: Expanded Telugu & Hindi AI Trigger dictionaries.
@@ -220,22 +221,27 @@ function cleanAiResponse(text) {
 
     let clean = part;
 
-    // 1. Fix Markdown Headers (Sticky Hash: #Header -> # Header)
+    // 1. Remove list markers or bolding BEFORE headers (*# or **# or + #)
+    // Matches start of line, optional space, bullet/star chars (1 or more), followed by hash
+    // This catches "*#", "**#", "+ #", etc.
+    clean = clean.replace(/^\s*[\*\-\+]+(?=\s*#{1,6})/gm, '');
+
+    // 2. Remove bolding characters attached to the hash itself (e.g., "###** Title")
+    // Matches start of line, hashes, stars/bolding, followed by space
+    clean = clean.replace(/^(\s*#{1,6})\*+(?=\s)/gm, '$1');
+
+    // 3. Fix Markdown Headers (Sticky Hash: #Header -> # Header)
+    // Now that artifacts (stars/bullets) are gone from step 1 & 2, we ensure spacing.
     clean = clean.replace(/^\s*(#{1,6})([^\s#])/gm, '$1 $2');
 
-    // 2. Fix Bolded/Italicized Headers (**### Title** or *### Title*)
-    // Removes wrapping stars: **### Title** -> ### Title
-    clean = clean.replace(/^\s*[\*]+(#{1,6})\s*(.*?)\s*[\*]+$/gm, '$1 $2');
-    
-    // 3. Fix Leading Artifacts (*# or ** #)
-    // Sometimes AI outputs "* # Header" (bullet + header) or "*#Header".
-    // We strip the leading stars/bullets from headers.
-    clean = clean.replace(/^\s*[\*-\+]\s*(#{1,6})/gm, '$1');
+    // 4. Remove wrapping stars from the end of headers (**### Title**)
+    // If the line starts with a header, strip trailing bold markers
+    clean = clean.replace(/^(\s*#{1,6}.*?)\*+\s*$/gm, '$1');
 
-    // 4. Remove "User:" or "Assistant:" prefixes
+    // 5. Remove "User:" or "Assistant:" prefixes if AI hallucinated them
     clean = clean.replace(/^(User:|Assistant:|Spider AI:|Bot:)\s*/i, "");
 
-    // 5. Remove internal system tags
+    // 6. Remove internal system tags
     clean = clean.replace(/\[SEARCH_\w+\]/g, "");
 
     return clean;
@@ -372,7 +378,7 @@ async function verifyFirebaseToken(idToken) {
     
     // Fetch Public Keys from Google
     const googleKeys = await fetch(
-      "https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com"
+      "[https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com](https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com)"
     ).then(r => r.json());
     
     const kid = header.kid;
@@ -629,7 +635,7 @@ async function runTavilySearch(env, query) {
   logAiEvent("SEARCH", `Searching for: ${query}`);
 
   try {
-    const resp = await fetch("https://api.tavily.com/search", {
+    const resp = await fetch("[https://api.tavily.com/search](https://api.tavily.com/search)", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
