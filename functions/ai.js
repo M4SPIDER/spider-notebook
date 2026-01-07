@@ -27,11 +27,11 @@ function cleanAiResponse(text) {
   if (!text) return "";
 
   return text
-    .replace(/#\*[\s\S]*?\/g, "") // Remove custom internal tags
+    .replace(/#\*[\s\S]*?\*#/g, "") // Remove custom internal tags
     .replace(/#\*/g, "")
-    .replace(/\/g, "")
+    .replace(/\*#/g, "")
     .replace(/\*\*/g, "")           // Remove bold
-    .replace(/^\s#+\s*/gm, "")    // Remove headers
+    .replace(/^\s*##+\s*/gm, "")    // Remove headers
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -289,7 +289,7 @@ export async function onRequest(context) {
               // Clean bold/headers for stream output
               let displayChunk = chunk
                 .replace(/\*\*/g, "")
-                .replace(/(^|\n)\s#+\s*/g, "$1");
+                .replace(/(^|\n)\s*##+\s*/g, "$1");
 
               fullAiResponse += chunk; // Store original (or we could store clean)
 
