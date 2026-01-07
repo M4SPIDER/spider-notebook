@@ -36,20 +36,31 @@ function cleanAiResponse(text) {
   const blocks = [];
   const TOKEN = "\u200B\u200C\u200D";
 
+  // 1️⃣ Protect code blocks
   text = text.replace(/```[\s\S]*?```/g, m => {
     blocks.push(m);
     return `${TOKEN}${blocks.length}${TOKEN}`;
   });
 
-  let c = text
-    .replace(/#\*[\s\S]*?\*#/g, "")
-    .replace(/#\*/g, "")
-    .replace(/\*#/g, "")
-    .replace(/^(User:|Assistant:|AI:|Bot:|Model:|Spider AI:)\s*/igm, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  let clean = text;
 
+  // 2️⃣ Remove ONLY forbidden artifacts (nothing else)
+  clean = clean
+    .replace(/#\*[\s\S]*?\*#/g, "") // full forbidden blocks
+    .replace(/#\*/g, "")            // stray start
+    .replace(/\*#/g, "")            // stray end
+    .replace(/\b[A-Z_]*CODE[A-Z_]*BLOCK[A-Z_]*\d*\b/gi, "")
+    .replace(/^(User:|Assistant:|Spider AI:|Bot:|AI:|Model:)\s*/igm, "");
+
+
+  // 4️⃣ Restore code blocks
   const restore = new RegExp(`${TOKEN}(\\d+)${TOKEN}`, "g");
+  clean = clean.replace(restore, (_, i) => blocks[i - 1]);
+
+  return clean.trim();
+}
+
+const restore = new RegExp(`${TOKEN}(\\d+)${TOKEN}`, "g");
   return c.replace(restore, (_, i) => blocks[i - 1]);
 }
 
