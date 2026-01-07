@@ -1,18 +1,18 @@
 /* ========================================================================================
-   SPIDER AI — V8.1.0 (FORMATTING HOTFIX)
+   SPIDER AI — V8.1.1 (REGEX & CODE BLOCK PROTECTION)
    -------------------------------------------------------------------------------------
    AUTHOR: M4 Spider 🕷️🤖
    DATE: 2026-01-07
-   VERSION: 8.1.0 (Stable AI Release)
+   VERSION: 8.1.1 (Stable AI Release)
    
    DESCRIPTION:
    This is the core brain of Spider AI. It runs on Cloudflare Workers and acts as a 
    central intelligence hub. It orchestrates Multi-Modal AI models, persistent KV memory, 
    external search tools, and complex language processing.
 
-   CHANGELOG V8.1.0:
-   - CRITICAL FIX: "Clean AI Response" regex updated to handle indented headers.
-   - FIXED: Removed bolding artifacts around headers (e.g., **### Title**).
+   CHANGELOG V8.1.1:
+   - PROTECTED: Code blocks are now immune to formatting cleaners.
+   - FIXED: Aggressively removes "*#" and "**#" patterns from text headers.
    - BRANDING: "Spider AI" identity reinforced across all logic blocks.
    - ADDED: "System Health" AI diagnostic mode.
    - UPDATED: Expanded Telugu & Hindi AI Trigger dictionaries.
@@ -203,36 +203,45 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 /**
  * CRITICAL AI RESPONSE CLEANER
  * Ensures Markdown headers have correct spacing and removes artifacts.
- * e.g., converts "###Header" to "### Header".
- * This is essential for clean AI output rendering.
+ * NOW SAFER: Ignores content inside code blocks to prevent breaking code.
  * @param {string} text 
  * @returns {string}
  */
 function cleanAiResponse(text) {
   if (!text) return "";
 
-  let clean = text;
+  // Split text by code blocks so we only clean outside of them.
+  // The capturing group () ensures the delimiter is included in the result array.
+  const parts = text.split(/(```[\s\S]*?```)/g);
 
-  // 1. Fix sticky headers (###Title → ### Title)
-  clean = clean.replace(/^\s*(#{1,6})([^\s#])/gm, "$1 $2");
+  const cleanedParts = parts.map((part) => {
+    // If this part is a code block, return it untouched.
+    if (part.startsWith("```")) return part;
 
-  // 2. Fix bolded headers (**### Title** → ### Title)
-  clean = clean.replace(/\*\*(#{1,6})\s*(.*?)\*\*/gm, "$1 $2");
+    let clean = part;
 
-  // 2.5 Fix bold-only lines (**LandingPage** → LandingPage)
-  clean = clean.replace(/^\s*\*\*(.+?)\*\*\s*$/gm, "$1");
+    // 1. Fix Markdown Headers (Sticky Hash: #Header -> # Header)
+    clean = clean.replace(/^\s*(#{1,6})([^\s#])/gm, '$1 $2');
 
-  // 3. Remove hallucinated role prefixes
-  clean = clean.replace(/^(User:|Assistant:|Spider AI:|Bot:)\s*/gim, "");
+    // 2. Fix Bolded/Italicized Headers (**### Title** or *### Title*)
+    // Removes wrapping stars: **### Title** -> ### Title
+    clean = clean.replace(/^\s*[\*]+(#{1,6})\s*(.*?)\s*[\*]+$/gm, '$1 $2');
+    
+    // 3. Fix Leading Artifacts (*# or ** #)
+    // Sometimes AI outputs "* # Header" (bullet + header) or "*#Header".
+    // We strip the leading stars/bullets from headers.
+    clean = clean.replace(/^\s*[\*-\+]\s*(#{1,6})/gm, '$1');
 
-  // 4. Remove internal system tags
-  clean = clean.replace(/\[SEARCH_\w+\]/g, "");
+    // 4. Remove "User:" or "Assistant:" prefixes
+    clean = clean.replace(/^(User:|Assistant:|Spider AI:|Bot:)\s*/i, "");
 
-  // 5. Normalize code blocks
-  clean = clean.replace(/```(\w+)/g, "\n```$1\n");
-  clean = clean.replace(/```\s*$/g, "\n```");
+    // 5. Remove internal system tags
+    clean = clean.replace(/\[SEARCH_\w+\]/g, "");
 
-  return clean.trim();
+    return clean;
+  });
+
+  return cleanedParts.join("").trim();
 }
 
 /**
@@ -270,7 +279,8 @@ const AI_FORMATTING_RULES =
   "FORMATTING RULES (STRICT):\n" +
   "- MARKDOWN: Use Markdown for all formatting.\n" +
   "- TABLES: Use Markdown tables for structured data.\n" +
-   "- LISTS: Use - or 1. for lists.\n" +
+  "- HEADERS: Use #, ##, ### for structure. IMPORTANT: ALWAYS put a space after the hash (e.g., '### Title', NOT '###Title').\n" +
+  "- LISTS: Use - or 1. for lists.\n" +
   "- MATH: Use LaTeX style (e.g., $E=mc^2$) for math formulas.\n";
 
 const AI_CODING_RULES = 
@@ -794,20 +804,13 @@ export async function onRequest(context) {
     */
     if (currentMode === "analyze_file") {
       const fileNameStr = filename || "unknown_file";
-const analysisPrompt =
-  `Analyze the following file: '${fileNameStr}'.\n` +
-  `Tasks:\n` +
-  `1. Explain the logic clearly.\n` +
-  `2. Find bugs or security issues.\n` +
-  `3. Provide FIXED code (complete file).\n\n` +
-  `Rules:\n` +
-  `- Use strict analysis style (like ChatGPT code analysis).\n` +
-  `- Use Markdown formatting correctly.\n` +
-  `- DO NOT use bold (**).\n` +
-  `- Always use headers as ' Title'.\n` +
-  `- Do NOT skip any part of the file.\n` +
-  `- Do NOT use placeholders.\n\n` +
-  `FILE CONTENT:\n\`\`\`\n${combinedFileContent}\n\`\`\``;
+      const analysisPrompt = 
+        `Analyze the following file: '${fileNameStr}'.\n` +
+        `Tasks:\n` +
+        `1. Explain the logic.\n` +
+        `2. Find bugs or security issues.\n` +
+        `3. Provide FIXED code (complete file).\n\n` +
+        `FILE CONTENT:\n\`\`\`\n${combinedFileContent}\n\`\`\``;
 
       const messages = [
         finalSystemMessage,
