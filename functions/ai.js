@@ -10,7 +10,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.0.0";
+const VERSION = "9.0.1";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -33,29 +33,32 @@ function cleanAiResponse(text) {
   const TABLE = [];
   const MATH = [];
 
-  const CODE_T = "\u200B\u200C\u200D_CODE_";
+  const CODE_T  = "\u200B\u200C\u200D_CODE_";
   const TABLE_T = "\u200B\u200C\u200D_TABLE_";
-  const MATH_T = "\u200B\u200C\u200D_MATH_";
+  const MATH_T  = "\u200B\u200C\u200D_MATH_";
 
-  // protect code blocks
+  // 1️⃣ Protect code blocks
   text = text.replace(/```[\s\S]*?```/g, m => {
     CODE.push(m);
     return CODE_T + (CODE.length - 1) + "_";
   });
 
-  // protect tables
-  text = text.replace(/(^|\n)(\|.+\|[\s\S]*?\n(?=\n|$))/g, m => {
-    TABLE.push(m);
-    return TABLE_T + (TABLE.length - 1) + "_";
-  });
+  // 2️⃣ Protect markdown tables (FIXED — line based, safe)
+  text = text.replace(
+    /(^|\n)((?:\|.*\|\n?)+)/g,
+    m => {
+      TABLE.push(m);
+      return TABLE_T + (TABLE.length - 1) + "_";
+    }
+  );
 
-  // protect math
+  // 3️⃣ Protect math ($ / $$)
   text = text.replace(/\$\$[\s\S]*?\$\$|\$[^$\n]+\$/g, m => {
     MATH.push(m);
     return MATH_T + (MATH.length - 1) + "_";
   });
 
-  // clean prose only
+  // 4️⃣ Clean prose ONLY
   text = text
     .replace(/#\*[\s\S]*?\*#/g, "")
     .replace(/#\*/g, "")
@@ -69,10 +72,10 @@ function cleanAiResponse(text) {
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
-  // restore protected blocks
-  text = text.replace(new RegExp(CODE_T + "(\\d+)_", "g"), (_, i) => CODE[i]);
+  // 5️⃣ Restore protected blocks (ORDER MATTERS)
+  text = text.replace(new RegExp(CODE_T  + "(\\d+)_", "g"), (_, i) => CODE[i]);
   text = text.replace(new RegExp(TABLE_T + "(\\d+)_", "g"), (_, i) => TABLE[i]);
-  text = text.replace(new RegExp(MATH_T + "(\\d+)_", "g"), (_, i) => MATH[i]);
+  text = text.replace(new RegExp(MATH_T  + "(\\d+)_", "g"), (_, i) => MATH[i]);
 
   return text;
 }
@@ -141,8 +144,7 @@ export async function onRequest(context) {
       prompt = "",
       mode = "chat",
       user_preference_id = "anon",
-      aspect_ratio = "1:1",
-      stream = false
+      aspect_ratio = "1:1"
     } = payload;
 
     const memKey = AI_MEMORY_USER_KEY_PREFIX + user_preference_id;
@@ -231,7 +233,7 @@ Rules:
       }
     );
 
-    let output = cleanAiResponse(extractText(aiRes));
+    const output = cleanAiResponse(extractText(aiRes));
 
     memory.push({ role: "assistant", content: output, ts: Date.now() });
     await saveMemory(env, memKey, memory);
