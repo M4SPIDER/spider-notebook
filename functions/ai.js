@@ -10,7 +10,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.1.0"; // Version bump
+const VERSION = "9.1.1"; // Version bump
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -119,16 +119,31 @@ export async function onRequest(context) {
     } = payload;
 
     const memKey = AI_MEMORY_USER_KEY_PREFIX + user_preference_id;
+    const cleanPrompt = (prompt || "").trim().toLowerCase();
 
     //////////////////////
     // DELETE MEMORY MODE
     //////////////////////
-    if (mode === "delete_memory" || mode === "clear_memory") {
+    // Triggered by 'delete_memory' mode OR 'delete all' text command
+    if (
+      mode === "delete_memory" || 
+      mode === "clear_memory" || 
+      mode === "delete_all" || 
+      cleanPrompt === "delete all"
+    ) {
       const success = await deleteMemory(env, memKey);
+      const msg = success ? "Memory wiped successfully 🧹" : "No KV found or empty.";
+
+      // If triggered by chat command, return text/plain for the UI
+      if (cleanPrompt === "delete all") {
+        return new Response(msg, { headers: { ...cors, "Content-Type": "text/plain" } });
+      }
+
+      // Default JSON response for API mode
       return new Response(
         JSON.stringify({ 
           status: success ? "success" : "skipped", 
-          message: success ? "Memory wiped successfully 🧹" : "No KV found or empty." 
+          message: msg 
         }), 
         { headers: { ...cors, "Content-Type": "application/json" } }
       );
