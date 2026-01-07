@@ -1,106 +1,86 @@
-/**
- * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND
- * SDXL + KV + STREAMING + SAFE CLEANER
- * Author: M4 Spider
- * =========================================================
- */
+/* =========================================================
+   SPIDER AI — FINAL MIXED BACKEND (SDXL FIXED)
+   Author: M4 Spider 🕷️🤖
+   Version: 9.0.0
+   Endpoint: POST /api/generate/text
+   ========================================================= */
 
 //////////////////////////////
-// CONFIG
+// 1. CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.0.0";
+const AI_VERSION = "9.0.0";
 
-const AI_MEMORY_TRIM_TARGET = 25;
+const AI_MEMORY_TRIM_TARGET = 40;
 const AI_MEMORY_TTL_DAYS = 30;
-const AI_MEMORY_USER_KEY_PREFIX = "spider_ai_mem:";
-const AI_RETRY_LIMIT = 2;
+const AI_MEMORY_USER_KEY_PREFIX = "spider_ai_mem_v9:";
+
+const AI_RETRY_LIMIT = 3;
 const AI_RETRY_DELAY_BASE = 1500;
 
 //////////////////////////////
-// UTILS
+// 2. UTILS
 //////////////////////////////
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+function log(type, msg) {
+  console.log(`[SPIDER_AI][${type}] ${msg}`);
+}
+
 //////////////////////////////
-// SAFE CLEANER (CODE / TABLE / MATH SAFE)
+// 3. CLEAN OUTPUT (CHAT ONLY)
 //////////////////////////////
 function cleanAiResponse(text) {
   if (!text) return "";
 
-  const CODE = [];
-  const TABLE = [];
-  const MATH = [];
+  const blocks = [];
+  const TOKEN = "\u200B\u200C\u200D";
 
-  const CODE_T = "\u200B\u200C\u200D_CODE_";
-  const TABLE_T = "\u200B\u200C\u200D_TABLE_";
-  const MATH_T = "\u200B\u200C\u200D_MATH_";
-
-  // protect code blocks
   text = text.replace(/```[\s\S]*?```/g, m => {
-    CODE.push(m);
-    return CODE_T + (CODE.length - 1) + "_";
+    blocks.push(m);
+    return `${TOKEN}${blocks.length}${TOKEN}`;
   });
 
-  // protect tables
-  text = text.replace(/(^|\n)(\|.+\|[\s\S]*?\n(?=\n|$))/g, m => {
-    TABLE.push(m);
-    return TABLE_T + (TABLE.length - 1) + "_";
-  });
-
-  // protect math
-  text = text.replace(/\$\$[\s\S]*?\$\$|\$[^$\n]+\$/g, m => {
-    MATH.push(m);
-    return MATH_T + (MATH.length - 1) + "_";
-  });
-
-  // clean prose only
-  text = text
+  let c = text
     .replace(/#\*[\s\S]*?\*#/g, "")
     .replace(/#\*/g, "")
     .replace(/\*#/g, "")
-    .replace(/\*\*(.*?)\*\*/g, "$1")
-    .replace(/\*(.*?)\*/g, "$1")
-    .replace(/__(.*?)__/g, "$1")
-    .replace(/_(.*?)_/g, "$1")
-    .replace(/^\s*#{1,6}\s*/gm, "")
-    .replace(/^(User:|Assistant:|AI:|Bot:|Model:)\s*/igm, "")
+    .replace(/^(User:|Assistant:|AI:|Bot:|Model:|Spider AI:)\s*/igm, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
-  // restore protected blocks
-  text = text.replace(new RegExp(CODE_T + "(\\d+)_", "g"), (_, i) => CODE[i]);
-  text = text.replace(new RegExp(TABLE_T + "(\\d+)_", "g"), (_, i) => TABLE[i]);
-  text = text.replace(new RegExp(MATH_T + "(\\d+)_", "g"), (_, i) => MATH[i]);
-
-  return text;
+  const restore = new RegExp(`${TOKEN}(\\d+)${TOKEN}`, "g");
+  return c.replace(restore, (_, i) => blocks[i - 1]);
 }
 
 //////////////////////////////
-// KV MEMORY
+// 4. KV MEMORY (CHAT ONLY)
 //////////////////////////////
 async function getMemory(env, key) {
   try {
-    return env.CHAT_KV ? JSON.parse(await env.CHAT_KV.get(key)) || [] : [];
+    if (!env.CHAT_KV) return [];
+    return JSON.parse(await env.CHAT_KV.get(key)) || [];
   } catch {
     return [];
   }
 }
 
 async function saveMemory(env, key, mem) {
-  if (!env.CHAT_KV) return;
-  await env.CHAT_KV.put(key, JSON.stringify(mem), {
-    expirationTtl: AI_MEMORY_TTL_DAYS * 86400
-  });
+  try {
+    if (!env.CHAT_KV) return;
+    await env.CHAT_KV.put(key, JSON.stringify(mem), {
+      expirationTtl: AI_MEMORY_TTL_DAYS * 86400
+    });
+  } catch {}
 }
 
 //////////////////////////////
-// AI CALL
+// 5. AI EXECUTION WITH RETRY
 //////////////////////////////
-async function runAi(env, model, payload) {
+async function runAiWithRetry(env, model, payload) {
   for (let i = 0; i <= AI_RETRY_LIMIT; i++) {
     try {
+      log("AI", `Running ${model}, attempt ${i + 1}`);
       return await env.SPY_AI.run(model, payload);
     } catch (e) {
       if (i === AI_RETRY_LIMIT) throw e;
@@ -120,7 +100,55 @@ function extractText(resp) {
 }
 
 //////////////////////////////
-// MAIN HANDLER
+// 6. STREAM MODE (NO KV)
+//////////////////////////////
+async function runAiStream(env, messages, writer) {
+  const encoder = new TextEncoder();
+
+  const stream = await env.SPY_AI.run(
+    "@cf/mistralai/mistral-small-3.1-24b-instruct",
+    {
+      messages,
+      temperature: 0.7,
+      max_tokens: 8192,
+      stream: true
+    }
+  );
+
+  for await (const chunk of stream) {
+    const text =
+      chunk?.delta?.content ||
+      chunk?.output_text ||
+      chunk?.text ||
+      "";
+
+    if (text) {
+      await writer.write(encoder.encode(text));
+    }
+  }
+}
+
+//////////////////////////////
+// 7. PERFECT SDXL (FROM OLD V8.1.9 — UNCHANGED)
+//////////////////////////////
+async function runSDXL(env, prompt) {
+  const finalPrompt =
+    prompt
+      .replace(/#image|#gen|generate image/gi, "")
+      .trim() +
+    ", 8k, photorealistic, cinematic lighting";
+
+  log("SDXL", "Generating image");
+
+  return await runAiWithRetry(
+    env,
+    "@cf/stabilityai/stable-diffusion-xl-base-1.0",
+    { prompt: finalPrompt }
+  );
+}
+
+//////////////////////////////
+// 8. MAIN HANDLER
 //////////////////////////////
 export async function onRequest(context) {
   const { request, env } = context;
@@ -136,111 +164,110 @@ export async function onRequest(context) {
   }
 
   try {
-    const payload = await request.json();
+    if (!env.SPY_AI) throw new Error("SPY_AI binding missing");
+
+    // SAFE BODY PARSE
+    const ct = request.headers.get("content-type") || "";
+    let payload = {};
+
+    if (ct.includes("application/json")) {
+      payload = await request.json();
+    } else {
+      payload.prompt = await request.text();
+    }
+
     const {
       prompt = "",
-      mode = "chat",
-      user_preference_id = "anon",
-      aspect_ratio = "1:1",
-      stream = false
+      mode = "chat"
     } = payload;
 
-    const memKey = AI_MEMORY_USER_KEY_PREFIX + user_preference_id;
+    log("ROUTER", `Mode = ${mode}`);
 
-    //////////////////////
+    //////////////////////////////
     // STREAM MODE (NO KV)
-    //////////////////////
+    //////////////////////////////
     if (mode === "stream") {
-      const encoder = new TextEncoder();
-      const streamResp = new ReadableStream({
-        async start(controller) {
-          const res = await runAi(
-            env,
-            "@cf/mistralai/mistral-small-3.1-24b-instruct",
-            {
-              messages: [{ role: "user", content: prompt }],
-              max_tokens: 8192
-            }
+      const messages = [
+        { role: "system", content: "Stream full output. Never truncate." },
+        { role: "user", content: prompt }
+      ];
+
+      const { readable, writable } = new TransformStream();
+      const writer = writable.getWriter();
+
+      runAiStream(env, messages, writer)
+        .then(() => writer.close())
+        .catch(err => {
+          writer.write(
+            new TextEncoder().encode(`\n[STREAM ERROR] ${err.message}\n`)
           );
+          writer.close();
+        });
 
-          const text = extractText(res);
-          const chunks = text.match(/.{1,800}/g) || [];
-
-          for (const c of chunks) {
-            controller.enqueue(encoder.encode(c));
-            await sleep(20);
-          }
-          controller.close();
-        }
-      });
-
-      return new Response(streamResp, {
+      return new Response(readable, {
         headers: {
           ...cors,
-          "Content-Type": "text/plain; charset=utf-8"
+          "Content-Type": "text/plain; charset=utf-8",
+          "Cache-Control": "no-cache"
         }
       });
     }
 
-    //////////////////////
-    // IMAGE GENERATION (SDXL)
-    //////////////////////
+    //////////////////////////////
+    // IMAGE GENERATION (SDXL – PERFECT)
+    //////////////////////////////
     if (mode === "image_gen") {
-      const image = await runAi(
-        env,
-        "@cf/stabilityai/stable-diffusion-xl-base-1.0",
-        {
-          prompt: `${prompt}, ultra detailed, cinematic lighting`,
-          aspect_ratio
-        }
-      );
+      const img = await runSDXL(env, prompt);
 
-      return new Response(image, {
-        headers: { ...cors, "Content-Type": "image/png" }
+      return new Response(img, {
+        headers: {
+          ...cors,
+          "Content-Type": "image/png"
+        }
       });
     }
 
-    //////////////////////
-    // NORMAL CHAT (KV)
-    //////////////////////
-    let memory = await getMemory(env, memKey);
+    //////////////////////////////
+    // NORMAL CHAT (KV + CLEAN)
+    //////////////////////////////
+    const userId = "anon";
+    const memKey = AI_MEMORY_USER_KEY_PREFIX + userId;
 
-    memory.push({ role: "user", content: prompt, ts: Date.now() });
-    memory = memory.slice(-AI_MEMORY_TRIM_TARGET);
-
-    const systemPrompt = `
-You are ${AI_NAME} v${VERSION}.
-Rules:
-- Use markdown
-- Always use proper code blocks
-- Never output #* or *#
-`;
+    let mem = await getMemory(env, memKey);
+    mem.push({ role: "user", content: prompt, ts: Date.now() });
+    mem = mem.slice(-AI_MEMORY_TRIM_TARGET);
 
     const messages = [
-      { role: "system", content: systemPrompt },
-      ...memory.map(m => ({ role: m.role, content: m.content }))
+      {
+        role: "system",
+        content:
+          `You are ${AI_NAME} v${AI_VERSION}. ` +
+          `Give clean answers. Use Markdown. Use code blocks properly.`
+      },
+      ...mem.map(m => ({ role: m.role, content: m.content }))
     ];
 
-    const aiRes = await runAi(
+    const res = await runAiWithRetry(
       env,
       "@cf/mistralai/mistral-small-3.1-24b-instruct",
       {
         messages,
-        max_tokens: 4096,
-        temperature: 0.7
+        temperature: 0.7,
+        max_tokens: 4096
       }
     );
 
-    let output = cleanAiResponse(extractText(aiRes));
+    const output = cleanAiResponse(extractText(res));
 
-    memory.push({ role: "assistant", content: output, ts: Date.now() });
-    await saveMemory(env, memKey, memory);
+    mem.push({ role: "assistant", content: output, ts: Date.now() });
+    await saveMemory(env, memKey, mem);
 
     return new Response(output, {
       headers: { ...cors, "Content-Type": "text/plain" }
     });
 
   } catch (e) {
+    log("FATAL", e.message);
     return new Response("Spider AI Error: " + e.message, {
       status: 500,
       headers: cors
