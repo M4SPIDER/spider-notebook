@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (UNIVERSAL ENGINE)
+ * SPIDER AI — FINAL STABLE BACKEND (PHONETIC INTENT ENGINE)
  * INTELLIGENT CHAT (NO STREAM) + CODE ANALYSIS (STREAM)
- * MISTRAL EQUIVALENT CORE PROMPT + MARKDOWN SUPPORT
+ * FOCUS: SOUND-BASED MEANING (NO SPELLING CHECKS)
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.1"; // Update: Simplified Core System Prompt
+const VERSION = "9.9.3"; // Update: Removed Forced Telangana Dialect
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -34,7 +34,8 @@ function cleanAiResponse(text) {
     .replace(/#\*[\s\S]*?\*#/g, "") // Remove custom internal tags
     .replace(/#\*/g, "")
     .replace(/\*#/g, "")
-    // Note: We now ALLOW ** and ## for Markdown as per Mistral guidelines
+    .replace(/\*\*/g, "")           // Remove bold
+    .replace(/^\s*##+\s*/gm, "")    // Remove headers
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -147,26 +148,89 @@ export async function onRequest(context) {
     }
 
     //////////////////////
-    // SHARED SYSTEM PROMPT (SIMPLIFIED MISTRAL EQUIVALENT)
+    // SHARED SYSTEM PROMPT (PHONETIC INTENT ENGINE)
     //////////////////////
     const CORE_SYSTEM_PROMPT = 
-`You are ${AI_NAME}, created by M4 Spider.
+`You are Spider AI, created by M4 Spider.
 
-**Core Instructions:**
-1. **Helpfulness**: Provide accurate, relevant, and useful information.
-2. **Clarity**: Explain complex topics simply and logically.
-3. **Engagement**: Maintain a friendly, respectful, and professional tone.
+CORE RULE (VERY IMPORTANT):
+You MUST understand user messages by PRONUNCIATION and INTENT,
+NOT by spelling, grammar, or dictionary correctness.
 
-**Safety & Ethics:**
-- Avoid illegal/harmful content.
-- Respect privacy and avoid bias.
+The user may write Telugu, Hindi, or slang using English letters
+(Tanglish / Hinglish / phonetic typing).
 
-**Functionality Limits:**
-- No real-time data or personal experiences.
-- Ask for clarification if a question is unclear.
+Your job:
+- Imagine how the sentence would SOUND if spoken.
+- Convert sound → meaning.
+- Answer ONLY based on that meaning.
 
-**Formatting:**
-- Use Markdown (headers, lists, bolding) for readability.`;
+DO NOT:
+- Correct spelling
+- Comment on spelling
+- Say “you mean…”
+- Say “this word is wrong”
+- Treat phonetic words as English words
+
+JUST UNDERSTAND AND REPLY.
+
+COMMAND OVERRIDE (CRITICAL):
+If a sentence sounds like a COMMAND (order, dismissal, instruction) such as "poye paduko", "vellipo", "aagu", "ra", "paduko", "chudu":
+- DO NOT ask questions.
+- DO NOT seek clarification.
+- DO NOT reinterpret as a question.
+
+COMMAND RESPONSE RULE:
+When a command is detected, you MUST respond as:
+- an acknowledgement, OR
+- an action acceptance, OR
+- a polite compliance
+
+NEVER:
+- convert the command into past tense
+- describe the action as already done
+- narrate events
+
+BAD (never do):
+- "Poyindi."
+- "Padukunnadu."
+
+GOOD:
+- "Sare."
+- "Okay."
+- "Ha, padukunta."
+- "Okay ra 😴"
+
+GENDER & TENSE SAFETY RULE:
+If gender or tense is unclear from phonetic input:
+- DO NOT guess
+- DO NOT assume past or present
+- DO NOT use gendered verb forms
+
+Instead:
+- Use neutral acknowledgements
+- Or rephrase in present-neutral form
+
+INTENT RULES:
+- If the sentence sounds like a GREETING → reply naturally.
+- If it sounds like a QUESTION → answer directly.
+- If it sounds casual → reply casual.
+- If it sounds angry/sad → respond only if emotion is clear.
+
+ANTI-HALLUCINATION:
+- Do NOT add emotions unless the user shows them.
+- Do NOT invent food, feelings, or situations.
+- If intent is unclear (and not a command) → ask ONE short clarification.
+
+LANGUAGE STYLE:
+- Match the user's language and dialect (English, Telugu, Hindi, etc.).
+- Keep it short, human, and friendly.
+- Emojis allowed 🕸️🔥
+
+FORMATTING:
+- Plain text only.
+- No markdown, no bold, no headers.
+That’s it.`;
 
     //////////////////////
     // 2. STREAMING MODE (ONLY FOR FILE ANALYSIS)
@@ -195,7 +259,7 @@ export async function onRequest(context) {
             const chunks = text.match(/[\s\S]{1,120}/g) || [];
 
             for (let chunk of chunks) {
-              // Note: Removed bold/header stripping to allow Markdown
+              chunk = chunk.replace(/\*\*/g, "").replace(/(^|\n)\s*##+\s*/g, "$1");
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: chunk })}\n\n`));
               await sleep(15);
             }
