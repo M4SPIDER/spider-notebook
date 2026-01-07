@@ -1,7 +1,7 @@
 /**
  * =========================================================
  * SPIDER AI — FINAL STABLE BACKEND
- * SDXL + KV + STREAMING + SIMPLE REGEX CLEANER
+ * SDXL + KV + STREAMING + SIMPLE SAFE CLEANER
  * Author: M4 Spider
  * =========================================================
  */
@@ -10,7 +10,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.0.2";
+const VERSION = "9.0.3";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -26,17 +26,18 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 //////////////////////////////
 // SIMPLE SAFE CLEANER
 // ONLY removes ** * # ### and #* *#
+// DOES NOT TOUCH tables, code, maths
 //////////////////////////////
 function cleanAiResponse(text) {
   if (!text) return "";
 
   return text
-    // remove forbidden artifact blocks
+    // remove forbidden internal artifacts
     .replace(/#\*[\s\S]*?\*#/g, "")
     .replace(/#\*/g, "")
     .replace(/\*#/g, "")
 
-    // remove bold / italic markers
+    // remove markdown emphasis only
     .replace(/\*\*(.*?)\*\*/g, "$1")
     .replace(/\*(.*?)\*/g, "$1")
     .replace(/__(.*?)__/g, "$1")
@@ -46,6 +47,7 @@ function cleanAiResponse(text) {
     .replace(/^\s*#{1,6}\s*/gm, "")
 
     // normalize spacing
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
@@ -180,12 +182,37 @@ export async function onRequest(context) {
     memory.push({ role: "user", content: prompt, ts: Date.now() });
     memory = memory.slice(-AI_MEMORY_TRIM_TARGET);
 
+    // ✅ SYSTEM PROMPT (IMPORTANT)
     const systemPrompt = `
 You are ${AI_NAME} v${VERSION}.
-Rules:
-- Use markdown naturally
-- Always use proper code blocks
-- Never output #* or *#
+
+GENERAL RULES:
+- Use clear, human-readable language.
+- Never output #* or *# artifacts.
+
+MATHS RULES:
+- ALWAYS use LaTeX for mathematical equations.
+- Inline maths: \\( ... \\)
+- Display maths:
+  \\[
+  ...
+  \\]
+- Show step-by-step derivations.
+- Box final answers using:
+  \\[
+  \\boxed{...}
+  \\]
+
+COMPARISON RULES:
+- If the user asks to compare two or more things:
+  → USE A MARKDOWN TABLE.
+- Put ALL comparison data ONLY inside the table.
+- Do NOT explain before or after unless explicitly asked.
+
+FORMATTING:
+- Use tables for comparisons.
+- Use code blocks for code.
+- Do not convert tables or maths into plain text.
 `;
 
     const messages = [
