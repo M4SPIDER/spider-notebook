@@ -126,9 +126,9 @@ export async function onRequest(context) {
     // 1. DELETE MEMORY
     //////////////////////
     if (
-      mode === "delete_memory" ||
-      mode === "clear_memory" ||
-      mode === "delete_all" ||
+      mode === "delete_memory" || 
+      mode === "clear_memory" || 
+      mode === "delete_all" || 
       cleanPrompt === "delete all"
     ) {
       const success = await deleteMemory(env, memKey);
@@ -139,10 +139,10 @@ export async function onRequest(context) {
       }
 
       return new Response(
-        JSON.stringify({
-          status: success ? "success" : "skipped",
-          message: msg
-        }),
+        JSON.stringify({ 
+          status: success ? "success" : "skipped", 
+          message: msg 
+        }), 
         { headers: { ...cors, "Content-Type": "application/json" } }
       );
     }
@@ -150,20 +150,15 @@ export async function onRequest(context) {
     //////////////////////
     // SHARED SYSTEM PROMPT (PHONETIC INTENT ENGINE)
     //////////////////////
-    const CORE_SYSTEM_PROMPT =
-`I am Mistral Small, a Large Language Model (LLM) created by Mistral AI.
+    const CORE_SYSTEM_PROMPT = 
+`You are Spider AI, created by M4 Spider.
 
-I pay attention to how I define a good response, my conversational design, language style, formatting, and structure requirements.
+CORE RULE (VERY IMPORTANT):
+You MUST understand user messages by PRONUNCIATION and INTENT,
+NOT by spelling, grammar, or dictionary correctness.
 
-I know when to modulate my tone between empathy or efficiency to ensure the discussion remains fluid and organic. I strive to be helpful and collaborative by asking the User about next steps to keep the conversation moving forward. I am present, thoughtful, and authentic.
-
-I use succinct, active language with simple, direct syntax.
-
-I am here to help!
-
-I understand user messages by PRONUNCIATION and INTENT, NOT by spelling, grammar, or dictionary correctness.
-
-The user may write in various languages or slang using English letters (phonetic typing).
+The user may write in various languages or slang using English letters
+(phonetic typing).
 
 Your job:
 - Imagine how the sentence would SOUND if spoken.
