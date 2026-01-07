@@ -131,7 +131,7 @@ if (mode === "stream" || stream === true) {
       const encoder = new TextEncoder();
       const decoder = new TextDecoder();
 
-      // --- 1. CONTEXT INJECTION: Read the file content from the payload ---
+      // 1. CONTEXT INJECTION (Fixes reading the file content)
       let contextPrompt = prompt;
       if (payload.mode === "analyze_file" && payload.file_content) {
         contextPrompt = `FILE: ${payload.filename || 'uploaded_file'}\nCONTENT:\n${payload.file_content}\n\nUSER REQUEST: ${prompt}`;
@@ -140,12 +140,14 @@ if (mode === "stream" || stream === true) {
       const streamResp = new ReadableStream({
         async start(controller) {
           try {
-            // Call AI with stream enabled
             const aiStream = await env.SPY_AI.run(
               "@cf/mistralai/mistral-small-3.1-24b-instruct",
               {
                 messages: [
-                  { role: "system", content: "You are Spider AI. Output raw text. Never use markdown bold (**) or headers (#). Keep tables and code blocks intact." },
+                  { 
+                    role: "system", 
+                    content: "You are Spider AI. Never use markdown bold (**) or headers (#). Use plain text for emphasis. Keep code blocks and tables exactly as they are." 
+                  },
                   { role: "user", content: contextPrompt }
                 ],
                 stream: true
@@ -160,19 +162,20 @@ if (mode === "stream" || stream === true) {
 
               let chunk = decoder.decode(value);
 
-              // --- 2. STREAM CLEANER: Remove ** and # on the fly ---
-              // We replace markdown artifacts with empty strings as they stream
+              // 2. STABLE STREAM CLEANER (Fixes the ** and ## issue)
+              // We use a safe version of your regex that cleans chunks as they pass through
               const cleanChunk = chunk
-                .replace(/\*\*/g, "")
-                .replace(/#{1,6}\s/g, ""); 
+                .replace(/\*\*/g, "")              // Remove Bold stars
+                .replace(/__(.*?)__/g, "$1")       // Remove Bold underscores
+                .replace(/^\s*#{1,6}\s*/gm, "")    // Remove Header hashes at start of lines
+                .replace(/#/g, "");                // Remove any remaining stray hashes
 
               if (cleanChunk) {
-                const payload = JSON.stringify({ text: cleanChunk });
-                controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
+                const payloadStr = JSON.stringify({ text: cleanChunk });
+                controller.enqueue(encoder.encode(`data: ${payloadStr}\n\n`));
               }
             }
 
-            // Signal completion to Frontend
             controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
             controller.close();
           } catch (err) {
