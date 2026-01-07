@@ -1,7 +1,7 @@
 /**
  * =========================================================
  * SPIDER AI — FINAL STABLE BACKEND
- * Fake Streaming + SDXL + KV + File Analysis
+ * SDXL + KV + STREAMING + SAFE OUTPUT
  * Author: M4 Spider
  * =========================================================
  */
@@ -10,7 +10,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.1.0";
+const VERSION = "9.0.5";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -24,9 +24,7 @@ const AI_RETRY_DELAY_BASE = 1500;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 //////////////////////////////
-// SIMPLE SAFE CLEANER
-// ONLY removes ** * # ### #* *#
-// DOES NOT TOUCH tables, code, maths
+// SIMPLE SAFE CLEANER (NON-STREAM)
 //////////////////////////////
 function cleanAiResponse(text) {
   if (!text) return "";
@@ -35,11 +33,8 @@ function cleanAiResponse(text) {
     .replace(/#\*[\s\S]*?\*#/g, "")
     .replace(/#\*/g, "")
     .replace(/\*#/g, "")
-    .replace(/\*\*(.*?)\*\*/g, "$1")
-    .replace(/\*(.*?)\*/g, "$1")
-    .replace(/__(.*?)__/g, "$1")
-    .replace(/_(.*?)_/g, "$1")
-    .replace(/^\s*#{1,6}\s*/gm, "")
+    .replace(/\*\*/g, "")
+    .replace(/^\s*##+\s*/gm, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -106,49 +101,42 @@ export async function onRequest(context) {
 
   try {
     const payload = await request.json();
-
     const {
       prompt = "",
       mode = "chat",
-      stream = false,
-      file_content = "",
-      filename = "",
       user_preference_id = "anon",
-      aspect_ratio = "1:1"
+      aspect_ratio = "1:1",
+      stream = false,
+      file_content,
+      filename
     } = payload;
 
     const memKey = AI_MEMORY_USER_KEY_PREFIX + user_preference_id;
 
-    //////////////////////////////////////////////////////
-    // STREAM MODE (FAKE STREAMING — STABLE)
-    //////////////////////////////////////////////////////
+    //////////////////////
+    // STREAM MODE (NO KV)
+    //////////////////////
     if (mode === "stream" || stream === true) {
       const encoder = new TextEncoder();
 
       const streamResp = new ReadableStream({
         async start(controller) {
           try {
-            // ---------------------------------------
-            // BUILD CONTEXT-AWARE PROMPT
-            // ---------------------------------------
+            // ---- CONTEXT BUILD ----
             let finalPrompt = prompt;
 
             if (mode === "analyze_file" && file_content) {
-              finalPrompt = `
-FILE NAME:
+              finalPrompt =
+`FILE NAME:
 ${filename || "unknown"}
 
 FILE CONTENT:
 ${file_content}
 
 USER REQUEST:
-${prompt}
-`;
+${prompt}`;
             }
 
-            // ---------------------------------------
-            // SINGLE AI CALL
-            // ---------------------------------------
             const res = await runAi(
               env,
               "@cf/mistralai/mistral-small-3.1-24b-instruct",
@@ -157,7 +145,7 @@ ${prompt}
                   {
                     role: "system",
                     content:
-                      "You are Spider AI. Output clean text. Keep code blocks, tables, and LaTeX unchanged."
+                      "Output clean text. Do not use markdown bold or headers. Preserve code blocks, tables, and LaTeX."
                   },
                   { role: "user", content: finalPrompt }
                 ],
@@ -169,10 +157,12 @@ ${prompt}
             const text = extractText(res) || "";
             const chunks = text.match(/[\s\S]{1,120}/g) || [];
 
-            // ---------------------------------------
-            // STREAM CHUNKS
-            // ---------------------------------------
-            for (const chunk of chunks) {
+            for (let chunk of chunks) {
+              // 🔥 STREAM-SAFE CLEANER (ONLY ** and ##)
+              chunk = chunk
+                .replace(/\*\*/g, "")
+                .replace(/(^|\n)\s*##+\s*/g, "$1");
+
               controller.enqueue(
                 encoder.encode(
                   `data: ${JSON.stringify({ text: chunk })}\n\n`
@@ -228,50 +218,17 @@ ${prompt}
     }
 
     //////////////////////
-    // NORMAL CHAT / FILE ANALYSIS (KV)
+    // NORMAL CHAT (KV)
     //////////////////////
     let memory = await getMemory(env, memKey);
-
-    let finalPrompt = prompt;
-    if (mode === "analyze_file" && file_content) {
-      finalPrompt = `
-FILE NAME:
-${filename || "unknown"}
-
-FILE CONTENT:
-${file_content}
-
-USER REQUEST:
-${prompt}
-`;
-    }
-
-    memory.push({ role: "user", content: finalPrompt, ts: Date.now() });
+    memory.push({ role: "user", content: prompt, ts: Date.now() });
     memory = memory.slice(-AI_MEMORY_TRIM_TARGET);
 
     const systemPrompt = `
 You are ${AI_NAME} v${VERSION}.
-
-RULES:
-- Never output #* or *#
-- Do not destroy tables
-- Do not destroy code blocks
-- Do not destroy LaTeX maths
-
-MATHS:
-- ALWAYS use LaTeX
-- Inline: \\( ... \\)
-- Display:
-  \\[
-  ...
-  \\]
-- Box final answers:
-  \\[
-  \\boxed{...}
-  \\]
-
-COMPARISONS:
-- If comparing → USE TABLE ONLY
+- Do not use ** or ##.
+- Preserve tables, code blocks, and LaTeX.
+- Use LaTeX for maths.
 `;
 
     const messages = [
@@ -290,7 +247,6 @@ COMPARISONS:
     );
 
     const output = cleanAiResponse(extractText(aiRes));
-
     memory.push({ role: "assistant", content: output, ts: Date.now() });
     await saveMemory(env, memKey, memory);
 
