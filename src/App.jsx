@@ -1374,11 +1374,33 @@ const SpiderAIApp = ({
     const [isDeleting, setIsDeleting] = useState(false);
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [isMobile, setIsMobile] = useState(false);
+    const [isStreaming, setIsStreaming] = useState(false);
+    const [streamedContent, setStreamedContent] = useState('');
+    const [showContinueButton, setShowContinueButton] = useState(false);
+    const [lastStreamId, setLastStreamId] = useState(null);
+    
+    // ---------- Full Code Mode State ----------
+    const [isFullCodeMode, setIsFullCodeMode] = useState(false);
+    const [generatedFiles, setGeneratedFiles] = useState([]);
+    const [projectStructure, setProjectStructure] = useState([]);
+    const [activeFileIndex, setActiveFileIndex] = useState(0);
+    const [isProjectView, setIsProjectView] = useState(false);
+    const [projectMetadata, setProjectMetadata] = useState({
+        name: '',
+        type: '',
+        description: '',
+        totalFiles: 0
+    });
 
     const fileInputRef = useRef(null);
     const imageInputRef = useRef(null);
     const chatEndRef = useRef(null);
     const textareaRef = useRef(null);
+    const streamReaderRef = useRef(null);
+    const accumulatedTokensRef = useRef('');
+    const codeFilesRef = useRef([]);
+    const currentFileNameRef = useRef('');
+    const fileContentBufferRef = useRef('');
 
     const getAppId = () => typeof __app_id !== 'undefined' ? __app_id : 'default-m4-app';
     const LOCAL_STORAGE_KEY = `spider_chat_history_${getAppId()}_${(currentUser?.email || 'anon')}`;
@@ -1394,7 +1416,398 @@ const SpiderAIApp = ({
         return userId;
     }, [getAppId]);
 
-    // IndexedDB configuration
+    // ---------- Full Code Detection Patterns ----------
+    const fullCodePatterns = useMemo(() => ({
+        // Strong triggers (definitely full code)
+        strong: [
+            'write full code',
+            'give full code',
+            'provide full code',
+            'complete code',
+            'entire code',
+            'full implementation',
+            'complete implementation',
+            'entire application',
+            'complete project',
+            'entire project',
+            'full project',
+            'whole application',
+            'create a complete',
+            'build a complete',
+            'develop a complete',
+            'make a complete',
+            'generate a complete',
+            'with all files',
+            'with entire codebase',
+            'with complete source',
+            'including all dependencies',
+            'with package.json',
+            'with requirements.txt'
+        ],
+        
+        // Medium triggers (likely full code)
+        medium: [
+            'full stack',
+            'complete app',
+            'entire app',
+            'full app',
+            'with frontend and backend',
+            'with database',
+            'with api',
+            'with all components',
+            'with all modules',
+            'with configuration',
+            'with setup',
+            'with installation',
+            'multi-file',
+            'multiple files',
+            'file structure',
+            'project structure',
+            'directory structure',
+            'folder structure'
+        ],
+        
+        // Project type indicators
+        projectTypes: [
+            'todo app',
+            'calculator',
+            'weather app',
+            'chat application',
+            'e-commerce',
+            'blog platform',
+            'social media',
+            'dashboard',
+            'admin panel',
+            'portfolio website',
+            'rest api',
+            'crud application',
+            'fullstack',
+            'mern stack',
+            'mean stack',
+            'react app',
+            'vue app',
+            'angular app',
+            'node.js app',
+            'django app',
+            'flask app',
+            'mobile app',
+            'desktop app'
+        ],
+        
+        // File extension patterns
+        fileExtensions: [
+            '.py', '.js', '.jsx', '.ts', '.tsx', '.html', '.css', '.scss', 
+            '.json', '.md', '.txt', '.yml', '.yaml', '.xml', '.env',
+            '.java', '.cpp', '.c', '.h', '.cs', '.php', '.rb', '.go',
+            '.rs', '.swift', '.kt', '.dart'
+        ]
+    }), []);
+
+    // ---------- Detect Full Code Request ----------
+    const detectFullCodeRequest = useCallback((text) => {
+        if (!text || typeof text !== 'string') return false;
+        
+        const lowerText = text.toLowerCase();
+        let score = 0;
+        
+        // Check strong patterns (2 points each)
+        fullCodePatterns.strong.forEach(pattern => {
+            if (lowerText.includes(pattern)) score += 2;
+        });
+        
+        // Check medium patterns (1 point each)
+        fullCodePatterns.medium.forEach(pattern => {
+            if (lowerText.includes(pattern)) score += 1;
+        });
+        
+        // Check for project type mentions
+        fullCodePatterns.projectTypes.forEach(type => {
+            if (lowerText.includes(type)) score += 1;
+        });
+        
+        // Check for explicit file requests
+        fullCodePatterns.fileExtensions.forEach(ext => {
+            if (lowerText.includes(ext)) score += 1;
+        });
+        
+        // Check for file count mentions
+        const fileCountMatch = lowerText.match(/(\d+)\s*(files|file)/);
+        if (fileCountMatch && parseInt(fileCountMatch[1]) > 1) {
+            score += 2;
+        }
+        
+        // Check for structure keywords
+        if (lowerText.includes('structure') || lowerText.includes('architecture')) {
+            score += 1;
+        }
+        
+        // Threshold for triggering full code mode
+        return score >= 3;
+    }, [fullCodePatterns]);
+
+    // ---------- Extract Project Metadata ----------
+    const extractProjectMetadata = useCallback((text) => {
+        const lowerText = text.toLowerCase();
+        const metadata = {
+            name: 'Untitled Project',
+            type: 'web',
+            description: 'Generated by Spider AI',
+            totalFiles: 0,
+            techStack: [],
+            hasFrontend: false,
+            hasBackend: false,
+            hasDatabase: false
+        };
+        
+        // Detect project type
+        if (lowerText.includes('react') || lowerText.includes('frontend')) {
+            metadata.type = 'react';
+            metadata.techStack.push('React');
+            metadata.hasFrontend = true;
+        }
+        if (lowerText.includes('node') || lowerText.includes('backend') || lowerText.includes('api')) {
+            metadata.type = metadata.type === 'react' ? 'mern' : 'node';
+            metadata.techStack.push('Node.js');
+            metadata.hasBackend = true;
+        }
+        if (lowerText.includes('mongodb') || lowerText.includes('database')) {
+            metadata.techStack.push('MongoDB');
+            metadata.hasDatabase = true;
+        }
+        if (lowerText.includes('python') || lowerText.includes('django') || lowerText.includes('flask')) {
+            metadata.type = 'python';
+            metadata.techStack.push('Python');
+            metadata.hasBackend = true;
+        }
+        
+        // Try to extract project name
+        const nameMatch = lowerText.match(/(?:create|build|make|generate)\s+(?:a|an)?\s+([a-z\s]+?)(?:\s+(?:app|application|project|website|platform))/);
+        if (nameMatch) {
+            metadata.name = nameMatch[1].trim().replace(/\b\w/g, l => l.toUpperCase());
+        }
+        
+        // Extract file count if mentioned
+        const fileCountMatch = lowerText.match(/(\d+)\s*(?:files|file)/);
+        if (fileCountMatch) {
+            metadata.totalFiles = parseInt(fileCountMatch[1]);
+        }
+        
+        return metadata;
+    }, []);
+
+    // ---------- Parse Generated Code for Files ----------
+    const parseCodeForFiles = useCallback((text) => {
+        if (!text) return [];
+        
+        const files = [];
+        const lines = text.split('\n');
+        let currentFile = null;
+        let inCodeBlock = false;
+        let currentContent = [];
+        
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            
+            // Detect file headers (common patterns)
+            const fileHeaderMatch = line.match(/^(?:File|Filename|File name|## |# |📁|📄)\s*[:：]?\s*(.+?\.(?:js|jsx|ts|tsx|py|html|css|json|md|txt|yml|yaml|xml|env))$/i);
+            const pathMatch = line.match(/^([a-zA-Z0-9_\-./]+\.(?:js|jsx|ts|tsx|py|html|css|json|md|txt|yml|yaml|xml|env))$/);
+            
+            if (fileHeaderMatch || pathMatch) {
+                // Save previous file if exists
+                if (currentFile && currentContent.length > 0) {
+                    files.push({
+                        ...currentFile,
+                        content: currentContent.join('\n').trim()
+                    });
+                }
+                
+                const fileName = (fileHeaderMatch?.[1] || pathMatch?.[1]).trim();
+                currentFile = {
+                    name: fileName,
+                    path: fileName.includes('/') ? fileName : `/${fileName}`,
+                    language: getLanguageFromExtension(fileName),
+                    size: 0,
+                    lastModified: Date.now()
+                };
+                currentContent = [];
+                continue;
+            }
+            
+            // Detect code blocks with language specifying file
+            const codeBlockMatch = line.match(/^```(\w+)\s+(.+?\.\w+)$/);
+            if (codeBlockMatch) {
+                // Save previous file if exists
+                if (currentFile && currentContent.length > 0) {
+                    files.push({
+                        ...currentFile,
+                        content: currentContent.join('\n').trim()
+                    });
+                }
+                
+                const [_, language, fileName] = codeBlockMatch;
+                currentFile = {
+                    name: fileName.trim(),
+                    path: `/${fileName.trim()}`,
+                    language: language,
+                    size: 0,
+                    lastModified: Date.now()
+                };
+                currentContent = [];
+                inCodeBlock = true;
+                continue;
+            }
+            
+            // End of code block
+            if (line.trim() === '```') {
+                inCodeBlock = false;
+                if (currentFile && currentContent.length > 0) {
+                    files.push({
+                        ...currentFile,
+                        content: currentContent.join('\n').trim()
+                    });
+                    currentFile = null;
+                    currentContent = [];
+                }
+                continue;
+            }
+            
+            // Accumulate content
+            if (currentFile) {
+                currentContent.push(line);
+            }
+        }
+        
+        // Save last file
+        if (currentFile && currentContent.length > 0) {
+            files.push({
+                ...currentFile,
+                content: currentContent.join('\n').trim(),
+                size: currentContent.join('\n').length
+            });
+        }
+        
+        // If no structured files found, try to extract from code blocks
+        if (files.length === 0) {
+            const codeBlocks = extractCodeBlocks(text);
+            codeBlocks.forEach((block, index) => {
+                if (block.content.trim()) {
+                    files.push({
+                        name: `file${index + 1}.${block.language || 'txt'}`,
+                        path: `/file${index + 1}.${block.language || 'txt'}`,
+                        language: block.language || 'text',
+                        content: block.content.trim(),
+                        size: block.content.length,
+                        lastModified: Date.now()
+                    });
+                }
+            });
+        }
+        
+        return files;
+    }, []);
+
+    const getLanguageFromExtension = (filename) => {
+        const ext = filename.split('.').pop().toLowerCase();
+        const map = {
+            'js': 'javascript',
+            'jsx': 'javascript',
+            'ts': 'typescript',
+            'tsx': 'typescript',
+            'py': 'python',
+            'html': 'html',
+            'css': 'css',
+            'scss': 'scss',
+            'json': 'json',
+            'md': 'markdown',
+            'txt': 'text',
+            'yml': 'yaml',
+            'yaml': 'yaml',
+            'xml': 'xml',
+            'env': 'dotenv',
+            'java': 'java',
+            'cpp': 'cpp',
+            'c': 'c',
+            'h': 'c',
+            'cs': 'csharp',
+            'php': 'php',
+            'rb': 'ruby',
+            'go': 'go',
+            'rs': 'rust',
+            'swift': 'swift',
+            'kt': 'kotlin',
+            'dart': 'dart'
+        };
+        return map[ext] || 'text';
+    };
+
+    const extractCodeBlocks = (text) => {
+        const blocks = [];
+        const lines = text.split('\n');
+        let inCodeBlock = false;
+        let currentLanguage = '';
+        let currentContent = [];
+        
+        for (const line of lines) {
+            const codeStart = line.match(/^```(\w*)/);
+            if (codeStart) {
+                if (inCodeBlock) {
+                    blocks.push({
+                        language: currentLanguage,
+                        content: currentContent.join('\n')
+                    });
+                    currentContent = [];
+                }
+                inCodeBlock = !inCodeBlock;
+                currentLanguage = codeStart[1] || 'text';
+                continue;
+            }
+            
+            if (inCodeBlock) {
+                currentContent.push(line);
+            }
+        }
+        
+        return blocks;
+    };
+
+    // ---------- Download Project as ZIP ----------
+    const downloadProjectAsZip = useCallback(async () => {
+        if (generatedFiles.length === 0) {
+            showModal("No Files", "No generated files to download.");
+            return;
+        }
+        
+        try {
+            // In a real implementation, you would use a ZIP library like jszip
+            // For now, we'll create a simple downloadable structure
+            const projectData = {
+                name: projectMetadata.name || 'spider-project',
+                files: generatedFiles,
+                metadata: projectMetadata,
+                generatedAt: new Date().toISOString()
+            };
+            
+            const blob = new Blob([JSON.stringify(projectData, null, 2)], {
+                type: 'application/json'
+            });
+            
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${projectMetadata.name || 'project'}-${Date.now()}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            showModal("Project Downloaded", `Project "${projectMetadata.name}" has been downloaded as JSON.`);
+        } catch (error) {
+            console.error('Download error:', error);
+            showModal("Download Error", "Failed to download project.");
+        }
+    }, [generatedFiles, projectMetadata, showModal]);
+
+    // ---------- IndexedDB Configuration ----------
     const DB_NAME = 'SpiderAIChatsDB';
     const DB_VERSION = 1;
     const STORE_NAME = 'chats';
@@ -1423,7 +1836,7 @@ const SpiderAIApp = ({
         }
     }, [message]);
 
-    // ---------- IndexedDB Helper Functions ----------
+    // ---------- Open Database ----------
     const openDatabase = useCallback(() => {
         return new Promise((resolve, reject) => {
             const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -1659,7 +2072,7 @@ const SpiderAIApp = ({
     // Scroll to bottom when chat updates
     useEffect(() => {
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [chatHistory, streamingMessage]);
+    }, [chatHistory, streamingMessage, streamedContent]);
 
     // ---------- Fast Typing Animation ----------
     const typeText = useCallback((text, onComplete) => {
@@ -1692,18 +2105,202 @@ const SpiderAIApp = ({
         typeNextWord();
     }, []);
 
+    // ---------- Enhanced Streaming Handler ----------
+    const handleStreamResponse = useCallback(async (response) => {
+        if (!response.body) {
+            throw new Error('ReadableStream not supported in this browser');
+        }
+
+        const reader = response.body.getReader();
+        streamReaderRef.current = reader;
+        
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let isFirstChunk = true;
+        let startTime = Date.now();
+        let tokenCount = 0;
+
+        try {
+            while (true) {
+                const { done, value } = await reader.read();
+                
+                if (done) {
+                    // Check if response was truncated
+                    if (accumulatedTokensRef.current.length > 0 && !accumulatedTokensRef.current.trim().endsWith('.')) {
+                        setShowContinueButton(true);
+                    }
+                    break;
+                }
+                
+                // Decode the chunk
+                const chunk = decoder.decode(value, { stream: true });
+                buffer += chunk;
+                
+                // Process lines
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+                
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        const data = line.slice(6);
+                        
+                        if (data === '[DONE]') {
+                            // Streaming complete
+                            console.log(`Stream completed. Tokens: ${tokenCount}, Time: ${Date.now() - startTime}ms`);
+                            break;
+                        }
+                        
+                        try {
+                            const parsed = JSON.parse(data);
+                            
+                            if (parsed.text) {
+                                tokenCount++;
+                                accumulatedTokensRef.current += parsed.text;
+                                
+                                // Update streaming content
+                                setStreamedContent(prev => prev + parsed.text);
+                                
+                                // In full code mode, parse files as they arrive
+                                if (isFullCodeMode) {
+                                    fileContentBufferRef.current += parsed.text;
+                                    // Try to parse files from buffer periodically
+                                    if (tokenCount % 20 === 0) {
+                                        const files = parseCodeForFiles(fileContentBufferRef.current);
+                                        if (files.length > 0) {
+                                            setGeneratedFiles(files);
+                                        }
+                                    }
+                                }
+                                
+                                // Show continue button if we detect incomplete code blocks
+                                if (parsed.text.includes('```') && !accumulatedTokensRef.current.includes('```\n```')) {
+                                    const codeBlockCount = (accumulatedTokensRef.current.match(/```/g) || []).length;
+                                    if (codeBlockCount % 2 === 1) {
+                                        // Unclosed code block
+                                        setShowContinueButton(true);
+                                    }
+                                }
+                            }
+                            
+                            if (parsed.stream_id) {
+                                setLastStreamId(parsed.stream_id);
+                            }
+                            
+                            if (parsed.is_full_code) {
+                                setIsFullCodeMode(true);
+                                setShowContinueButton(true);
+                            }
+                            
+                        } catch (e) {
+                            console.warn('Failed to parse SSE data:', e);
+                        }
+                    }
+                }
+                
+                // Speed up typing for first chunks
+                if (isFirstChunk && accumulatedTokensRef.current.length > 50) {
+                    isFirstChunk = false;
+                }
+            }
+        } catch (error) {
+            console.error('Stream reading error:', error);
+            if (error.name !== 'AbortError') {
+                throw error;
+            }
+        } finally {
+            reader.releaseLock();
+            
+            // Parse final files if in full code mode
+            if (isFullCodeMode && fileContentBufferRef.current) {
+                const files = parseCodeForFiles(fileContentBufferRef.current);
+                if (files.length > 0) {
+                    setGeneratedFiles(files);
+                    setProjectMetadata(prev => ({
+                        ...prev,
+                        totalFiles: files.length
+                    }));
+                }
+            }
+        }
+    }, [isFullCodeMode, parseCodeForFiles]);
+
+    // ---------- Continue Generation ----------
+    const handleContinueGeneration = useCallback(async () => {
+        if (!lastStreamId) return;
+        
+        setIsLoading(true);
+        setIsStreaming(true);
+        setShowContinueButton(false);
+        
+        const apiUrl = '/api/generate/continue';
+        const apiPayload = {
+            stream_id: lastStreamId,
+            user_preference_id: getPersistentUserId(),
+            firebase_token: currentUser?.firebaseToken || '',
+            stream: true
+        };
+        
+        try {
+            // Create new abort controller
+            const controller = new AbortController();
+            setAbortController(controller);
+            
+            // Call API with streaming
+            const response = await callFastAPI(apiUrl, apiPayload, 'chat', {
+                signal: controller.signal,
+                stream: true
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            // Handle streaming response
+            await handleStreamResponse(response);
+            
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                console.log('Stream aborted by user');
+            } else {
+                console.error('Continue generation error:', error);
+                showModal("Generation Error", `Failed to continue: ${error.message}`);
+            }
+        } finally {
+            setIsLoading(false);
+            setIsStreaming(false);
+        }
+    }, [lastStreamId, getPersistentUserId, currentUser, callFastAPI, handleStreamResponse, showModal]);
+
     // ---------- Stop Generation ----------
-    const handleStopGeneration = () => {
+    const handleStopGeneration = useCallback(() => {
         if (abortController) {
             abortController.abort();
             setAbortController(null);
         }
-        setIsLoading(false);
-        if (streamingMessage) {
-            setChatHistory(prev => [...prev, streamingMessage]);
-            setStreamingMessage(null);
+        if (streamReaderRef.current) {
+            streamReaderRef.current.cancel();
+            streamReaderRef.current = null;
         }
-    };
+        
+        setIsLoading(false);
+        setIsStreaming(false);
+        
+        // Save whatever we've streamed so far
+        if (accumulatedTokensRef.current) {
+            const assistantMessage = {
+                role: 'assistant',
+                content: accumulatedTokensRef.current,
+                type: 'text',
+                ts: Date.now(),
+                isPartial: true
+            };
+            setChatHistory(prev => [...prev, assistantMessage]);
+            accumulatedTokensRef.current = '';
+            setStreamedContent('');
+        }
+        
+        setStreamingMessage(null);
+    }, [abortController]);
 
     // ---------- Auto-detect Image Generation ----------
     const detectImageGeneration = (prompt) => {
@@ -1846,12 +2443,169 @@ const SpiderAIApp = ({
         });
     }, []);
 
+    // ---------- Project File Tree Component ----------
+    const ProjectFileTree = useMemo(() => {
+        return React.memo(({ files, activeIndex, onSelectFile }) => {
+            if (!files || files.length === 0) return null;
+            
+            // Group files by directory
+            const groupedFiles = {};
+            files.forEach((file, index) => {
+                const path = file.path || `/${file.name}`;
+                const parts = path.split('/');
+                const dir = parts.slice(0, -1).join('/') || '/';
+                
+                if (!groupedFiles[dir]) {
+                    groupedFiles[dir] = [];
+                }
+                groupedFiles[dir].push({ ...file, index });
+            });
+            
+            const getFileIcon = (fileName) => {
+                const ext = fileName.split('.').pop().toLowerCase();
+                const icons = {
+                    'js': '📜', 'jsx': '⚛️', 'ts': '📘', 'tsx': '⚛️',
+                    'py': '🐍', 'html': '🌐', 'css': '🎨', 'scss': '🎨',
+                    'json': '📦', 'md': '📝', 'txt': '📄', 'yml': '⚙️',
+                    'yaml': '⚙️', 'xml': '📋', 'env': '🔧',
+                    'java': '☕', 'cpp': '⚙️', 'c': '⚙️',
+                    'php': '🐘', 'rb': '💎', 'go': '🐹'
+                };
+                return icons[ext] || '📄';
+            };
+            
+            return (
+                <div className="bg-[var(--spider-dark)] rounded-lg border border-[var(--spider-light)] p-3">
+                    <div className="flex items-center justify-between mb-3">
+                        <h4 className="text-sm font-semibold text-white">Project Files</h4>
+                        <span className="text-xs text-[var(--spider-text-dim)]">
+                            {files.length} file{files.length !== 1 ? 's' : ''}
+                        </span>
+                    </div>
+                    
+                    <div className="space-y-1 max-h-60 overflow-y-auto">
+                        {Object.entries(groupedFiles).map(([dir, dirFiles]) => (
+                            <div key={dir} className="mb-2">
+                                {dir !== '/' && (
+                                    <div className="text-xs text-[var(--spider-text-dim)] font-medium px-2 py-1 bg-[var(--spider-med)] rounded">
+                                        📁 {dir}
+                                    </div>
+                                )}
+                                <div className="ml-2 mt-1 space-y-1">
+                                    {dirFiles.map((file) => (
+                                        <button
+                                            key={file.index}
+                                            onClick={() => onSelectFile(file.index)}
+                                            className={`w-full text-left px-3 py-2 text-sm rounded-md flex items-center space-x-2 transition-colors ${
+                                                activeIndex === file.index
+                                                    ? 'bg-[var(--spider-light)] text-white'
+                                                    : 'text-[var(--spider-text)] hover:bg-[var(--spider-med)]'
+                                            }`}
+                                        >
+                                            <span>{getFileIcon(file.name)}</span>
+                                            <span className="truncate">{file.name}</span>
+                                            <span className="text-xs text-[var(--spider-text-dim)] ml-auto">
+                                                {file.size ? Math.ceil(file.size / 1024 * 10) / 10 + 'KB' : ''}
+                                            </span>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        });
+    }, []);
+
+    // ---------- File Viewer Component ----------
+    const FileViewer = useMemo(() => {
+        return React.memo(({ file, onClose }) => {
+            if (!file) return null;
+            
+            const handleCopyFile = () => {
+                navigator.clipboard.writeText(file.content);
+                showModal("Copied", "File content copied to clipboard!");
+            };
+            
+            const handleDownloadFile = () => {
+                const blob = new Blob([file.content], { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = file.name;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            };
+            
+            return (
+                <div className="bg-[var(--spider-dark)] rounded-lg border border-[var(--spider-light)] p-4">
+                    <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center space-x-2">
+                            <h4 className="text-sm font-semibold text-white truncate">{file.name}</h4>
+                            <span className="text-xs text-[var(--spider-text-dim)] bg-[var(--spider-med)] px-2 py-1 rounded">
+                                {file.language}
+                            </span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                            <button
+                                onClick={handleCopyFile}
+                                className="text-xs bg-[var(--spider-light)] text-white px-3 py-1.5 rounded hover:opacity-90 transition-colors"
+                            >
+                                Copy
+                            </button>
+                            <button
+                                onClick={handleDownloadFile}
+                                className="text-xs bg-[var(--spider-neon-blue)] text-black px-3 py-1.5 rounded hover:opacity-90 transition-colors"
+                            >
+                                Download
+                            </button>
+                            {onClose && (
+                                <button
+                                    onClick={onClose}
+                                    className="text-xs bg-red-500 text-white px-3 py-1.5 rounded hover:bg-red-600 transition-colors"
+                                >
+                                    Close
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                    
+                    <div className="bg-black rounded-lg overflow-hidden">
+                        <pre className="text-sm p-4 overflow-x-auto max-h-96">
+                            <code className={`language-${file.language}`}>
+                                {file.content}
+                            </code>
+                        </pre>
+                    </div>
+                </div>
+            );
+        });
+    }, [showModal]);
+
     // ---------- New Chat Handler ----------
     const handleNewChat = () => {
         setUploadedFile(null);
         setUploadedImage(null);
         setActiveAIMode && setActiveAIMode('chat');
         setActiveChatId(null);
+        setLastStreamId(null);
+        setShowContinueButton(false);
+        setIsFullCodeMode(false);
+        setGeneratedFiles([]);
+        setProjectStructure([]);
+        setIsProjectView(false);
+        setProjectMetadata({
+            name: '',
+            type: '',
+            description: '',
+            totalFiles: 0
+        });
+        accumulatedTokensRef.current = '';
+        setStreamedContent('');
+        fileContentBufferRef.current = '';
         const welcome = [{ 
             role: 'assistant', 
             content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', 
@@ -1865,7 +2619,7 @@ const SpiderAIApp = ({
         }
     };
 
-    // ---------- Enhanced Send Message ----------
+    // ---------- Enhanced Send Message with Full Code Detection ----------
     const handleSendMessage = async () => {
         if (!message.trim() && !uploadedFile && !uploadedImage) return;
 
@@ -1876,6 +2630,7 @@ const SpiderAIApp = ({
         });
 
         setIsLoading(true);
+        setIsStreaming(true);
         const controller = new AbortController();
         setAbortController(controller);
 
@@ -1888,6 +2643,21 @@ const SpiderAIApp = ({
             mode = 'image_gen';
         }
 
+        // Auto-detect full code requests
+        const isFullCodeRequest = detectFullCodeRequest(message);
+        if (isFullCodeRequest && !fileCopy && !imageCopy) {
+            setIsFullCodeMode(true);
+            setProjectMetadata(extractProjectMetadata(message));
+            // Add a system message about full code mode
+            const systemMsg = {
+                role: 'assistant',
+                content: `I'll generate a complete ${projectMetadata.type} project "${projectMetadata.name}" for you. This may include multiple files...`,
+                type: 'system',
+                ts: Date.now()
+            };
+            setChatHistory(prev => [...prev, systemMsg]);
+        }
+
         // Override based on file/image uploads
         if (fileCopy) mode = "analyze_file";
         if (imageCopy) mode = "image_edit";
@@ -1898,17 +2668,27 @@ const SpiderAIApp = ({
             type: mode,
             fileName: fileCopy ? fileCopy.name : undefined,
             imageName: imageCopy ? imageCopy.name : undefined,
-            ts: Date.now()
+            ts: Date.now(),
+            isFullCodeRequest: isFullCodeRequest
         };
 
         setChatHistory(prev => [...prev, userMessage]);
         setMessage('');
 
+        // Reset streaming state
+        accumulatedTokensRef.current = '';
+        setStreamedContent('');
+        setShowContinueButton(false);
+        setLastStreamId(null);
+        fileContentBufferRef.current = '';
+
         // Only show streaming for text responses
         if (mode !== 'image_gen') {
             const initialStreamMessage = {
                 role: 'assistant',
-                content: '',
+                content: isFullCodeRequest 
+                    ? `Generating complete project: ${projectMetadata.name}...` 
+                    : '',
                 type: 'text',
                 ts: Date.now(),
                 isStreaming: true
@@ -1953,39 +2733,35 @@ const SpiderAIApp = ({
                     file_content: fileContent,
                     file_type: fileCopy.type,
                     user_preference_id: getPersistentUserId(),
-                    firebase_token: currentUser?.firebaseToken || ''
+                    firebase_token: currentUser?.firebaseToken || '',
+                    stream: true,
+                    full_code_mode: isFullCodeRequest
                 };
                 
-                console.log('Sending file analysis request:', {
-                    url: apiUrl,
-                    mode: mode,
-                    filename: fileCopy.name
-                });
+                console.log('Sending file analysis request with streaming');
                 
-                const result = await callFastAPI(apiUrl, apiPayload, mode);
-
-                console.log('Received file analysis response:', {
-                    hasText: !!result?.text,
-                    hasImage: !!result?.base64_image,
-                    textLength: result?.text?.length
+                const response = await callFastAPI(apiUrl, apiPayload, mode, {
+                    signal: controller.signal,
+                    stream: true
                 });
 
-                const assistantMessage = {
-                    role: 'assistant',
-                    content: result?.text || 'File analysis complete.',
-                    type: result?.base64_image ? 'image' : 'text',
-                    base64_image: result?.base64_image,
-                    ts: Date.now()
-                };
-                
-                if (!result?.base64_image && result?.text) {
-                    typeText(result.text, () => {
-                        setChatHistory(prev => [...prev, assistantMessage]);
-                        setStreamingMessage(null);
-                    });
-                } else {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                // Handle streaming response
+                await handleStreamResponse(response);
+
+                // Save the completed message
+                if (accumulatedTokensRef.current) {
+                    const assistantMessage = {
+                        role: 'assistant',
+                        content: accumulatedTokensRef.current,
+                        type: 'text',
+                        ts: Date.now(),
+                        files: generatedFiles.length > 0 ? generatedFiles : undefined
+                    };
                     setChatHistory(prev => [...prev, assistantMessage]);
-                    setStreamingMessage(null);
                 }
             }
             // IMAGE EDIT
@@ -2014,11 +2790,7 @@ const SpiderAIApp = ({
                     firebase_token: currentUser?.firebaseToken || ''
                 };
                 
-                console.log('Sending image edit request:', {
-                    url: apiUrl,
-                    mode: mode,
-                    imageSize: base64Image.length
-                });
+                console.log('Sending image edit request');
                 
                 const result = await callFastAPI(apiUrl, apiPayload, mode);
 
@@ -2044,11 +2816,7 @@ const SpiderAIApp = ({
                     stream: false
                 };
                 
-                console.log('Sending image generation request:', {
-                    url: apiUrl,
-                    mode: mode,
-                    prompt: message.substring(0, 100)
-                });
+                console.log('Sending image generation request');
                 
                 const result = await callFastAPI(apiUrl, apiPayload, mode);
 
@@ -2061,7 +2829,7 @@ const SpiderAIApp = ({
                 };
                 setChatHistory(prev => [...prev, assistantMessage]);
             }
-            // NORMAL CHAT
+            // NORMAL CHAT WITH STREAMING
             else {
                 const apiUrl = '/api/generate/text';
                 const apiPayload = { 
@@ -2069,59 +2837,76 @@ const SpiderAIApp = ({
                     mode,
                     user_preference_id: getPersistentUserId(),
                     firebase_token: currentUser?.firebaseToken || '',
-                    stream: true
+                    stream: true,
+                    full_code_mode: isFullCodeRequest,
+                    project_type: isFullCodeRequest ? projectMetadata.type : undefined
                 };
                 
-                console.log('Sending chat request:', {
-                    url: apiUrl,
-                    mode: mode,
-                    prompt: message.substring(0, 100)
+                console.log('Sending chat request with streaming', {
+                    fullCodeMode: isFullCodeRequest,
+                    projectType: projectMetadata.type
                 });
                 
-                const result = await callFastAPI(apiUrl, apiPayload, mode);
-
-                console.log('Received chat response:', {
-                    hasText: !!result?.text,
-                    textLength: result?.text?.length
+                const response = await callFastAPI(apiUrl, apiPayload, mode, {
+                    signal: controller.signal,
+                    stream: true
                 });
 
-                if (result?.text) {
-                    typeText(result.text, () => {
-                        const assistantMessage = {
-                            role: 'assistant',
-                            content: result.text,
-                            type: 'text',
-                            ts: Date.now()
-                        };
-                        setChatHistory(prev => [...prev, assistantMessage]);
-                        setStreamingMessage(null);
-                    });
-                } else {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                // Handle streaming response
+                await handleStreamResponse(response);
+
+                // Save the completed message
+                if (accumulatedTokensRef.current) {
                     const assistantMessage = {
                         role: 'assistant',
-                        content: result?.text || '',
+                        content: accumulatedTokensRef.current,
                         type: 'text',
-                        ts: Date.now()
+                        ts: Date.now(),
+                        files: generatedFiles.length > 0 ? generatedFiles : undefined,
+                        isFullCode: isFullCodeRequest
                     };
                     setChatHistory(prev => [...prev, assistantMessage]);
-                    setStreamingMessage(null);
+                    
+                    // If we have files, automatically switch to project view
+                    if (generatedFiles.length > 0 && isFullCodeRequest) {
+                        setTimeout(() => {
+                            setIsProjectView(true);
+                            showModal("Project Generated", 
+                                `Successfully generated ${generatedFiles.length} files for "${projectMetadata.name}". You can view and download them below.`
+                            );
+                        }, 500);
+                    }
                 }
             }
         } catch (error) {
             console.error('API ERROR:', error);
-            const assistantError = {
-                role: 'assistant',
-                content: `[API ERROR] ${error?.message || 'Something went wrong.'}`,
-                type: 'text',
-                ts: Date.now()
-            };
-            setChatHistory(prev => [...prev, assistantError]);
-            setStreamingMessage(null);
+            if (error.name === 'AbortError') {
+                console.log('Request aborted by user');
+            } else {
+                const assistantError = {
+                    role: 'assistant',
+                    content: `[API ERROR] ${error?.message || 'Something went wrong.'}`,
+                    type: 'text',
+                    ts: Date.now()
+                };
+                setChatHistory(prev => [...prev, assistantError]);
+            }
         } finally {
+            // Clean up
             setAbortController(null);
             setUploadedFile(null);
             setUploadedImage(null);
             setIsLoading(false);
+            setIsStreaming(false);
+            setStreamingMessage(null);
+            
+            // Clear streaming content
+            setStreamedContent('');
+            accumulatedTokensRef.current = '';
         }
     };
 
@@ -2465,6 +3250,7 @@ const SpiderAIApp = ({
 
     // Helper function for mode display
     const getModeText = () => {
+        if (isFullCodeMode) return "Full Code Project";
         if (uploadedFile) return "File Analysis";
         if (uploadedImage) return "Image Edit";
         if (activeAIMode === 'image_gen') return "Create Image";
@@ -2569,6 +3355,15 @@ const SpiderAIApp = ({
             );
         };
     }, [sidebarOpen, recentChats, activeChatId, isDeleting, currentUser, loadChatById, deleteChat, handleNewChat]);
+
+    // ---------- Project View Toggle ----------
+    const toggleProjectView = () => {
+        if (generatedFiles.length === 0) {
+            showModal("No Files", "No generated files to view.");
+            return;
+        }
+        setIsProjectView(!isProjectView);
+    };
 
     // ---------- Main JSX ----------
     return (
@@ -2681,54 +3476,187 @@ const SpiderAIApp = ({
                     </div>
                 )}
 
-                {/* Messages Container */}
-                <div className="flex-grow overflow-y-auto p-2 sm:p-4 space-y-4 pb-28 sm:pb-4">
-                    {chatHistory.map((msg, index) => (
-                        <ChatBubble key={`${msg.ts}_${index}`} message={msg} />
-                    ))}
-                    
-                    {/* Streaming Message */}
-                    {streamingMessage && (
-                        <div className="flex justify-start mb-4 px-2">
-                            <div className="bg-[var(--spider-med)] text-white p-4 rounded-2xl max-w-[95%] shadow-md border border-[var(--spider-light)]">
-                                <pre className="whitespace-pre-wrap font-sans text-sm break-words leading-relaxed">
-                                    {streamingMessage.content}
-                                </pre>
-                                <div className="flex items-center space-x-2 mt-3">
-                                    <div className="flex space-x-1">
-                                        <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce"></div>
-                                        <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                                        <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                                    </div>
-                                    <span className="text-xs text-[var(--spider-text-dim)]">AI is typing...</span>
-                                </div>
+                {/* Project View Header */}
+                {isProjectView && generatedFiles.length > 0 && (
+                    <div className="bg-[var(--spider-med)] border-b border-[var(--spider-light)] p-3 flex items-center justify-between flex-shrink-0">
+                        <div className="flex items-center space-x-3">
+                            <button 
+                                onClick={toggleProjectView}
+                                className="text-white p-1 hover:opacity-90 transition-colors"
+                                title="Back to chat"
+                            >
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+                                </svg>
+                            </button>
+                            <div>
+                                <h3 className="text-sm font-semibold text-white">{projectMetadata.name || 'Generated Project'}</h3>
+                                <p className="text-xs text-[var(--spider-text-dim)]">
+                                    {generatedFiles.length} files • {projectMetadata.type} project
+                                </p>
                             </div>
                         </div>
-                    )}
-                    
-                    {/* Loading Indicator */}
-                    {isLoading && !streamingMessage && (
-                        <div className="flex justify-start mb-4 px-2">
-                            <div className="bg-[var(--spider-med)] text-white p-4 rounded-2xl max-w-[95%] shadow-md border border-[var(--spider-light)]">
-                                <div className="flex items-center space-x-3">
-                                    <div className="flex space-x-1">
-                                        <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce"></div>
-                                        <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                                        <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                        <div className="flex items-center space-x-2">
+                            <button
+                                onClick={downloadProjectAsZip}
+                                className="bg-[var(--spider-neon-blue)] text-black text-xs font-semibold px-3 py-1.5 rounded hover:opacity-90 transition-colors"
+                            >
+                                Download All
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* Messages Container or Project View */}
+                {isProjectView ? (
+                    <div className="flex-grow overflow-y-auto p-4">
+                        <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-4">
+                            {/* File Tree Sidebar */}
+                            <div className="lg:col-span-1">
+                                <ProjectFileTree 
+                                    files={generatedFiles}
+                                    activeIndex={activeFileIndex}
+                                    onSelectFile={setActiveFileIndex}
+                                />
+                                
+                                {/* Project Info */}
+                                <div className="mt-4 bg-[var(--spider-dark)] rounded-lg border border-[var(--spider-light)] p-3">
+                                    <h4 className="text-sm font-semibold text-white mb-2">Project Info</h4>
+                                    <div className="space-y-2 text-xs">
+                                        <div className="flex justify-between">
+                                            <span className="text-[var(--spider-text-dim)]">Name:</span>
+                                            <span className="text-white">{projectMetadata.name}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-[var(--spider-text-dim)]">Type:</span>
+                                            <span className="text-white">{projectMetadata.type}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-[var(--spider-text-dim)]">Files:</span>
+                                            <span className="text-white">{generatedFiles.length}</span>
+                                        </div>
+                                        {projectMetadata.techStack && projectMetadata.techStack.length > 0 && (
+                                            <div className="flex justify-between">
+                                                <span className="text-[var(--spider-text-dim)]">Tech Stack:</span>
+                                                <span className="text-white">{projectMetadata.techStack.join(', ')}</span>
+                                            </div>
+                                        )}
                                     </div>
-                                    <span className="text-sm">Processing...</span>
-                                    <button 
-                                        onClick={handleStopGeneration}
-                                        className="bg-red-500 hover:bg-red-600 text-white text-xs px-3 py-1.5 rounded-lg transition-colors touch-manipulation active:scale-95"
-                                    >
-                                        Stop
-                                    </button>
                                 </div>
                             </div>
+                            
+                            {/* File Viewer */}
+                            <div className="lg:col-span-2">
+                                {generatedFiles[activeFileIndex] ? (
+                                    <FileViewer 
+                                        file={generatedFiles[activeFileIndex]}
+                                        onClose={toggleProjectView}
+                                    />
+                                ) : (
+                                    <div className="bg-[var(--spider-dark)] rounded-lg border border-[var(--spider-light)] p-8 text-center">
+                                        <div className="text-4xl mb-4">📁</div>
+                                        <h3 className="text-lg font-semibold text-white mb-2">Select a File</h3>
+                                        <p className="text-[var(--spider-text-dim)]">
+                                            Choose a file from the sidebar to view its contents
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
                         </div>
-                    )}
-                    <div ref={chatEndRef} />
-                </div>
+                    </div>
+                ) : (
+                    <div className="flex-grow overflow-y-auto p-2 sm:p-4 space-y-4 pb-28 sm:pb-4">
+                        {chatHistory.map((msg, index) => (
+                            <ChatBubble key={`${msg.ts}_${index}`} message={msg} />
+                        ))}
+                        
+                        {/* Streaming Message */}
+                        {(streamingMessage || isStreaming) && (
+                            <div className="flex justify-start mb-4 px-2">
+                                <div className="bg-[var(--spider-med)] text-white p-4 rounded-2xl max-w-[95%] shadow-md border border-[var(--spider-light)]">
+                                    <pre className="whitespace-pre-wrap font-sans text-sm break-words leading-relaxed">
+                                        {streamedContent || streamingMessage?.content || ''}
+                                    </pre>
+                                    <div className="flex items-center justify-between mt-3">
+                                        <div className="flex items-center space-x-2">
+                                            <div className="flex space-x-1">
+                                                <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce"></div>
+                                                <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                                                <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                                            </div>
+                                            <span className="text-xs text-[var(--spider-text-dim)]">
+                                                {isFullCodeMode ? 'Generating project files...' : 
+                                                 isStreaming ? 'AI is generating...' : 'AI is typing...'}
+                                            </span>
+                                        </div>
+                                        <button 
+                                            onClick={handleStopGeneration}
+                                            className="bg-red-500 hover:bg-red-600 text-white text-xs px-3 py-1.5 rounded-lg transition-colors touch-manipulation active:scale-95"
+                                        >
+                                            Stop
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                        
+                        {/* Continue Button */}
+                        {showContinueButton && !isLoading && (
+                            <div className="flex justify-start mb-4 px-2">
+                                <div className="bg-[var(--spider-dark)] p-3 rounded-lg border border-[var(--spider-light)]">
+                                    <div className="flex items-center space-x-3">
+                                        <div className="text-sm text-[var(--spider-text-dim)]">
+                                            {isFullCodeMode 
+                                                ? 'Project generation seems incomplete. Continue?' 
+                                                : 'Response seems incomplete. Continue generation?'}
+                                        </div>
+                                        <button 
+                                            onClick={handleContinueGeneration}
+                                            className="bg-[var(--spider-neon-blue)] text-black text-xs font-semibold px-4 py-2 rounded-lg hover:opacity-90 transition touch-manipulation active:scale-95"
+                                        >
+                                            Continue
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                        
+                        {/* Project Generated Notification */}
+                        {generatedFiles.length > 0 && !isProjectView && (
+                            <div className="flex justify-start mb-4 px-2">
+                                <div className="bg-green-900/30 border border-green-700 p-3 rounded-lg">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center space-x-3">
+                                            <div className="text-2xl">📁</div>
+                                            <div>
+                                                <h4 className="text-sm font-semibold text-white">Project Generated!</h4>
+                                                <p className="text-xs text-green-300">
+                                                    {generatedFiles.length} files created for "{projectMetadata.name}"
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center space-x-2">
+                                            <button
+                                                onClick={toggleProjectView}
+                                                className="bg-[var(--spider-neon-blue)] text-black text-xs font-semibold px-3 py-1.5 rounded hover:opacity-90 transition-colors"
+                                            >
+                                                View Project
+                                            </button>
+                                            <button
+                                                onClick={downloadProjectAsZip}
+                                                className="bg-green-700 text-white text-xs font-semibold px-3 py-1.5 rounded hover:bg-green-600 transition-colors"
+                                            >
+                                                Download
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                        
+                        <div ref={chatEndRef} />
+                    </div>
+                )}
 
                 {/* Hidden file inputs */}
                 <input 
@@ -2756,6 +3684,11 @@ const SpiderAIApp = ({
                             <div className="flex justify-between items-center mb-3">
                                 <span className="flex items-center text-sm text-[var(--spider-neon-blue)] font-semibold">
                                     {getModeText()}
+                                    {isFullCodeMode && (
+                                        <span className="ml-2 text-xs px-2 py-0.5 bg-[var(--spider-neon-blue)] text-black rounded-full">
+                                            FULL CODE
+                                        </span>
+                                    )}
                                     {activeChatId && (
                                         <span className="ml-2 text-xs text-[var(--spider-text-dim)]">
                                             (Auto-saved)
@@ -2811,9 +3744,10 @@ const SpiderAIApp = ({
                                 <textarea 
                                     ref={textareaRef}
                                     placeholder={
+                                        isFullCodeMode ? "Describe your complete project (e.g., 'Create a full React todo app with backend')..." :
                                         uploadedImage ? "Describe how to edit this image..." : 
                                         uploadedFile ? `Analyze "${uploadedFile.name}"...` : 
-                                        "Message Spider AI... (Try: 'generate image of...' or 'compare React vs Vue')"
+                                        "Message Spider AI... (Try: 'write full code for a calculator app' or 'generate image of...')"
                                     } 
                                     className="w-full bg-transparent text-white focus:outline-none resize-none text-sm sm:text-base max-h-32 overflow-y-auto touch-manipulation"
                                     style={{
@@ -2882,6 +3816,7 @@ const SpiderAIApp = ({
         </div>
     );
 };
+
 // --- END Plus Menu Component ---
 const SpiderVFXApp = () => { /* ... (Remains Placeholder) ... */ return (<div className="flex-grow h-full flex flex-col items-center justify-center bg-black text-white p-8 pattern-vfx-grid overflow-y-auto"><div className="bg-black bg-opacity-80 p-10 rounded-lg text-center shadow-xl"><h1 className="text-4xl font-bold mb-4 text-[var(--spider-neon-blue)]">Spider VFX</h1><p className="text-lg text-gray-400 mb-8">Coming Soon!</p><div className="animate-pulse text-6xl">✨</div></div></div>);};
 
@@ -3946,6 +4881,7 @@ int main() {
         </>
     );
 }
+
 
 
 
