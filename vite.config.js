@@ -1,5 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import katex from 'katex';
+import 'katex/dist/katex.min.css';
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -20,3 +22,4 @@ export default defineConfig({
     ]
   }
 });
+
