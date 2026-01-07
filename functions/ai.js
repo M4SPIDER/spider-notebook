@@ -210,31 +210,24 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
  */
 function cleanAiResponse(text) {
   if (!text) return "";
+
   let clean = text;
 
-  // 1. Fix Markdown Headers (The "Sticky Hash" Fix)
-  // Logic: Find 1-6 hash marks at the start of a line (allowing whitespace)
-  // that are IMMEDIATELY followed by a non-space character.
-  // Replace with the hashes + space + the character.
-  // Regex explanation:
-  // ^\s* -> Start of line, optional whitespace
-  // (#{1,6})   -> Capture Group 1: 1 to 6 hash marks
-  // ([^\s#])   -> Capture Group 2: Any char that is NOT a space or a hash
-  clean = clean.replace(/^\s*(#{1,6})([^\s#])/gm, '$1 $2');
+  // 1. FIX: Sticky markdown headers (###Title → ### Title), including indented ones
+  clean = clean.replace(/^\s*(#{1,6})([^\s#])/gm, "$1 $2");
 
-  // 2. Fix Bolded Headers (Rare but annoying: **### Title**)
-  // AI sometimes tries to bold headers. Markdown doesn't like that.
-  clean = clean.replace(/\*\*(#{1,6})\s*(.*?)\*\*/gm, '$1 $2');
+  // 2. FIX: Bolded headers (**### Title** → ### Title)
+  clean = clean.replace(/\*\*(#{1,6})\s*(.*?)\*\*/gm, "$1 $2");
 
-  // 3. Remove "User:" or "Assistant:" prefixes if the AI hallucinated them.
-  clean = clean.replace(/^(User:|Assistant:|Spider AI:|Bot:)\s*/i, "");
+  // 3. FIX: Remove hallucinated role prefixes
+  clean = clean.replace(/^(User:|Assistant:|Spider AI:|Bot:)\s*/gim, "");
 
-  // 4. Remove internal system tags if they leaked (e.g., [SEARCH_START])
+  // 4. FIX: Remove leaked internal system tags
   clean = clean.replace(/\[SEARCH_\w+\]/g, "");
 
-  // 5. Ensure code blocks are properly spaced
-  clean = clean.replace(/```(\w+)/g, '\n```$1\n'); // Ensure newline after open
-  clean = clean.replace(/```\s*$/g, '\n```');      // Ensure newline before close
+  // 5. FIX: Normalize fenced code blocks
+  clean = clean.replace(/```(\w+)/g, "\n```$1\n");
+  clean = clean.replace(/```\s*$/g, "\n```");
 
   return clean.trim();
 }
