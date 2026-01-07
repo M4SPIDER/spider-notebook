@@ -1,7 +1,7 @@
 /**
  * =========================================================
  * SPIDER AI — FINAL STABLE BACKEND (UPDATED)
- * SDXL + KV + STREAMING + SAFE OUTPUT + EMOJIS + TELANGANA DIALECT
+ * SDXL + KV + STREAMING + SAFE OUTPUT + EMOJIS + TELANGANA + NO AUTO-TRANSLATE
  * Author: M4 Spider
  * =========================================================
  */
@@ -10,7 +10,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.1.4"; // Version bump
+const VERSION = "9.1.5"; // Version bump
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -182,6 +182,7 @@ RULES:
 3. LANGUAGE: Speak the user's language using ENGLISH LETTERS (Romanized) by default.
    - FOR TELUGU: Use the Telangana dialect (Romanized) specifically (e.g. use "chedham", "cheppindru", "potunava").
    - Only use native script if requested.
+   - DO NOT provide translations unless explicitly requested by the user.
 4. FORMAT: No markdown bold/headers. Preserve code blocks & LaTeX.
 5. Do NOT meta-comment (e.g., "I am using a code block").`;
 
@@ -280,6 +281,7 @@ STRICT RULES:
    - IMPORTANT: Use ENGLISH LETTERS (Romanized) for all non-English languages (e.g. Hindi in English letters).
    - FOR TELUGU: Use the Telangana dialect (Romanized) specifically.
    - Only use native scripts if explicitly asked by the user.
+   - DO NOT provide translations unless explicitly requested by the user.
 3. STYLE: Use emojis mostly and naturally 🕸️.
 4. FORMATTING: 
    - Do NOT use **bold** or ## headers.
