@@ -270,8 +270,7 @@ const AI_FORMATTING_RULES =
   "FORMATTING RULES (STRICT):\n" +
   "- MARKDOWN: Use Markdown for all formatting.\n" +
   "- TABLES: Use Markdown tables for structured data.\n" +
-  "- HEADERS: Use #, ##, ### for structure. IMPORTANT: ALWAYS put a space after the hash (e.g., '### Title', NOT '###Title').\n" +
-  "- LISTS: Use - or 1. for lists.\n" +
+   "- LISTS: Use - or 1. for lists.\n" +
   "- MATH: Use LaTeX style (e.g., $E=mc^2$) for math formulas.\n";
 
 const AI_CODING_RULES = 
