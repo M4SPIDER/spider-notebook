@@ -1,7 +1,7 @@
 /**
  * =========================================================
  * SPIDER AI — FINAL STABLE BACKEND (UPDATED)
- * SDXL + KV + STREAMING + SAFE OUTPUT + FULL DICTIONARY
+ * SDXL + KV + STREAMING + SAFE OUTPUT + DIRECT DICTIONARY
  * Author: M4 Spider
  * =========================================================
  */
@@ -10,7 +10,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.2.1"; // Version bump for Massive Dictionary
+const VERSION = "9.2.3"; // Version bump for Telangana Triggers
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -23,6 +23,16 @@ const AI_RETRY_DELAY_BASE = 1500;
 // Acts as "Model Training" - Never deleted by user commands
 //////////////////////////////
 const TRANSLATION_DICT = {
+  // --- TELANGANA CONVERSATIONAL TRIGGERS (ANSWERS) ---
+  // When user asks in Telugu, we give a Reply (Answer), not a translation.
+  "yala vunavu": "మస్త్ ఉన్న భాయ్! నువ్వు ఎట్ల ఉన్నవ్? (Masth unna bhai! Nuvvu etla unnav?) 🔥",
+  "ela unnav": "మస్త్ ఉన్న భాయ్! నువ్వు ఎట్ల ఉన్నవ్? (Masth unna bhai! Nuvvu etla unnav?) 🔥",
+  "ela unnavu": "మస్త్ ఉన్న భాయ్! నువ్వు ఎట్ల ఉన్నవ్? (Masth unna bhai! Nuvvu etla unnav?) 🔥",
+  "etla unnav": "మస్త్ ఉన్న భాయ్! నువ్వు ఎట్ల ఉన్నవ్? (Masth unna bhai! Nuvvu etla unnav?) 🔥",
+  "em chestunnav": "ఖాళీనే భాయ్, నీతో ముచ్చట్లు పెడుతున్నా! (Khaline bhai, neetho muchatlu peduthunna!) 🕸️",
+  "ekkada unnav": "ఇంటర్నెట్ లో ఉన్నా భాయ్! (Internet lo unna bhai!) ☁️",
+  "tinnava": "తిన్నా భాయ్! నువ్వు తిన్నవా? (Tinna bhai! Nuvvu tinnava?) 🥘",
+
   // --- Greetings (1-26) ---
   "hello": "హలో (Halo) 🕸️",
   "hi": "హాయ్ (Hay) 🔥",
@@ -42,8 +52,14 @@ const TRANSLATION_DICT = {
   "see you later": "తర్వాత కలుద్దాం (Tarvata kaluddam)",
   "goodbye": "వీడ్కోలు (Vidkolu)",
   "bye": "బై (Bai) 👋",
+  
+  // Aliases for "How are you"
   "how are you": "మీరు ఎలా ఉన్నారు? (Miru ela unnaru?)",
   "how are you?": "మీరు ఎలా ఉన్నారు? (Miru ela unnaru?)",
+  "how ru": "మీరు ఎలా ఉన్నారు? (Miru ela unnaru?)",
+  "how r u": "మీరు ఎలా ఉన్నారు? (Miru ela unnaru?)",
+  "how are u": "మీరు ఎలా ఉన్నారు? (Miru ela unnaru?)",
+
   "i am fine": "నేను బాగానే ఉన్నాను (Nenu bagane unnanu)",
   "i am fine. and you?": "నేను బాగానే ఉన్నాను. మరియు మీరు? (Nenu bagane unnanu. Mariyu miru?)",
   "what is your name": "నీ పేరు ఏమిటి? (Ni peru emiti?)",
@@ -59,14 +75,10 @@ const TRANSLATION_DICT = {
 
   // --- Conversation (27-48) ---
   "do you live here": "మీరు ఇక్కడ ఉంటున్నారా? (Miru ikkada untunnara?)",
-  "do you live here?": "మీరు ఇక్కడ ఉంటున్నారా? (Miru ikkada untunnara?)",
   "where are you going": "మీరు ఎక్కడికి వెళుతున్నారు? (Miru ekkadiki velutunnaru?)",
-  "where are you going?": "మీరు ఎక్కడికి వెళుతున్నారు? (Miru ekkadiki velutunnaru?)",
   "what are you doing": "నువ్వేమి చేస్తున్నావు? (Nuvvemi cestunnavu?)",
-  "what are you doing?": "నువ్వేమి చేస్తున్నావు? (Nuvvemi cestunnavu?)",
   "today is a nice day, isn't it?": "ఈ రోజు మంచి రోజు, కాదా? (I roju man̄ci roju, kada?)",
   "where are you from": "నువ్వు ఎక్కడ నుంచి వచ్చావు? (Nuvvu ekkada nun̄ci vaccavu?)",
-  "where are you from?": "నువ్వు ఎక్కడ నుంచి వచ్చావు? (Nuvvu ekkada nun̄ci vaccavu?)",
   "i am from": "నేను నుండి… (Nenu nundi…)",
   "do you like it here?": "మీకు ఇక్కడ నచ్చిందా? (Miku ikkada naccinda?)",
   "yes, i like it here": "అవును, నాకు ఇక్కడ నచ్చింది (Avunu, naku ikkada naccindi)",
@@ -74,7 +86,6 @@ const TRANSLATION_DICT = {
   "i am here for three days": "నేను మూడు రోజులు ఇక్కడ ఉన్నాను (Nenu mudu rojulu ikkada unnanu)",
   "i am here for three weeks": "నేను మూడు వారాలు ఇక్కడ ఉన్నాను (Nenu mudu varalu ikkada unnanu)",
   "how old are you": "మీ వయస్సు ఎంత? (Mi vayas'su enta?)",
-  "how old are you?": "మీ వయస్సు ఎంత? (Mi vayas'su enta?)",
   "what is your occupation?": "మీ వృత్తి ఏమిటి? (Mi vr̥tti emiti?)",
   "i am a": "నేను ఒక… (Nenu oka…)",
   "i work in": "నేను పని చేస్తున్నాను… (Nenu pani cestunnanu…)",
@@ -404,34 +415,31 @@ export async function onRequest(context) {
     }
 
     //////////////////////
-    // OPTION B: DICTIONARY LOOKUP
+    // DIRECT DICTIONARY LOOKUP
     //////////////////////
-    // Triggered if user asks "Translate [word]" or "Translate [word] to telugu"
-    if (cleanPrompt.startsWith("translate")) {
-      // 1. Extract the term
-      let term = cleanPrompt
+    // 1. Check exact match
+    let term = cleanPrompt.replace(/[?.!]+$/, ""); // Remove punctuation
+    let directOutput = TRANSLATION_DICT[term];
+
+    // 2. Check "Translate [word]"
+    if (!directOutput && cleanPrompt.startsWith("translate")) {
+      term = cleanPrompt
         .replace("translate", "")
         .replace(" to telugu", "")
         .replace(" in telugu", "")
-        .trim();
-      
-      // 2. Remove punctuation from end for better matching
-      term = term.replace(/[?.!]+$/, "");
+        .trim()
+        .replace(/[?.!]+$/, "");
+      directOutput = TRANSLATION_DICT[term];
+    }
 
-      // 3. Check Dictionary
-      if (TRANSLATION_DICT[term]) {
-        const directOutput = TRANSLATION_DICT[term];
-        
-        // Return DIRECTLY (bypassing AI)
-        if (mode === "stream" || stream) {
-           // Simulate stream for frontend compatibility
-           return new Response(`data: ${JSON.stringify({ text: directOutput })}\n\ndata: [DONE]\n\n`, {
-             headers: { ...cors, "Content-Type": "text/event-stream" }
-           });
-        } else {
-           return new Response(directOutput, { headers: { ...cors, "Content-Type": "text/plain" } });
-        }
-      }
+    if (directOutput) {
+       if (mode === "stream" || stream) {
+          return new Response(`data: ${JSON.stringify({ text: directOutput })}\n\ndata: [DONE]\n\n`, {
+            headers: { ...cors, "Content-Type": "text/event-stream" }
+          });
+       } else {
+          return new Response(directOutput, { headers: { ...cors, "Content-Type": "text/plain" } });
+       }
     }
 
     //////////////////////
