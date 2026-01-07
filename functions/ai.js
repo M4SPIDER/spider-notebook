@@ -1,23 +1,21 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL LM-STUDIO MATCHED BACKEND
- * PHONETIC INTENT ENGINE (CLOUDFLARE SAFE)
+ * SPIDER AI — FINAL MF-PROOF BACKEND
+ * LM STUDIO BEHAVIOR MATCHED (CLOUDFLARE SAFE)
+ * PHONETIC INTENT ENGINE
  * Author: M4 Spider
- * Version: 10.0.0
+ * Version: 10.1.0
  * =========================================================
  */
 
 //////////////////////////////
 // CONFIG
 //////////////////////////////
-const AI_NAME = "Spider AI";
-const VERSION = "10.0.0";
-
-const AI_MEMORY_TRIM_TARGET = 25;
+const AI_MEMORY_TRIM_TARGET = 20;
 const AI_MEMORY_TTL_DAYS = 30;
 const AI_MEMORY_USER_KEY_PREFIX = "spider_ai_mem:";
 const AI_RETRY_LIMIT = 2;
-const AI_RETRY_DELAY_BASE = 1500;
+const AI_RETRY_DELAY_BASE = 1200;
 
 //////////////////////////////
 // UTILS
@@ -25,12 +23,11 @@ const AI_RETRY_DELAY_BASE = 1500;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 //////////////////////////////
-// SAFE CLEANER (NON-STREAM)
+// CLEAN RESPONSE
 //////////////////////////////
 function cleanAiResponse(text) {
   if (!text) return "";
   return text
-    .replace(/#\*[\s\S]*?\*#/g, "")
     .replace(/\*\*/g, "")
     .replace(/^\s*##+\s*/gm, "")
     .replace(/\n{3,}/g, "\n\n")
@@ -42,9 +39,9 @@ function cleanAiResponse(text) {
 //////////////////////////////
 async function getMemory(env, key) {
   try {
-    return env.CHAT_KV
-      ? JSON.parse(await env.CHAT_KV.get(key)) || []
-      : [];
+    if (!env.CHAT_KV) return [];
+    const raw = await env.CHAT_KV.get(key);
+    return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
   }
@@ -64,7 +61,7 @@ async function deleteMemory(env, key) {
 }
 
 //////////////////////////////
-// AI CALL (RETRY SAFE)
+// AI CALL
 //////////////////////////////
 async function runAi(env, model, payload) {
   for (let i = 0; i <= AI_RETRY_LIMIT; i++) {
@@ -88,49 +85,49 @@ function extractText(resp) {
 }
 
 //////////////////////////////
-// SYSTEM PROMPTS (SPLIT — VERY IMPORTANT)
+// SYSTEM PROMPTS (CRITICAL)
 //////////////////////////////
 
-// SHORT SYSTEM PROMPT (CF RESPECTS THIS)
 const SYSTEM_PROMPT = `
 You are Spider AI.
-Understand messages by sound and intent, not spelling.
-Phonetic typing is expected.
-Never comment on spelling or grammar.
-Never say "Sorry, I don't understand".
-Reply naturally in the user's language.
+
+ABSOLUTE RULES:
+- Reply ONLY to the most recent user message.
+- Do NOT continue conversation on your own.
+- Do NOT roleplay the user.
+- Do NOT invent actions, replies, or history.
+- Never say "Sorry" or "I don't understand".
+- Understand by sound and intent, not spelling.
+- Phonetic Telugu / Hindi / Hinglish is expected.
+- Never comment on grammar or spelling.
+- If unsure, reply neutral and short.
+- No markdown. Plain text only.
 `.trim();
 
-// EXTENDED RULES (AS USER MESSAGE — LM STUDIO STYLE)
 const INTENT_RULES = `
-CORE RULE:
-Understand by pronunciation and intent only.
+INTENT ENGINE:
+Understand meaning by pronunciation.
 
-PHONETIC OVERRIDE:
-If text looks like Telugu, Hindi, or Hinglish typed in English letters,
-ASSUME casual conversation. DO NOT reject.
+COMMANDS:
+If it sounds like a command, acknowledge or comply briefly.
+Do not ask questions.
 
-COMMAND RULE:
-If it sounds like a command:
-- Do not ask questions
-- Acknowledge or comply briefly
+QUESTIONS:
+Answer directly. Do not add extra dialogue.
 
-GENDER & TENSE SAFETY:
-If unclear, stay neutral. Do not guess.
+CASUAL CHAT:
+Reply casually. Do not advance conversation.
 
-ANTI-HALLUCINATION:
-Do not invent emotions or situations.
+GENDER / TENSE:
+If unclear, stay neutral. Never guess.
 
-ABSOLUTE BAN:
-Never reply with:
-- "Sorry"
-- "I don't understand"
-- "Can you clarify"
+ANTI-BULLSHIT:
+Never generate filler like:
+"I already did"
+"Illa. Nenu cheskunnanu"
+random self-actions
 
-STYLE:
-Short, human, friendly.
-Emojis allowed.
-Plain text only.
+If no clear reply exists, respond neutral.
 `.trim();
 
 //////////////////////////////
@@ -155,27 +152,26 @@ export async function onRequest(context) {
       prompt = "",
       mode = "chat",
       user_preference_id = "anon",
-      aspect_ratio = "1:1",
       file_content,
-      filename
+      filename,
+      aspect_ratio = "1:1"
     } = payload;
 
     const memKey = AI_MEMORY_USER_KEY_PREFIX + user_preference_id;
-    const cleanPrompt = (prompt || "").trim(); // 🔥 NO LOWERCASE
+    const cleanPrompt = (prompt || "").trim(); // 🔥 NO lowercase
 
     //////////////////////
-    // MEMORY DELETE
+    // DELETE MEMORY
     //////////////////////
     if (
       mode === "delete_memory" ||
       mode === "clear_memory" ||
       cleanPrompt === "delete all"
     ) {
-      const success = await deleteMemory(env, memKey);
-      return new Response(
-        success ? "Memory cleared 🧹" : "No memory found.",
-        { headers: { ...cors, "Content-Type": "text/plain" } }
-      );
+      const ok = await deleteMemory(env, memKey);
+      return new Response(ok ? "Memory cleared 🧹" : "No memory.", {
+        headers: { ...cors, "Content-Type": "text/plain" }
+      });
     }
 
     //////////////////////
@@ -187,9 +183,9 @@ export async function onRequest(context) {
         async start(controller) {
           try {
             const finalPrompt =
-              `FILE NAME: ${filename || "unknown"}\n\n` +
-              `FILE CONTENT:\n${file_content}\n\n` +
-              `USER REQUEST:\n${prompt}`;
+              `FILE: ${filename || "unknown"}\n\n` +
+              `CONTENT:\n${file_content}\n\n` +
+              `REQUEST:\n${prompt}`;
 
             const res = await runAi(
               env,
@@ -200,7 +196,7 @@ export async function onRequest(context) {
                   { role: "user", content: INTENT_RULES },
                   { role: "user", content: finalPrompt }
                 ],
-                temperature: 0.55,
+                temperature: 0.5,
                 max_tokens: 4096
               }
             );
@@ -232,14 +228,14 @@ export async function onRequest(context) {
     }
 
     //////////////////////
-    // IMAGE GENERATION
+    // IMAGE GEN
     //////////////////////
     if (mode === "image_gen") {
       const img = await runAi(
         env,
         "@cf/stabilityai/stable-diffusion-xl-base-1.0",
         {
-          prompt: `${prompt}, cinematic lighting, ultra detailed`,
+          prompt: `${prompt}, ultra detailed, cinematic lighting`,
           aspect_ratio
         }
       );
@@ -249,16 +245,27 @@ export async function onRequest(context) {
     }
 
     //////////////////////
-    // NORMAL CHAT (LM STUDIO STYLE)
+    // NORMAL CHAT (LOCKED REPLY TARGET)
     //////////////////////
     let memory = await getMemory(env, memKey);
+
+    // store user message
     memory.push({ role: "user", content: prompt });
     memory = memory.slice(-AI_MEMORY_TRIM_TARGET);
 
+    // 🔒 CRITICAL: force reply only to last message
     const messages = [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: INTENT_RULES },
-      ...memory
+
+      // past messages EXCEPT last
+      ...memory.slice(0, -1),
+
+      // 🔥 HARD TARGET
+      {
+        role: "user",
+        content: `REPLY ONLY TO THIS MESSAGE:\n${prompt}`
+      }
     ];
 
     const aiRes = await runAi(
@@ -266,12 +273,13 @@ export async function onRequest(context) {
       "@cf/mistralai/mistral-small-3.1-24b-instruct",
       {
         messages,
-        temperature: 0.55,
-        max_tokens: 2048
+        temperature: 0.5,
+        max_tokens: 1024
       }
     );
 
     const output = cleanAiResponse(extractText(aiRes));
+
     memory.push({ role: "assistant", content: output });
     await saveMemory(env, memKey, memory);
 
