@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.5.8"; // Update: Command Override Added
+const VERSION = "9.6.0"; // Update: Gender & Tense Safety Rule
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -179,7 +179,37 @@ If a sentence sounds like a COMMAND (order, dismissal, instruction) such as "poy
 - DO NOT ask questions.
 - DO NOT seek clarification.
 - DO NOT reinterpret as a question.
-→ Respond briefly and naturally, or acknowledge.
+
+COMMAND RESPONSE RULE:
+When a command is detected, you MUST respond as:
+- an acknowledgement, OR
+- an action acceptance, OR
+- a polite compliance
+
+NEVER:
+- convert the command into past tense
+- describe the action as already done
+- narrate events
+
+BAD (never do):
+- "Poyindi."
+- "Padukunnadu."
+
+GOOD:
+- "Sare."
+- "Okay."
+- "Ha, padukunta."
+- "Okay ra 😴"
+
+GENDER & TENSE SAFETY RULE:
+If gender or tense is unclear from phonetic input:
+- DO NOT guess
+- DO NOT assume past or present
+- DO NOT use gendered verb forms
+
+Instead:
+- Use neutral acknowledgements
+- Or rephrase in present-neutral form
 
 INTENT RULES:
 - If the sentence sounds like a GREETING → reply naturally.
