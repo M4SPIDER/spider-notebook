@@ -4222,28 +4222,34 @@ export default function App() {
 // 🔥 UPDATED: Spider AI Cloudflare Integration
 // 🔥 SPIDER AI — Cloudflare GPT-120B + SDXL Integration (FINAL VERSION)
 const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat") => {
-    try {
-        const res = await fetch(endpoint, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload)
-        });
+    
+    // ==========================================================
+    // 🔥 THE REAL FIX IS HERE: This sends the *entire* payload.
+    // ==========================================================
+    
+    let fetchOptions = {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        // Stringify the *entire* payload object from handleSendMessage
+        // This now includes file_content, filename, image, etc.
+        body: JSON.stringify(payload) 
+    };
 
-        if (!res.ok) {
-            throw new Error(`HTTP ${res.status}`);
-        }
+    try {
+        // Use the new fetchOptions, sending to the /ai worker endpoint
+        const res = await fetch("/ai", fetchOptions);
 
         const contentType = res.headers.get("content-type") || "";
 
-        // ======================================================
-        // 🟢 IMAGE RESPONSE (SDXL)
-        // ======================================================
+        // ---------------- IMAGE RESPONSE (PNG) ----------------
         if (contentType.includes("image/")) {
             const blob = await res.blob();
-            const base64 = await new Promise(resolve => {
+
+            const base64 = await new Promise((resolve) => {
                 const reader = new FileReader();
-                reader.onloadend = () =>
-                    resolve(reader.result.split(",")[1]);
+                reader.onloadend = () => resolve(reader.result.split(",")[1]);
                 reader.readAsDataURL(blob);
             });
 
@@ -4254,42 +4260,15 @@ const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat") =>
             };
         }
 
-        // ======================================================
-        // 🟢 STREAMING RESPONSE (THE REAL FIX)
-        // ======================================================
-        if (payload.stream === true) {
-            const reader = res.body.getReader();
-            const decoder = new TextDecoder();
-
-            let fullText = "";
-
-            while (true) {
-                const { value, done } = await reader.read();
-                if (done) break;
-
-                const chunk = decoder.decode(value, { stream: true });
-                fullText += chunk;
-
-                // 👇 IMPORTANT: stream chunk directly to UI
-                // You already have this logic elsewhere
-                payload.onStream?.(chunk);
-            }
-
-            return {
-                text: fullText,
-                streamed: true
-            };
-        }
-
-        // ======================================================
-        // 🟢 NORMAL TEXT RESPONSE
-        // ======================================================
+        // ---------------- TEXT RESPONSE ----------------
         const rawText = await res.text();
 
         if (!rawText || rawText.trim() === "") {
             return { error: "Empty response from Spider AI." };
         }
 
+        // Spider AI 2.0 always returns plain text from backend
+        // (search → summarized result, or direct answer)
         return {
             text: rawText,
             raw: rawText
@@ -4298,7 +4277,7 @@ const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat") =>
     } catch (err) {
         return { error: err.message };
     }
-}, []);
+}, []);  
 
     
     // --- WebSocket Handlers (NEW) ---
@@ -5026,6 +5005,7 @@ int main() {
         </>
     );
 }
+
 
 
 
