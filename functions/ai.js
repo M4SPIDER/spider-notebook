@@ -1,18 +1,19 @@
 /* ========================================================================================
-   SPIDER AI — V8.1.2 (HEADER ARTIFACT CLEANUP)
+   SPIDER AI — V8.1.3 (MEMORY RESET & CLEANER V2)
    -------------------------------------------------------------------------------------
    AUTHOR: M4 Spider 🕷️🤖
    DATE: 2026-01-07
-   VERSION: 8.1.2 (Stable AI Release)
+   VERSION: 8.1.3 (Stable AI Release)
    
    DESCRIPTION:
    This is the core brain of Spider AI. It runs on Cloudflare Workers and acts as a 
    central intelligence hub. It orchestrates Multi-Modal AI models, persistent KV memory, 
    external search tools, and complex language processing.
 
-   CHANGELOG V8.1.2:
+   CHANGELOG V8.1.3:
+   - ADDED: Explicit "#reset" or "#clear" triggers to wipe KV memory instantly.
+   - FIXED: "cleanAiResponse" now removes stars immediately after hashes (e.g., "#*Title").
    - FIXED: Enhanced regex to catch multi-char artifacts (e.g., "**#") before headers.
-   - FIXED: Cleaned bolding attached to hashes (e.g., "###**").
    - PROTECTED: Code blocks are now immune to formatting cleaners.
    - BRANDING: "Spider AI" identity reinforced across all logic blocks.
    - ADDED: "System Health" AI diagnostic mode.
@@ -226,9 +227,9 @@ function cleanAiResponse(text) {
     // This catches "*#", "**#", "+ #", etc.
     clean = clean.replace(/^\s*[\*\-\+]+(?=\s*#{1,6})/gm, '');
 
-    // 2. Remove bolding characters attached to the hash itself (e.g., "###** Title")
-    // Matches start of line, hashes, stars/bolding, followed by space
-    clean = clean.replace(/^(\s*#{1,6})\*+(?=\s)/gm, '$1');
+    // 2. Remove bolding characters attached to the hash itself (e.g., "###** Title" OR "###*Title")
+    // Matches start of line, hashes, stars/bolding. Removed lookahead for space to catch #*Title.
+    clean = clean.replace(/^(\s*#{1,6})\*+/gm, '$1');
 
     // 3. Fix Markdown Headers (Sticky Hash: #Header -> # Header)
     // Now that artifacts (stars/bullets) are gone from step 1 & 2, we ensure spacing.
@@ -329,8 +330,11 @@ function detectAiMode(prompt, file_content, filename) {
   if (t.startsWith("#edit")) return "image_edit";
   if (t.startsWith("#analyze") || t.startsWith("#audit")) return "analyze_file";
   if (t.startsWith("#status") || t.startsWith("#health")) return "system_status";
+  
+  // 3. Memory Reset Trigger
+  if (t === "#reset" || t === "#clear" || t === "reset memory" || t === "clear memory") return "reset_memory";
 
-  // 3. Natural Language Triggers
+  // 4. Natural Language Triggers
   
   // File Analysis
   if (t.includes("analyze file") || t.includes("check this code") || t.includes("debug this"))
@@ -737,9 +741,9 @@ export async function onRequest(context) {
     let memory = await getAiMemoryFromKV(env, memoryKey);
     
     // -- Handle Clear Memory Commands --
-    const lowerPrompt = (prompt || "").toLowerCase();
-    if (lowerPrompt === "clear memory" || lowerPrompt === "reset chat") {
+    if (currentMode === "reset_memory") {
       await env.CHAT_KV.put(memoryKey, "[]");
+      logAiEvent("MEMORY", `Cleared memory for ${userId}`);
       return new Response("Spider AI Memory cleared! 🧠✨ Start fresh.", { headers: corsHeaders });
     }
 
