@@ -3,11 +3,6 @@
 // React Imports
 // ----------------------------------------------------------------------
 import React, { useState, useEffect, useCallback, useRef ,useMemo } from 'react';
-import katex from 'katex';
-import "katex/dist/katex.min.css";
-
-
-
 // ----------------------------------------------------------------------
 // Firebase Core
 // ----------------------------------------------------------------------
@@ -5009,6 +5004,7 @@ int main() {
         </>
     );
 }
+
 
 
 
