@@ -1,7 +1,7 @@
 /* =========================================================
-   SPIDER AI — FINAL MIXED BACKEND (SDXL FIXED)
+   SPIDER AI — FINAL FIXED BACKEND
    Author: M4 Spider 🕷️🤖
-   Version: 9.0.0
+   Version: 9.1.0
    Endpoint: POST /api/generate/text
    ========================================================= */
 
@@ -9,7 +9,7 @@
 // 1. CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const AI_VERSION = "9.0.0";
+const AI_VERSION = "9.1.0";
 
 const AI_MEMORY_TRIM_TARGET = 40;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -28,7 +28,7 @@ function log(type, msg) {
 }
 
 //////////////////////////////
-// 3. CLEAN OUTPUT (CHAT ONLY)
+// 3. CLEAN OUTPUT (FIXED – TABLE SAFE)
 //////////////////////////////
 function cleanAiResponse(text) {
   if (!text) return "";
@@ -36,21 +36,30 @@ function cleanAiResponse(text) {
   const blocks = [];
   const TOKEN = "\u200B\u200C\u200D";
 
+  // Protect code blocks fully
   text = text.replace(/```[\s\S]*?```/g, m => {
     blocks.push(m);
     return `${TOKEN}${blocks.length}${TOKEN}`;
   });
 
-  let c = text
+  let clean = text;
+
+  // Remove ONLY forbidden artifacts (DO NOT TOUCH MARKDOWN)
+  clean = clean
     .replace(/#\*[\s\S]*?\*#/g, "")
     .replace(/#\*/g, "")
     .replace(/\*#/g, "")
-    .replace(/^(User:|Assistant:|AI:|Bot:|Model:|Spider AI:)\s*/igm, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+    .replace(/\b[A-Z_]*CODE[A-Z_]*BLOCK[A-Z_]*\d*\b/gi, "")
+    .replace(/^(User:|Assistant:|Spider AI:|Bot:|AI:|Model:)\s*/igm, "");
 
+  // Normalize spacing only
+  clean = clean.replace(/\n{3,}/g, "\n\n");
+
+  // Restore code blocks
   const restore = new RegExp(`${TOKEN}(\\d+)${TOKEN}`, "g");
-  return c.replace(restore, (_, i) => blocks[i - 1]);
+  clean = clean.replace(restore, (_, i) => blocks[i - 1]);
+
+  return clean.trim();
 }
 
 //////////////////////////////
@@ -80,7 +89,7 @@ async function saveMemory(env, key, mem) {
 async function runAiWithRetry(env, model, payload) {
   for (let i = 0; i <= AI_RETRY_LIMIT; i++) {
     try {
-      log("AI", `Running ${model}, attempt ${i + 1}`);
+      log("AI", `Running ${model} (attempt ${i + 1})`);
       return await env.SPY_AI.run(model, payload);
     } catch (e) {
       if (i === AI_RETRY_LIMIT) throw e;
@@ -129,7 +138,7 @@ async function runAiStream(env, messages, writer) {
 }
 
 //////////////////////////////
-// 7. PERFECT SDXL (FROM OLD V8.1.9 — UNCHANGED)
+// 7. PERFECT SDXL (OLD LOGIC – UNCHANGED)
 //////////////////////////////
 async function runSDXL(env, prompt) {
   const finalPrompt =
@@ -166,7 +175,7 @@ export async function onRequest(context) {
   try {
     if (!env.SPY_AI) throw new Error("SPY_AI binding missing");
 
-    // SAFE BODY PARSE
+    // Safe body parse
     const ct = request.headers.get("content-type") || "";
     let payload = {};
 
@@ -176,15 +185,11 @@ export async function onRequest(context) {
       payload.prompt = await request.text();
     }
 
-    const {
-      prompt = "",
-      mode = "chat"
-    } = payload;
-
+    const { prompt = "", mode = "chat" } = payload;
     log("ROUTER", `Mode = ${mode}`);
 
     //////////////////////////////
-    // STREAM MODE (NO KV)
+    // STREAM MODE
     //////////////////////////////
     if (mode === "stream") {
       const messages = [
@@ -214,7 +219,7 @@ export async function onRequest(context) {
     }
 
     //////////////////////////////
-    // IMAGE GENERATION (SDXL – PERFECT)
+    // IMAGE GENERATION (SDXL)
     //////////////////////////////
     if (mode === "image_gen") {
       const img = await runSDXL(env, prompt);
@@ -242,7 +247,7 @@ export async function onRequest(context) {
         role: "system",
         content:
           `You are ${AI_NAME} v${AI_VERSION}. ` +
-          `Give clean answers. Use Markdown. Use code blocks properly.`
+          `Use Markdown. Preserve tables, headers, and bold text.`
       },
       ...mem.map(m => ({ role: m.role, content: m.content }))
     ];
