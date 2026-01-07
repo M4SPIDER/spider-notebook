@@ -1,74 +1,91 @@
-/* =========================================================
-   SPIDER AI — FINAL FIXED BACKEND
-   Author: M4 Spider 🕷️🤖
-   Version: 9.1.0
-   Endpoint: POST /api/generate/text
-   ========================================================= */
+/**
+ * =========================================================
+ * SPIDER AI — STRUCTURE SAFE BACKEND
+ * Author: M4 Spider
+ * Version: 8.2.0 (FINAL STRUCTURE FIX)
+ * =========================================================
+ */
 
-//////////////////////////////
-// 1. CONFIG
-//////////////////////////////
-const AI_NAME = "Spider AI";
-const AI_VERSION = "9.1.0";
+/* ---------------------------------------------------------
+ * CONFIG
+ * --------------------------------------------------------- */
+const CONFIG = {
+  AI_NAME: "Spider AI",
+  VERSION: "8.2.0"
+};
 
-const AI_MEMORY_TRIM_TARGET = 40;
+const AI_MEMORY_TRIM_TARGET = 30;
 const AI_MEMORY_TTL_DAYS = 30;
-const AI_MEMORY_USER_KEY_PREFIX = "spider_ai_mem_v9:";
+const AI_MEMORY_USER_KEY_PREFIX = "spider_ai_mem:";
+const AI_RETRY_LIMIT = 2;
+const AI_RETRY_DELAY_BASE = 1200;
 
-const AI_RETRY_LIMIT = 3;
-const AI_RETRY_DELAY_BASE = 1500;
-
-//////////////////////////////
-// 2. UTILS
-//////////////////////////////
+/* ---------------------------------------------------------
+ * UTILS
+ * --------------------------------------------------------- */
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-function log(type, msg) {
-  console.log(`[SPIDER_AI][${type}] ${msg}`);
-}
-
-//////////////////////////////
-// 3. CLEAN OUTPUT (FIXED – TABLE SAFE)
-//////////////////////////////
-function cleanAiResponse(text) {
+/* ---------------------------------------------------------
+ * ✅ STRUCTURE-SAFE CLEANER
+ * --------------------------------------------------------- */
+function cleanAiResponseSafe(text) {
   if (!text) return "";
 
-  const blocks = [];
-  const TOKEN = "\u200B\u200C\u200D";
+  const CODE = [];
+  const TABLE = [];
+  const MATH = [];
 
-  // Protect code blocks fully
+  const CODE_T = "\u200B\u200C\u200D_CODE_";
+  const TABLE_T = "\u200B\u200C\u200D_TABLE_";
+  const MATH_T = "\u200B\u200C\u200D_MATH_";
+
+  // 1. Protect code blocks
   text = text.replace(/```[\s\S]*?```/g, m => {
-    blocks.push(m);
-    return `${TOKEN}${blocks.length}${TOKEN}`;
+    CODE.push(m);
+    return CODE_T + (CODE.length - 1) + "_";
   });
 
-  let clean = text;
+  // 2. Protect tables
+  text = text.replace(
+    /(^|\n)(\|.+\|[\s\S]*?\n(?=\n|$))/g,
+    m => {
+      TABLE.push(m);
+      return TABLE_T + (TABLE.length - 1) + "_";
+    }
+  );
 
-  // Remove ONLY forbidden artifacts (DO NOT TOUCH MARKDOWN)
-  clean = clean
-    .replace(/#\*[\s\S]*?\*#/g, "")
-    .replace(/#\*/g, "")
-    .replace(/\*#/g, "")
-    .replace(/\b[A-Z_]*CODE[A-Z_]*BLOCK[A-Z_]*\d*\b/gi, "")
-    .replace(/^(User:|Assistant:|Spider AI:|Bot:|AI:|Model:)\s*/igm, "");
+  // 3. Protect math
+  text = text.replace(/\$\$[\s\S]*?\$\$|\$[^$\n]+\$/g, m => {
+    MATH.push(m);
+    return MATH_T + (MATH.length - 1) + "_";
+  });
 
-  // Normalize spacing only
-  clean = clean.replace(/\n{3,}/g, "\n\n");
+  // 4. Clean prose ONLY
+  text = text
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/\*(.*?)\*/g, "$1")
+    .replace(/__(.*?)__/g, "$1")
+    .replace(/_(.*?)_/g, "$1")
+    .replace(/^\s*#{1,6}\s*/gm, "")
+    .replace(/^[>\-\+•]+\s*/gm, "")
+    .replace(/^(User:|Assistant:|AI:|Bot:|Model:)\s*/igm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 
-  // Restore code blocks
-  const restore = new RegExp(`${TOKEN}(\\d+)${TOKEN}`, "g");
-  clean = clean.replace(restore, (_, i) => blocks[i - 1]);
+  // 5. Restore everything
+  text = text.replace(new RegExp(CODE_T + "(\\d+)_", "g"), (_, i) => CODE[i]);
+  text = text.replace(new RegExp(TABLE_T + "(\\d+)_", "g"), (_, i) => TABLE[i]);
+  text = text.replace(new RegExp(MATH_T + "(\\d+)_", "g"), (_, i) => MATH[i]);
 
-  return clean.trim();
+  return text;
 }
 
-//////////////////////////////
-// 4. KV MEMORY (CHAT ONLY)
-//////////////////////////////
+/* ---------------------------------------------------------
+ * MEMORY (KV)
+ * --------------------------------------------------------- */
 async function getMemory(env, key) {
   try {
-    if (!env.CHAT_KV) return [];
-    return JSON.parse(await env.CHAT_KV.get(key)) || [];
+    return env.CHAT_KV ? JSON.parse(await env.CHAT_KV.get(key)) || [] : [];
   } catch {
     return [];
   }
@@ -76,20 +93,20 @@ async function getMemory(env, key) {
 
 async function saveMemory(env, key, mem) {
   try {
-    if (!env.CHAT_KV) return;
-    await env.CHAT_KV.put(key, JSON.stringify(mem), {
-      expirationTtl: AI_MEMORY_TTL_DAYS * 86400
-    });
+    if (env.CHAT_KV) {
+      await env.CHAT_KV.put(key, JSON.stringify(mem), {
+        expirationTtl: AI_MEMORY_TTL_DAYS * 86400
+      });
+    }
   } catch {}
 }
 
-//////////////////////////////
-// 5. AI EXECUTION WITH RETRY
-//////////////////////////////
-async function runAiWithRetry(env, model, payload) {
+/* ---------------------------------------------------------
+ * AI CALL (NON-STREAM)
+ * --------------------------------------------------------- */
+async function runAi(env, model, payload) {
   for (let i = 0; i <= AI_RETRY_LIMIT; i++) {
     try {
-      log("AI", `Running ${model} (attempt ${i + 1})`);
       return await env.SPY_AI.run(model, payload);
     } catch (e) {
       if (i === AI_RETRY_LIMIT) throw e;
@@ -108,60 +125,20 @@ function extractText(resp) {
   );
 }
 
-//////////////////////////////
-// 6. STREAM MODE (NO KV)
-//////////////////////////////
-async function runAiStream(env, messages, writer) {
-  const encoder = new TextEncoder();
-
-  const stream = await env.SPY_AI.run(
-    "@cf/mistralai/mistral-small-3.1-24b-instruct",
-    {
-      messages,
-      temperature: 0.7,
-      max_tokens: 8192,
-      stream: true
-    }
-  );
-
-  for await (const chunk of stream) {
-    const text =
-      chunk?.delta?.content ||
-      chunk?.output_text ||
-      chunk?.text ||
-      "";
-
-    if (text) {
-      await writer.write(encoder.encode(text));
-    }
-  }
+/* ---------------------------------------------------------
+ * MODE DETECTION
+ * --------------------------------------------------------- */
+function detectMode(prompt, mode) {
+  if (mode) return mode;
+  const t = (prompt || "").toLowerCase();
+  if (t.includes("generate image") || t.includes("create image")) return "image_gen";
+  return "chat";
 }
 
-//////////////////////////////
-// 7. PERFECT SDXL (OLD LOGIC – UNCHANGED)
-//////////////////////////////
-async function runSDXL(env, prompt) {
-  const finalPrompt =
-    prompt
-      .replace(/#image|#gen|generate image/gi, "")
-      .trim() +
-    ", 8k, photorealistic, cinematic lighting";
-
-  log("SDXL", "Generating image");
-
-  return await runAiWithRetry(
-    env,
-    "@cf/stabilityai/stable-diffusion-xl-base-1.0",
-    { prompt: finalPrompt }
-  );
-}
-
-//////////////////////////////
-// 8. MAIN HANDLER
-//////////////////////////////
-export async function onRequest(context) {
-  const { request, env } = context;
-
+/* ---------------------------------------------------------
+ * MAIN HANDLER
+ * --------------------------------------------------------- */
+export async function onRequest({ request, env }) {
   const cors = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
@@ -173,107 +150,66 @@ export async function onRequest(context) {
   }
 
   try {
-    if (!env.SPY_AI) throw new Error("SPY_AI binding missing");
+    const body = await request.json().catch(() => ({}));
+    const prompt = body.prompt || "";
+    const mode = detectMode(prompt, body.mode);
 
-    // Safe body parse
-    const ct = request.headers.get("content-type") || "";
-    let payload = {};
-
-    if (ct.includes("application/json")) {
-      payload = await request.json();
-    } else {
-      payload.prompt = await request.text();
-    }
-
-    const { prompt = "", mode = "chat" } = payload;
-    log("ROUTER", `Mode = ${mode}`);
-
-    //////////////////////////////
-    // STREAM MODE
-    //////////////////////////////
-    if (mode === "stream") {
-      const messages = [
-        { role: "system", content: "Stream full output. Never truncate." },
-        { role: "user", content: prompt }
-      ];
-
-      const { readable, writable } = new TransformStream();
-      const writer = writable.getWriter();
-
-      runAiStream(env, messages, writer)
-        .then(() => writer.close())
-        .catch(err => {
-          writer.write(
-            new TextEncoder().encode(`\n[STREAM ERROR] ${err.message}\n`)
-          );
-          writer.close();
-        });
-
-      return new Response(readable, {
-        headers: {
-          ...cors,
-          "Content-Type": "text/plain; charset=utf-8",
-          "Cache-Control": "no-cache"
-        }
-      });
-    }
-
-    //////////////////////////////
-    // IMAGE GENERATION (SDXL)
-    //////////////////////////////
-    if (mode === "image_gen") {
-      const img = await runSDXL(env, prompt);
-
-      return new Response(img, {
-        headers: {
-          ...cors,
-          "Content-Type": "image/png"
-        }
-      });
-    }
-
-    //////////////////////////////
-    // NORMAL CHAT (KV + CLEAN)
-    //////////////////////////////
-    const userId = "anon";
-    const memKey = AI_MEMORY_USER_KEY_PREFIX + userId;
+    const uid = body.user_preference_id || "anon";
+    const memKey = AI_MEMORY_USER_KEY_PREFIX + uid;
 
     let mem = await getMemory(env, memKey);
-    mem.push({ role: "user", content: prompt, ts: Date.now() });
-    mem = mem.slice(-AI_MEMORY_TRIM_TARGET);
+
+    if (prompt) {
+      mem.push({ role: "user", content: prompt });
+      mem = mem.slice(-AI_MEMORY_TRIM_TARGET);
+    }
+
+    /* ---------------- IMAGE GENERATION (SDXL) ---------------- */
+    if (mode === "image_gen") {
+      const img = await runAi(
+        env,
+        "@cf/stabilityai/stable-diffusion-xl-base-1.0",
+        {
+          prompt: prompt + ", photorealistic, ultra-detailed, 8k",
+        }
+      );
+
+      return new Response(img, {
+        headers: { ...cors, "content-type": "image/png" }
+      });
+    }
+
+    /* ---------------- CHAT / CODE / TABLE ---------------- */
+    const systemPrompt = `
+You are ${CONFIG.AI_NAME} v${CONFIG.VERSION}.
+Rules:
+- Preserve code blocks, tables, and math.
+- Use markdown ONLY when structurally needed.
+- Do NOT use decorative markdown like ** or ###.
+    `.trim();
 
     const messages = [
-      {
-        role: "system",
-        content:
-          `You are ${AI_NAME} v${AI_VERSION}. ` +
-          `Use Markdown. Preserve tables, headers, and bold text.`
-      },
+      { role: "system", content: systemPrompt },
       ...mem.map(m => ({ role: m.role, content: m.content }))
     ];
 
-    const res = await runAiWithRetry(
+    const res = await runAi(
       env,
       "@cf/mistralai/mistral-small-3.1-24b-instruct",
-      {
-        messages,
-        temperature: 0.7,
-        max_tokens: 4096
-      }
+      { messages, temperature: 0.7, max_tokens: 2048 }
     );
 
-    const output = cleanAiResponse(extractText(res));
+    const cleaned = cleanAiResponseSafe(extractText(res));
 
-    mem.push({ role: "assistant", content: output, ts: Date.now() });
+    mem.push({ role: "assistant", content: cleaned });
     await saveMemory(env, memKey, mem);
 
-    return new Response(output, {
-      headers: { ...cors, "Content-Type": "text/plain" }
+    return new Response(cleaned, {
+      headers: { ...cors, "content-type": "text/plain" }
     });
 
   } catch (e) {
-    log("FATAL", e.message);
-    return new Response("Spider AI Error: " + e.message, {
+    return new Response("Error: " + e.message, {
       status: 500,
       headers: cors
     });
