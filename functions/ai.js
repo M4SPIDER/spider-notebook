@@ -127,7 +127,7 @@ export async function onRequest(context) {
     // STREAM MODE (NO KV)
     // triggered by mode OR stream flag
     //////////////////////
-    if (mode === "stream" || stream === true) {
+if (mode === "stream" || stream === true) {
       const encoder = new TextEncoder();
 
       const streamResp = new ReadableStream({
@@ -144,18 +144,25 @@ export async function onRequest(context) {
             );
 
             const text = extractText(res) || "";
-            const chunks = text.match(/[\s\S]{1,800}/g) || [];
+            // Break into smaller chunks (e.g., 100 chars) for a smoother typing effect
+            const chunks = text.match(/[\s\S]{1,100}/g) || [];
 
             for (const chunk of chunks) {
-              controller.enqueue(encoder.encode(chunk));
-              await sleep(20);
+              // 🔥 FIX: Wrap text in the JSON format your Frontend expects
+              const payload = JSON.stringify({ text: chunk });
+              controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
+              
+              // Small delay to make the "typing" visible
+              await sleep(15);
             }
 
+            // 🔥 FIX: Send the [DONE] signal your Frontend uses to finalize the chat
+            controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
             controller.close();
           } catch (err) {
-            controller.enqueue(
-              encoder.encode("\n[Spider AI Stream Error]\n")
-            );
+            // Send error in JSON format so the UI doesn't crash
+            const errorPayload = JSON.stringify({ text: "\n[Spider AI Stream Error]\n" });
+            controller.enqueue(encoder.encode(`data: ${errorPayload}\n\n`));
             controller.close();
           }
         }
@@ -164,11 +171,13 @@ export async function onRequest(context) {
       return new Response(streamResp, {
         headers: {
           ...cors,
-          "Content-Type": "text/plain; charset=utf-8"
+          // 🔥 FIX: Must be text/event-stream for proper browser handling
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          "Connection": "keep-alive",
         }
       });
     }
-
     //////////////////////
     // IMAGE GENERATION (SDXL)
     //////////////////////
