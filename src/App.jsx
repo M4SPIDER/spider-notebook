@@ -1383,6 +1383,86 @@ const SpiderAIApp = ({
     const getAppId = () => typeof __app_id !== 'undefined' ? __app_id : 'default-m4-app';
     const LOCAL_STORAGE_KEY = `spider_chat_history_${getAppId()}_${(currentUser?.email || 'anon')}`;
     
+    // ---------- Advanced Content Filtering System ----------
+    const sanitizeText = useCallback((text) => {
+        if (!text || typeof text !== 'string') return text || '';
+        
+        // Layer 1: Remove #* *# patterns completely
+        let sanitized = text
+            .replace(/#\*[\s\S]*?\*#/g, '') // Remove everything between #* and *#
+            .replace(/#\*/g, '') // Remove orphan #*
+            .replace(/\*#/g, ''); // Remove orphan *#
+        
+        // Layer 2: Remove common LLM artifact patterns
+        const artifactPatterns = [
+            /\[.*?\]/g, // [anything]
+            /\(.*?\)/g, // (anything) that might be internal notes
+            /```.*?```/gs, // Code blocks with weird content
+            /^\s*(?:Note|Important|Remember|Hint|Tip):.*$/gim, // LLM instruction notes
+            /\b(?:AI|Assistant|Model|LLM):\s.*$/gim, // Self-referential labels
+            /【.*?】/g, // Chinese brackets
+            /〈.*?〉/g, // Japanese brackets
+            /‹.*?›/g, // European brackets
+        ];
+        
+        artifactPatterns.forEach(pattern => {
+            sanitized = sanitized.replace(pattern, '');
+        });
+        
+        // Layer 3: Clean up resulting whitespace issues
+        sanitized = sanitized
+            .replace(/\n\s*\n\s*\n/g, '\n\n') // Replace multiple blank lines
+            .replace(/^\s+|\s+$/g, '') // Trim
+            .replace(/\s{3,}/g, '  '); // Replace multiple spaces with double space
+        
+        // Layer 4: Validate common content types
+        if (sanitized.includes('```')) {
+            // Preserve code blocks but clean within them
+            const parts = sanitized.split('```');
+            for (let i = 1; i < parts.length; i += 2) {
+                if (parts[i]) {
+                    // Clean code block content but preserve structure
+                    parts[i] = parts[i]
+                        .replace(/#\*.*?\*#/g, '')
+                        .replace(/^\s*#.*$/gm, '') // Remove Python comments that might be artifacts
+                        .replace(/\/\/.*$/gm, '') // Remove JS comments
+                        .replace(/\/\*[\s\S]*?\*\//g, ''); // Remove multi-line comments
+                }
+            }
+            sanitized = parts.join('```');
+        }
+        
+        return sanitized.trim() || '[Content filtered for better readability]';
+    }, []);
+
+    // ---------- Smart Content Detection ----------
+    const detectContentType = useCallback((text) => {
+        if (!text) return 'text';
+        
+        const lowerText = text.toLowerCase();
+        
+        if (lowerText.includes('```') && 
+            (lowerText.includes('function') || 
+             lowerText.includes('class') || 
+             lowerText.includes('def ') || 
+             lowerText.includes('const ') || 
+             lowerText.includes('let ') || 
+             lowerText.includes('var ') || 
+             lowerText.includes('import ') || 
+             lowerText.includes('from ') || 
+             lowerText.includes('package ') ||
+             /print\(|console\.|System\.out\.|echo\s/.test(lowerText))) {
+            return 'code';
+        }
+        
+        if (lowerText.includes('|') && lowerText.includes('-') && 
+            lowerText.split('\n').filter(line => line.includes('|')).length >= 3) {
+            return 'table';
+        }
+        
+        return 'text';
+    }, []);
+
     // ---------- Persistent User ID ----------
     const getPersistentUserId = useCallback(() => {
         const key = `spider_user_id_${getAppId()}`;
@@ -1514,9 +1594,14 @@ const SpiderAIApp = ({
                         try {
                             const history = JSON.parse(chat.history || '[]');
                             if (Array.isArray(history) && history.length > 0) {
-                                setChatHistory(history);
+                                // Sanitize all messages when loading
+                                const sanitizedHistory = history.map(msg => ({
+                                    ...msg,
+                                    content: sanitizeText(msg.content)
+                                }));
+                                setChatHistory(sanitizedHistory);
                                 setActiveChatId(chatId);
-                                resolve(history);
+                                resolve(sanitizedHistory);
                             } else {
                                 throw new Error('Invalid chat history');
                             }
@@ -1539,7 +1624,7 @@ const SpiderAIApp = ({
             console.error('Error in loadChatById:', error);
             throw error;
         }
-    }, [openDatabase]);
+    }, [openDatabase, sanitizeText]);
 
     // ---------- Save Chat History ----------
     const saveChatHistory = useCallback(async (history) => {
@@ -1553,7 +1638,7 @@ const SpiderAIApp = ({
         }
         
         const userId = getUserId();
-        const chatTitle = (history[1]?.content || 'New Chat')
+        const chatTitle = sanitizeText(history[1]?.content || 'New Chat')
             .toString()
             .substring(0, 50)
             .trim() || 'New Chat';
@@ -1590,7 +1675,7 @@ const SpiderAIApp = ({
         } catch (error) {
             console.error('Error saving chat:', error);
         }
-    }, [activeChatId, openDatabase, getUserId, loadRecentChats]);
+    }, [activeChatId, openDatabase, getUserId, loadRecentChats, sanitizeText]);
 
     // ---------- Delete Chat ----------
     const deleteChat = useCallback(async (chatId) => {
@@ -1661,14 +1746,16 @@ const SpiderAIApp = ({
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [chatHistory, streamingMessage]);
 
-    // ---------- Fast Typing Animation ----------
+    // ---------- Enhanced Typing Animation with Sanitization ----------
     const typeText = useCallback((text, onComplete) => {
         if (!text) {
             onComplete?.();
             return;
         }
         
-        const words = text.split(' ');
+        // Sanitize before typing
+        const cleanText = sanitizeText(text);
+        const words = cleanText.split(' ');
         let currentText = '';
         let wordIndex = 0;
         
@@ -1690,7 +1777,7 @@ const SpiderAIApp = ({
         };
         
         typeNextWord();
-    }, []);
+    }, [sanitizeText]);
 
     // ---------- Stop Generation ----------
     const handleStopGeneration = () => {
@@ -1700,12 +1787,16 @@ const SpiderAIApp = ({
         }
         setIsLoading(false);
         if (streamingMessage) {
-            setChatHistory(prev => [...prev, streamingMessage]);
+            const sanitizedMessage = {
+                ...streamingMessage,
+                content: sanitizeText(streamingMessage.content)
+            };
+            setChatHistory(prev => [...prev, sanitizedMessage]);
             setStreamingMessage(null);
         }
     };
 
-    // ---------- Auto-detect Image Generation ----------
+    // ---------- Advanced Auto-detect Image Generation ----------
     const detectImageGeneration = (prompt) => {
         const lowerPrompt = prompt.toLowerCase();
         const imageTriggers = [
@@ -1713,13 +1804,14 @@ const SpiderAIApp = ({
             'picture of', 'photo of', 'image of', 'generate a picture',
             'create a picture', 'make a picture', 'visualize', 'illustrate',
             'show me an image', 'show me a picture', 'can you draw',
-            'can you create an image', 'can you generate an image'
+            'can you create an image', 'can you generate an image',
+            'design a', 'sketch', 'render', 'depict', 'portray'
         ];
         
         return imageTriggers.some(trigger => lowerPrompt.includes(trigger));
     };
 
-    // ---------- File / Image Upload Handlers ----------
+    // ---------- Enhanced File / Image Upload Handlers ----------
     const handleFileUpload = (event) => {
         const file = event?.target?.files?.[0];
         if (!file) {
@@ -1759,13 +1851,12 @@ const SpiderAIApp = ({
         event.target.value = null;
     };
 
-    // ---------- Fixed PlusMenu Component (Memoized) ----------
+    // ---------- PlusMenu Component ----------
     const PlusMenu = useMemo(() => {
-        return React.memo(({ setActiveAIMode: _setActiveAIMode, fileInputRef, imageInputRef }) => {
+        return ({ setActiveAIMode: _setActiveAIMode, fileInputRef, imageInputRef }) => {
             const [open, setOpen] = useState(false);
             const menuRef = useRef(null);
 
-            // Close menu when clicking outside
             useEffect(() => {
                 const handleClickOutside = (event) => {
                     if (menuRef.current && !menuRef.current.contains(event.target)) {
@@ -1843,7 +1934,7 @@ const SpiderAIApp = ({
                     )}
                 </div>
             );
-        });
+        };
     }, []);
 
     // ---------- New Chat Handler ----------
@@ -1864,6 +1955,35 @@ const SpiderAIApp = ({
             console.warn("Error clearing localStorage:", e);
         }
     };
+
+    // ---------- Backend Response Processor ----------
+    const processBackendResponse = useCallback((response) => {
+        if (!response) return { text: '', base64_image: null };
+        
+        // Handle different response formats
+        let text = '';
+        let base64_image = null;
+        
+        if (typeof response === 'string') {
+            text = sanitizeText(response);
+        } else if (typeof response === 'object') {
+            // Try multiple possible response formats
+            text = sanitizeText(response.text || response.content || response.message || response.result || '');
+            base64_image = response.base64_image || response.image || response.data;
+            
+            // If base64_image is an object, try to extract
+            if (base64_image && typeof base64_image === 'object') {
+                base64_image = base64_image.data || base64_image.image || null;
+            }
+        }
+        
+        // Final sanitization pass
+        if (text) {
+            text = sanitizeText(text);
+        }
+        
+        return { text, base64_image };
+    }, [sanitizeText]);
 
     // ---------- Enhanced Send Message ----------
     const handleSendMessage = async () => {
@@ -1953,7 +2073,8 @@ const SpiderAIApp = ({
                     file_content: fileContent,
                     file_type: fileCopy.type,
                     user_preference_id: getPersistentUserId(),
-                    firebase_token: currentUser?.firebaseToken || ''
+                    firebase_token: currentUser?.firebaseToken || '',
+                    clean_output: true // Tell backend to clean artifacts
                 };
                 
                 console.log('Sending file analysis request:', {
@@ -1963,23 +2084,18 @@ const SpiderAIApp = ({
                 });
                 
                 const result = await callFastAPI(apiUrl, apiPayload, mode);
-
-                console.log('Received file analysis response:', {
-                    hasText: !!result?.text,
-                    hasImage: !!result?.base64_image,
-                    textLength: result?.text?.length
-                });
+                const processed = processBackendResponse(result);
 
                 const assistantMessage = {
                     role: 'assistant',
-                    content: result?.text || 'File analysis complete.',
-                    type: result?.base64_image ? 'image' : 'text',
-                    base64_image: result?.base64_image,
+                    content: processed.text || 'File analysis complete.',
+                    type: processed.base64_image ? 'image' : 'text',
+                    base64_image: processed.base64_image,
                     ts: Date.now()
                 };
                 
-                if (!result?.base64_image && result?.text) {
-                    typeText(result.text, () => {
+                if (!processed.base64_image && processed.text) {
+                    typeText(processed.text, () => {
                         setChatHistory(prev => [...prev, assistantMessage]);
                         setStreamingMessage(null);
                     });
@@ -2011,7 +2127,8 @@ const SpiderAIApp = ({
                     image: base64Image,
                     strength: 0.7,
                     user_preference_id: getPersistentUserId(),
-                    firebase_token: currentUser?.firebaseToken || ''
+                    firebase_token: currentUser?.firebaseToken || '',
+                    clean_output: true
                 };
                 
                 console.log('Sending image edit request:', {
@@ -2021,12 +2138,13 @@ const SpiderAIApp = ({
                 });
                 
                 const result = await callFastAPI(apiUrl, apiPayload, mode);
+                const processed = processBackendResponse(result);
 
                 const assistantMessage = {
                     role: 'assistant',
                     content: '',
                     type: 'image',
-                    base64_image: result?.base64_image,
+                    base64_image: processed.base64_image,
                     ts: Date.now()
                 };
                 setChatHistory(prev => [...prev, assistantMessage]);
@@ -2041,7 +2159,8 @@ const SpiderAIApp = ({
                     aspect_ratio: aspectRatio,
                     user_preference_id: getPersistentUserId(),
                     firebase_token: currentUser?.firebaseToken || '',
-                    stream: false
+                    stream: false,
+                    clean_output: true
                 };
                 
                 console.log('Sending image generation request:', {
@@ -2051,12 +2170,13 @@ const SpiderAIApp = ({
                 });
                 
                 const result = await callFastAPI(apiUrl, apiPayload, mode);
+                const processed = processBackendResponse(result);
 
                 const assistantMessage = {
                     role: 'assistant',
                     content: '',
                     type: 'image',
-                    base64_image: result?.base64_image,
+                    base64_image: processed.base64_image,
                     ts: Date.now()
                 };
                 setChatHistory(prev => [...prev, assistantMessage]);
@@ -2069,7 +2189,8 @@ const SpiderAIApp = ({
                     mode,
                     user_preference_id: getPersistentUserId(),
                     firebase_token: currentUser?.firebaseToken || '',
-                    stream: true
+                    stream: true,
+                    clean_output: true
                 };
                 
                 console.log('Sending chat request:', {
@@ -2079,17 +2200,13 @@ const SpiderAIApp = ({
                 });
                 
                 const result = await callFastAPI(apiUrl, apiPayload, mode);
+                const processed = processBackendResponse(result);
 
-                console.log('Received chat response:', {
-                    hasText: !!result?.text,
-                    textLength: result?.text?.length
-                });
-
-                if (result?.text) {
-                    typeText(result.text, () => {
+                if (processed.text) {
+                    typeText(processed.text, () => {
                         const assistantMessage = {
                             role: 'assistant',
-                            content: result.text,
+                            content: processed.text,
                             type: 'text',
                             ts: Date.now()
                         };
@@ -2099,7 +2216,7 @@ const SpiderAIApp = ({
                 } else {
                     const assistantMessage = {
                         role: 'assistant',
-                        content: result?.text || '',
+                        content: processed.text || '',
                         type: 'text',
                         ts: Date.now()
                     };
@@ -2109,9 +2226,10 @@ const SpiderAIApp = ({
             }
         } catch (error) {
             console.error('API ERROR:', error);
+            const errorMessage = sanitizeText(error?.message || 'Something went wrong.');
             const assistantError = {
                 role: 'assistant',
-                content: `[API ERROR] ${error?.message || 'Something went wrong.'}`,
+                content: `[API ERROR] ${errorMessage}`,
                 type: 'text',
                 ts: Date.now()
             };
@@ -2125,14 +2243,16 @@ const SpiderAIApp = ({
         }
     };
 
-    // ---------- Optimized Content Processing ----------
+    // ---------- Enhanced Content Processing ----------
     const processContent = useCallback((text) => {
         if (!text || typeof text !== "string") {
             return [{ type: "text", content: text || "" }];
         }
 
+        // Apply sanitization first
+        const cleanText = sanitizeText(text);
         const blocks = [];
-        const lines = text.split('\n');
+        const lines = cleanText.split('\n');
         let currentBlock = { type: "text", content: "" };
         let inCodeBlock = false;
         let codeLanguage = "";
@@ -2148,9 +2268,16 @@ const SpiderAIApp = ({
 
         const flushTable = () => {
             if (tableRows.length >= 2) {
+                // Sanitize table rows
+                const cleanTableRows = tableRows.map(row => 
+                    row.replace(/#\*.*?\*#/g, '')
+                       .replace(/#\*/g, '')
+                       .replace(/\*#/g, '')
+                       .replace(/\[.*?\]/g, '')
+                );
                 blocks.push({
                     type: "table",
-                    content: tableRows.join('\n')
+                    content: cleanTableRows.join('\n')
                 });
                 tableRows = [];
             }
@@ -2171,11 +2298,20 @@ const SpiderAIApp = ({
                 } else {
                     // End of code block
                     inCodeBlock = false;
-                    blocks.push({
-                        type: "code",
-                        language: codeLanguage || "text",
-                        content: codeContent.trim()
-                    });
+                    // Sanitize code content
+                    const cleanCodeContent = codeContent
+                        .replace(/#\*.*?\*#/g, '')
+                        .replace(/#\*/g, '')
+                        .replace(/\*#/g, '')
+                        .trim();
+                    
+                    if (cleanCodeContent) {
+                        blocks.push({
+                            type: "code",
+                            language: codeLanguage || "text",
+                            content: cleanCodeContent
+                        });
+                    }
                 }
                 continue;
             }
@@ -2192,14 +2328,12 @@ const SpiderAIApp = ({
                 !trimmedLine.startsWith('|--') &&
                 trimmedLine.match(/[^\s|:-]/)) {
                 
-                // Check if this is a table separator line
                 const isSeparator = trimmedLine.match(/^[\s|:-]+$/);
                 
                 if (!isSeparator || (isSeparator && tableRows.length > 0)) {
                     tableRows.push(line);
                 }
                 
-                // Check if next lines are also part of table
                 let j = i + 1;
                 while (j < lines.length && lines[j].trim().includes('|') && !lines[j].trim().startsWith('```')) {
                     tableRows.push(lines[j]);
@@ -2207,16 +2341,14 @@ const SpiderAIApp = ({
                 }
                 
                 if (j > i + 1) {
-                    i = j - 1; // Skip processed lines
+                    i = j - 1;
                 }
                 
-                // If we have at least 2 rows (header + data), it's a table
                 if (tableRows.length >= 2) {
                     flushCurrentBlock();
                     flushTable();
                     continue;
                 } else {
-                    // Not a table, add to current text block
                     tableRows.forEach(row => {
                         currentBlock.content += row + '\n';
                     });
@@ -2224,7 +2356,6 @@ const SpiderAIApp = ({
                     continue;
                 }
             } else {
-                // Flush any pending table rows
                 if (tableRows.length > 0) {
                     tableRows.forEach(row => {
                         currentBlock.content += row + '\n';
@@ -2248,26 +2379,33 @@ const SpiderAIApp = ({
 
         // If we ended in a code block (unclosed), add it as code
         if (inCodeBlock && codeContent.trim()) {
-            blocks.push({
-                type: "code",
-                language: codeLanguage || "text",
-                content: codeContent.trim()
-            });
+            const cleanCodeContent = codeContent
+                .replace(/#\*.*?\*#/g, '')
+                .replace(/#\*/g, '')
+                .replace(/\*#/g, '')
+                .trim();
+            
+            if (cleanCodeContent) {
+                blocks.push({
+                    type: "code",
+                    language: codeLanguage || "text",
+                    content: cleanCodeContent
+                });
+            }
         }
 
         return blocks;
-    }, []);
+    }, [sanitizeText]);
 
-    // ---------- Optimized Chat Bubble ----------
+    // ---------- Enhanced Chat Bubble ----------
     const ChatBubble = useMemo(() => {
-        return React.memo(({ message }) => {
+        return ({ message }) => {
             const [contentBlocks, setContentBlocks] = useState([]);
 
             useEffect(() => {
                 const blocks = processContent(message.content);
                 setContentBlocks(blocks);
                 
-                // Apply syntax highlighting
                 if (typeof window !== "undefined" && window.Prism) {
                     setTimeout(() => {
                         window.Prism.highlightAll();
@@ -2287,7 +2425,6 @@ const SpiderAIApp = ({
                 const separator = rows[1];
                 const dataRows = rows.slice(2).filter(r => r.includes('|'));
 
-                // Determine column alignments from separator
                 const alignments = separator.split('|').filter(c => c.trim()).map(col => {
                     if (col.startsWith(':') && col.endsWith(':')) return 'center';
                     if (col.endsWith(':')) return 'right';
@@ -2340,21 +2477,7 @@ const SpiderAIApp = ({
                                                         overflowWrap: 'break-word'
                                                     }}
                                                 >
-                                                    {cell.includes('✓') ? (
-                                                        <span className="text-green-400 font-bold">✓</span>
-                                                    ) : cell.includes('✗') ? (
-                                                        <span className="text-red-400 font-bold">✗</span>
-                                                    ) : cell.includes('⭐') ? (
-                                                        <span className="text-yellow-400">{'⭐'.repeat(cell.match(/⭐/g)?.length || 1)}</span>
-                                                    ) : cell.includes('🔴') ? (
-                                                        <span className="text-red-400">🔴</span>
-                                                    ) : cell.includes('🟡') ? (
-                                                        <span className="text-yellow-400">🟡</span>
-                                                    ) : cell.includes('🟢') ? (
-                                                        <span className="text-green-400">🟢</span>
-                                                    ) : (
-                                                        cell
-                                                    )}
+                                                    {cell}
                                                 </td>
                                             ))}
                                         </tr>
@@ -2460,19 +2583,10 @@ const SpiderAIApp = ({
                     </div>
                 </div>
             );
-        });
+        };
     }, [processContent]);
 
-    // Helper function for mode display
-    const getModeText = () => {
-        if (uploadedFile) return "File Analysis";
-        if (uploadedImage) return "Image Edit";
-        if (activeAIMode === 'image_gen') return "Create Image";
-        if (activeAIMode === 'image_edit') return "Edit Image";
-        return "Chat / Code / Image";
-    };
-
-    // ---------- Mobile Sidebar Component ----------
+    // ---------- Enhanced Mobile Sidebar ----------
     const MobileSidebar = useMemo(() => {
         return () => {
             return (
@@ -2573,7 +2687,6 @@ const SpiderAIApp = ({
     // ---------- Main JSX ----------
     return (
         <div className="flex flex-row h-full w-full bg-[var(--spider-dark)] text-[var(--spider-text)] overflow-hidden relative">
-            {/* Mobile Sidebar */}
             <MobileSidebar />
             
             {/* Desktop Sidebar */}
@@ -2654,7 +2767,6 @@ const SpiderAIApp = ({
 
             {/* Main Chat Area */}
             <div className="flex flex-col flex-1 h-full min-h-0 w-full">
-                {/* Mobile Header */}
                 {isMobile && (
                     <div className="flex items-center justify-between p-3 bg-[var(--spider-med)] border-b border-[var(--spider-light)] flex-shrink-0">
                         <button 
@@ -2667,7 +2779,11 @@ const SpiderAIApp = ({
                             </svg>
                         </button>
                         <span className="text-sm font-semibold text-[var(--spider-neon-blue)] truncate px-2">
-                            {getModeText()}
+                            {uploadedFile ? "File Analysis" : 
+                             uploadedImage ? "Image Edit" : 
+                             activeAIMode === 'image_gen' ? "Create Image" : 
+                             activeAIMode === 'image_edit' ? "Edit Image" : 
+                             "Chat / Code / Image"}
                         </span>
                         <button 
                             onClick={handleNewChat}
@@ -2687,7 +2803,6 @@ const SpiderAIApp = ({
                         <ChatBubble key={`${msg.ts}_${index}`} message={msg} />
                     ))}
                     
-                    {/* Streaming Message */}
                     {streamingMessage && (
                         <div className="flex justify-start mb-4 px-2">
                             <div className="bg-[var(--spider-med)] text-white p-4 rounded-2xl max-w-[95%] shadow-md border border-[var(--spider-light)]">
@@ -2706,7 +2821,6 @@ const SpiderAIApp = ({
                         </div>
                     )}
                     
-                    {/* Loading Indicator */}
                     {isLoading && !streamingMessage && (
                         <div className="flex justify-start mb-4 px-2">
                             <div className="bg-[var(--spider-med)] text-white p-4 rounded-2xl max-w-[95%] shadow-md border border-[var(--spider-light)]">
@@ -2746,16 +2860,19 @@ const SpiderAIApp = ({
                     accept="image/*" 
                 />
 
-                {/* Input Area - Optimized for all devices */}
+                {/* Input Area */}
                 <div className={`bg-[var(--spider-med)] border-t border-[var(--spider-light)] flex-shrink-0 w-full ${
                     isMobile ? 'fixed bottom-0 left-0 right-0 p-3' : 'p-4'
                 }`}>
                     <div className="max-w-5xl mx-auto">
-                        {/* Mode Display - Desktop only */}
                         {!isMobile && (
                             <div className="flex justify-between items-center mb-3">
                                 <span className="flex items-center text-sm text-[var(--spider-neon-blue)] font-semibold">
-                                    {getModeText()}
+                                    {uploadedFile ? "File Analysis" : 
+                                     uploadedImage ? "Image Edit" : 
+                                     activeAIMode === 'image_gen' ? "Create Image" : 
+                                     activeAIMode === 'image_edit' ? "Edit Image" : 
+                                     "Chat / Code / Image"}
                                     {activeChatId && (
                                         <span className="ml-2 text-xs text-[var(--spider-text-dim)]">
                                             (Auto-saved)
@@ -2777,7 +2894,6 @@ const SpiderAIApp = ({
                             </div>
                         )}
 
-                        {/* Uploaded File/Image Indicator */}
                         {(uploadedFile || uploadedImage) && (
                             <div className="mb-3 text-xs text-green-400 p-3 bg-[var(--spider-dark)] rounded-lg flex justify-between items-center border border-green-800">
                                 <span className="truncate flex items-center space-x-2">
@@ -2805,7 +2921,6 @@ const SpiderAIApp = ({
                             </div>
                         )}
 
-                        {/* Input Controls */}
                         <div className="flex items-end w-full space-x-3">
                             <div className="flex-1 bg-[var(--spider-light)] rounded-xl p-3 min-h-[48px] border border-[var(--spider-light)]">
                                 <textarea 
@@ -2837,7 +2952,6 @@ const SpiderAIApp = ({
                                 />
                             </div>
 
-                            {/* Aspect Ratio Selector - Mobile */}
                             {isMobile && (activeAIMode === 'image_gen' || detectImageGeneration(message)) && (
                                 <select 
                                     value={aspectRatio} 
@@ -2850,14 +2964,12 @@ const SpiderAIApp = ({
                                 </select>
                             )}
 
-                            {/* Plus Menu */}
                             <PlusMenu 
                                 setActiveAIMode={setActiveAIMode} 
                                 fileInputRef={fileInputRef} 
                                 imageInputRef={imageInputRef} 
                             />
 
-                            {/* Send Button */}
                             <button 
                                 onClick={handleSendMessage} 
                                 className="bg-[var(--spider-neon-blue)] text-black font-semibold px-5 py-3 rounded-xl hover:opacity-90 transition duration-200 flex-shrink-0 h-12 flex items-center justify-center min-w-[52px] touch-manipulation active:scale-95 shadow-lg" 
@@ -2876,7 +2988,6 @@ const SpiderAIApp = ({
                     </div>
                 </div>
 
-                {/* Add safe area padding for mobile */}
                 {isMobile && <div className="h-24" />}
             </div>
         </div>
@@ -3947,6 +4058,7 @@ int main() {
         </>
     );
 }
+
 
 
 
