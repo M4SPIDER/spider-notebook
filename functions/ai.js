@@ -1,18 +1,19 @@
 /* ========================================================================================
-   SPIDER AI — V8.0.0 (ULTIMATE AI EDITION)
+   SPIDER AI — V8.1.0 (FORMATTING HOTFIX)
    -------------------------------------------------------------------------------------
    AUTHOR: M4 Spider 🕷️🤖
    DATE: 2026-01-07
-   VERSION: 8.0.0 (Mega Stable AI Release)
+   VERSION: 8.1.0 (Stable AI Release)
    
    DESCRIPTION:
    This is the core brain of Spider AI. It runs on Cloudflare Workers and acts as a 
    central intelligence hub. It orchestrates Multi-Modal AI models, persistent KV memory, 
    external search tools, and complex language processing.
 
-   CHANGELOG V8.0.0:
+   CHANGELOG V8.1.0:
+   - CRITICAL FIX: "Clean AI Response" regex updated to handle indented headers.
+   - FIXED: Removed bolding artifacts around headers (e.g., **### Title**).
    - BRANDING: "Spider AI" identity reinforced across all logic blocks.
-   - FIXED: Strict Markdown header cleaning. No more "#Header" errors.
    - ADDED: "System Health" AI diagnostic mode.
    - UPDATED: Expanded Telugu & Hindi AI Trigger dictionaries.
    - OPTIMIZED: AI Memory compression algorithm for long-term storage.
@@ -211,19 +212,27 @@ function cleanAiResponse(text) {
   if (!text) return "";
   let clean = text;
 
-  // 1. Fix Markdown Headers (The "#*" Fix)
-  // Logic: Find 1-6 hash marks at the start of a line (or string) 
+  // 1. Fix Markdown Headers (The "Sticky Hash" Fix)
+  // Logic: Find 1-6 hash marks at the start of a line (allowing whitespace)
   // that are IMMEDIATELY followed by a non-space character.
   // Replace with the hashes + space + the character.
-  clean = clean.replace(/^(#{1,6})([^\s#])/gm, '$1 $2');
+  // Regex explanation:
+  // ^\s* -> Start of line, optional whitespace
+  // (#{1,6})   -> Capture Group 1: 1 to 6 hash marks
+  // ([^\s#])   -> Capture Group 2: Any char that is NOT a space or a hash
+  clean = clean.replace(/^\s*(#{1,6})([^\s#])/gm, '$1 $2');
 
-  // 2. Remove "User:" or "Assistant:" prefixes if the AI hallucinated them.
+  // 2. Fix Bolded Headers (Rare but annoying: **### Title**)
+  // AI sometimes tries to bold headers. Markdown doesn't like that.
+  clean = clean.replace(/\*\*(#{1,6})\s*(.*?)\*\*/gm, '$1 $2');
+
+  // 3. Remove "User:" or "Assistant:" prefixes if the AI hallucinated them.
   clean = clean.replace(/^(User:|Assistant:|Spider AI:|Bot:)\s*/i, "");
 
-  // 3. Remove internal system tags if they leaked (e.g., [SEARCH_START])
+  // 4. Remove internal system tags if they leaked (e.g., [SEARCH_START])
   clean = clean.replace(/\[SEARCH_\w+\]/g, "");
 
-  // 4. Ensure code blocks are properly spaced
+  // 5. Ensure code blocks are properly spaced
   clean = clean.replace(/```(\w+)/g, '\n```$1\n'); // Ensure newline after open
   clean = clean.replace(/```\s*$/g, '\n```');      // Ensure newline before close
 
