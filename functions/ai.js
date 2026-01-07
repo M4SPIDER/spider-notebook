@@ -804,8 +804,7 @@ const analysisPrompt =
   `- Use strict analysis style (like ChatGPT code analysis).\n` +
   `- Use Markdown formatting correctly.\n` +
   `- DO NOT use bold (**).\n` +
-  `- DO NOT generate headers without space after # (no ###Title).\n` +
-  `- Always use headers as '# Title', '## Title', '### Title'.\n` +
+  `- Always use headers as ' Title'.\n` +
   `- Do NOT skip any part of the file.\n` +
   `- Do NOT use placeholders.\n\n` +
   `FILE CONTENT:\n\`\`\`\n${combinedFileContent}\n\`\`\``;
