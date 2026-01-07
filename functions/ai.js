@@ -1,113 +1,72 @@
 /* =========================================================
-   SPIDER AI v8.1.4 – ULTIMATE FINAL CLEAN VERSION
+   SPIDER AI – FULLY FIXED BACKEND (SCHEMA SAFE)
    Author: M4 Spider
    ========================================================= */
 
 //////////////////////////////
-// 1. CONFIGURATION
+// 1. CONFIG
 //////////////////////////////
-const AI_MEMORY_MESSAGE_LIMIT = 60;
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
-const AI_MEMORY_USER_KEY_PREFIX = "spider_ai_v8_mem:";
+const AI_MEMORY_USER_KEY_PREFIX = "spider_ai_mem:";
 const AI_RETRY_LIMIT = 2;
 const AI_RETRY_DELAY_BASE = 1000;
 
 //////////////////////////////
-// 2. LANGUAGE TRIGGERS
-//////////////////////////////
-const TELUGU_AI_TRIGGERS = ["ra","mama","anna","bro","macha","boss","em","enti"];
-const HINDI_AI_TRIGGERS = ["kya","kaise","kyun","bhai","yaar","acha"];
-const SAVAGE_AI_TRIGGERS = ["savage","roast","troll","insult"];
-
-//////////////////////////////
-// 3. HELPERS
+// 2. UTILS
 //////////////////////////////
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-function shouldTrigger(list, msg) {
-  if (!msg) return false;
-  let c = 0;
-  msg.toLowerCase().split(/\s+/).forEach(w => {
-    if (list.includes(w)) c++;
-  });
-  return c >= 2;
-}
-
 //////////////////////////////
-// 4. 🔥 CHATGPT-LEVEL CLEANER (ULTIMATE)
+// 3. CLEAN OUTPUT (PLACEHOLDER + MARKDOWN SAFE)
 //////////////////////////////
 function cleanAiResponse(text) {
   if (!text) return "";
 
-  // 1️⃣ Protect REAL fenced code blocks
-  // Use an IMPOSSIBLE token (zero-width chars)
-  const codeBlocks = [];
-  const TOKEN = "\u200B\u200C\u200D"; // invisible trio
+  // Protect real code blocks using invisible token
+  const blocks = [];
+  const TOKEN = "\u200B\u200C\u200D";
 
   text = text.replace(/```[\s\S]*?```/g, m => {
-    codeBlocks.push(m);
-    return `${TOKEN}${codeBlocks.length}${TOKEN}`;
+    blocks.push(m);
+    return `${TOKEN}${blocks.length}${TOKEN}`;
   });
 
   let c = text;
 
-  // 2️⃣ Remove LLM junk
+  // Remove markdown & junk
   c = c
-    .replace(/#\*[\s\S]*?\*#/g, '')
-    .replace(/#\*/g, '')
-    .replace(/\*#/g, '');
+    .replace(/#\*[\s\S]*?\*#/g, "")
+    .replace(/#\*/g, "")
+    .replace(/\*#/g, "")
+    .replace(/^\s*#{1,6}\s*/gm, "")
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/__(.*?)__/g, "$1")
+    .replace(/\*(.*?)\*/g, "$1")
+    .replace(/_(.*?)_/g, "$1")
+    .replace(/^\s*[\-\*\+•]+\s*/gm, "");
 
-  // 3️⃣ Remove ALL markdown formatting
-  c = c
-    .replace(/^\s*#{1,6}\s*(.+)$/gm, '$1')
-    .replace(/\*\*(.*?)\*\*/g, '$1')
-    .replace(/__(.*?)__/g, '$1')
-    .replace(/\*(.*?)\*/g, '$1')
-    .replace(/_(.*?)_/g, '$1')
-    .replace(/^\s*[\-\*\+•]+\s*/gm, '');
+  // 🔥 Kill ALL placeholder-like words
+  c = c.replace(/\b[A-Z_]*CODE[A-Z_]*BLOCK[A-Z_]*\d*\b/gi, "");
 
-  // 4️⃣ ☢️ ABSOLUTE PLACEHOLDER NUKER
-  // Removes ANY variant:
-  // CODEBLOCK, REALCODEBLOCK, INTERNALCODEBLOCK, TEMPBLOCK, etc.
+  // Remove AI/system prefixes
   c = c.replace(
-    /\b[A-Z_]*CODE[A-Z_]*BLOCK[A-Z_]*\s*\d*\b/gi,
-    ''
+    /^(User:|Assistant:|Spider AI:|Bot:|AI:|Model:)\s*/igm,
+    ""
   );
 
-  // 5️⃣ Remove AI prefixes & system junk
-  c = c
-    .replace(/^(User:|Assistant:|Spider AI:|Bot:|AI:|Model:)\s*/igm, '')
-    .replace(/\[SEARCH_[A-Z_]+\]/g, '');
+  // Normalize spacing
+  c = c.replace(/\n{3,}/g, "\n\n").trim();
 
-  // 6️⃣ Normalize whitespace
-  c = c.replace(/\n{3,}/g, '\n\n').trim();
-
-  // 7️⃣ Restore REAL code blocks (only via invisible token)
-  const restoreRegex = new RegExp(`${TOKEN}(\\d+)${TOKEN}`, "g");
-  c = c.replace(restoreRegex, (_, i) => codeBlocks[i - 1]);
+  // Restore real code blocks
+  const restore = new RegExp(`${TOKEN}(\\d+)${TOKEN}`, "g");
+  c = c.replace(restore, (_, i) => blocks[i - 1]);
 
   return c;
 }
 
 //////////////////////////////
-// 5. SYSTEM PROMPTS
-//////////////////////////////
-const AI_CORE_IDENTITY =
-"You are Spider AI created by M4 Spider. Behave like ChatGPT. Never expose placeholders.";
-
-//////////////////////////////
-// 6. MODE DETECTION
-//////////////////////////////
-function detectMode(prompt) {
-  const t = (prompt || "").toLowerCase().trim();
-  if (["#reset","reset memory"].includes(t)) return "reset";
-  if (["#status","#health"].includes(t)) return "status";
-  return "chat";
-}
-
-//////////////////////////////
-// 7. MEMORY (KV)
+// 4. MEMORY (KV)
 //////////////////////////////
 async function getMemory(env, key) {
   try {
@@ -128,12 +87,16 @@ async function saveMemory(env, key, mem) {
 }
 
 //////////////////////////////
-// 8. AI RUNNER
+// 5. AI CALL (SCHEMA SAFE)
 //////////////////////////////
-async function runAi(env, model, input) {
+async function runAi(env, model, messages) {
   for (let i = 0; i <= AI_RETRY_LIMIT; i++) {
     try {
-      return await env.SPY_AI.run(model, input);
+      return await env.SPY_AI.run(model, {
+        messages,
+        temperature: 0.7,
+        max_tokens: 2048
+      });
     } catch (e) {
       if (i === AI_RETRY_LIMIT) throw e;
       await sleep(AI_RETRY_DELAY_BASE * (2 ** i));
@@ -146,12 +109,12 @@ function extractText(resp) {
     resp?.output?.[1]?.content?.[0]?.text ||
     resp?.response ||
     resp?.result ||
-    (typeof resp === "string" ? resp : "")
+    ""
   );
 }
 
 //////////////////////////////
-// 9. MAIN HANDLER
+// 6. MAIN HANDLER
 //////////////////////////////
 export async function onRequest(context) {
   const { request, env } = context;
@@ -168,39 +131,51 @@ export async function onRequest(context) {
 
   try {
     const prompt = await request.text();
-    const mode = detectMode(prompt);
 
-    const memKey = AI_MEMORY_USER_KEY_PREFIX + "anon";
+    const userId = "anon";
+    const memKey = AI_MEMORY_USER_KEY_PREFIX + userId;
+
+    // Load memory (with ts internally)
     let mem = await getMemory(env, memKey);
 
-    if (mode === "reset") {
-      await saveMemory(env, memKey, []);
-      return new Response("Memory cleared", { headers: cors });
-    }
+    // Save user message WITH timestamp (KV only)
+    mem.push({
+      role: "user",
+      content: prompt,
+      ts: Date.now()
+    });
 
-    if (mode === "status") {
-      return new Response(`Spider AI online\nMemory: ${mem.length}`, { headers: cors });
-    }
-
-    mem.push({ role: "user", content: prompt });
     mem = mem.slice(-AI_MEMORY_TRIM_TARGET);
+
+    // 🚨 IMPORTANT FIX:
+    // STRIP ts BEFORE sending to model
+    const safeMessages = [
+      {
+        role: "system",
+        content:
+          "You are Spider AI. Respond like ChatGPT. Plain text only."
+      },
+      ...mem.map(m => ({
+        role: m.role,
+        content: m.content
+      }))
+    ];
 
     const res = await runAi(
       env,
       "@cf/mistralai/mistral-small-3.1-24b-instruct",
-      {
-        messages: [
-          { role: "system", content: AI_CORE_IDENTITY },
-          ...mem
-        ],
-        temperature: 0.7,
-        max_tokens: 2048
-      }
+      safeMessages
     );
 
     const output = cleanAiResponse(extractText(res));
 
-    mem.push({ role: "assistant", content: output });
+    // Save assistant response WITH timestamp (KV only)
+    mem.push({
+      role: "assistant",
+      content: output,
+      ts: Date.now()
+    });
+
     await saveMemory(env, memKey, mem);
 
     return new Response(output, {
@@ -208,6 +183,9 @@ export async function onRequest(context) {
     });
 
   } catch (e) {
-    return new Response("Error: " + e.message, { status: 500 });
+    return new Response("Error: " + e.message, {
+      status: 500,
+      headers: cors
+    });
   }
 }
