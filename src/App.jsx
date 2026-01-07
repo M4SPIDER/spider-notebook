@@ -4,6 +4,8 @@
 // ----------------------------------------------------------------------
 import React, { useState, useEffect, useCallback, useRef ,useMemo } from 'react';
 
+import katex from 'katex';
+import 'katex/dist/katex.min.css';
 // ----------------------------------------------------------------------
 // Firebase Core
 // ----------------------------------------------------------------------
@@ -1348,7 +1350,7 @@ const SpiderNotebookApp = ({
         </div>
     );
 };
-
+import katex from 'katex';
 const SpiderAIApp = ({ 
     currentUser, 
     showModal, 
@@ -1374,6 +1376,8 @@ const SpiderAIApp = ({
     const [isDeleting, setIsDeleting] = useState(false);
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [isMobile, setIsMobile] = useState(false);
+    
+    // ---------- Streaming State ----------
     const [isStreaming, setIsStreaming] = useState(false);
     const [streamedContent, setStreamedContent] = useState('');
     const [showContinueButton, setShowContinueButton] = useState(false);
@@ -1382,15 +1386,14 @@ const SpiderAIApp = ({
     // ---------- Full Code Mode State ----------
     const [isFullCodeMode, setIsFullCodeMode] = useState(false);
     const [generatedFiles, setGeneratedFiles] = useState([]);
-    const [projectStructure, setProjectStructure] = useState([]);
-    const [activeFileIndex, setActiveFileIndex] = useState(0);
-    const [isProjectView, setIsProjectView] = useState(false);
     const [projectMetadata, setProjectMetadata] = useState({
         name: '',
         type: '',
         description: '',
         totalFiles: 0
     });
+    const [activeFileIndex, setActiveFileIndex] = useState(0);
+    const [isProjectView, setIsProjectView] = useState(false);
 
     const fileInputRef = useRef(null);
     const imageInputRef = useRef(null);
@@ -1398,8 +1401,6 @@ const SpiderAIApp = ({
     const textareaRef = useRef(null);
     const streamReaderRef = useRef(null);
     const accumulatedTokensRef = useRef('');
-    const codeFilesRef = useRef([]);
-    const currentFileNameRef = useRef('');
     const fileContentBufferRef = useRef('');
 
     const getAppId = () => typeof __app_id !== 'undefined' ? __app_id : 'default-m4-app';
@@ -1418,7 +1419,6 @@ const SpiderAIApp = ({
 
     // ---------- Full Code Detection Patterns ----------
     const fullCodePatterns = useMemo(() => ({
-        // Strong triggers (definitely full code)
         strong: [
             'write full code',
             'give full code',
@@ -1445,7 +1445,6 @@ const SpiderAIApp = ({
             'with requirements.txt'
         ],
         
-        // Medium triggers (likely full code)
         medium: [
             'full stack',
             'complete app',
@@ -1467,7 +1466,6 @@ const SpiderAIApp = ({
             'folder structure'
         ],
         
-        // Project type indicators
         projectTypes: [
             'todo app',
             'calculator',
@@ -1492,14 +1490,67 @@ const SpiderAIApp = ({
             'flask app',
             'mobile app',
             'desktop app'
+        ]
+    }), []);
+
+    // ---------- Math Detection Patterns ----------
+    const mathPatterns = useMemo(() => ({
+        latexInline: [
+            /\$([^$]+?)\$/g,                         // $...$
+            /\$\\displaystyle\s*([^$]+?)\$/g,        // $\displaystyle ...$
+            /\\\(([^)]+?)\\\)/g,                     // \(...\)
+            /\\\[([\s\S]+?)\\\]/g,                   // \[...\]
+            /\\begin\{equation\}([\s\S]+?)\\end\{equation\}/g,
+            /\\begin\{align\}([\s\S]+?)\\end\{align\}/g,
+            /\\begin\{gather\}([\s\S]+?)\\end\{gather\}/g,
+            /\\boxed\{([^}]+?)\}/g                   // \boxed{...}
         ],
         
-        // File extension patterns
-        fileExtensions: [
-            '.py', '.js', '.jsx', '.ts', '.tsx', '.html', '.css', '.scss', 
-            '.json', '.md', '.txt', '.yml', '.yaml', '.xml', '.env',
-            '.java', '.cpp', '.c', '.h', '.cs', '.php', '.rb', '.go',
-            '.rs', '.swift', '.kt', '.dart'
+        mathKeywords: [
+            'calculate',
+            'solve',
+            'equation',
+            'formula',
+            'theorem',
+            'derivative',
+            'integral',
+            'matrix',
+            'vector',
+            'function',
+            'limit',
+            'sum',
+            'product',
+            'sqrt',
+            'frac',
+            'sin',
+            'cos',
+            'tan',
+            'log',
+            'ln',
+            'exp',
+            'pi',
+            'theta',
+            'alpha',
+            'beta',
+            'gamma',
+            'delta',
+            'epsilon',
+            'sigma',
+            'omega',
+            'infty',
+            'rightarrow',
+            'leftarrow',
+            'Rightarrow',
+            'Leftarrow',
+            'approx',
+            'equiv',
+            'propto',
+            'partial',
+            'nabla',
+            'int',
+            'sum',
+            'prod',
+            'lim'
         ]
     }), []);
 
@@ -1526,7 +1577,8 @@ const SpiderAIApp = ({
         });
         
         // Check for explicit file requests
-        fullCodePatterns.fileExtensions.forEach(ext => {
+        const fileExtensions = ['.js', '.jsx', '.ts', '.tsx', '.py', '.html', '.css', '.json', '.md', '.txt'];
+        fileExtensions.forEach(ext => {
             if (lowerText.includes(ext)) score += 1;
         });
         
@@ -1544,6 +1596,99 @@ const SpiderAIApp = ({
         // Threshold for triggering full code mode
         return score >= 3;
     }, [fullCodePatterns]);
+
+    // ---------- Detect Math Request ----------
+    const detectMathRequest = useCallback((text) => {
+        if (!text) return false;
+        
+        const lowerText = text.toLowerCase();
+        
+        // Check for math keywords
+        const hasMathKeywords = mathPatterns.mathKeywords.some(keyword => 
+            lowerText.includes(keyword) || 
+            text.includes(`\\${keyword}`)
+        );
+        
+        // Check for LaTeX patterns
+        const hasLatex = mathPatterns.latexInline.some(pattern => pattern.test(text));
+        
+        // Check for common math phrases
+        const mathPhrases = [
+            'solve for',
+            'calculate',
+            'find the value',
+            'prove that',
+            'show that',
+            'derivative of',
+            'integral of',
+            'limit of',
+            'matrix',
+            'vector',
+            'equation'
+        ];
+        
+        const hasMathPhrases = mathPhrases.some(phrase => lowerText.includes(phrase));
+        
+        return hasMathKeywords || hasLatex || hasMathPhrases;
+    }, [mathPatterns]);
+
+    // ---------- Detect Large Code Request ----------
+    const detectLargeCodeRequest = useCallback((text) => {
+        if (!text) return false;
+        
+        const lowerText = text.toLowerCase();
+        
+        // Code-specific keywords that usually mean large responses
+        const codeKeywords = [
+            'write code for',
+            'create a function',
+            'build a program',
+            'develop an application',
+            'implement',
+            'algorithm for',
+            'data structure',
+            'database schema',
+            'api endpoint',
+            'complete script',
+            'entire program',
+            'source code'
+        ];
+        
+        // Check length - long questions usually mean long answers
+        const isLongQuestion = text.length > 100;
+        
+        // Check for code block indicators
+        const hasCodeIndicators = codeKeywords.some(keyword => lowerText.includes(keyword));
+        
+        // Check for multiple file mentions
+        const hasMultipleFiles = lowerText.match(/\d+\s*(?:files|file)/);
+        
+        return isLongQuestion && (hasCodeIndicators || hasMultipleFiles);
+    }, []);
+
+    // ---------- Decision: When to Use Streaming ----------
+    const shouldUseStreaming = useCallback((text, isFullCode, mode) => {
+        // Always stream for these cases:
+        if (isFullCode) return true;
+        if (mode === "analyze_file") return true;
+        if (detectLargeCodeRequest(text)) return true;
+        
+        // Check for streaming keywords in user request
+        const streamingKeywords = [
+            'stream',
+            'live',
+            'real-time',
+            'as you type',
+            'show step by step',
+            'show process',
+            'type it out'
+        ];
+        
+        const lowerText = text.toLowerCase();
+        const userRequestsStreaming = streamingKeywords.some(keyword => lowerText.includes(keyword));
+        
+        return userRequestsStreaming;
+    }, [detectLargeCodeRequest]);
 
     // ---------- Extract Project Metadata ----------
     const extractProjectMetadata = useCallback((text) => {
@@ -1586,12 +1731,6 @@ const SpiderAIApp = ({
             metadata.name = nameMatch[1].trim().replace(/\b\w/g, l => l.toUpperCase());
         }
         
-        // Extract file count if mentioned
-        const fileCountMatch = lowerText.match(/(\d+)\s*(?:files|file)/);
-        if (fileCountMatch) {
-            metadata.totalFiles = parseInt(fileCountMatch[1]);
-        }
-        
         return metadata;
     }, []);
 
@@ -1602,13 +1741,12 @@ const SpiderAIApp = ({
         const files = [];
         const lines = text.split('\n');
         let currentFile = null;
-        let inCodeBlock = false;
         let currentContent = [];
         
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
             
-            // Detect file headers (common patterns)
+            // Detect file headers
             const fileHeaderMatch = line.match(/^(?:File|Filename|File name|## |# |📁|📄)\s*[:：]?\s*(.+?\.(?:js|jsx|ts|tsx|py|html|css|json|md|txt|yml|yaml|xml|env))$/i);
             const pathMatch = line.match(/^([a-zA-Z0-9_\-./]+\.(?:js|jsx|ts|tsx|py|html|css|json|md|txt|yml|yaml|xml|env))$/);
             
@@ -1633,44 +1771,6 @@ const SpiderAIApp = ({
                 continue;
             }
             
-            // Detect code blocks with language specifying file
-            const codeBlockMatch = line.match(/^```(\w+)\s+(.+?\.\w+)$/);
-            if (codeBlockMatch) {
-                // Save previous file if exists
-                if (currentFile && currentContent.length > 0) {
-                    files.push({
-                        ...currentFile,
-                        content: currentContent.join('\n').trim()
-                    });
-                }
-                
-                const [_, language, fileName] = codeBlockMatch;
-                currentFile = {
-                    name: fileName.trim(),
-                    path: `/${fileName.trim()}`,
-                    language: language,
-                    size: 0,
-                    lastModified: Date.now()
-                };
-                currentContent = [];
-                inCodeBlock = true;
-                continue;
-            }
-            
-            // End of code block
-            if (line.trim() === '```') {
-                inCodeBlock = false;
-                if (currentFile && currentContent.length > 0) {
-                    files.push({
-                        ...currentFile,
-                        content: currentContent.join('\n').trim()
-                    });
-                    currentFile = null;
-                    currentContent = [];
-                }
-                continue;
-            }
-            
             // Accumulate content
             if (currentFile) {
                 currentContent.push(line);
@@ -1686,126 +1786,185 @@ const SpiderAIApp = ({
             });
         }
         
-        // If no structured files found, try to extract from code blocks
-        if (files.length === 0) {
-            const codeBlocks = extractCodeBlocks(text);
-            codeBlocks.forEach((block, index) => {
-                if (block.content.trim()) {
-                    files.push({
-                        name: `file${index + 1}.${block.language || 'txt'}`,
-                        path: `/file${index + 1}.${block.language || 'txt'}`,
-                        language: block.language || 'text',
-                        content: block.content.trim(),
-                        size: block.content.length,
-                        lastModified: Date.now()
-                    });
-                }
-            });
-        }
-        
         return files;
     }, []);
 
     const getLanguageFromExtension = (filename) => {
         const ext = filename.split('.').pop().toLowerCase();
         const map = {
-            'js': 'javascript',
-            'jsx': 'javascript',
-            'ts': 'typescript',
-            'tsx': 'typescript',
-            'py': 'python',
-            'html': 'html',
-            'css': 'css',
-            'scss': 'scss',
-            'json': 'json',
-            'md': 'markdown',
-            'txt': 'text',
-            'yml': 'yaml',
-            'yaml': 'yaml',
-            'xml': 'xml',
-            'env': 'dotenv',
-            'java': 'java',
-            'cpp': 'cpp',
-            'c': 'c',
-            'h': 'c',
-            'cs': 'csharp',
-            'php': 'php',
-            'rb': 'ruby',
-            'go': 'go',
-            'rs': 'rust',
-            'swift': 'swift',
-            'kt': 'kotlin',
-            'dart': 'dart'
+            'js': 'javascript', 'jsx': 'javascript', 'ts': 'typescript', 'tsx': 'typescript',
+            'py': 'python', 'html': 'html', 'css': 'css', 'scss': 'scss', 'json': 'json',
+            'md': 'markdown', 'txt': 'text', 'yml': 'yaml', 'yaml': 'yaml', 'xml': 'xml'
         };
         return map[ext] || 'text';
     };
 
-    const extractCodeBlocks = (text) => {
-        const blocks = [];
-        const lines = text.split('\n');
-        let inCodeBlock = false;
-        let currentLanguage = '';
-        let currentContent = [];
+    // ---------- LaTeX Math Processing ----------
+    const processMathContent = useCallback((text) => {
+        if (!text) return [];
         
-        for (const line of lines) {
-            const codeStart = line.match(/^```(\w*)/);
-            if (codeStart) {
-                if (inCodeBlock) {
-                    blocks.push({
-                        language: currentLanguage,
-                        content: currentContent.join('\n')
-                    });
-                    currentContent = [];
+        const blocks = [];
+        let currentText = '';
+        let i = 0;
+        
+        while (i < text.length) {
+            // Check for inline math: $...$
+            if (text[i] === '$' && i + 1 < text.length && text[i + 1] !== '$') {
+                // Flush previous text
+                if (currentText.trim()) {
+                    blocks.push({ type: "text", content: currentText });
+                    currentText = '';
                 }
-                inCodeBlock = !inCodeBlock;
-                currentLanguage = codeStart[1] || 'text';
-                continue;
+                
+                // Find closing $
+                let j = i + 1;
+                while (j < text.length && text[j] !== '$') j++;
+                
+                if (j < text.length) {
+                    const latex = text.substring(i + 1, j);
+                    try {
+                        const html = katex.renderToString(latex, {
+                            throwOnError: false,
+                            displayMode: false
+                        });
+                        blocks.push({ type: "math-inline", content: latex, html });
+                    } catch (error) {
+                        blocks.push({ type: "text", content: `$${latex}$` });
+                    }
+                    i = j + 1;
+                    continue;
+                }
             }
             
-            if (inCodeBlock) {
-                currentContent.push(line);
+            // Check for display math: $$...$$
+            if (text.substr(i, 2) === '$$' && i + 2 < text.length) {
+                // Flush previous text
+                if (currentText.trim()) {
+                    blocks.push({ type: "text", content: currentText });
+                    currentText = '';
+                }
+                
+                // Find closing $$
+                let j = i + 2;
+                while (j < text.length - 1 && text.substr(j, 2) !== '$$') j++;
+                
+                if (j < text.length - 1) {
+                    const latex = text.substring(i + 2, j);
+                    try {
+                        const html = katex.renderToString(latex, {
+                            throwOnError: false,
+                            displayMode: true
+                        });
+                        blocks.push({ type: "math-display", content: latex, html });
+                    } catch (error) {
+                        blocks.push({ type: "text", content: `$$${latex}$$` });
+                    }
+                    i = j + 2;
+                    continue;
+                }
             }
+            
+            // Check for LaTeX brackets: \(...\)
+            if (text.substr(i, 2) === '\\(' && i + 2 < text.length) {
+                // Flush previous text
+                if (currentText.trim()) {
+                    blocks.push({ type: "text", content: currentText });
+                    currentText = '';
+                }
+                
+                // Find closing \)
+                let j = i + 2;
+                while (j < text.length - 1 && text.substr(j, 2) !== '\\)') j++;
+                
+                if (j < text.length - 1) {
+                    const latex = text.substring(i + 2, j);
+                    try {
+                        const html = katex.renderToString(latex, {
+                            throwOnError: false,
+                            displayMode: false
+                        });
+                        blocks.push({ type: "math-inline", content: latex, html });
+                    } catch (error) {
+                        blocks.push({ type: "text", content: `\\(${latex}\\)` });
+                    }
+                    i = j + 2;
+                    continue;
+                }
+            }
+            
+            // Check for LaTeX brackets: \[...\]
+            if (text.substr(i, 2) === '\\[' && i + 2 < text.length) {
+                // Flush previous text
+                if (currentText.trim()) {
+                    blocks.push({ type: "text", content: currentText });
+                    currentText = '';
+                }
+                
+                // Find closing \]
+                let j = i + 2;
+                while (j < text.length - 1 && text.substr(j, 2) !== '\\]') j++;
+                
+                if (j < text.length - 1) {
+                    const latex = text.substring(i + 2, j);
+                    try {
+                        const html = katex.renderToString(latex, {
+                            throwOnError: false,
+                            displayMode: true
+                        });
+                        blocks.push({ type: "math-display", content: latex, html });
+                    } catch (error) {
+                        blocks.push({ type: "text", content: `\\[${latex}\\]` });
+                    }
+                    i = j + 2;
+                    continue;
+                }
+            }
+            
+            // Check for \boxed{...}
+            if (text.substr(i, 7) === '\\boxed{' && i + 7 < text.length) {
+                // Flush previous text
+                if (currentText.trim()) {
+                    blocks.push({ type: "text", content: currentText });
+                    currentText = '';
+                }
+                
+                // Find closing }
+                let j = i + 7;
+                let braceCount = 1;
+                while (j < text.length && braceCount > 0) {
+                    if (text[j] === '{') braceCount++;
+                    if (text[j] === '}') braceCount--;
+                    j++;
+                }
+                
+                if (braceCount === 0) {
+                    const latex = text.substring(i + 7, j - 1);
+                    try {
+                        const html = katex.renderToString(`\\boxed{${latex}}`, {
+                            throwOnError: false,
+                            displayMode: true
+                        });
+                        blocks.push({ type: "math-boxed", content: latex, html });
+                    } catch (error) {
+                        blocks.push({ type: "text", content: `\\boxed{${latex}}` });
+                    }
+                    i = j;
+                    continue;
+                }
+            }
+            
+            // Add regular character
+            currentText += text[i];
+            i++;
+        }
+        
+        // Flush remaining text
+        if (currentText.trim()) {
+            blocks.push({ type: "text", content: currentText });
         }
         
         return blocks;
-    };
-
-    // ---------- Download Project as ZIP ----------
-    const downloadProjectAsZip = useCallback(async () => {
-        if (generatedFiles.length === 0) {
-            showModal("No Files", "No generated files to download.");
-            return;
-        }
-        
-        try {
-            // In a real implementation, you would use a ZIP library like jszip
-            // For now, we'll create a simple downloadable structure
-            const projectData = {
-                name: projectMetadata.name || 'spider-project',
-                files: generatedFiles,
-                metadata: projectMetadata,
-                generatedAt: new Date().toISOString()
-            };
-            
-            const blob = new Blob([JSON.stringify(projectData, null, 2)], {
-                type: 'application/json'
-            });
-            
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${projectMetadata.name || 'project'}-${Date.now()}.json`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-            
-            showModal("Project Downloaded", `Project "${projectMetadata.name}" has been downloaded as JSON.`);
-        } catch (error) {
-            console.error('Download error:', error);
-            showModal("Download Error", "Failed to download project.");
-        }
-    }, [generatedFiles, projectMetadata, showModal]);
+    }, []);
 
     // ---------- IndexedDB Configuration ----------
     const DB_NAME = 'SpiderAIChatsDB';
@@ -1958,7 +2117,6 @@ const SpiderAIApp = ({
     const saveChatHistory = useCallback(async (history) => {
         if (!Array.isArray(history) || history.length <= 1) return;
         
-        // Save to localStorage as backup
         try {
             localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(history));
         } catch (e) {
@@ -2241,11 +2399,9 @@ const SpiderAIApp = ({
         };
         
         try {
-            // Create new abort controller
             const controller = new AbortController();
             setAbortController(controller);
             
-            // Call API with streaming
             const response = await callFastAPI(apiUrl, apiPayload, 'chat', {
                 signal: controller.signal,
                 stream: true
@@ -2255,7 +2411,6 @@ const SpiderAIApp = ({
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
             
-            // Handle streaming response
             await handleStreamResponse(response);
             
         } catch (error) {
@@ -2356,13 +2511,12 @@ const SpiderAIApp = ({
         event.target.value = null;
     };
 
-    // ---------- Fixed PlusMenu Component (Memoized) ----------
+    // ---------- Fixed PlusMenu Component ----------
     const PlusMenu = useMemo(() => {
         return React.memo(({ setActiveAIMode: _setActiveAIMode, fileInputRef, imageInputRef }) => {
             const [open, setOpen] = useState(false);
             const menuRef = useRef(null);
 
-            // Close menu when clicking outside
             useEffect(() => {
                 const handleClickOutside = (event) => {
                     if (menuRef.current && !menuRef.current.contains(event.target)) {
@@ -2443,473 +2597,6 @@ const SpiderAIApp = ({
         });
     }, []);
 
-    // ---------- Project File Tree Component ----------
-    const ProjectFileTree = useMemo(() => {
-        return React.memo(({ files, activeIndex, onSelectFile }) => {
-            if (!files || files.length === 0) return null;
-            
-            // Group files by directory
-            const groupedFiles = {};
-            files.forEach((file, index) => {
-                const path = file.path || `/${file.name}`;
-                const parts = path.split('/');
-                const dir = parts.slice(0, -1).join('/') || '/';
-                
-                if (!groupedFiles[dir]) {
-                    groupedFiles[dir] = [];
-                }
-                groupedFiles[dir].push({ ...file, index });
-            });
-            
-            const getFileIcon = (fileName) => {
-                const ext = fileName.split('.').pop().toLowerCase();
-                const icons = {
-                    'js': '📜', 'jsx': '⚛️', 'ts': '📘', 'tsx': '⚛️',
-                    'py': '🐍', 'html': '🌐', 'css': '🎨', 'scss': '🎨',
-                    'json': '📦', 'md': '📝', 'txt': '📄', 'yml': '⚙️',
-                    'yaml': '⚙️', 'xml': '📋', 'env': '🔧',
-                    'java': '☕', 'cpp': '⚙️', 'c': '⚙️',
-                    'php': '🐘', 'rb': '💎', 'go': '🐹'
-                };
-                return icons[ext] || '📄';
-            };
-            
-            return (
-                <div className="bg-[var(--spider-dark)] rounded-lg border border-[var(--spider-light)] p-3">
-                    <div className="flex items-center justify-between mb-3">
-                        <h4 className="text-sm font-semibold text-white">Project Files</h4>
-                        <span className="text-xs text-[var(--spider-text-dim)]">
-                            {files.length} file{files.length !== 1 ? 's' : ''}
-                        </span>
-                    </div>
-                    
-                    <div className="space-y-1 max-h-60 overflow-y-auto">
-                        {Object.entries(groupedFiles).map(([dir, dirFiles]) => (
-                            <div key={dir} className="mb-2">
-                                {dir !== '/' && (
-                                    <div className="text-xs text-[var(--spider-text-dim)] font-medium px-2 py-1 bg-[var(--spider-med)] rounded">
-                                        📁 {dir}
-                                    </div>
-                                )}
-                                <div className="ml-2 mt-1 space-y-1">
-                                    {dirFiles.map((file) => (
-                                        <button
-                                            key={file.index}
-                                            onClick={() => onSelectFile(file.index)}
-                                            className={`w-full text-left px-3 py-2 text-sm rounded-md flex items-center space-x-2 transition-colors ${
-                                                activeIndex === file.index
-                                                    ? 'bg-[var(--spider-light)] text-white'
-                                                    : 'text-[var(--spider-text)] hover:bg-[var(--spider-med)]'
-                                            }`}
-                                        >
-                                            <span>{getFileIcon(file.name)}</span>
-                                            <span className="truncate">{file.name}</span>
-                                            <span className="text-xs text-[var(--spider-text-dim)] ml-auto">
-                                                {file.size ? Math.ceil(file.size / 1024 * 10) / 10 + 'KB' : ''}
-                                            </span>
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            );
-        });
-    }, []);
-
-    // ---------- File Viewer Component ----------
-    const FileViewer = useMemo(() => {
-        return React.memo(({ file, onClose }) => {
-            if (!file) return null;
-            
-            const handleCopyFile = () => {
-                navigator.clipboard.writeText(file.content);
-                showModal("Copied", "File content copied to clipboard!");
-            };
-            
-            const handleDownloadFile = () => {
-                const blob = new Blob([file.content], { type: 'text/plain' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = file.name;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-            };
-            
-            return (
-                <div className="bg-[var(--spider-dark)] rounded-lg border border-[var(--spider-light)] p-4">
-                    <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center space-x-2">
-                            <h4 className="text-sm font-semibold text-white truncate">{file.name}</h4>
-                            <span className="text-xs text-[var(--spider-text-dim)] bg-[var(--spider-med)] px-2 py-1 rounded">
-                                {file.language}
-                            </span>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                            <button
-                                onClick={handleCopyFile}
-                                className="text-xs bg-[var(--spider-light)] text-white px-3 py-1.5 rounded hover:opacity-90 transition-colors"
-                            >
-                                Copy
-                            </button>
-                            <button
-                                onClick={handleDownloadFile}
-                                className="text-xs bg-[var(--spider-neon-blue)] text-black px-3 py-1.5 rounded hover:opacity-90 transition-colors"
-                            >
-                                Download
-                            </button>
-                            {onClose && (
-                                <button
-                                    onClick={onClose}
-                                    className="text-xs bg-red-500 text-white px-3 py-1.5 rounded hover:bg-red-600 transition-colors"
-                                >
-                                    Close
-                                </button>
-                            )}
-                        </div>
-                    </div>
-                    
-                    <div className="bg-black rounded-lg overflow-hidden">
-                        <pre className="text-sm p-4 overflow-x-auto max-h-96">
-                            <code className={`language-${file.language}`}>
-                                {file.content}
-                            </code>
-                        </pre>
-                    </div>
-                </div>
-            );
-        });
-    }, [showModal]);
-
-    // ---------- New Chat Handler ----------
-    const handleNewChat = () => {
-        setUploadedFile(null);
-        setUploadedImage(null);
-        setActiveAIMode && setActiveAIMode('chat');
-        setActiveChatId(null);
-        setLastStreamId(null);
-        setShowContinueButton(false);
-        setIsFullCodeMode(false);
-        setGeneratedFiles([]);
-        setProjectStructure([]);
-        setIsProjectView(false);
-        setProjectMetadata({
-            name: '',
-            type: '',
-            description: '',
-            totalFiles: 0
-        });
-        accumulatedTokensRef.current = '';
-        setStreamedContent('');
-        fileContentBufferRef.current = '';
-        const welcome = [{ 
-            role: 'assistant', 
-            content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', 
-            type: 'text' 
-        }];
-        setChatHistory(welcome);
-        try { 
-            localStorage.removeItem(LOCAL_STORAGE_KEY); 
-        } catch (e) { 
-            console.warn("Error clearing localStorage:", e);
-        }
-    };
-
-    // ---------- Enhanced Send Message with Full Code Detection ----------
-    const handleSendMessage = async () => {
-        if (!message.trim() && !uploadedFile && !uploadedImage) return;
-
-        console.log('Sending message:', {
-            persistentId: getPersistentUserId(),
-            currentUser: currentUser,
-            message: message
-        });
-
-        setIsLoading(true);
-        setIsStreaming(true);
-        const controller = new AbortController();
-        setAbortController(controller);
-
-        const fileCopy = uploadedFile;
-        const imageCopy = uploadedImage;
-        let mode = activeAIMode || "chat";
-
-        // Auto-detect image generation
-        if (!fileCopy && !imageCopy && detectImageGeneration(message)) {
-            mode = 'image_gen';
-        }
-
-        // Auto-detect full code requests
-        const isFullCodeRequest = detectFullCodeRequest(message);
-        if (isFullCodeRequest && !fileCopy && !imageCopy) {
-            setIsFullCodeMode(true);
-            setProjectMetadata(extractProjectMetadata(message));
-            // Add a system message about full code mode
-            const systemMsg = {
-                role: 'assistant',
-                content: `I'll generate a complete ${projectMetadata.type} project "${projectMetadata.name}" for you. This may include multiple files...`,
-                type: 'system',
-                ts: Date.now()
-            };
-            setChatHistory(prev => [...prev, systemMsg]);
-        }
-
-        // Override based on file/image uploads
-        if (fileCopy) mode = "analyze_file";
-        if (imageCopy) mode = "image_edit";
-
-        const userMessage = {
-            role: 'user',
-            content: message,
-            type: mode,
-            fileName: fileCopy ? fileCopy.name : undefined,
-            imageName: imageCopy ? imageCopy.name : undefined,
-            ts: Date.now(),
-            isFullCodeRequest: isFullCodeRequest
-        };
-
-        setChatHistory(prev => [...prev, userMessage]);
-        setMessage('');
-
-        // Reset streaming state
-        accumulatedTokensRef.current = '';
-        setStreamedContent('');
-        setShowContinueButton(false);
-        setLastStreamId(null);
-        fileContentBufferRef.current = '';
-
-        // Only show streaming for text responses
-        if (mode !== 'image_gen') {
-            const initialStreamMessage = {
-                role: 'assistant',
-                content: isFullCodeRequest 
-                    ? `Generating complete project: ${projectMetadata.name}...` 
-                    : '',
-                type: 'text',
-                ts: Date.now(),
-                isStreaming: true
-            };
-            setStreamingMessage(initialStreamMessage);
-        }
-
-        try {
-            // FILE ANALYSIS
-            if (mode === "analyze_file" && fileCopy) {
-                let fileContent;
-                
-                if (fileCopy.type.startsWith('text/') || 
-                    fileCopy.name.endsWith('.txt') || 
-                    fileCopy.name.endsWith('.py') ||
-                    fileCopy.name.endsWith('.js') ||
-                    fileCopy.name.endsWith('.html') ||
-                    fileCopy.name.endsWith('.css') ||
-                    fileCopy.name.endsWith('.md')) {
-                    fileContent = await fileCopy.text();
-                } else {
-                    fileContent = await new Promise((resolve, reject) => {
-                        const reader = new FileReader();
-                        reader.onload = () => {
-                            try {
-                                const base64 = reader.result.split(",")[1];
-                                resolve(base64);
-                            } catch (e) {
-                                reject(e);
-                            }
-                        };
-                        reader.onerror = (err) => reject(err);
-                        reader.readAsDataURL(fileCopy);
-                    });
-                }
-
-                const apiUrl = '/api/generate/text';
-                const apiPayload = {
-                    prompt: message || `Analyze the contents of ${fileCopy.name}`,
-                    mode: "analyze_file",
-                    filename: fileCopy.name,
-                    file_content: fileContent,
-                    file_type: fileCopy.type,
-                    user_preference_id: getPersistentUserId(),
-                    firebase_token: currentUser?.firebaseToken || '',
-                    stream: true,
-                    full_code_mode: isFullCodeRequest
-                };
-                
-                console.log('Sending file analysis request with streaming');
-                
-                const response = await callFastAPI(apiUrl, apiPayload, mode, {
-                    signal: controller.signal,
-                    stream: true
-                });
-
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-
-                // Handle streaming response
-                await handleStreamResponse(response);
-
-                // Save the completed message
-                if (accumulatedTokensRef.current) {
-                    const assistantMessage = {
-                        role: 'assistant',
-                        content: accumulatedTokensRef.current,
-                        type: 'text',
-                        ts: Date.now(),
-                        files: generatedFiles.length > 0 ? generatedFiles : undefined
-                    };
-                    setChatHistory(prev => [...prev, assistantMessage]);
-                }
-            }
-            // IMAGE EDIT
-            else if (mode === "image_edit" && imageCopy) {
-                const base64Image = await new Promise((resolve, reject) => {
-                    const reader = new FileReader();
-                    reader.onload = () => {
-                        try {
-                            const b = reader.result.split(",")[1];
-                            resolve(b);
-                        } catch (e) {
-                            reject(e);
-                        }
-                    };
-                    reader.onerror = (err) => reject(err);
-                    reader.readAsDataURL(imageCopy);
-                });
-
-                const apiUrl = '/api/generate/text';
-                const apiPayload = {
-                    prompt: message || "Edit this image",
-                    mode: "image_edit",
-                    image: base64Image,
-                    strength: 0.7,
-                    user_preference_id: getPersistentUserId(),
-                    firebase_token: currentUser?.firebaseToken || ''
-                };
-                
-                console.log('Sending image edit request');
-                
-                const result = await callFastAPI(apiUrl, apiPayload, mode);
-
-                const assistantMessage = {
-                    role: 'assistant',
-                    content: '',
-                    type: 'image',
-                    base64_image: result?.base64_image,
-                    ts: Date.now()
-                };
-                setChatHistory(prev => [...prev, assistantMessage]);
-                setStreamingMessage(null);
-            }
-            // IMAGE GENERATION
-            else if (mode === "image_gen") {
-                const apiUrl = '/api/generate/text';
-                const apiPayload = { 
-                    prompt: message, 
-                    mode: 'image_gen',
-                    aspect_ratio: aspectRatio,
-                    user_preference_id: getPersistentUserId(),
-                    firebase_token: currentUser?.firebaseToken || '',
-                    stream: false
-                };
-                
-                console.log('Sending image generation request');
-                
-                const result = await callFastAPI(apiUrl, apiPayload, mode);
-
-                const assistantMessage = {
-                    role: 'assistant',
-                    content: '',
-                    type: 'image',
-                    base64_image: result?.base64_image,
-                    ts: Date.now()
-                };
-                setChatHistory(prev => [...prev, assistantMessage]);
-            }
-            // NORMAL CHAT WITH STREAMING
-            else {
-                const apiUrl = '/api/generate/text';
-                const apiPayload = { 
-                    prompt: message, 
-                    mode,
-                    user_preference_id: getPersistentUserId(),
-                    firebase_token: currentUser?.firebaseToken || '',
-                    stream: true,
-                    full_code_mode: isFullCodeRequest,
-                    project_type: isFullCodeRequest ? projectMetadata.type : undefined
-                };
-                
-                console.log('Sending chat request with streaming', {
-                    fullCodeMode: isFullCodeRequest,
-                    projectType: projectMetadata.type
-                });
-                
-                const response = await callFastAPI(apiUrl, apiPayload, mode, {
-                    signal: controller.signal,
-                    stream: true
-                });
-
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-
-                // Handle streaming response
-                await handleStreamResponse(response);
-
-                // Save the completed message
-                if (accumulatedTokensRef.current) {
-                    const assistantMessage = {
-                        role: 'assistant',
-                        content: accumulatedTokensRef.current,
-                        type: 'text',
-                        ts: Date.now(),
-                        files: generatedFiles.length > 0 ? generatedFiles : undefined,
-                        isFullCode: isFullCodeRequest
-                    };
-                    setChatHistory(prev => [...prev, assistantMessage]);
-                    
-                    // If we have files, automatically switch to project view
-                    if (generatedFiles.length > 0 && isFullCodeRequest) {
-                        setTimeout(() => {
-                            setIsProjectView(true);
-                            showModal("Project Generated", 
-                                `Successfully generated ${generatedFiles.length} files for "${projectMetadata.name}". You can view and download them below.`
-                            );
-                        }, 500);
-                    }
-                }
-            }
-        } catch (error) {
-            console.error('API ERROR:', error);
-            if (error.name === 'AbortError') {
-                console.log('Request aborted by user');
-            } else {
-                const assistantError = {
-                    role: 'assistant',
-                    content: `[API ERROR] ${error?.message || 'Something went wrong.'}`,
-                    type: 'text',
-                    ts: Date.now()
-                };
-                setChatHistory(prev => [...prev, assistantError]);
-            }
-        } finally {
-            // Clean up
-            setAbortController(null);
-            setUploadedFile(null);
-            setUploadedImage(null);
-            setIsLoading(false);
-            setIsStreaming(false);
-            setStreamingMessage(null);
-            
-            // Clear streaming content
-            setStreamedContent('');
-            accumulatedTokensRef.current = '';
-        }
-    };
-
     // ---------- Optimized Content Processing ----------
     const processContent = useCallback((text) => {
         if (!text || typeof text !== "string") {
@@ -2947,14 +2634,12 @@ const SpiderAIApp = ({
             // Handle code blocks
             if (line.trim().startsWith('```')) {
                 if (!inCodeBlock) {
-                    // Start of code block
                     flushCurrentBlock();
                     flushTable();
                     inCodeBlock = true;
                     codeLanguage = line.trim().replace(/```/g, '').trim();
                     codeContent = "";
                 } else {
-                    // End of code block
                     inCodeBlock = false;
                     blocks.push({
                         type: "code",
@@ -2977,14 +2662,12 @@ const SpiderAIApp = ({
                 !trimmedLine.startsWith('|--') &&
                 trimmedLine.match(/[^\s|:-]/)) {
                 
-                // Check if this is a table separator line
                 const isSeparator = trimmedLine.match(/^[\s|:-]+$/);
                 
                 if (!isSeparator || (isSeparator && tableRows.length > 0)) {
                     tableRows.push(line);
                 }
                 
-                // Check if next lines are also part of table
                 let j = i + 1;
                 while (j < lines.length && lines[j].trim().includes('|') && !lines[j].trim().startsWith('```')) {
                     tableRows.push(lines[j]);
@@ -2992,16 +2675,14 @@ const SpiderAIApp = ({
                 }
                 
                 if (j > i + 1) {
-                    i = j - 1; // Skip processed lines
+                    i = j - 1;
                 }
                 
-                // If we have at least 2 rows (header + data), it's a table
                 if (tableRows.length >= 2) {
                     flushCurrentBlock();
                     flushTable();
                     continue;
                 } else {
-                    // Not a table, add to current text block
                     tableRows.forEach(row => {
                         currentBlock.content += row + '\n';
                     });
@@ -3009,7 +2690,6 @@ const SpiderAIApp = ({
                     continue;
                 }
             } else {
-                // Flush any pending table rows
                 if (tableRows.length > 0) {
                     tableRows.forEach(row => {
                         currentBlock.content += row + '\n';
@@ -3027,11 +2707,9 @@ const SpiderAIApp = ({
             }
         }
 
-        // Flush any remaining content
         flushCurrentBlock();
         flushTable();
 
-        // If we ended in a code block (unclosed), add it as code
         if (inCodeBlock && codeContent.trim()) {
             blocks.push({
                 type: "code",
@@ -3043,12 +2721,26 @@ const SpiderAIApp = ({
         return blocks;
     }, []);
 
-    // ---------- Optimized Chat Bubble ----------
+    // ---------- Enhanced Chat Bubble with Math Support ----------
     const ChatBubble = useMemo(() => {
         return React.memo(({ message }) => {
             const [contentBlocks, setContentBlocks] = useState([]);
+            const [mathBlocks, setMathBlocks] = useState([]);
+            const [combinedBlocks, setCombinedBlocks] = useState([]);
 
             useEffect(() => {
+                // Process LaTeX math first
+                const mathBlocks = processMathContent(message.content);
+                
+                // Then process regular content
+                const regularBlocks = processContent(message.content);
+                
+                // Combine both
+                const combined = [];
+                let regularIndex = 0;
+                let mathIndex = 0;
+                
+                // For now, just use regular blocks with math processing
                 const blocks = processContent(message.content);
                 setContentBlocks(blocks);
                 
@@ -3058,7 +2750,25 @@ const SpiderAIApp = ({
                         window.Prism.highlightAll();
                     }, 50);
                 }
-            }, [message.content, processContent]);
+                
+                // Re-render KaTeX for any math in text blocks
+                setTimeout(() => {
+                    document.querySelectorAll('.math-content').forEach(element => {
+                        const latex = element.getAttribute('data-latex');
+                        const isDisplay = element.classList.contains('math-display');
+                        if (latex) {
+                            try {
+                                element.innerHTML = katex.renderToString(latex, {
+                                    throwOnError: false,
+                                    displayMode: isDisplay
+                                });
+                            } catch (error) {
+                                element.textContent = isDisplay ? `$$${latex}$$` : `$${latex}$`;
+                            }
+                        }
+                    });
+                }, 100);
+            }, [message.content, processContent, processMathContent]);
 
             const handleCopyCode = (content) => {
                 navigator.clipboard.writeText(content);
@@ -3072,7 +2782,6 @@ const SpiderAIApp = ({
                 const separator = rows[1];
                 const dataRows = rows.slice(2).filter(r => r.includes('|'));
 
-                // Determine column alignments from separator
                 const alignments = separator.split('|').filter(c => c.trim()).map(col => {
                     if (col.startsWith(':') && col.endsWith(':')) return 'center';
                     if (col.endsWith(':')) return 'right';
@@ -3091,10 +2800,6 @@ const SpiderAIApp = ({
                                                 alignments[idx] === 'center' ? 'text-center' :
                                                 alignments[idx] === 'right' ? 'text-right' : 'text-left'
                                             }`}
-                                            style={{ 
-                                                minWidth: headers.length > 4 ? '120px' : 'auto',
-                                                maxWidth: headers.length > 4 ? '200px' : 'auto'
-                                            }}
                                         >
                                             {header}
                                         </th>
@@ -3120,26 +2825,8 @@ const SpiderAIApp = ({
                                                         alignments[cellIdx] === 'center' ? 'text-center' :
                                                         alignments[cellIdx] === 'right' ? 'text-right' : 'text-left'
                                                     }`}
-                                                    style={{ 
-                                                        wordBreak: 'break-word',
-                                                        overflowWrap: 'break-word'
-                                                    }}
                                                 >
-                                                    {cell.includes('✓') ? (
-                                                        <span className="text-green-400 font-bold">✓</span>
-                                                    ) : cell.includes('✗') ? (
-                                                        <span className="text-red-400 font-bold">✗</span>
-                                                    ) : cell.includes('⭐') ? (
-                                                        <span className="text-yellow-400">{'⭐'.repeat(cell.match(/⭐/g)?.length || 1)}</span>
-                                                    ) : cell.includes('🔴') ? (
-                                                        <span className="text-red-400">🔴</span>
-                                                    ) : cell.includes('🟡') ? (
-                                                        <span className="text-yellow-400">🟡</span>
-                                                    ) : cell.includes('🟢') ? (
-                                                        <span className="text-green-400">🟢</span>
-                                                    ) : (
-                                                        cell
-                                                    )}
+                                                    {cell}
                                                 </td>
                                             ))}
                                         </tr>
@@ -3147,6 +2834,29 @@ const SpiderAIApp = ({
                                 })}
                             </tbody>
                         </table>
+                    </div>
+                );
+            };
+
+            const renderMathBlock = (block) => {
+                if (!block.html) {
+                    return (
+                        <div className={`my-2 ${block.type === 'math-display' || block.type === 'math-boxed' ? 'text-center' : ''}`}>
+                            <span className="text-gray-400">
+                                {block.type === 'math-display' ? `$$${block.content}$$` :
+                                 block.type === 'math-boxed' ? `\\boxed{${block.content}}` :
+                                 `$${block.content}$`}
+                            </span>
+                        </div>
+                    );
+                }
+
+                return (
+                    <div className={`my-2 ${block.type === 'math-display' || block.type === 'math-boxed' ? 'text-center' : ''}`}>
+                        <div 
+                            className={`inline-block ${block.type === 'math-boxed' ? 'border-2 border-green-500 p-2 rounded' : ''}`}
+                            dangerouslySetInnerHTML={{ __html: block.html }}
+                        />
                     </div>
                 );
             };
@@ -3163,22 +2873,13 @@ const SpiderAIApp = ({
                 >
                     <div
                         className={`px-4 py-3 rounded-2xl max-w-[95%] sm:max-w-4xl ${bubbleClass}`}
-                        style={{
-                            boxShadow: "0 4px 12px rgba(0, 0, 0, 0.1)",
-                        }}
                     >
-                        {/* Image Display */}
                         {message.type === "image" && message.base64_image && (
                             <div className="w-full rounded-xl overflow-hidden bg-black mb-3">
                                 <img
                                     src={`data:image/jpeg;base64,${message.base64_image}`}
                                     alt="AI Generated"
-                                    className="w-full h-auto"
-                                    style={{
-                                        maxHeight: "400px",
-                                        objectFit: "contain",
-                                        display: "block"
-                                    }}
+                                    className="w-full h-auto max-h-96 object-contain"
                                     onError={(e) => {
                                         e.target.style.display = 'none';
                                         e.target.parentElement.innerHTML = 
@@ -3188,7 +2889,6 @@ const SpiderAIApp = ({
                             </div>
                         )}
 
-                        {/* Content Blocks */}
                         <div className="space-y-3">
                             {contentBlocks.map((block, index) => {
                                 if (block.type === "code") {
@@ -3228,13 +2928,73 @@ const SpiderAIApp = ({
                                 }
 
                                 if (block.type === "text") {
+                                    // Process math in text blocks
+                                    const text = block.content;
+                                    const parts = [];
+                                    let lastIndex = 0;
+                                    
+                                    // Find inline math: $...$
+                                    const inlineMathRegex = /\$([^$]+?)\$/g;
+                                    let match;
+                                    
+                                    while ((match = inlineMathRegex.exec(text)) !== null) {
+                                        // Add text before math
+                                        if (match.index > lastIndex) {
+                                            parts.push({
+                                                type: 'text',
+                                                content: text.substring(lastIndex, match.index)
+                                            });
+                                        }
+                                        
+                                        // Add math
+                                        const latex = match[1];
+                                        try {
+                                            const html = katex.renderToString(latex, {
+                                                throwOnError: false,
+                                                displayMode: false
+                                            });
+                                            parts.push({
+                                                type: 'math-inline',
+                                                html,
+                                                latex
+                                            });
+                                        } catch (error) {
+                                            parts.push({
+                                                type: 'text',
+                                                content: `$${latex}$`
+                                            });
+                                        }
+                                        
+                                        lastIndex = match.index + match[0].length;
+                                    }
+                                    
+                                    // Add remaining text
+                                    if (lastIndex < text.length) {
+                                        parts.push({
+                                            type: 'text',
+                                            content: text.substring(lastIndex)
+                                        });
+                                    }
+                                    
                                     return (
                                         <div
                                             key={index}
                                             className="whitespace-pre-wrap break-words text-sm sm:text-base leading-relaxed"
-                                            style={{ lineHeight: "1.6" }}
                                         >
-                                            {block.content}
+                                            {parts.map((part, partIndex) => {
+                                                if (part.type === 'text') {
+                                                    return <span key={partIndex}>{part.content}</span>;
+                                                } else if (part.type === 'math-inline') {
+                                                    return (
+                                                        <span 
+                                                            key={partIndex} 
+                                                            className="math-content math-inline"
+                                                            dangerouslySetInnerHTML={{ __html: part.html }}
+                                                        />
+                                                    );
+                                                }
+                                                return null;
+                                            })}
                                         </div>
                                     );
                                 }
@@ -3246,7 +3006,7 @@ const SpiderAIApp = ({
                 </div>
             );
         });
-    }, [processContent]);
+    }, [processContent, processMathContent]);
 
     // Helper function for mode display
     const getModeText = () => {
@@ -3258,119 +3018,548 @@ const SpiderAIApp = ({
         return "Chat / Code / Image";
     };
 
-    // ---------- Mobile Sidebar Component ----------
-    const MobileSidebar = useMemo(() => {
-        return () => {
-            return (
-                <>
-                    {sidebarOpen && (
-                        <>
-                            <div 
-                                className="fixed inset-0 bg-black bg-opacity-50 z-40 touch-none"
-                                onClick={() => setSidebarOpen(false)}
-                            />
-                            <div className="fixed left-0 top-0 h-full w-64 bg-[var(--spider-med)] z-50 overflow-y-auto p-4 transform transition-transform duration-300 ease-in-out">
-                                <div className="flex justify-between items-center mb-4">
-                                    <h2 className="text-white font-semibold">Chat History</h2>
-                                    <button 
-                                        onClick={() => setSidebarOpen(false)}
-                                        className="text-white hover:text-gray-300 text-2xl p-1 touch-manipulation"
-                                    >
-                                        ×
-                                    </button>
-                                </div>
-                                
-                                <button 
-                                    onClick={handleNewChat} 
-                                    className="w-full bg-[var(--spider-neon-blue)] text-black text-sm font-semibold py-3 px-4 rounded-lg hover:opacity-90 transition flex items-center space-x-2 justify-center mb-4 touch-manipulation active:scale-95"
-                                    disabled={isDeleting}
-                                >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
-                                    </svg>
-                                    <span>New Chat</span>
-                                </button>
+    // ---------- New Chat Handler ----------
+    const handleNewChat = () => {
+        setUploadedFile(null);
+        setUploadedImage(null);
+        setActiveAIMode && setActiveAIMode('chat');
+        setActiveChatId(null);
+        setLastStreamId(null);
+        setShowContinueButton(false);
+        setIsFullCodeMode(false);
+        setGeneratedFiles([]);
+        setIsProjectView(false);
+        setProjectMetadata({
+            name: '',
+            type: '',
+            description: '',
+            totalFiles: 0
+        });
+        accumulatedTokensRef.current = '';
+        setStreamedContent('');
+        fileContentBufferRef.current = '';
+        const welcome = [{ 
+            role: 'assistant', 
+            content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', 
+            type: 'text' 
+        }];
+        setChatHistory(welcome);
+        try { 
+            localStorage.removeItem(LOCAL_STORAGE_KEY); 
+        } catch (e) { 
+            console.warn("Error clearing localStorage:", e);
+        }
+    };
 
-                                <div className="space-y-1">
-                                    {recentChats.length > 0 ? (
-                                        recentChats.map((chat) => (
-                                            <div key={chat.id} className="flex items-center group">
-                                                <button 
-                                                    onClick={() => {
-                                                        loadChatById(chat.id);
-                                                        setSidebarOpen(false);
-                                                    }} 
-                                                    className={`flex-grow text-left px-3 py-3 text-sm rounded-lg hover:bg-[var(--spider-light)] truncate transition-colors active:scale-95 ${
-                                                        activeChatId === chat.id 
-                                                            ? 'bg-[var(--spider-light)] text-white font-medium' 
-                                                            : 'text-[var(--spider-text)] hover:text-white'
-                                                    }`}
-                                                    disabled={isDeleting}
-                                                >
-                                                    <div className="truncate">{chat.title}</div>
-                                                    <div className="text-xs text-[var(--spider-text-dim)] mt-1">
-                                                        {new Date(chat.timestamp).toLocaleDateString()}
-                                                    </div>
-                                                </button>
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        if (window.confirm('Delete this chat?')) {
-                                                            deleteChat(chat.id);
-                                                        }
-                                                    }}
-                                                    className="ml-2 text-red-400 hover:text-red-300 opacity-100 transition-opacity p-2 touch-manipulation active:scale-95"
-                                                    title="Delete chat"
-                                                    disabled={isDeleting}
-                                                >
-                                                    {isDeleting ? (
-                                                        <div className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin"></div>
-                                                    ) : (
-                                                        '×'
-                                                    )}
-                                                </button>
-                                            </div>
-                                        ))
-                                    ) : (
-                                        <div className="text-center py-6 text-[var(--spider-text-dim)] text-sm">
-                                            No recent chats
-                                        </div>
-                                    )}
-                                </div>
+    // ---------- Enhanced Send Message ----------
+    const handleSendMessage = async () => {
+        if (!message.trim() && !uploadedFile && !uploadedImage) return;
 
-                                <div className="mt-auto pt-4 border-t border-[var(--spider-light)]">
-                                    <div className="w-full bg-[var(--spider-med)] text-[var(--spider-text-dim)] text-sm font-semibold py-3 px-4 rounded-lg flex items-center space-x-3">
-                                        <div className="w-8 h-8 rounded-full bg-[var(--spider-light)] flex items-center justify-center">
-                                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                                                <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd"></path>
-                                            </svg>
-                                        </div>
-                                        <span className="truncate">{currentUser?.name || 'User'}</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </>
-                    )}
-                </>
-            );
+        console.log('Sending message:', {
+            persistentId: getPersistentUserId(),
+            currentUser: currentUser,
+            message: message
+        });
+
+        setIsLoading(true);
+        const controller = new AbortController();
+        setAbortController(controller);
+
+        const fileCopy = uploadedFile;
+        const imageCopy = uploadedImage;
+        let mode = activeAIMode || "chat";
+
+        // Auto-detect image generation
+        if (!fileCopy && !imageCopy && detectImageGeneration(message)) {
+            mode = 'image_gen';
+        }
+
+        // Auto-detect full code requests
+        const isFullCodeRequest = detectFullCodeRequest(message);
+        if (isFullCodeRequest && !fileCopy && !imageCopy) {
+            setIsFullCodeMode(true);
+            setProjectMetadata(extractProjectMetadata(message));
+        }
+
+        // Override based on file/image uploads
+        if (fileCopy) mode = "analyze_file";
+        if (imageCopy) mode = "image_edit";
+
+        const userMessage = {
+            role: 'user',
+            content: message,
+            type: mode,
+            fileName: fileCopy ? fileCopy.name : undefined,
+            imageName: imageCopy ? imageCopy.name : undefined,
+            ts: Date.now(),
+            isFullCodeRequest: isFullCodeRequest
         };
-    }, [sidebarOpen, recentChats, activeChatId, isDeleting, currentUser, loadChatById, deleteChat, handleNewChat]);
 
-    // ---------- Project View Toggle ----------
-    const toggleProjectView = () => {
+        setChatHistory(prev => [...prev, userMessage]);
+        setMessage('');
+
+        // Reset streaming state
+        accumulatedTokensRef.current = '';
+        setStreamedContent('');
+        setShowContinueButton(false);
+        setLastStreamId(null);
+        fileContentBufferRef.current = '';
+
+        // DECISION: When to use streaming vs normal API
+        const shouldUseStreaming = 
+            isFullCodeRequest ||                            // Full code mode
+            detectLargeCodeRequest(message) ||              // Large code expected
+            mode === "analyze_file" ||                      // File analysis
+            message.toLowerCase().includes('stream') ||     // User explicitly asks for streaming
+            message.toLowerCase().includes('step by step') || // Detailed explanations
+            detectMathRequest(message);                     // Math problems
+
+        console.log('Streaming decision:', {
+            shouldUseStreaming,
+            isFullCodeRequest,
+            mode,
+            messageLength: message.length
+        });
+
+        try {
+            // FILE ANALYSIS (Always streaming because it's large)
+            if (mode === "analyze_file" && fileCopy) {
+                let fileContent;
+                
+                if (fileCopy.type.startsWith('text/') || 
+                    fileCopy.name.endsWith('.txt') || 
+                    fileCopy.name.endsWith('.py') ||
+                    fileCopy.name.endsWith('.js') ||
+                    fileCopy.name.endsWith('.html') ||
+                    fileCopy.name.endsWith('.css') ||
+                    fileCopy.name.endsWith('.md')) {
+                    fileContent = await fileCopy.text();
+                } else {
+                    fileContent = await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                            try {
+                                const base64 = reader.result.split(",")[1];
+                                resolve(base64);
+                            } catch (e) {
+                                reject(e);
+                            }
+                        };
+                        reader.onerror = (err) => reject(err);
+                        reader.readAsDataURL(fileCopy);
+                    });
+                }
+
+                const apiUrl = '/api/generate/text';
+                const apiPayload = {
+                    prompt: message || `Analyze the contents of ${fileCopy.name}`,
+                    mode: "analyze_file",
+                    filename: fileCopy.name,
+                    file_content: fileContent,
+                    file_type: fileCopy.type,
+                    user_preference_id: getPersistentUserId(),
+                    firebase_token: currentUser?.firebaseToken || '',
+                    stream: true
+                };
+                
+                console.log('Sending file analysis request with streaming');
+                
+                // Show streaming UI
+                setIsStreaming(true);
+                const initialStreamMessage = {
+                    role: 'assistant',
+                    content: '',
+                    type: 'text',
+                    ts: Date.now(),
+                    isStreaming: true
+                };
+                setStreamingMessage(initialStreamMessage);
+                
+                const response = await callFastAPI(apiUrl, apiPayload, mode, {
+                    signal: controller.signal,
+                    stream: true
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                await handleStreamResponse(response);
+
+                if (accumulatedTokensRef.current) {
+                    const assistantMessage = {
+                        role: 'assistant',
+                        content: accumulatedTokensRef.current,
+                        type: 'text',
+                        ts: Date.now()
+                    };
+                    setChatHistory(prev => [...prev, assistantMessage]);
+                }
+            }
+            // IMAGE EDIT
+            else if (mode === "image_edit" && imageCopy) {
+                const base64Image = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        try {
+                            const b = reader.result.split(",")[1];
+                            resolve(b);
+                        } catch (e) {
+                            reject(e);
+                        }
+                    };
+                    reader.onerror = (err) => reject(err);
+                    reader.readAsDataURL(imageCopy);
+                });
+
+                const apiUrl = '/api/generate/text';
+                const apiPayload = {
+                    prompt: message || "Edit this image",
+                    mode: "image_edit",
+                    image: base64Image,
+                    strength: 0.7,
+                    user_preference_id: getPersistentUserId(),
+                    firebase_token: currentUser?.firebaseToken || '',
+                    stream: false
+                };
+                
+                console.log('Sending image edit request');
+                
+                const result = await callFastAPI(apiUrl, apiPayload, mode);
+
+                const assistantMessage = {
+                    role: 'assistant',
+                    content: '',
+                    type: 'image',
+                    base64_image: result?.base64_image,
+                    ts: Date.now()
+                };
+                setChatHistory(prev => [...prev, assistantMessage]);
+            }
+            // IMAGE GENERATION
+            else if (mode === "image_gen") {
+                const apiUrl = '/api/generate/text';
+                const apiPayload = { 
+                    prompt: message, 
+                    mode: 'image_gen',
+                    aspect_ratio: aspectRatio,
+                    user_preference_id: getPersistentUserId(),
+                    firebase_token: currentUser?.firebaseToken || '',
+                    stream: false
+                };
+                
+                console.log('Sending image generation request');
+                
+                const result = await callFastAPI(apiUrl, apiPayload, mode);
+
+                const assistantMessage = {
+                    role: 'assistant',
+                    content: '',
+                    type: 'image',
+                    base64_image: result?.base64_image,
+                    ts: Date.now()
+                };
+                setChatHistory(prev => [...prev, assistantMessage]);
+            }
+            // FULL CODE MODE (Always streaming)
+            else if (isFullCodeRequest) {
+                const apiUrl = '/api/generate/text';
+                const apiPayload = { 
+                    prompt: message, 
+                    mode: "chat",
+                    user_preference_id: getPersistentUserId(),
+                    firebase_token: currentUser?.firebaseToken || '',
+                    stream: true,
+                    full_code_mode: true,
+                    project_type: projectMetadata.type
+                };
+                
+                console.log('Sending full-code request with streaming');
+                
+                // Show streaming UI
+                setIsStreaming(true);
+                const initialStreamMessage = {
+                    role: 'assistant',
+                    content: `Generating complete project: ${projectMetadata.name}...`,
+                    type: 'text',
+                    ts: Date.now(),
+                    isStreaming: true
+                };
+                setStreamingMessage(initialStreamMessage);
+                
+                const response = await callFastAPI(apiUrl, apiPayload, mode, {
+                    signal: controller.signal,
+                    stream: true
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                await handleStreamResponse(response);
+
+                if (accumulatedTokensRef.current) {
+                    const assistantMessage = {
+                        role: 'assistant',
+                        content: accumulatedTokensRef.current,
+                        type: 'text',
+                        ts: Date.now(),
+                        isFullCode: true,
+                        files: generatedFiles.length > 0 ? generatedFiles : undefined
+                    };
+                    setChatHistory(prev => [...prev, assistantMessage]);
+                    
+                    if (generatedFiles.length > 0) {
+                        setTimeout(() => {
+                            setIsProjectView(true);
+                            showModal("Project Generated", 
+                                `Successfully generated ${generatedFiles.length} files.`
+                            );
+                        }, 500);
+                    }
+                }
+            }
+            // NORMAL CHAT (Decision based on shouldUseStreaming)
+            else {
+                if (shouldUseStreaming) {
+                    // Use streaming for large/math responses
+                    const apiUrl = '/api/generate/text';
+                    const apiPayload = { 
+                        prompt: message, 
+                        mode,
+                        user_preference_id: getPersistentUserId(),
+                        firebase_token: currentUser?.firebaseToken || '',
+                        stream: true
+                    };
+                    
+                    console.log('Using streaming for this request');
+                    
+                    // Show streaming UI
+                    setIsStreaming(true);
+                    const initialStreamMessage = {
+                        role: 'assistant',
+                        content: '',
+                        type: 'text',
+                        ts: Date.now(),
+                        isStreaming: true
+                    };
+                    setStreamingMessage(initialStreamMessage);
+                    
+                    const response = await callFastAPI(apiUrl, apiPayload, mode, {
+                        signal: controller.signal,
+                        stream: true
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+
+                    await handleStreamResponse(response);
+
+                    if (accumulatedTokensRef.current) {
+                        const assistantMessage = {
+                            role: 'assistant',
+                            content: accumulatedTokensRef.current,
+                            type: 'text',
+                            ts: Date.now()
+                        };
+                        setChatHistory(prev => [...prev, assistantMessage]);
+                    }
+                } else {
+                    // Use normal API call for regular chat
+                    const apiUrl = '/api/generate/text';
+                    const apiPayload = { 
+                        prompt: message, 
+                        mode,
+                        user_preference_id: getPersistentUserId(),
+                        firebase_token: currentUser?.firebaseToken || '',
+                        stream: false
+                    };
+                    
+                    console.log('Using normal API call for regular chat');
+                    
+                    const result = await callFastAPI(apiUrl, apiPayload, mode, {
+                        signal: controller.signal,
+                        stream: false
+                    });
+
+                    console.log('Received normal response:', {
+                        hasText: !!result?.text,
+                        textLength: result?.text?.length
+                    });
+
+                    if (result?.text) {
+                        // Use fast typing animation for better UX
+                        typeText(result.text, () => {
+                            const assistantMessage = {
+                                role: 'assistant',
+                                content: result.text,
+                                type: 'text',
+                                ts: Date.now()
+                            };
+                            setChatHistory(prev => [...prev, assistantMessage]);
+                            setStreamingMessage(null);
+                        });
+                    } else {
+                        const assistantMessage = {
+                            role: 'assistant',
+                            content: result?.text || '',
+                            type: 'text',
+                            ts: Date.now()
+                        };
+                        setChatHistory(prev => [...prev, assistantMessage]);
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('API ERROR:', error);
+            if (error.name === 'AbortError') {
+                console.log('Request aborted by user');
+            } else {
+                const assistantError = {
+                    role: 'assistant',
+                    content: `Error: ${error?.message || 'Something went wrong.'}`,
+                    type: 'text',
+                    ts: Date.now()
+                };
+                setChatHistory(prev => [...prev, assistantError]);
+            }
+        } finally {
+            // Clean up
+            setAbortController(null);
+            setUploadedFile(null);
+            setUploadedImage(null);
+            setIsLoading(false);
+            setIsStreaming(false);
+            setStreamingMessage(null);
+            
+            // Clear streaming content
+            setStreamedContent('');
+            accumulatedTokensRef.current = '';
+        }
+    };
+
+    // ---------- Download Project ----------
+    const downloadProjectAsZip = useCallback(async () => {
         if (generatedFiles.length === 0) {
-            showModal("No Files", "No generated files to view.");
+            showModal("No Files", "No generated files to download.");
             return;
         }
-        setIsProjectView(!isProjectView);
-    };
+        
+        try {
+            const projectData = {
+                name: projectMetadata.name || 'spider-project',
+                files: generatedFiles,
+                metadata: projectMetadata,
+                generatedAt: new Date().toISOString()
+            };
+            
+            const blob = new Blob([JSON.stringify(projectData, null, 2)], {
+                type: 'application/json'
+            });
+            
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${projectMetadata.name || 'project'}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            showModal("Project Downloaded", `Project "${projectMetadata.name}" has been downloaded.`);
+        } catch (error) {
+            console.error('Download error:', error);
+            showModal("Download Error", "Failed to download project.");
+        }
+    }, [generatedFiles, projectMetadata, showModal]);
+
+    // ---------- Project View Components ----------
+    const ProjectFileTree = useMemo(() => {
+        return React.memo(({ files, activeIndex, onSelectFile }) => {
+            if (!files || files.length === 0) return null;
+            
+            const getFileIcon = (fileName) => {
+                const ext = fileName.split('.').pop().toLowerCase();
+                const icons = {
+                    'js': '📜', 'jsx': '⚛️', 'ts': '📘', 'tsx': '⚛️',
+                    'py': '🐍', 'html': '🌐', 'css': '🎨', 'json': '📦',
+                    'md': '📝', 'txt': '📄'
+                };
+                return icons[ext] || '📄';
+            };
+            
+            return (
+                <div className="bg-[var(--spider-dark)] rounded-lg border border-[var(--spider-light)] p-3">
+                    <div className="flex items-center justify-between mb-3">
+                        <h4 className="text-sm font-semibold text-white">Project Files</h4>
+                        <span className="text-xs text-[var(--spider-text-dim)]">
+                            {files.length} file{files.length !== 1 ? 's' : ''}
+                        </span>
+                    </div>
+                    
+                    <div className="space-y-1 max-h-60 overflow-y-auto">
+                        {files.map((file, index) => (
+                            <button
+                                key={index}
+                                onClick={() => onSelectFile(index)}
+                                className={`w-full text-left px-3 py-2 text-sm rounded-md flex items-center space-x-2 transition-colors ${
+                                    activeIndex === index
+                                        ? 'bg-[var(--spider-light)] text-white'
+                                        : 'text-[var(--spider-text)] hover:bg-[var(--spider-med)]'
+                                }`}
+                            >
+                                <span>{getFileIcon(file.name)}</span>
+                                <span className="truncate">{file.name}</span>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            );
+        });
+    }, []);
+
+    const FileViewer = useMemo(() => {
+        return React.memo(({ file }) => {
+            if (!file) return null;
+            
+            const handleCopyFile = () => {
+                navigator.clipboard.writeText(file.content);
+                showModal("Copied", "File content copied to clipboard!");
+            };
+            
+            return (
+                <div className="bg-[var(--spider-dark)] rounded-lg border border-[var(--spider-light)] p-4">
+                    <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center space-x-2">
+                            <h4 className="text-sm font-semibold text-white truncate">{file.name}</h4>
+                            <span className="text-xs text-[var(--spider-text-dim)] bg-[var(--spider-med)] px-2 py-1 rounded">
+                                {file.language}
+                            </span>
+                        </div>
+                        <button
+                            onClick={handleCopyFile}
+                            className="text-xs bg-[var(--spider-light)] text-white px-3 py-1.5 rounded hover:opacity-90 transition-colors"
+                        >
+                            Copy
+                        </button>
+                    </div>
+                    
+                    <div className="bg-black rounded-lg overflow-hidden">
+                        <pre className="text-sm p-4 overflow-x-auto max-h-96">
+                            <code className={`language-${file.language}`}>
+                                {file.content}
+                            </code>
+                        </pre>
+                    </div>
+                </div>
+            );
+        });
+    }, [showModal]);
 
     // ---------- Main JSX ----------
     return (
         <div className="flex flex-row h-full w-full bg-[var(--spider-dark)] text-[var(--spider-text)] overflow-hidden relative">
-            {/* Mobile Sidebar */}
-            <MobileSidebar />
-            
             {/* Desktop Sidebar */}
             {!isMobile && (
                 <div className="hidden md:flex flex-col bg-[var(--spider-med)] w-64 p-4 border-r border-[var(--spider-light)] flex-shrink-0 space-y-4 overflow-y-auto">
@@ -3433,17 +3622,6 @@ const SpiderAIApp = ({
                             )}
                         </div>
                     </div>
-
-                    <div className="mt-auto border-t border-[var(--spider-light)] pt-3">
-                        <div className="w-full bg-[var(--spider-med)] text-[var(--spider-text-dim)] text-sm font-semibold py-3 px-4 rounded-lg flex items-center space-x-3">
-                            <div className="w-8 h-8 rounded-full bg-[var(--spider-light)] flex items-center justify-center">
-                                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                                    <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd"></path>
-                                </svg>
-                            </div>
-                            <span className="truncate">{currentUser?.name || 'User'}</span>
-                        </div>
-                    </div>
                 </div>
             )}
 
@@ -3453,7 +3631,7 @@ const SpiderAIApp = ({
                 {isMobile && (
                     <div className="flex items-center justify-between p-3 bg-[var(--spider-med)] border-b border-[var(--spider-light)] flex-shrink-0">
                         <button 
-                            onClick={() => setSidebarOpen(true)}
+                            onClick={() => setSidebarOpen(!sidebarOpen)}
                             className="text-white p-2 touch-manipulation active:scale-95"
                             aria-label="Open menu"
                         >
@@ -3476,42 +3654,69 @@ const SpiderAIApp = ({
                     </div>
                 )}
 
-                {/* Project View Header */}
-                {isProjectView && generatedFiles.length > 0 && (
-                    <div className="bg-[var(--spider-med)] border-b border-[var(--spider-light)] p-3 flex items-center justify-between flex-shrink-0">
-                        <div className="flex items-center space-x-3">
-                            <button 
-                                onClick={toggleProjectView}
-                                className="text-white p-1 hover:opacity-90 transition-colors"
-                                title="Back to chat"
-                            >
-                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
-                                </svg>
-                            </button>
-                            <div>
-                                <h3 className="text-sm font-semibold text-white">{projectMetadata.name || 'Generated Project'}</h3>
-                                <p className="text-xs text-[var(--spider-text-dim)]">
-                                    {generatedFiles.length} files • {projectMetadata.type} project
-                                </p>
+                {/* Mobile Sidebar */}
+                {isMobile && sidebarOpen && (
+                    <div className="fixed inset-0 z-50">
+                        <div 
+                            className="fixed inset-0 bg-black bg-opacity-50"
+                            onClick={() => setSidebarOpen(false)}
+                        />
+                        <div className="fixed left-0 top-0 h-full w-64 bg-[var(--spider-med)] z-50 overflow-y-auto p-4">
+                            <div className="flex justify-between items-center mb-4">
+                                <h2 className="text-white font-semibold">Chat History</h2>
+                                <button 
+                                    onClick={() => setSidebarOpen(false)}
+                                    className="text-white hover:text-gray-300 text-2xl p-1"
+                                >
+                                    ×
+                                </button>
                             </div>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                            <button
-                                onClick={downloadProjectAsZip}
-                                className="bg-[var(--spider-neon-blue)] text-black text-xs font-semibold px-3 py-1.5 rounded hover:opacity-90 transition-colors"
+                            
+                            <button 
+                                onClick={handleNewChat} 
+                                className="w-full bg-[var(--spider-neon-blue)] text-black text-sm font-semibold py-3 px-4 rounded-lg hover:opacity-90 transition flex items-center space-x-2 justify-center mb-4"
                             >
-                                Download All
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
+                                </svg>
+                                <span>New Chat</span>
                             </button>
+
+                            <div className="space-y-1">
+                                {recentChats.length > 0 ? (
+                                    recentChats.map((chat) => (
+                                        <button 
+                                            key={chat.id}
+                                            onClick={() => {
+                                                loadChatById(chat.id);
+                                                setSidebarOpen(false);
+                                            }} 
+                                            className={`w-full text-left px-3 py-3 text-sm rounded-lg hover:bg-[var(--spider-light)] truncate transition-colors ${
+                                                activeChatId === chat.id 
+                                                    ? 'bg-[var(--spider-light)] text-white font-medium' 
+                                                    : 'text-[var(--spider-text)] hover:text-white'
+                                            }`}
+                                        >
+                                            <div className="truncate">{chat.title}</div>
+                                            <div className="text-xs text-[var(--spider-text-dim)] mt-1">
+                                                {new Date(chat.timestamp).toLocaleDateString()}
+                                            </div>
+                                        </button>
+                                    ))
+                                ) : (
+                                    <div className="text-center py-6 text-[var(--spider-text-dim)] text-sm">
+                                        No recent chats
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
                 )}
 
-                {/* Messages Container or Project View */}
+                {/* Project View */}
                 {isProjectView ? (
                     <div className="flex-grow overflow-y-auto p-4">
                         <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-4">
-                            {/* File Tree Sidebar */}
                             <div className="lg:col-span-1">
                                 <ProjectFileTree 
                                     files={generatedFiles}
@@ -3519,7 +3724,6 @@ const SpiderAIApp = ({
                                     onSelectFile={setActiveFileIndex}
                                 />
                                 
-                                {/* Project Info */}
                                 <div className="mt-4 bg-[var(--spider-dark)] rounded-lg border border-[var(--spider-light)] p-3">
                                     <h4 className="text-sm font-semibold text-white mb-2">Project Info</h4>
                                     <div className="space-y-2 text-xs">
@@ -3535,23 +3739,13 @@ const SpiderAIApp = ({
                                             <span className="text-[var(--spider-text-dim)]">Files:</span>
                                             <span className="text-white">{generatedFiles.length}</span>
                                         </div>
-                                        {projectMetadata.techStack && projectMetadata.techStack.length > 0 && (
-                                            <div className="flex justify-between">
-                                                <span className="text-[var(--spider-text-dim)]">Tech Stack:</span>
-                                                <span className="text-white">{projectMetadata.techStack.join(', ')}</span>
-                                            </div>
-                                        )}
                                     </div>
                                 </div>
                             </div>
                             
-                            {/* File Viewer */}
                             <div className="lg:col-span-2">
                                 {generatedFiles[activeFileIndex] ? (
-                                    <FileViewer 
-                                        file={generatedFiles[activeFileIndex]}
-                                        onClose={toggleProjectView}
-                                    />
+                                    <FileViewer file={generatedFiles[activeFileIndex]} />
                                 ) : (
                                     <div className="bg-[var(--spider-dark)] rounded-lg border border-[var(--spider-light)] p-8 text-center">
                                         <div className="text-4xl mb-4">📁</div>
@@ -3585,13 +3779,12 @@ const SpiderAIApp = ({
                                                 <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
                                             </div>
                                             <span className="text-xs text-[var(--spider-text-dim)]">
-                                                {isFullCodeMode ? 'Generating project files...' : 
-                                                 isStreaming ? 'AI is generating...' : 'AI is typing...'}
+                                                {isStreaming ? 'AI is generating...' : 'AI is typing...'}
                                             </span>
                                         </div>
                                         <button 
                                             onClick={handleStopGeneration}
-                                            className="bg-red-500 hover:bg-red-600 text-white text-xs px-3 py-1.5 rounded-lg transition-colors touch-manipulation active:scale-95"
+                                            className="bg-red-500 hover:bg-red-600 text-white text-xs px-3 py-1.5 rounded-lg transition-colors"
                                         >
                                             Stop
                                         </button>
@@ -3612,43 +3805,10 @@ const SpiderAIApp = ({
                                         </div>
                                         <button 
                                             onClick={handleContinueGeneration}
-                                            className="bg-[var(--spider-neon-blue)] text-black text-xs font-semibold px-4 py-2 rounded-lg hover:opacity-90 transition touch-manipulation active:scale-95"
+                                            className="bg-[var(--spider-neon-blue)] text-black text-xs font-semibold px-4 py-2 rounded-lg hover:opacity-90 transition"
                                         >
                                             Continue
                                         </button>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                        
-                        {/* Project Generated Notification */}
-                        {generatedFiles.length > 0 && !isProjectView && (
-                            <div className="flex justify-start mb-4 px-2">
-                                <div className="bg-green-900/30 border border-green-700 p-3 rounded-lg">
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center space-x-3">
-                                            <div className="text-2xl">📁</div>
-                                            <div>
-                                                <h4 className="text-sm font-semibold text-white">Project Generated!</h4>
-                                                <p className="text-xs text-green-300">
-                                                    {generatedFiles.length} files created for "{projectMetadata.name}"
-                                                </p>
-                                            </div>
-                                        </div>
-                                        <div className="flex items-center space-x-2">
-                                            <button
-                                                onClick={toggleProjectView}
-                                                className="bg-[var(--spider-neon-blue)] text-black text-xs font-semibold px-3 py-1.5 rounded hover:opacity-90 transition-colors"
-                                            >
-                                                View Project
-                                            </button>
-                                            <button
-                                                onClick={downloadProjectAsZip}
-                                                className="bg-green-700 text-white text-xs font-semibold px-3 py-1.5 rounded hover:bg-green-600 transition-colors"
-                                            >
-                                                Download
-                                            </button>
-                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -3664,7 +3824,7 @@ const SpiderAIApp = ({
                     ref={fileInputRef} 
                     onChange={handleFileUpload} 
                     className="hidden" 
-                    accept=".spy,.py,.java,.cpp,.c,.h,.txt,.md,.js,.html,.css,.json,.xml,.csv,.pdf,.doc,.docx,.xls,.xlsx" 
+                    accept=".txt,.md,.js,.html,.css,.json,.py" 
                 />
                 <input 
                     type="file" 
@@ -3674,12 +3834,11 @@ const SpiderAIApp = ({
                     accept="image/*" 
                 />
 
-                {/* Input Area - Optimized for all devices */}
+                {/* Input Area */}
                 <div className={`bg-[var(--spider-med)] border-t border-[var(--spider-light)] flex-shrink-0 w-full ${
                     isMobile ? 'fixed bottom-0 left-0 right-0 p-3' : 'p-4'
                 }`}>
                     <div className="max-w-5xl mx-auto">
-                        {/* Mode Display - Desktop only */}
                         {!isMobile && (
                             <div className="flex justify-between items-center mb-3">
                                 <span className="flex items-center text-sm text-[var(--spider-neon-blue)] font-semibold">
@@ -3689,17 +3848,12 @@ const SpiderAIApp = ({
                                             FULL CODE
                                         </span>
                                     )}
-                                    {activeChatId && (
-                                        <span className="ml-2 text-xs text-[var(--spider-text-dim)]">
-                                            (Auto-saved)
-                                        </span>
-                                    )}
                                 </span>
                                 {activeAIMode === 'image_gen' && (
                                     <select 
                                         value={aspectRatio} 
                                         onChange={(e) => setAspectRatio(e.target.value)} 
-                                        className="bg-[var(--spider-light)] text-[var(--spider-text)] px-3 py-1.5 rounded-lg text-sm focus:outline-none touch-manipulation active:scale-95"
+                                        className="bg-[var(--spider-light)] text-[var(--spider-text)] px-3 py-1.5 rounded-lg text-sm focus:outline-none"
                                     >
                                         <option value="1:1">1:1 Square</option>
                                         <option value="16:9">16:9 Landscape</option>
@@ -3710,7 +3864,6 @@ const SpiderAIApp = ({
                             </div>
                         )}
 
-                        {/* Uploaded File/Image Indicator */}
                         {(uploadedFile || uploadedImage) && (
                             <div className="mb-3 text-xs text-green-400 p-3 bg-[var(--spider-dark)] rounded-lg flex justify-between items-center border border-green-800">
                                 <span className="truncate flex items-center space-x-2">
@@ -3731,33 +3884,24 @@ const SpiderAIApp = ({
                                         setUploadedFile(null); 
                                         setUploadedImage(null); 
                                     }} 
-                                    className="text-red-400 hover:text-red-300 ml-3 font-bold flex-shrink-0 touch-manipulation active:scale-95 p-1"
+                                    className="text-red-400 hover:text-red-300 ml-3 font-bold flex-shrink-0 p-1"
                                 >
                                     ×
                                 </button>
                             </div>
                         )}
 
-                        {/* Input Controls */}
                         <div className="flex items-end w-full space-x-3">
                             <div className="flex-1 bg-[var(--spider-light)] rounded-xl p-3 min-h-[48px] border border-[var(--spider-light)]">
                                 <textarea 
                                     ref={textareaRef}
                                     placeholder={
-                                        isFullCodeMode ? "Describe your complete project (e.g., 'Create a full React todo app with backend')..." :
+                                        isFullCodeMode ? "Describe your complete project..." :
                                         uploadedImage ? "Describe how to edit this image..." : 
                                         uploadedFile ? `Analyze "${uploadedFile.name}"...` : 
-                                        "Message Spider AI... (Try: 'write full code for a calculator app' or 'generate image of...')"
+                                        "Message Spider AI... (Try: 'solve x² + 2x - 3 = 0' or 'write full code for a todo app')"
                                     } 
-                                    className="w-full bg-transparent text-white focus:outline-none resize-none text-sm sm:text-base max-h-32 overflow-y-auto touch-manipulation"
-                                    style={{
-                                        minHeight: '24px',
-                                        maxHeight: '120px',
-                                        WebkitAppearance: 'none',
-                                        MozAppearance: 'none',
-                                        appearance: 'none',
-                                        lineHeight: '1.5'
-                                    }}
+                                    className="w-full bg-transparent text-white focus:outline-none resize-none text-sm sm:text-base max-h-32 overflow-y-auto"
                                     value={message} 
                                     onChange={(e) => setMessage(e.target.value)} 
                                     onKeyDown={(e) => { 
@@ -3771,32 +3915,16 @@ const SpiderAIApp = ({
                                 />
                             </div>
 
-                            {/* Aspect Ratio Selector - Mobile */}
-                            {isMobile && (activeAIMode === 'image_gen' || detectImageGeneration(message)) && (
-                                <select 
-                                    value={aspectRatio} 
-                                    onChange={(e) => setAspectRatio(e.target.value)} 
-                                    className="bg-[var(--spider-light)] text-[var(--spider-text)] px-3 py-2 rounded-lg text-xs focus:outline-none touch-manipulation active:scale-95 h-12"
-                                >
-                                    <option value="1:1">1:1</option>
-                                    <option value="16:9">16:9</option>
-                                    <option value="9:16">9:16</option>
-                                </select>
-                            )}
-
-                            {/* Plus Menu */}
                             <PlusMenu 
                                 setActiveAIMode={setActiveAIMode} 
                                 fileInputRef={fileInputRef} 
                                 imageInputRef={imageInputRef} 
                             />
 
-                            {/* Send Button */}
                             <button 
                                 onClick={handleSendMessage} 
-                                className="bg-[var(--spider-neon-blue)] text-black font-semibold px-5 py-3 rounded-xl hover:opacity-90 transition duration-200 flex-shrink-0 h-12 flex items-center justify-center min-w-[52px] touch-manipulation active:scale-95 shadow-lg" 
+                                className="bg-[var(--spider-neon-blue)] text-black font-semibold px-5 py-3 rounded-xl hover:opacity-90 transition duration-200 flex-shrink-0 h-12 flex items-center justify-center min-w-[52px] shadow-lg" 
                                 disabled={(!message.trim() && !uploadedFile && !uploadedImage) || isLoading}
-                                aria-label="Send message"
                             >
                                 {isLoading ? (
                                     <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
@@ -3810,13 +3938,11 @@ const SpiderAIApp = ({
                     </div>
                 </div>
 
-                {/* Add safe area padding for mobile */}
                 {isMobile && <div className="h-24" />}
             </div>
         </div>
     );
 };
-
 // --- END Plus Menu Component ---
 const SpiderVFXApp = () => { /* ... (Remains Placeholder) ... */ return (<div className="flex-grow h-full flex flex-col items-center justify-center bg-black text-white p-8 pattern-vfx-grid overflow-y-auto"><div className="bg-black bg-opacity-80 p-10 rounded-lg text-center shadow-xl"><h1 className="text-4xl font-bold mb-4 text-[var(--spider-neon-blue)]">Spider VFX</h1><p className="text-lg text-gray-400 mb-8">Coming Soon!</p><div className="animate-pulse text-6xl">✨</div></div></div>);};
 
@@ -4881,6 +5007,7 @@ int main() {
         </>
     );
 }
+
 
 
 
