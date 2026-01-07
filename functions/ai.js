@@ -126,9 +126,9 @@ export async function onRequest(context) {
     // 1. DELETE MEMORY
     //////////////////////
     if (
-      mode === "delete_memory" || 
-      mode === "clear_memory" || 
-      mode === "delete_all" || 
+      mode === "delete_memory" ||
+      mode === "clear_memory" ||
+      mode === "delete_all" ||
       cleanPrompt === "delete all"
     ) {
       const success = await deleteMemory(env, memKey);
@@ -139,10 +139,10 @@ export async function onRequest(context) {
       }
 
       return new Response(
-        JSON.stringify({ 
-          status: success ? "success" : "skipped", 
-          message: msg 
-        }), 
+        JSON.stringify({
+          status: success ? "success" : "skipped",
+          message: msg
+        }),
         { headers: { ...cors, "Content-Type": "application/json" } }
       );
     }
@@ -150,8 +150,8 @@ export async function onRequest(context) {
     //////////////////////
     // SHARED SYSTEM PROMPT (PHONETIC INTENT ENGINE)
     //////////////////////
-    const CORE_SYSTEM_PROMPT = 
-`You are Spider AI, created by M4 Spider.
+    const CORE_SYSTEM_PROMPT =
+`You are Mistral Small, a Large Language Model (LLM) created by Mistral AI.
 
 CORE RULE (VERY IMPORTANT):
 You MUST understand user messages by PRONUNCIATION and INTENT,
