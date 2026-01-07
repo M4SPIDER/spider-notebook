@@ -1,9 +1,9 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (PHONETIC INTENT ENGINE)
- * INTELLIGENT CHAT (NO STREAM) + CODE ANALYSIS (STREAM)
- * FOCUS: SOUND-BASED MEANING (NO SPELLING CHECKS)
+ * SPIDER AI — FINAL LM-STUDIO MATCHED BACKEND
+ * PHONETIC INTENT ENGINE (CLOUDFLARE SAFE)
  * Author: M4 Spider
+ * Version: 10.0.0
  * =========================================================
  */
 
@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.5"; // Update: Removed All Telugu References
+const VERSION = "10.0.0";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -25,17 +25,14 @@ const AI_RETRY_DELAY_BASE = 1500;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 //////////////////////////////
-// SIMPLE SAFE CLEANER (NON-STREAM)
+// SAFE CLEANER (NON-STREAM)
 //////////////////////////////
 function cleanAiResponse(text) {
   if (!text) return "";
-
   return text
-    .replace(/#\*[\s\S]*?\*#/g, "") // Remove custom internal tags
-    .replace(/#\*/g, "")
-    .replace(/\*#/g, "")
-    .replace(/\*\*/g, "")           // Remove bold
-    .replace(/^\s*##+\s*/gm, "")    // Remove headers
+    .replace(/#\*[\s\S]*?\*#/g, "")
+    .replace(/\*\*/g, "")
+    .replace(/^\s*##+\s*/gm, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -60,7 +57,6 @@ async function saveMemory(env, key, mem) {
   });
 }
 
-// NEW: Delete Memory Function
 async function deleteMemory(env, key) {
   if (!env.CHAT_KV) return false;
   await env.CHAT_KV.delete(key);
@@ -68,7 +64,7 @@ async function deleteMemory(env, key) {
 }
 
 //////////////////////////////
-// AI CALL
+// AI CALL (RETRY SAFE)
 //////////////////////////////
 async function runAi(env, model, payload) {
   for (let i = 0; i <= AI_RETRY_LIMIT; i++) {
@@ -90,6 +86,52 @@ function extractText(resp) {
     ""
   );
 }
+
+//////////////////////////////
+// SYSTEM PROMPTS (SPLIT — VERY IMPORTANT)
+//////////////////////////////
+
+// SHORT SYSTEM PROMPT (CF RESPECTS THIS)
+const SYSTEM_PROMPT = `
+You are Spider AI.
+Understand messages by sound and intent, not spelling.
+Phonetic typing is expected.
+Never comment on spelling or grammar.
+Never say "Sorry, I don't understand".
+Reply naturally in the user's language.
+`.trim();
+
+// EXTENDED RULES (AS USER MESSAGE — LM STUDIO STYLE)
+const INTENT_RULES = `
+CORE RULE:
+Understand by pronunciation and intent only.
+
+PHONETIC OVERRIDE:
+If text looks like Telugu, Hindi, or Hinglish typed in English letters,
+ASSUME casual conversation. DO NOT reject.
+
+COMMAND RULE:
+If it sounds like a command:
+- Do not ask questions
+- Acknowledge or comply briefly
+
+GENDER & TENSE SAFETY:
+If unclear, stay neutral. Do not guess.
+
+ANTI-HALLUCINATION:
+Do not invent emotions or situations.
+
+ABSOLUTE BAN:
+Never reply with:
+- "Sorry"
+- "I don't understand"
+- "Can you clarify"
+
+STYLE:
+Short, human, friendly.
+Emojis allowed.
+Plain text only.
+`.trim();
 
 //////////////////////////////
 // MAIN HANDLER
@@ -114,182 +156,109 @@ export async function onRequest(context) {
       mode = "chat",
       user_preference_id = "anon",
       aspect_ratio = "1:1",
-      stream = false,
       file_content,
       filename
     } = payload;
 
     const memKey = AI_MEMORY_USER_KEY_PREFIX + user_preference_id;
-    const cleanPrompt = (prompt || "").trim().toLowerCase();
+    const cleanPrompt = (prompt || "").trim(); // 🔥 NO LOWERCASE
 
     //////////////////////
-    // 1. DELETE MEMORY
+    // MEMORY DELETE
     //////////////////////
     if (
-      mode === "delete_memory" || 
-      mode === "clear_memory" || 
-      mode === "delete_all" || 
+      mode === "delete_memory" ||
+      mode === "clear_memory" ||
       cleanPrompt === "delete all"
     ) {
       const success = await deleteMemory(env, memKey);
-      const msg = success ? "Memory wiped successfully 🧹" : "No KV found or empty.";
-
-      if (cleanPrompt === "delete all") {
-        return new Response(msg, { headers: { ...cors, "Content-Type": "text/plain" } });
-      }
-
       return new Response(
-        JSON.stringify({ 
-          status: success ? "success" : "skipped", 
-          message: msg 
-        }), 
-        { headers: { ...cors, "Content-Type": "application/json" } }
+        success ? "Memory cleared 🧹" : "No memory found.",
+        { headers: { ...cors, "Content-Type": "text/plain" } }
       );
     }
 
     //////////////////////
-    // SHARED SYSTEM PROMPT (PHONETIC INTENT ENGINE)
-    //////////////////////
-    const CORE_SYSTEM_PROMPT = 
-`You are Spider AI, created by M4 Spider.
-
-CORE RULE (VERY IMPORTANT):
-You MUST understand user messages by PRONUNCIATION and INTENT,
-NOT by spelling, grammar, or dictionary correctness.
-
-The user may write in various languages or slang using English letters
-(phonetic typing).
-
-Your job:
-- Imagine how the sentence would SOUND if spoken.
-- Convert sound → meaning.
-- Answer ONLY based on that meaning.
-
-DO NOT:
-- Correct spelling
-- Comment on spelling
-- Say “you mean…”
-- Say “this word is wrong”
-- Treat phonetic words as English words
-
-JUST UNDERSTAND AND REPLY.
-
-COMMAND OVERRIDE (CRITICAL):
-If a sentence sounds like a COMMAND (order, dismissal, instruction):
-- DO NOT ask questions.
-- DO NOT seek clarification.
-- DO NOT reinterpret as a question.
-
-COMMAND RESPONSE RULE:
-When a command is detected, you MUST respond as:
-- an acknowledgement, OR
-- an action acceptance, OR
-- a polite compliance
-
-NEVER:
-- convert the command into past tense
-- describe the action as already done
-- narrate events
-
-GENDER & TENSE SAFETY RULE:
-If gender or tense is unclear from phonetic input:
-- DO NOT guess
-- DO NOT assume past or present
-- DO NOT use gendered verb forms
-
-Instead:
-- Use neutral acknowledgements
-- Or rephrase in present-neutral form
-
-INTENT RULES:
-- If the sentence sounds like a GREETING → reply naturally.
-- If it sounds like a QUESTION → answer directly.
-- If it sounds casual → reply casual.
-- If it sounds angry/sad → respond only if emotion is clear.
-
-ANTI-HALLUCINATION:
-- Do NOT add emotions unless the user shows them.
-- Do NOT invent food, feelings, or situations.
-- If intent is unclear (and not a command) → ask ONE short clarification.
-
-LANGUAGE STYLE:
-- Match the user's language and style.
-- Keep it short, human, and friendly.
-- Emojis allowed 🕸️🔥
-
-FORMATTING:
-- Plain text only.
-- No markdown, no bold, no headers.
-That’s it.`;
-
-    //////////////////////
-    // 2. STREAMING MODE (ONLY FOR FILE ANALYSIS)
+    // FILE ANALYSIS (STREAM)
     //////////////////////
     if (mode === "analyze_file") {
       const encoder = new TextEncoder();
-      const streamResp = new ReadableStream({
+      const stream = new ReadableStream({
         async start(controller) {
           try {
-            let finalPrompt = `FILE NAME: ${filename || "unknown"}\nFILE CONTENT: ${file_content}\nUSER REQUEST: ${prompt}`;
+            const finalPrompt =
+              `FILE NAME: ${filename || "unknown"}\n\n` +
+              `FILE CONTENT:\n${file_content}\n\n` +
+              `USER REQUEST:\n${prompt}`;
 
             const res = await runAi(
               env,
               "@cf/mistralai/mistral-small-3.1-24b-instruct",
               {
                 messages: [
-                  { role: "system", content: CORE_SYSTEM_PROMPT },
+                  { role: "system", content: SYSTEM_PROMPT },
+                  { role: "user", content: INTENT_RULES },
                   { role: "user", content: finalPrompt }
                 ],
-                max_tokens: 4096,
-                temperature: 0.7,
-                top_p: 1
+                temperature: 0.55,
+                max_tokens: 4096
               }
             );
 
-            const text = extractText(res) || "";
+            const text = extractText(res);
             const chunks = text.match(/[\s\S]{1,120}/g) || [];
 
-            for (let chunk of chunks) {
-              chunk = chunk.replace(/\*\*/g, "").replace(/(^|\n)\s*##+\s*/g, "$1");
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: chunk })}\n\n`));
+            for (const c of chunks) {
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify({ text: c })}\n\n`)
+              );
               await sleep(15);
             }
-            controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
+
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
             controller.close();
-          } catch (err) {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: "\n[Error] " + err.message })}\n\n`));
+          } catch (e) {
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({ text: e.message })}\n\n`)
+            );
             controller.close();
           }
         }
       });
-      return new Response(streamResp, { headers: { ...cors, "Content-Type": "text/event-stream" } });
+
+      return new Response(stream, {
+        headers: { ...cors, "Content-Type": "text/event-stream" }
+      });
     }
 
     //////////////////////
-    // 3. IMAGE GENERATION
+    // IMAGE GENERATION
     //////////////////////
     if (mode === "image_gen") {
-      const image = await runAi(
+      const img = await runAi(
         env,
         "@cf/stabilityai/stable-diffusion-xl-base-1.0",
         {
-          prompt: `${prompt}, ultra detailed, cinematic lighting`,
+          prompt: `${prompt}, cinematic lighting, ultra detailed`,
           aspect_ratio
         }
       );
-      return new Response(image, { headers: { ...cors, "Content-Type": "image/png" } });
+      return new Response(img, {
+        headers: { ...cors, "Content-Type": "image/png" }
+      });
     }
 
     //////////////////////
-    // 4. NORMAL CHAT (NO STREAM - FULL RESPONSE)
+    // NORMAL CHAT (LM STUDIO STYLE)
     //////////////////////
     let memory = await getMemory(env, memKey);
-    memory.push({ role: "user", content: prompt, ts: Date.now() });
+    memory.push({ role: "user", content: prompt });
     memory = memory.slice(-AI_MEMORY_TRIM_TARGET);
 
     const messages = [
-      { role: "system", content: CORE_SYSTEM_PROMPT },
-      ...memory.map(m => ({ role: m.role, content: m.content }))
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: INTENT_RULES },
+      ...memory
     ];
 
     const aiRes = await runAi(
@@ -297,14 +266,13 @@ That’s it.`;
       "@cf/mistralai/mistral-small-3.1-24b-instruct",
       {
         messages,
-        max_tokens: 4096,
-        temperature: 0.7,
-        top_p: 1
+        temperature: 0.55,
+        max_tokens: 2048
       }
     );
 
     const output = cleanAiResponse(extractText(aiRes));
-    memory.push({ role: "assistant", content: output, ts: Date.now() });
+    memory.push({ role: "assistant", content: output });
     await saveMemory(env, memKey, memory);
 
     return new Response(output, {
