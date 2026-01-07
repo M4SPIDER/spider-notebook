@@ -153,7 +153,9 @@ export async function onRequest(context) {
       {
         role: "system",
         content:
-          "You are Spider AI. Respond like ChatGPT. Plain text only."
+          "You are Spider AI. If user asks for code, return full working code inside triple backticks."
+    : "You are Spider AI. Respond in plain text without markdown."
+
       },
       ...mem.map(m => ({
         role: m.role,
