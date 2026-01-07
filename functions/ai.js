@@ -146,7 +146,7 @@ if (mode === "stream" || stream === true) {
                 messages: [
                   { 
                     role: "system", 
-                    content: "You are Spider AI. Never use markdown bold (**) or headers (#). Use plain text for emphasis. Keep code blocks and tables exactly as they are." 
+                    content: "You are Spider AI. Never use markdown bold (**) or headers (#). Use plain text only. Keep code blocks and tables exactly as they are." 
                   },
                   { role: "user", content: contextPrompt }
                 ],
@@ -162,24 +162,34 @@ if (mode === "stream" || stream === true) {
 
               let chunk = decoder.decode(value);
 
-              // 2. STABLE STREAM CLEANER (Fixes the ** and ## issue)
-              // We use a safe version of your regex that cleans chunks as they pass through
-              const cleanChunk = chunk
-                .replace(/\*\*/g, "")              // Remove Bold stars
-                .replace(/__(.*?)__/g, "$1")       // Remove Bold underscores
-                .replace(/^\s*#{1,6}\s*/gm, "")    // Remove Header hashes at start of lines
-                .replace(/#/g, "");                // Remove any remaining stray hashes
+              // 2. APPLY YOUR SPECIFIC REPLACEMENTS (The "Cleaner")
+              // This cleans the text chunks before they are JSON-encoded
+              let cleanChunk = chunk
+                // Remove forbidden internal artifacts
+                .replace(/#\*[\s\S]*?\*#/g, "")
+                .replace(/#\*/g, "")
+                .replace(/\*#/g, "")
+                // Remove markdown emphasis (Bold/Italic)
+                .replace(/\*\*(.*?)\*\*/g, "$1")
+                .replace(/\*(.*?)\*/g, "$1")
+                .replace(/__(.*?)__/g, "$1")
+                .replace(/_(.*?)_/g, "$1")
+                // Remove markdown headers
+                .replace(/^\s*#{1,6}\s*/gm, "")
+                .replace(/#/g, ""); // Catch any remaining stray hashes
 
               if (cleanChunk) {
-                const payloadStr = JSON.stringify({ text: cleanChunk });
+                // Wrap in the JSON format your frontend expects
+                const payloadStr = JSON.stringify({ response: cleanChunk });
                 controller.enqueue(encoder.encode(`data: ${payloadStr}\n\n`));
               }
             }
 
+            // Signal completion
             controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
             controller.close();
           } catch (err) {
-            const errPayload = JSON.stringify({ text: `[Stream Error]: ${err.message}` });
+            const errPayload = JSON.stringify({ response: `[Stream Error]: ${err.message}` });
             controller.enqueue(encoder.encode(`data: ${errPayload}\n\n`));
             controller.close();
           }
