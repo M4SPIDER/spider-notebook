@@ -32,14 +32,21 @@ function cleanAiResponse(text) {
   if (!text) return "";
 
   return text
+    // forbidden internal artifacts
     .replace(/#\*[\s\S]*?\*#/g, "")
     .replace(/#\*/g, "")
     .replace(/\*#/g, "")
+
+    // markdown emphasis
     .replace(/\*\*(.*?)\*\*/g, "$1")
     .replace(/\*(.*?)\*/g, "$1")
     .replace(/__(.*?)__/g, "$1")
     .replace(/_(.*?)_/g, "$1")
+
+    // markdown headers
     .replace(/^\s*#{1,6}\s*/gm, "")
+
+    // spacing
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -49,7 +56,9 @@ function cleanAiResponse(text) {
 //////////////////////////////
 async function getMemory(env, key) {
   try {
-    return env.CHAT_KV ? JSON.parse(await env.CHAT_KV.get(key)) || [] : [];
+    return env.CHAT_KV
+      ? JSON.parse(await env.CHAT_KV.get(key)) || []
+      : [];
   } catch {
     return [];
   }
@@ -108,15 +117,17 @@ export async function onRequest(context) {
       prompt = "",
       mode = "chat",
       user_preference_id = "anon",
-      aspect_ratio = "1:1"
+      aspect_ratio = "1:1",
+      stream = false
     } = payload;
 
     const memKey = AI_MEMORY_USER_KEY_PREFIX + user_preference_id;
 
     //////////////////////
-    // STREAM MODE (NO KV, CRASH-PROOF)
+    // STREAM MODE (NO KV)
+    // triggered by mode OR stream flag
     //////////////////////
-    if (mode === "stream") {
+    if (mode === "stream" || stream === true) {
       const encoder = new TextEncoder();
 
       const streamResp = new ReadableStream({
@@ -142,7 +153,6 @@ export async function onRequest(context) {
 
             controller.close();
           } catch (err) {
-            // 🔴 NEVER crash stream
             controller.enqueue(
               encoder.encode("\n[Spider AI Stream Error]\n")
             );
@@ -188,33 +198,32 @@ export async function onRequest(context) {
     const systemPrompt = `
 You are ${AI_NAME} v${VERSION}.
 
-GENERAL RULES:
-- Use clear, human-readable language.
-- Never output #* or *# artifacts.
+RULES:
+- Never output #* or *#.
+- Do not destroy tables.
+- Do not destroy code blocks.
+- Do not destroy LaTeX maths.
 
-MATHS RULES:
-- ALWAYS use LaTeX for mathematical equations.
-- Inline maths: \\( ... \\)
-- Display maths:
+MATHS:
+- ALWAYS use LaTeX.
+- Inline: \\( ... \\)
+- Display:
   \\[
   ...
   \\]
-- Show step-by-step derivations.
-- Final answers must be boxed:
+- Box final answers:
   \\[
   \\boxed{...}
   \\]
 
-COMPARISON RULES:
-- If the user asks to compare two or more things:
-  → USE A MARKDOWN TABLE.
-- Put ALL comparison data ONLY inside the table.
-- Do NOT explain before or after unless explicitly asked.
+COMPARISONS:
+- If comparing items → USE A TABLE ONLY.
+- Do NOT explain outside the table unless asked.
 
 FORMATTING:
-- Use tables for comparisons.
-- Use code blocks for code.
-- Do not convert tables or maths into plain text.
+- Tables stay tables.
+- Code stays code.
+- Maths stays LaTeX.
 `;
 
     const messages = [
