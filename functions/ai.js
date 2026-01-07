@@ -1,7 +1,7 @@
 /**
  * =========================================================
  * SPIDER AI — FINAL STABLE BACKEND
- * SDXL + KV + STREAMING + SAFE CLEANER
+ * SDXL + KV + STREAMING + SIMPLE REGEX CLEANER
  * Author: M4 Spider
  * =========================================================
  */
@@ -10,7 +10,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.0.1";
+const VERSION = "9.0.2";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -24,60 +24,30 @@ const AI_RETRY_DELAY_BASE = 1500;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 //////////////////////////////
-// SAFE CLEANER (CODE / TABLE / MATH SAFE)
+// SIMPLE SAFE CLEANER
+// ONLY removes ** * # ### and #* *#
 //////////////////////////////
 function cleanAiResponse(text) {
   if (!text) return "";
 
-  const CODE = [];
-  const TABLE = [];
-  const MATH = [];
-
-  const CODE_T  = "\u200B\u200C\u200D_CODE_";
-  const TABLE_T = "\u200B\u200C\u200D_TABLE_";
-  const MATH_T  = "\u200B\u200C\u200D_MATH_";
-
-  // 1️⃣ Protect code blocks
-  text = text.replace(/```[\s\S]*?```/g, m => {
-    CODE.push(m);
-    return CODE_T + (CODE.length - 1) + "_";
-  });
-
-  // 2️⃣ Protect markdown tables (FIXED — line based, safe)
-  text = text.replace(
-    /(^|\n)((?:\|.*\|\n?)+)/g,
-    m => {
-      TABLE.push(m);
-      return TABLE_T + (TABLE.length - 1) + "_";
-    }
-  );
-
-  // 3️⃣ Protect math ($ / $$)
-  text = text.replace(/\$\$[\s\S]*?\$\$|\$[^$\n]+\$/g, m => {
-    MATH.push(m);
-    return MATH_T + (MATH.length - 1) + "_";
-  });
-
-  // 4️⃣ Clean prose ONLY
-  text = text
+  return text
+    // remove forbidden artifact blocks
     .replace(/#\*[\s\S]*?\*#/g, "")
     .replace(/#\*/g, "")
     .replace(/\*#/g, "")
+
+    // remove bold / italic markers
     .replace(/\*\*(.*?)\*\*/g, "$1")
     .replace(/\*(.*?)\*/g, "$1")
     .replace(/__(.*?)__/g, "$1")
     .replace(/_(.*?)_/g, "$1")
+
+    // remove markdown headers only
     .replace(/^\s*#{1,6}\s*/gm, "")
-    .replace(/^(User:|Assistant:|AI:|Bot:|Model:)\s*/igm, "")
+
+    // normalize spacing
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-
-  // 5️⃣ Restore protected blocks (ORDER MATTERS)
-  text = text.replace(new RegExp(CODE_T  + "(\\d+)_", "g"), (_, i) => CODE[i]);
-  text = text.replace(new RegExp(TABLE_T + "(\\d+)_", "g"), (_, i) => TABLE[i]);
-  text = text.replace(new RegExp(MATH_T  + "(\\d+)_", "g"), (_, i) => MATH[i]);
-
-  return text;
 }
 
 //////////////////////////////
@@ -154,6 +124,7 @@ export async function onRequest(context) {
     //////////////////////
     if (mode === "stream") {
       const encoder = new TextEncoder();
+
       const streamResp = new ReadableStream({
         async start(controller) {
           const res = await runAi(
@@ -168,8 +139,8 @@ export async function onRequest(context) {
           const text = extractText(res);
           const chunks = text.match(/.{1,800}/g) || [];
 
-          for (const c of chunks) {
-            controller.enqueue(encoder.encode(c));
+          for (const chunk of chunks) {
+            controller.enqueue(encoder.encode(chunk));
             await sleep(20);
           }
           controller.close();
@@ -213,7 +184,7 @@ export async function onRequest(context) {
     const systemPrompt = `
 You are ${AI_NAME} v${VERSION}.
 Rules:
-- Use markdown
+- Use markdown naturally
 - Always use proper code blocks
 - Never output #* or *#
 `;
