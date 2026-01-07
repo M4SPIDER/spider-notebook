@@ -1,7 +1,7 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.8.2)
- * FEATURES: TRUE STREAMING + MEMORY + TAVILY SEARCH + RELEASE DATES
+ * SPIDER AI — FINAL STABLE BACKEND (v9.8.3)
+ * FEATURES: TRUE STREAMING + MEMORY + TAVILY + CLEANER FIXES
  * Author: M4 Spider
  * =========================================================
  */
@@ -10,7 +10,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.8.2";
+const VERSION = "9.8.3";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -31,7 +31,7 @@ function cleanAiResponse(text) {
     .replace(/#\*/g, "")
     .replace(/\*#/g, "")
     .replace(/\*\*/g, "")           // Remove bold
-    .replace(/^\s*##+\s*/gm, "")    // Remove headers
+    .replace(/(^|\n)\s*#{1,6}\s+/g, "$1") // Remove Markdown Headers (# Title) carefully
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -339,8 +339,15 @@ export async function onRequest(context) {
                     
                     if (textChunk) {
                       fullAiResponse += textChunk;
+                      
+                      // AGGRESSIVE STREAM CLEANER
+                      // Removes ** and (# + space)
+                      let cleanChunk = textChunk
+                        .replace(/\*\*/g, "")
+                        .replace(/(^|\n)\s*#{1,6}\s+/g, "$1");
+
                       controller.enqueue(
-                        encoder.encode(`data: ${JSON.stringify({ text: textChunk })}\n\n`)
+                        encoder.encode(`data: ${JSON.stringify({ text: cleanChunk })}\n\n`)
                       );
                     }
                   } catch(e) {
