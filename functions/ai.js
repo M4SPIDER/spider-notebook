@@ -1,7 +1,7 @@
 /**
  * =========================================================
  * SPIDER AI — FINAL STABLE BACKEND
- * SDXL + KV + STREAMING + SIMPLE SAFE CLEANER
+ * SDXL + KV + STREAMING (FIXED)
  * Author: M4 Spider
  * =========================================================
  */
@@ -10,7 +10,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.0.4";
+const VERSION = "9.0.5";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -32,21 +32,14 @@ function cleanAiResponse(text) {
   if (!text) return "";
 
   return text
-    // forbidden internal artifacts
     .replace(/#\*[\s\S]*?\*#/g, "")
     .replace(/#\*/g, "")
     .replace(/\*#/g, "")
-
-    // markdown emphasis
     .replace(/\*\*(.*?)\*\*/g, "$1")
     .replace(/\*(.*?)\*/g, "$1")
     .replace(/__(.*?)__/g, "$1")
     .replace(/_(.*?)_/g, "$1")
-
-    // markdown headers
     .replace(/^\s*#{1,6}\s*/gm, "")
-
-    // spacing
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -72,7 +65,7 @@ async function saveMemory(env, key, mem) {
 }
 
 //////////////////////////////
-// AI CALL
+// AI CALL (NON-STREAM)
 //////////////////////////////
 async function runAi(env, model, payload) {
   for (let i = 0; i <= AI_RETRY_LIMIT; i++) {
@@ -116,26 +109,19 @@ export async function onRequest(context) {
     const {
       prompt = "",
       mode = "chat",
+      stream = false,
       user_preference_id = "anon",
-      aspect_ratio = "1:1",
-      stream = false
+      aspect_ratio = "1:1"
     } = payload;
 
     const memKey = AI_MEMORY_USER_KEY_PREFIX + user_preference_id;
 
-    //////////////////////
-    // STREAM MODE (NO KV)
-    // triggered by mode OR stream flag
-    //////////////////////
-if (mode === "stream" || stream === true) {
+    //////////////////////////////////////////////////////
+    // STREAM MODE (FIXED — NO KV, NO GARBAGE TOKENS)
+    //////////////////////////////////////////////////////
+    if (mode === "stream" || stream === true) {
       const encoder = new TextEncoder();
       const decoder = new TextDecoder();
-
-      // 1. CONTEXT INJECTION (Fixes reading the file content)
-      let contextPrompt = prompt;
-      if (payload.mode === "analyze_file" && payload.file_content) {
-        contextPrompt = `FILE: ${payload.filename || 'uploaded_file'}\nCONTENT:\n${payload.file_content}\n\nUSER REQUEST: ${prompt}`;
-      }
 
       const streamResp = new ReadableStream({
         async start(controller) {
@@ -144,11 +130,12 @@ if (mode === "stream" || stream === true) {
               "@cf/mistralai/mistral-small-3.1-24b-instruct",
               {
                 messages: [
-                  { 
-                    role: "system", 
-                    content: "You are Spider AI. Never use markdown bold (**) or headers (#). Use plain text only. Keep code blocks and tables exactly as they are." 
+                  {
+                    role: "system",
+                    content:
+                      "You are Spider AI. Output clean plain text. Keep code blocks, tables, and LaTeX exactly as generated."
                   },
-                  { role: "user", content: contextPrompt }
+                  { role: "user", content: prompt }
                 ],
                 stream: true
               }
@@ -157,40 +144,47 @@ if (mode === "stream" || stream === true) {
             const reader = aiStream.getReader();
 
             while (true) {
-              const { done, value } = await reader.read();
+              const { value, done } = await reader.read();
               if (done) break;
 
-              let chunk = decoder.decode(value);
+              const text = decoder.decode(value, { stream: true });
 
-              // 2. APPLY YOUR SPECIFIC REPLACEMENTS (The "Cleaner")
-              // This cleans the text chunks before they are JSON-encoded
-              let cleanChunk = chunk
-                // Remove forbidden internal artifacts
-                .replace(/#\*[\s\S]*?\*#/g, "")
-                .replace(/#\*/g, "")
-                .replace(/\*#/g, "")
-                // Remove markdown emphasis (Bold/Italic)
-                .replace(/\*\*(.*?)\*\*/g, "$1")
-                .replace(/\*(.*?)\*/g, "$1")
-                .replace(/__(.*?)__/g, "$1")
-                .replace(/_(.*?)_/g, "$1")
-                // Remove markdown headers
-                .replace(/^\s*#{1,6}\s*/gm, "")
-                .replace(/#/g, ""); // Catch any remaining stray hashes
+              for (const line of text.split("\n")) {
+                if (!line.trim()) continue;
 
-              if (cleanChunk) {
-                // Wrap in the JSON format your frontend expects
-                const payloadStr = JSON.stringify({ response: cleanChunk });
-                controller.enqueue(encoder.encode(`data: ${payloadStr}\n\n`));
+                let parsed;
+                try {
+                  parsed = JSON.parse(line);
+                } catch {
+                  continue;
+                }
+
+                const token = parsed?.response;
+                if (!token) continue;
+
+                const cleanToken = token
+                  .replace(/#\*[\s\S]*?\*#/g, "")
+                  .replace(/#\*/g, "")
+                  .replace(/\*#/g, "")
+                  .replace(/\*\*(.*?)\*\*/g, "$1")
+                  .replace(/\*(.*?)\*/g, "$1")
+                  .replace(/__(.*?)__/g, "$1")
+                  .replace(/_(.*?)_/g, "$1")
+                  .replace(/^\s*#{1,6}\s*/gm, "");
+
+                controller.enqueue(
+                  encoder.encode(`data: ${cleanToken}\n\n`)
+                );
               }
             }
 
-            // Signal completion
-            controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
             controller.close();
+
           } catch (err) {
-            const errPayload = JSON.stringify({ response: `[Stream Error]: ${err.message}` });
-            controller.enqueue(encoder.encode(`data: ${errPayload}\n\n`));
+            controller.enqueue(
+              encoder.encode(`data: [ERROR] ${err.message}\n\n`)
+            );
             controller.close();
           }
         }
@@ -201,10 +195,11 @@ if (mode === "stream" || stream === true) {
           ...cors,
           "Content-Type": "text/event-stream",
           "Cache-Control": "no-cache",
-          "Connection": "keep-alive",
+          "Connection": "keep-alive"
         }
       });
     }
+
     //////////////////////
     // IMAGE GENERATION (SDXL)
     //////////////////////
@@ -235,13 +230,13 @@ if (mode === "stream" || stream === true) {
 You are ${AI_NAME} v${VERSION}.
 
 RULES:
-- Never output #* or *#.
-- Do not destroy tables.
-- Do not destroy code blocks.
-- Do not destroy LaTeX maths.
+- Never output #* or *#
+- Do not destroy tables
+- Do not destroy code blocks
+- Do not destroy LaTeX maths
 
 MATHS:
-- ALWAYS use LaTeX.
+- ALWAYS use LaTeX
 - Inline: \\( ... \\)
 - Display:
   \\[
@@ -253,13 +248,7 @@ MATHS:
   \\]
 
 COMPARISONS:
-- If comparing items → USE A TABLE ONLY.
-- Do NOT explain outside the table unless asked.
-
-FORMATTING:
-- Tables stay tables.
-- Code stays code.
-- Maths stays LaTeX.
+- If comparing → USE TABLE ONLY
 `;
 
     const messages = [
