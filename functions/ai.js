@@ -1,7 +1,8 @@
 /* =========================================================
-   SPIDER AI – FULL BACKEND (CHAT + STREAM + SDXL)
+   SPIDER AI – FINAL MIXED BACKEND
+   Endpoint: POST /api/generate/text
    Author: M4 Spider
-   Version: 8.4.0
+   Version: 8.5.0
    Platform: Cloudflare Workers
    ========================================================= */
 
@@ -10,7 +11,7 @@
 //////////////////////////////
 const CONFIG = {
   AI_NAME: "Spider AI",
-  VERSION: "8.4.0"
+  VERSION: "8.5.0"
 };
 
 //////////////////////////////
@@ -57,7 +58,7 @@ function cleanAiResponse(text) {
 }
 
 //////////////////////////////
-// 4. MEMORY (KV – NORMAL MODE ONLY)
+// 4. MEMORY (KV – CHAT ONLY)
 //////////////////////////////
 async function getMemory(env, key) {
   try {
@@ -136,14 +137,24 @@ async function runAiStream(env, model, messages, writer) {
 // 7. IMAGE GENERATION – SDXL
 //////////////////////////////
 async function runSDXL(env, prompt, aspectRatio = "1:1") {
+  let width = 1024, height = 1024;
+
+  if (aspectRatio === "16:9") {
+    width = 1024; height = 576;
+  } else if (aspectRatio === "9:16") {
+    width = 576; height = 1024;
+  } else if (aspectRatio === "4:3") {
+    width = 1024; height = 768;
+  }
+
   const res = await env.SPY_AI.run(
     "@cf/stabilityai/stable-diffusion-xl-base-1.0",
     {
       prompt,
       num_steps: 30,
       guidance: 7.5,
-      width: aspectRatio === "16:9" ? 1024 : aspectRatio === "9:16" ? 768 : 1024,
-      height: aspectRatio === "16:9" ? 576 : aspectRatio === "9:16" ? 1024 : 1024
+      width,
+      height
     }
   );
 
@@ -167,11 +178,24 @@ export async function onRequest(context) {
   }
 
   try {
-    const body = await request.json();
-    const { prompt, mode = "chat", aspect_ratio } = body;
+    // 🔥 SAFE BODY PARSE (JSON OR TEXT)
+    const ct = request.headers.get("content-type") || "";
+    let payload = {};
+
+    if (ct.includes("application/json")) {
+      payload = await request.json();
+    } else {
+      payload.prompt = await request.text();
+    }
+
+    const {
+      prompt = "",
+      mode = "chat",
+      aspect_ratio = "1:1"
+    } = payload;
 
     //////////////////////////////
-    // 🔥 STREAM MODE (SEPARATE)
+    // 🔥 STREAM MODE
     //////////////////////////////
     if (mode === "stream") {
       const messages = [
