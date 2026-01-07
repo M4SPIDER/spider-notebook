@@ -24,7 +24,7 @@
    DEPLOYMENT INSTRUCTIONS:
    1. Copy this entire file to your Cloudflare Worker.
    2. Ensure `ai` binding is set to `SPY_AI`.
-   3. Ensure `kv` binding is set to `CHAT_KV`.
+   3. Ensure `kv` binding is set to `Cfunction cleanAiResponse(text) {HAT_KV`.
    4. Set Environment Variable: `TAVILY_API_KEY`.
 ========================================================================================
 */
@@ -211,43 +211,79 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 function cleanAiResponse(text) {
   if (!text) return "";
 
-  // Split text by code blocks so we only clean outside of them.
-  // The capturing group () ensures the delimiter is included in the result array.
-  const parts = text.split(/(```[\s\S]*?```)/g);
+  // -------------------------------
+  // 1. Protect real code blocks
+  // -------------------------------
+  const blocks = [];
+  const TOKEN = "\u200B\u200C\u200D";
 
-  const cleanedParts = parts.map((part) => {
-    // If this part is a code block, return it untouched.
-    if (part.startsWith("```")) return part;
-
-    let clean = part;
-
-    // 1. Remove list markers or bolding BEFORE headers (*# or **# or + #)
-    // Matches start of line, optional space, bullet/star chars (1 or more), followed by hash
-    // This catches "*#", "**#", "+ #", etc.
-    clean = clean.replace(/^\s*[\*\-\+]+(?=\s*#{1,6})/gm, '');
-
-    // 2. Remove bolding characters attached to the hash itself (e.g., "###** Title")
-    // Matches start of line, hashes, stars/bolding, followed by space
-    clean = clean.replace(/^(\s*#{1,6})\*+(?=\s)/gm, '$1');
-
-    // 3. Fix Markdown Headers (Sticky Hash: #Header -> # Header)
-    // Now that artifacts (stars/bullets) are gone from step 1 & 2, we ensure spacing.
-    clean = clean.replace(/^\s*(#{1,6})([^\s#])/gm, '$1 $2');
-
-    // 4. Remove wrapping stars from the end of headers (**### Title**)
-    // If the line starts with a header, strip trailing bold markers
-    clean = clean.replace(/^(\s*#{1,6}.*?)\*+\s*$/gm, '$1');
-
-    // 5. Remove "User:" or "Assistant:" prefixes if AI hallucinated them
-    clean = clean.replace(/^(User:|Assistant:|Spider AI:|Bot:)\s*/i, "");
-
-    // 6. Remove internal system tags
-    clean = clean.replace(/\[SEARCH_\w+\]/g, "");
-
-    return clean;
+  text = text.replace(/```[\s\S]*?```/g, m => {
+    blocks.push(m);
+    return `${TOKEN}${blocks.length}${TOKEN}`;
   });
 
-  return cleanedParts.join("").trim();
+  // -------------------------------
+  // 2. Split remaining text safely
+  // -------------------------------
+  const parts = text.split(new RegExp(`${TOKEN}\\d+${TOKEN}`, "g"));
+
+  let cleaned = "";
+  let blockIndex = 0;
+
+  for (let i = 0; i < parts.length; i++) {
+    let part = parts[i];
+
+    // ---- CLEAN NON-CODE TEXT ----
+    let clean = part;
+
+    // 1. Remove list/bullet junk before headers (*#, **#, + #)
+    clean = clean.replace(/^\s*[\*\-\+]+(?=\s*#{1,6})/gm, "");
+
+    // 2. Remove stars attached to hash (###** Title)
+    clean = clean.replace(/^(\s*#{1,6})\*+(?=\s)/gm, "$1");
+
+    // 3. Fix sticky headers (#Title -> # Title)
+    clean = clean.replace(/^\s*(#{1,6})([^\s#])/gm, "$1 $2");
+
+    // 4. Remove trailing stars on headers (**### Title**)
+    clean = clean.replace(/^(\s*#{1,6}.*?)\*+\s*$/gm, "$1");
+
+    // 5. Remove markdown formatting
+    clean = clean
+      .replace(/\*\*(.*?)\*\*/g, "$1")
+      .replace(/__(.*?)__/g, "$1")
+      .replace(/\*(.*?)\*/g, "$1")
+      .replace(/_(.*?)_/g, "$1");
+
+    // 6. Remove leftover list markers
+    clean = clean.replace(/^\s*[\-\*\+•]+\s*/gm, "");
+
+    // 7. Kill placeholder junk (CODE_BLOCK_1 etc)
+    clean = clean.replace(/\b[A-Z_]*CODE[A-Z_]*BLOCK[A-Z_]*\d*\b/gi, "");
+
+    // 8. Remove AI/system prefixes
+    clean = clean.replace(
+      /^(User:|Assistant:|Spider AI:|Bot:|AI:|Model:)\s*/igm,
+      ""
+    );
+
+    // 9. Remove internal system tags
+    clean = clean.replace(/\[SEARCH_\w+\]/g, "");
+
+    cleaned += clean;
+
+    // ---- RESTORE CODE BLOCK IF EXISTS ----
+    if (blockIndex < blocks.length) {
+      cleaned += blocks[blockIndex++];
+    }
+  }
+
+  // -------------------------------
+  // 3. Normalize spacing
+  // -------------------------------
+  cleaned = cleaned.replace(/\n{3,}/g, "\n\n").trim();
+
+  return cleaned;
 }
 
 /**
