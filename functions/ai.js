@@ -213,19 +213,22 @@ function cleanAiResponse(text) {
 
   let clean = text;
 
-  // 1. FIX: Sticky markdown headers (###Title → ### Title), including indented ones
+  // 1. Fix sticky headers (###Title → ### Title)
   clean = clean.replace(/^\s*(#{1,6})([^\s#])/gm, "$1 $2");
 
-  // 2. FIX: Bolded headers (**### Title** → ### Title)
+  // 2. Fix bolded headers (**### Title** → ### Title)
   clean = clean.replace(/\*\*(#{1,6})\s*(.*?)\*\*/gm, "$1 $2");
 
-  // 3. FIX: Remove hallucinated role prefixes
+  // 2.5 Fix bold-only lines (**LandingPage** → LandingPage)
+  clean = clean.replace(/^\s*\*\*(.+?)\*\*\s*$/gm, "$1");
+
+  // 3. Remove hallucinated role prefixes
   clean = clean.replace(/^(User:|Assistant:|Spider AI:|Bot:)\s*/gim, "");
 
-  // 4. FIX: Remove leaked internal system tags
+  // 4. Remove internal system tags
   clean = clean.replace(/\[SEARCH_\w+\]/g, "");
 
-  // 5. FIX: Normalize fenced code blocks
+  // 5. Normalize code blocks
   clean = clean.replace(/```(\w+)/g, "\n```$1\n");
   clean = clean.replace(/```\s*$/g, "\n```");
 
