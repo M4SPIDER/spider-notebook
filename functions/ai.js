@@ -129,40 +129,55 @@ export async function onRequest(context) {
     //////////////////////
 if (mode === "stream" || stream === true) {
       const encoder = new TextEncoder();
+      const decoder = new TextDecoder();
+
+      // --- 1. CONTEXT INJECTION: Read the file content from the payload ---
+      let contextPrompt = prompt;
+      if (payload.mode === "analyze_file" && payload.file_content) {
+        contextPrompt = `FILE: ${payload.filename || 'uploaded_file'}\nCONTENT:\n${payload.file_content}\n\nUSER REQUEST: ${prompt}`;
+      }
 
       const streamResp = new ReadableStream({
         async start(controller) {
           try {
-            const res = await runAi(
-              env,
+            // Call AI with stream enabled
+            const aiStream = await env.SPY_AI.run(
               "@cf/mistralai/mistral-small-3.1-24b-instruct",
               {
-                messages: [{ role: "user", content: prompt }],
-                max_tokens: 8192,
-                temperature: 0.7
+                messages: [
+                  { role: "system", content: "You are Spider AI. Output raw text. Never use markdown bold (**) or headers (#). Keep tables and code blocks intact." },
+                  { role: "user", content: contextPrompt }
+                ],
+                stream: true
               }
             );
 
-            const text = extractText(res) || "";
-            // Break into smaller chunks (e.g., 100 chars) for a smoother typing effect
-            const chunks = text.match(/[\s\S]{1,100}/g) || [];
+            const reader = aiStream.getReader();
 
-            for (const chunk of chunks) {
-              // 🔥 FIX: Wrap text in the JSON format your Frontend expects
-              const payload = JSON.stringify({ text: chunk });
-              controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
-              
-              // Small delay to make the "typing" visible
-              await sleep(15);
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+
+              let chunk = decoder.decode(value);
+
+              // --- 2. STREAM CLEANER: Remove ** and # on the fly ---
+              // We replace markdown artifacts with empty strings as they stream
+              const cleanChunk = chunk
+                .replace(/\*\*/g, "")
+                .replace(/#{1,6}\s/g, ""); 
+
+              if (cleanChunk) {
+                const payload = JSON.stringify({ text: cleanChunk });
+                controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
+              }
             }
 
-            // 🔥 FIX: Send the [DONE] signal your Frontend uses to finalize the chat
+            // Signal completion to Frontend
             controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
             controller.close();
           } catch (err) {
-            // Send error in JSON format so the UI doesn't crash
-            const errorPayload = JSON.stringify({ text: "\n[Spider AI Stream Error]\n" });
-            controller.enqueue(encoder.encode(`data: ${errorPayload}\n\n`));
+            const errPayload = JSON.stringify({ text: `[Stream Error]: ${err.message}` });
+            controller.enqueue(encoder.encode(`data: ${errPayload}\n\n`));
             controller.close();
           }
         }
@@ -171,7 +186,6 @@ if (mode === "stream" || stream === true) {
       return new Response(streamResp, {
         headers: {
           ...cors,
-          // 🔥 FIX: Must be text/event-stream for proper browser handling
           "Content-Type": "text/event-stream",
           "Cache-Control": "no-cache",
           "Connection": "keep-alive",
