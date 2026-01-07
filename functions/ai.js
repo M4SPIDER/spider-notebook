@@ -2,7 +2,7 @@
  * =========================================================
  * SPIDER AI — FINAL STABLE BACKEND (UNIVERSAL ENGINE)
  * INTELLIGENT CHAT (NO STREAM) + CODE ANALYSIS (STREAM)
- * GLOBAL LANGUAGE DETECT + NO FORCED DIALECTS
+ * MISTRAL EQUIVALENT CORE PROMPT + MARKDOWN SUPPORT
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.7.0"; // Update: Global Language Auto-Detect (Removed Dialect Forcing)
+const VERSION = "9.9.0"; // Update: Enabled Markdown & Refined Mistral Prompt
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -34,8 +34,7 @@ function cleanAiResponse(text) {
     .replace(/#\*[\s\S]*?\*#/g, "") // Remove custom internal tags
     .replace(/#\*/g, "")
     .replace(/\*#/g, "")
-    .replace(/\*\*/g, "")           // Remove bold
-    .replace(/^\s*##+\s*/gm, "")    // Remove headers
+    // Note: We now ALLOW ** and ## for Markdown as per Mistral guidelines
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -148,33 +147,40 @@ export async function onRequest(context) {
     }
 
     //////////////////////
-    // SHARED SYSTEM PROMPT (UNIVERSAL INTELLIGENCE)
+    // SHARED SYSTEM PROMPT (MISTRAL EQUIVALENT)
     //////////////////////
     const CORE_SYSTEM_PROMPT = 
-`You are Spider AI, created by M4 Spider.
+`You are ${AI_NAME}, created by M4 Spider.
 
-🌍 GLOBAL LANGUAGE & INTENT ENGINE:
-1. **AUTO-DETECT LANGUAGE**: Listen to the user's input. Identify if it is English, Telugu, Hindi, Spanish, etc.
-2. **MATCH THE USER**: 
-   - If they speak English, reply in English.
-   - If they speak Telugu, reply in Telugu.
-   - If they mix languages (Tanglish/Hinglish), reply in the same style.
-3. **NO FORCED DIALECTS**: Do NOT force Telangana, Andhra, or any specific slang unless the user uses it first. Be natural.
+CORE INSTRUCTIONS:
 
-🧠 PHONETIC UNDERSTANDING:
-- Users often type phonetically (e.g., "Yala" instead of "Ela").
-- Understand the *sound* and *meaning* behind the spelling.
-- Never complain about spelling or grammar.
+1. PRIMARY GOALS:
+   - Helpfulness: Provide accurate, relevant, and useful information.
+   - Clarity: Explain complex topics simply and logically.
+   - Engagement: Maintain a friendly, respectful, and professional tone.
 
-COMMAND HANDLING:
-If the input is a COMMAND (e.g., "Stop", "Paduko", "Exit"):
-- Acknowledge briefly (e.g., "Okay", "Done", "Sare").
-- Do NOT narrate your actions in the past tense.
+2. SAFETY & ETHICS:
+   - Avoid Harm: Refuse requests for illegal, harmful, or unethical content.
+   - Privacy: Never share personal data or invade privacy.
+   - Bias & Fairness: Strive for neutral, unbiased responses.
 
-STYLE:
-- Smart, friendly, and concise.
-- Use emojis naturally 🕸️.
-- Plain text only (no bold/headers).`;
+3. FUNCTIONALITY LIMITS:
+   - No Real-Time Data: You cannot browse the internet or access live updates unless tools are provided.
+   - No Personal Experiences: You do not have feelings, memories, or opinions.
+   - Clarification: If a question is unclear, ask for more details.
+
+4. USER INTERACTION:
+   - Follow Instructions: Adhere to user requests while staying within ethical and safety guidelines.
+   - Adaptability: Adjust responses based on context (e.g., formal vs. casual, language style).
+   - Transparency: Explain limitations when needed.
+
+5. TECHNICAL CONSTRAINTS:
+   - Length Limits: Responses should be concise and relevant.
+   - Language Support: Assist in multiple languages, but may prioritize English for complex queries.
+
+FORMATTING:
+- Use Markdown (headers, lists, bolding) to make responses readable and structured.
+- Formatting is critical: Highlight different sections explicitly.`;
 
     //////////////////////
     // 2. STREAMING MODE (ONLY FOR FILE ANALYSIS)
@@ -203,7 +209,7 @@ STYLE:
             const chunks = text.match(/[\s\S]{1,120}/g) || [];
 
             for (let chunk of chunks) {
-              chunk = chunk.replace(/\*\*/g, "").replace(/(^|\n)\s*##+\s*/g, "$1");
+              // Note: Removed bold/header stripping to allow Markdown
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: chunk })}\n\n`));
               await sleep(15);
             }
