@@ -1,7 +1,7 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.3.1)
- * FEATURES: STREAMING (NO KV) + TELUGU TRIGGER + ROMANIZED
+ * SPIDER AI — FINAL STABLE BACKEND (v9.3.2)
+ * FEATURES: STREAMING (WITH KV) + TELUGU TRIGGER + ROMANIZED
  * Author: M4 Spider
  * =========================================================
  */
@@ -10,7 +10,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.3.1";
+const VERSION = "9.3.2";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -177,7 +177,7 @@ export async function onRequest(context) {
       finalSystemPrompt += "\n[SYSTEM: DETECTED TELUGU INPUT (Romanized). REPLY STRICTLY IN TELUGU USING ENGLISH LETTERS.]";
     }
 
-    // Fetch memory (Only used for Normal Chat)
+    // Fetch memory
     let memory = await getMemory(env, memKey);
 
     //////////////////////
@@ -203,7 +203,7 @@ export async function onRequest(context) {
     }
 
     //////////////////////
-    // STREAM MODE (STATELESS - NO MEMORY)
+    // STREAM MODE (WITH MEMORY)
     //////////////////////
     if (mode === "stream" || stream === true) {
       const encoder = new TextEncoder();
@@ -211,19 +211,22 @@ export async function onRequest(context) {
       const streamResp = new ReadableStream({
         async start(controller) {
           try {
-            // Build Context (NO MEMORY IN STREAMING)
-            let finalMessages = [];
-            
-            // 1. Add System Prompt
-            finalMessages.push({ role: "system", content: finalSystemPrompt });
-
-            // 2. Add Current User Prompt
+            // 1. Prepare User Prompt
             let finalUserPrompt = prompt;
             if (mode === "analyze_file" && file_content) {
               finalUserPrompt = `FILE: ${filename || "unknown"}\nCONTENT:\n${file_content}\n\nREQUEST:\n${prompt}`;
             }
+
+            // 2. Build Context (System + History + Current)
+            let finalMessages = [];
+            finalMessages.push({ role: "system", content: finalSystemPrompt });
+            finalMessages.push(...memory.map(m => ({ role: m.role, content: m.content })));
             finalMessages.push({ role: "user", content: finalUserPrompt });
 
+            // 3. Update Memory Object (User turn) - Not saved yet
+            memory.push({ role: "user", content: finalUserPrompt, ts: Date.now() });
+
+            // 4. Run AI
             const res = await runAi(
               env,
               "@cf/mistralai/mistral-small-3.1-24b-instruct",
@@ -235,20 +238,35 @@ export async function onRequest(context) {
             );
 
             const text = extractText(res) || "";
-            
-            // NOTE: We do NOT save to KV in stream mode
-            
             const chunks = text.match(/[\s\S]{1,120}/g) || [];
+            
+            // 5. Accumulate Full Response for KV
+            let fullAiResponse = "";
 
             for (let chunk of chunks) {
-              chunk = chunk
+              // Clean bold/headers for stream output
+              let displayChunk = chunk
                 .replace(/\*\*/g, "") 
                 .replace(/(^|\n)\s*##+\s*/g, "$1");
+              
+              fullAiResponse += chunk; // Store original (or we could store clean)
 
               controller.enqueue(
-                encoder.encode(`data: ${JSON.stringify({ text: chunk })}\n\n`)
+                encoder.encode(`data: ${JSON.stringify({ text: displayChunk })}\n\n`)
               );
               await sleep(15);
+            }
+
+            // 6. Save Full Interaction to KV (Async)
+            if (fullAiResponse) {
+               // We store the 'clean' version usually, but here 'text' comes somewhat raw.
+               // Let's clean it before saving to keep memory clean.
+               const cleanSaved = cleanAiResponse(fullAiResponse);
+               memory.push({ role: "assistant", content: cleanSaved, ts: Date.now() });
+               
+               // Trim and Save
+               const memoryToSave = memory.slice(-AI_MEMORY_TRIM_TARGET);
+               context.waitUntil(saveMemory(env, memKey, memoryToSave));
             }
 
             controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
