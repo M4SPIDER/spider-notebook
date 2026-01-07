@@ -1,26 +1,25 @@
 /* ========================================================================================
-   SPIDER AI — V8.1.3 (MEMORY RESET & CLEANER V2)
+   SPIDER AI — V8.1.4 (ARTIFACT ERADICATION & DEEP CLEAN)
    -------------------------------------------------------------------------------------
    AUTHOR: M4 Spider 🕷️🤖
    DATE: 2026-01-07
-   VERSION: 8.1.3 (Stable AI Release)
+   VERSION: 8.1.4 (Stable AI Release)
    
    DESCRIPTION:
    This is the core brain of Spider AI. It runs on Cloudflare Workers and acts as a 
    central intelligence hub. It orchestrates Multi-Modal AI models, persistent KV memory, 
    external search tools, and complex language processing.
 
-   CHANGELOG V8.1.3:
+   CHANGELOG V8.1.4:
+   - ADDED: Deep cleaning logic to remove "#*...*#" blocks and stray "#*" markers (Middleware Port).
+   - UPDATED: Expanded artifact removal to catch "AI:", "Model:", "LLM:" prefixes.
+   - REFINED: Whitespace normalization to prevent excessive gaps between paragraphs.
    - ADDED: Explicit "#reset" or "#clear" triggers to wipe KV memory instantly.
-   - FIXED: "cleanAiResponse" now removes stars immediately after hashes (e.g., "#*Title").
-   - FIXED: Enhanced regex to catch multi-char artifacts (e.g., "**#") before headers.
    - PROTECTED: Code blocks are now immune to formatting cleaners.
    - BRANDING: "Spider AI" identity reinforced across all logic blocks.
    - ADDED: "System Health" AI diagnostic mode.
-   - UPDATED: Expanded Telugu & Hindi AI Trigger dictionaries.
    - OPTIMIZED: AI Memory compression algorithm for long-term storage.
    - SECURITY: Enhanced Firebase Token Verification for AI Users.
-   - RAW OUTPUT: Full, unadulterated AI text generation with safe formatting.
    
    DEPLOYMENT INSTRUCTIONS:
    1. Copy this entire file to your Cloudflare Worker.
@@ -206,6 +205,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
  * CRITICAL AI RESPONSE CLEANER
  * Ensures Markdown headers have correct spacing and removes artifacts.
  * NOW SAFER: Ignores content inside code blocks to prevent breaking code.
+ * INTEGRATED: Logic to remove #* *# artifacts (ported from middleware).
  * @param {string} text 
  * @returns {string}
  */
@@ -222,28 +222,42 @@ function cleanAiResponse(text) {
 
     let clean = part;
 
-    // 1. Remove list markers or bolding BEFORE headers (*# or **# or + #)
+    // --- DEEP CLEAN ARTIFACTS (Ported from Middleware) ---
+    // 1. Remove #* ... *# blocks (often used for internal notes)
+    clean = clean.replace(/#\*[\s\S]*?\*#/g, '');
+    
+    // 2. Remove stray #* or *# markers
+    clean = clean.replace(/#\*/g, '');
+    clean = clean.replace(/\*#/g, '');
+
+    // --- STANDARD HEADER & FORMATTING FIXES ---
+
+    // 3. Remove list markers or bolding BEFORE headers (*# or **# or + #)
     // Matches start of line, optional space, bullet/star chars (1 or more), followed by hash
     // This catches "*#", "**#", "+ #", etc.
     clean = clean.replace(/^\s*[\*\-\+]+(?=\s*#{1,6})/gm, '');
 
-    // 2. Remove bolding characters attached to the hash itself (e.g., "###** Title" OR "###*Title")
+    // 4. Remove bolding characters attached to the hash itself (e.g., "###** Title" OR "###*Title")
     // Matches start of line, hashes, stars/bolding. Removed lookahead for space to catch #*Title.
     clean = clean.replace(/^(\s*#{1,6})\*+/gm, '$1');
 
-    // 3. Fix Markdown Headers (Sticky Hash: #Header -> # Header)
+    // 5. Fix Markdown Headers (Sticky Hash: #Header -> # Header)
     // Now that artifacts (stars/bullets) are gone from step 1 & 2, we ensure spacing.
     clean = clean.replace(/^\s*(#{1,6})([^\s#])/gm, '$1 $2');
 
-    // 4. Remove wrapping stars from the end of headers (**### Title**)
+    // 6. Remove wrapping stars from the end of headers (**### Title**)
     // If the line starts with a header, strip trailing bold markers
     clean = clean.replace(/^(\s*#{1,6}.*?)\*+\s*$/gm, '$1');
 
-    // 5. Remove "User:" or "Assistant:" prefixes if AI hallucinated them
-    clean = clean.replace(/^(User:|Assistant:|Spider AI:|Bot:)\s*/i, "");
+    // 7. Remove "User:" or "Assistant:" prefixes if AI hallucinated them
+    // Expanded to include other common hallucinated prefixes
+    clean = clean.replace(/^(User:|Assistant:|Spider AI:|Bot:|AI:|Model:|LLM:)\s*/igm, "");
 
-    // 6. Remove internal system tags
+    // 8. Remove internal system tags
     clean = clean.replace(/\[SEARCH_\w+\]/g, "");
+
+    // 9. Clean excessive newlines (max 2) - Whitespace Normalization
+    clean = clean.replace(/\n\s*\n\s*\n/g, '\n\n');
 
     return clean;
   });
