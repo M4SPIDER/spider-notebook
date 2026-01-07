@@ -1,34 +1,32 @@
 /**
  * =========================================================
- * SPIDER AI — STRUCTURE SAFE BACKEND
+ * SPIDER AI — FINAL STABLE BACKEND
+ * SDXL + KV + STREAMING + SAFE CLEANER
  * Author: M4 Spider
- * Version: 8.2.0 (FINAL STRUCTURE FIX)
  * =========================================================
  */
 
-/* ---------------------------------------------------------
- * CONFIG
- * --------------------------------------------------------- */
-const CONFIG = {
-  AI_NAME: "Spider AI",
-  VERSION: "8.2.0"
-};
+//////////////////////////////
+// CONFIG
+//////////////////////////////
+const AI_NAME = "Spider AI";
+const VERSION = "9.0.0";
 
-const AI_MEMORY_TRIM_TARGET = 30;
+const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
 const AI_MEMORY_USER_KEY_PREFIX = "spider_ai_mem:";
 const AI_RETRY_LIMIT = 2;
-const AI_RETRY_DELAY_BASE = 1200;
+const AI_RETRY_DELAY_BASE = 1500;
 
-/* ---------------------------------------------------------
- * UTILS
- * --------------------------------------------------------- */
+//////////////////////////////
+// UTILS
+//////////////////////////////
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-/* ---------------------------------------------------------
- * ✅ STRUCTURE-SAFE CLEANER
- * --------------------------------------------------------- */
-function cleanAiResponseSafe(text) {
+//////////////////////////////
+// SAFE CLEANER (CODE / TABLE / MATH SAFE)
+//////////////////////////////
+function cleanAiResponse(text) {
   if (!text) return "";
 
   const CODE = [];
@@ -39,40 +37,39 @@ function cleanAiResponseSafe(text) {
   const TABLE_T = "\u200B\u200C\u200D_TABLE_";
   const MATH_T = "\u200B\u200C\u200D_MATH_";
 
-  // 1. Protect code blocks
+  // protect code blocks
   text = text.replace(/```[\s\S]*?```/g, m => {
     CODE.push(m);
     return CODE_T + (CODE.length - 1) + "_";
   });
 
-  // 2. Protect tables
-  text = text.replace(
-    /(^|\n)(\|.+\|[\s\S]*?\n(?=\n|$))/g,
-    m => {
-      TABLE.push(m);
-      return TABLE_T + (TABLE.length - 1) + "_";
-    }
-  );
+  // protect tables
+  text = text.replace(/(^|\n)(\|.+\|[\s\S]*?\n(?=\n|$))/g, m => {
+    TABLE.push(m);
+    return TABLE_T + (TABLE.length - 1) + "_";
+  });
 
-  // 3. Protect math
+  // protect math
   text = text.replace(/\$\$[\s\S]*?\$\$|\$[^$\n]+\$/g, m => {
     MATH.push(m);
     return MATH_T + (MATH.length - 1) + "_";
   });
 
-  // 4. Clean prose ONLY
+  // clean prose only
   text = text
+    .replace(/#\*[\s\S]*?\*#/g, "")
+    .replace(/#\*/g, "")
+    .replace(/\*#/g, "")
     .replace(/\*\*(.*?)\*\*/g, "$1")
     .replace(/\*(.*?)\*/g, "$1")
     .replace(/__(.*?)__/g, "$1")
     .replace(/_(.*?)_/g, "$1")
     .replace(/^\s*#{1,6}\s*/gm, "")
-    .replace(/^[>\-\+•]+\s*/gm, "")
     .replace(/^(User:|Assistant:|AI:|Bot:|Model:)\s*/igm, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
-  // 5. Restore everything
+  // restore protected blocks
   text = text.replace(new RegExp(CODE_T + "(\\d+)_", "g"), (_, i) => CODE[i]);
   text = text.replace(new RegExp(TABLE_T + "(\\d+)_", "g"), (_, i) => TABLE[i]);
   text = text.replace(new RegExp(MATH_T + "(\\d+)_", "g"), (_, i) => MATH[i]);
@@ -80,9 +77,9 @@ function cleanAiResponseSafe(text) {
   return text;
 }
 
-/* ---------------------------------------------------------
- * MEMORY (KV)
- * --------------------------------------------------------- */
+//////////////////////////////
+// KV MEMORY
+//////////////////////////////
 async function getMemory(env, key) {
   try {
     return env.CHAT_KV ? JSON.parse(await env.CHAT_KV.get(key)) || [] : [];
@@ -92,18 +89,15 @@ async function getMemory(env, key) {
 }
 
 async function saveMemory(env, key, mem) {
-  try {
-    if (env.CHAT_KV) {
-      await env.CHAT_KV.put(key, JSON.stringify(mem), {
-        expirationTtl: AI_MEMORY_TTL_DAYS * 86400
-      });
-    }
-  } catch {}
+  if (!env.CHAT_KV) return;
+  await env.CHAT_KV.put(key, JSON.stringify(mem), {
+    expirationTtl: AI_MEMORY_TTL_DAYS * 86400
+  });
 }
 
-/* ---------------------------------------------------------
- * AI CALL (NON-STREAM)
- * --------------------------------------------------------- */
+//////////////////////////////
+// AI CALL
+//////////////////////////////
 async function runAi(env, model, payload) {
   for (let i = 0; i <= AI_RETRY_LIMIT; i++) {
     try {
@@ -125,20 +119,12 @@ function extractText(resp) {
   );
 }
 
-/* ---------------------------------------------------------
- * MODE DETECTION
- * --------------------------------------------------------- */
-function detectMode(prompt, mode) {
-  if (mode) return mode;
-  const t = (prompt || "").toLowerCase();
-  if (t.includes("generate image") || t.includes("create image")) return "image_gen";
-  return "chat";
-}
+//////////////////////////////
+// MAIN HANDLER
+//////////////////////////////
+export async function onRequest(context) {
+  const { request, env } = context;
 
-/* ---------------------------------------------------------
- * MAIN HANDLER
- * --------------------------------------------------------- */
-export async function onRequest({ request, env }) {
   const cors = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
@@ -150,66 +136,112 @@ export async function onRequest({ request, env }) {
   }
 
   try {
-    const body = await request.json().catch(() => ({}));
-    const prompt = body.prompt || "";
-    const mode = detectMode(prompt, body.mode);
+    const payload = await request.json();
+    const {
+      prompt = "",
+      mode = "chat",
+      user_preference_id = "anon",
+      aspect_ratio = "1:1",
+      stream = false
+    } = payload;
 
-    const uid = body.user_preference_id || "anon";
-    const memKey = AI_MEMORY_USER_KEY_PREFIX + uid;
+    const memKey = AI_MEMORY_USER_KEY_PREFIX + user_preference_id;
 
-    let mem = await getMemory(env, memKey);
+    //////////////////////
+    // STREAM MODE (NO KV)
+    //////////////////////
+    if (mode === "stream") {
+      const encoder = new TextEncoder();
+      const streamResp = new ReadableStream({
+        async start(controller) {
+          const res = await runAi(
+            env,
+            "@cf/mistralai/mistral-small-3.1-24b-instruct",
+            {
+              messages: [{ role: "user", content: prompt }],
+              max_tokens: 8192
+            }
+          );
 
-    if (prompt) {
-      mem.push({ role: "user", content: prompt });
-      mem = mem.slice(-AI_MEMORY_TRIM_TARGET);
-    }
+          const text = extractText(res);
+          const chunks = text.match(/.{1,800}/g) || [];
 
-    /* ---------------- IMAGE GENERATION (SDXL) ---------------- */
-    if (mode === "image_gen") {
-      const img = await runAi(
-        env,
-        "@cf/stabilityai/stable-diffusion-xl-base-1.0",
-        {
-          prompt: prompt + ", photorealistic, ultra-detailed, 8k",
+          for (const c of chunks) {
+            controller.enqueue(encoder.encode(c));
+            await sleep(20);
+          }
+          controller.close();
         }
-      );
+      });
 
-      return new Response(img, {
-        headers: { ...cors, "content-type": "image/png" }
+      return new Response(streamResp, {
+        headers: {
+          ...cors,
+          "Content-Type": "text/plain; charset=utf-8"
+        }
       });
     }
 
-    /* ---------------- CHAT / CODE / TABLE ---------------- */
+    //////////////////////
+    // IMAGE GENERATION (SDXL)
+    //////////////////////
+    if (mode === "image_gen") {
+      const image = await runAi(
+        env,
+        "@cf/stabilityai/stable-diffusion-xl-base-1.0",
+        {
+          prompt: `${prompt}, ultra detailed, cinematic lighting`,
+          aspect_ratio
+        }
+      );
+
+      return new Response(image, {
+        headers: { ...cors, "Content-Type": "image/png" }
+      });
+    }
+
+    //////////////////////
+    // NORMAL CHAT (KV)
+    //////////////////////
+    let memory = await getMemory(env, memKey);
+
+    memory.push({ role: "user", content: prompt, ts: Date.now() });
+    memory = memory.slice(-AI_MEMORY_TRIM_TARGET);
+
     const systemPrompt = `
-You are ${CONFIG.AI_NAME} v${CONFIG.VERSION}.
+You are ${AI_NAME} v${VERSION}.
 Rules:
-- Preserve code blocks, tables, and math.
-- Use markdown ONLY when structurally needed.
-- Do NOT use decorative markdown like ** or ###.
-    `.trim();
+- Use markdown
+- Always use proper code blocks
+- Never output #* or *#
+`;
 
     const messages = [
       { role: "system", content: systemPrompt },
-      ...mem.map(m => ({ role: m.role, content: m.content }))
+      ...memory.map(m => ({ role: m.role, content: m.content }))
     ];
 
-    const res = await runAi(
+    const aiRes = await runAi(
       env,
       "@cf/mistralai/mistral-small-3.1-24b-instruct",
-      { messages, temperature: 0.7, max_tokens: 2048 }
+      {
+        messages,
+        max_tokens: 4096,
+        temperature: 0.7
+      }
     );
 
-    const cleaned = cleanAiResponseSafe(extractText(res));
+    let output = cleanAiResponse(extractText(aiRes));
 
-    mem.push({ role: "assistant", content: cleaned });
-    await saveMemory(env, memKey, mem);
+    memory.push({ role: "assistant", content: output, ts: Date.now() });
+    await saveMemory(env, memKey, memory);
 
-    return new Response(cleaned, {
-      headers: { ...cors, "content-type": "text/plain" }
+    return new Response(output, {
+      headers: { ...cors, "Content-Type": "text/plain" }
     });
 
   } catch (e) {
-    return new Response("Error: " + e.message, {
+    return new Response("Spider AI Error: " + e.message, {
       status: 500,
       headers: cors
     });
