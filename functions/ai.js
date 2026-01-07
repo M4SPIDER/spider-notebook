@@ -1,7 +1,7 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.7.0)
- * FEATURES: TRUE STREAMING + MEMORY + TAVILY SEARCH
+ * SPIDER AI — FINAL STABLE BACKEND (v9.8.0)
+ * FEATURES: TRUE STREAMING + MEMORY + TAVILY SEARCH (EXPANDED)
  * Author: M4 Spider
  * =========================================================
  */
@@ -10,7 +10,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.7.0";
+const VERSION = "9.8.0";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -39,9 +39,13 @@ function cleanAiResponse(text) {
 //////////////////////////////
 // TAVILY SEARCH INTEGRATION
 //////////////////////////////
+// EXPANDED TRIGGERS: Includes movies, dates, and "when is" questions
 const SEARCH_TRIGGER_WORDS = [
   "latest", "updated", "news", "today", "current", "live", "recent", "now",
-  "price", "stock", "score", "weather", "search for", "google", "find info"
+  "price", "stock", "score", "weather", "search for", "google", "find info",
+  "movie", "film", "cinema", "release", "cast", "trailer", "review", "ott",
+  "when is", "coming out", "streaming", "watch", "showtime", "box office",
+  "who won", "game result", "match"
 ];
 
 function shouldTriggerSearch(text) {
