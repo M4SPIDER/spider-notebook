@@ -46,7 +46,6 @@ function cleanAiResponse(text) {
     .replace(/^\s*#{1,6}\s*/gm, "")
 
     // normalize spacing
-    .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
