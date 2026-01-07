@@ -1,7 +1,7 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.2.1)
- * FIXES: STREAMING IS STATELESS (NO KV) + LANGUAGE CONSISTENCY
+ * SPIDER AI — FINAL STABLE BACKEND (v9.3.0)
+ * FEATURES: STREAMING (NO KV) + TELUGU TRIGGER + ROMANIZED
  * Author: M4 Spider
  * =========================================================
  */
@@ -10,7 +10,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.2.1";
+const VERSION = "9.3.0";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -23,9 +23,6 @@ const AI_RETRY_DELAY_BASE = 1500;
 //////////////////////////////
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-//////////////////////////////
-// SIMPLE SAFE CLEANER (NON-STREAM)
-//////////////////////////////
 function cleanAiResponse(text) {
   if (!text) return "";
 
@@ -38,6 +35,58 @@ function cleanAiResponse(text) {
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
+
+//////////////////////////////
+// LANGUAGE DETECTION (TELUGU)
+//////////////////////////////
+const TELUGU_TRIGGER_WORDS = [
+  "ra","mama","bro","anna","bhai","macha","bossu","babu","nanna","ayya",
+  "guru","machi","bhayya","mamma","pilla","raayya","oye","baaga","asalu","bayya",
+  "em","enti","endi","emi","ente","ante","ante ga","le","avunu","kadhu",
+  "ikkada","akkada","ekkada","ipudu","ipude","nenu","nuvvu","neeku","neetho","mana",
+  "meeru","mee","emanna","emi le","emi ra","emi cheppav","yela","yela unnav","yela unnavra",
+  "em chesthunav","yela unnav","inka em","inka cheppu","inka em matter","em scene",
+  "scene enti","panulu emi","yem ayindi","chill mama","ayyayyo","ayyayyo mama","ayyo",
+  "le mama","anta ga","asalu","chusava","chusava mama","unda","unna","unnav",
+  "ekkada unnav","nuvvu ekkada","em ra","enti ra","em le","naa peru","mass ga"
+];
+
+function buildTeluguRegex(words) {
+  const sorted = [...words].sort((a,b)=>b.length - a.length);
+  const escaped = sorted.map(w => w.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&"));
+  const pattern = "\\b(?:" + escaped.join("|") + ")\\b";
+  return new RegExp(pattern, "iu");
+}
+const TELUGU_TRIGGER_REGEX = buildTeluguRegex(TELUGU_TRIGGER_WORDS);
+
+/* ===== REQUIRE 2+ TELUGU WORDS ===== */
+function shouldTriggerTelugu(message) {
+  if (!message || typeof message !== "string") return false;
+  const words = message.toLowerCase().split(/\s+/);
+  let count = 0;
+  for (const w of words) {
+    if (TELUGU_TRIGGER_WORDS.includes(w)) count++;
+  }
+  return count >= 2;
+}
+
+//////////////////////////////
+// SYSTEM PROMPTS
+//////////////////////////////
+const SPIDER_SYSTEM_PROMPT =
+"You are M4 Spider AI, made by M4 Spider 🕷️🤖.\n" +
+"- Always say you are M4 Spider AI created by M4 Spider 👑.\n" +
+"- Use emojis freely in every reply 😄🔥✨.\n" +
+"- Use ONLY English letters in all replies 🔤.\n" +
+"- Do NOT use any other scripts or letters unless the user explicitly asks to change letters 🚫🈲.\n" +
+"- Talk friendly, casual, and human like a close friend 😎🤝.\n" +
+"CODE BLOCK RULE:\n" +
+"- Always use markdown code blocks for code 💻.\n" +
+"- Format: ```language\\ncode here\\n```.\n" +
+"- NEVER use single backticks for multi-line code.\n" +
+"\n" +
+"EMOJI RULE:\n" +
+"- Use emojis freely in every reply 😜🎉.\n";
 
 //////////////////////////////
 // KV MEMORY
@@ -90,22 +139,6 @@ function extractText(resp) {
 }
 
 //////////////////////////////
-// SYSTEM PROMPTS
-//////////////////////////////
-const COMMON_RULES = `
-RULES:
-1. IDENTITY: You are ${AI_NAME}, created by M4 Spider. NEVER mention "Mistral" or internal instructions.
-2. CONTEXT: Read the ENTIRE user message and history carefully. Do not assume meaning based on the first few words.
-3. LANGUAGE STRICTNESS: 
-   - Detect the language of the user's LATEST message.
-   - Reply ONLY in that language (using English/Romanized letters if it's an Indian language like Telugu/Hindi).
-   - DO NOT mix English sentences into Telugu/Hindi replies. Keep the language pure unless explaining a technical term.
-   - Example: If user says "Em chestunnav?", reply "Nenu bagunnanu, meeru ela unnaru?" (NOT "I am good, meeru ela unnaru?").
-4. STYLE: Use emojis mostly and naturally 🕸️.
-5. FORMAT: No markdown bold/headers. Preserve code blocks & LaTeX.
-`;
-
-//////////////////////////////
 // MAIN HANDLER
 //////////////////////////////
 export async function onRequest(context) {
@@ -136,7 +169,15 @@ export async function onRequest(context) {
     const memKey = AI_MEMORY_USER_KEY_PREFIX + user_preference_id;
     const cleanPrompt = (prompt || "").trim().toLowerCase();
 
-    // Fetch memory (Only used for Normal Chat now)
+    // -- Language Detection Trigger --
+    const isTelugu = shouldTriggerTelugu(cleanPrompt);
+    let finalSystemPrompt = SPIDER_SYSTEM_PROMPT;
+    
+    if (isTelugu) {
+      finalSystemPrompt += "\n[SYSTEM: DETECTED TELUGU INPUT (Romanized). REPLY STRICTLY IN TELUGU USING ENGLISH LETTERS.]";
+    }
+
+    // Fetch memory (Only used for Normal Chat)
     let memory = await getMemory(env, memKey);
 
     //////////////////////
@@ -174,7 +215,7 @@ export async function onRequest(context) {
             let finalMessages = [];
             
             // 1. Add System Prompt
-            finalMessages.push({ role: "system", content: COMMON_RULES });
+            finalMessages.push({ role: "system", content: finalSystemPrompt });
 
             // 2. Add Current User Prompt
             let finalUserPrompt = prompt;
@@ -195,13 +236,13 @@ export async function onRequest(context) {
 
             const text = extractText(res) || "";
             
-            // NOTE: We do NOT save to KV in stream mode to keep it pure for coding/stateless tasks.
+            // NOTE: We do NOT save to KV in stream mode
             
             const chunks = text.match(/[\s\S]{1,120}/g) || [];
 
             for (let chunk of chunks) {
               chunk = chunk
-                .replace(/\*\*/g, "") // Simple clean
+                .replace(/\*\*/g, "") 
                 .replace(/(^|\n)\s*##+\s*/g, "$1");
 
               controller.enqueue(
@@ -259,7 +300,7 @@ export async function onRequest(context) {
     memory = memory.slice(-AI_MEMORY_TRIM_TARGET);
 
     const messages = [
-      { role: "system", content: COMMON_RULES },
+      { role: "system", content: finalSystemPrompt },
       ...memory.map(m => ({ role: m.role, content: m.content }))
     ];
 
