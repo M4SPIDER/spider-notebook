@@ -1,7 +1,7 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.8.3)
- * FEATURES: TRUE STREAMING + MEMORY + TAVILY + CLEANER FIXES
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.0)
+ * FEATURES: TRUE STREAMING + MEMORY + TAVILY + CONTINUE FIX
  * Author: M4 Spider
  * =========================================================
  */
@@ -10,7 +10,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.8.3";
+const VERSION = "9.9.0";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -221,11 +221,19 @@ export async function onRequest(context) {
       aspect_ratio = "1:1",
       stream = false,
       file_content,
-      filename
+      filename,
+      stream_id // FIX: Extract stream_id for continue logic
     } = payload;
 
     const memKey = AI_MEMORY_USER_KEY_PREFIX + user_preference_id;
-    const cleanPrompt = (prompt || "").trim().toLowerCase();
+    
+    // FIX: Handle "Continue" requests (where prompt is empty but stream_id exists)
+    let activePrompt = prompt;
+    if (!activePrompt && stream_id) {
+        activePrompt = "Continue generating strictly from where you stopped. Do not repeat the beginning.";
+    }
+    
+    const cleanPrompt = (activePrompt || "").trim().toLowerCase();
 
     // -- Language Detection Trigger --
     const isTelugu = shouldTriggerTelugu(cleanPrompt);
@@ -238,8 +246,7 @@ export async function onRequest(context) {
     // -- Search Trigger --
     let searchContext = "";
     if (shouldTriggerSearch(cleanPrompt)) {
-       // Append a small loading signal if in stream (optional, skipping for now to keep JSON clean)
-       const searchRes = await runTavilySearch(env, prompt);
+       const searchRes = await runTavilySearch(env, activePrompt);
        if (searchRes) {
          searchContext = searchRes;
        }
@@ -275,16 +282,19 @@ export async function onRequest(context) {
     //////////////////////
     if (mode === "stream" || stream === true) {
       const encoder = new TextEncoder();
+      
+      // FIX: Generate a new Stream ID so frontend can continue next time
+      const newStreamId = crypto.randomUUID();
 
       const streamResp = new ReadableStream({
         async start(controller) {
           try {
             // 1. Prepare User Prompt with potential Search Context
-            let finalUserPrompt = prompt;
+            let finalUserPrompt = activePrompt;
             
             // Add File content if exists
             if (mode === "analyze_file" && file_content) {
-              finalUserPrompt = `FILE: ${filename || "unknown"}\nCONTENT:\n${file_content}\n\nREQUEST:\n${prompt}`;
+              finalUserPrompt = `FILE: ${filename || "unknown"}\nCONTENT:\n${file_content}\n\nREQUEST:\n${activePrompt}`;
             }
 
             // Append Search Context if it exists
@@ -346,8 +356,9 @@ export async function onRequest(context) {
                         .replace(/\*\*/g, "")
                         .replace(/(^|\n)\s*#{1,6}\s+/g, "$1");
 
+                      // FIX: Send stream_id with chunks so frontend can enable 'Continue'
                       controller.enqueue(
-                        encoder.encode(`data: ${JSON.stringify({ text: cleanChunk })}\n\n`)
+                        encoder.encode(`data: ${JSON.stringify({ text: cleanChunk, stream_id: newStreamId })}\n\n`)
                       );
                     }
                   } catch(e) {
@@ -398,7 +409,7 @@ export async function onRequest(context) {
         env,
         "@cf/stabilityai/stable-diffusion-xl-base-1.0",
         {
-          prompt: `${prompt}, ultra detailed, cinematic lighting`,
+          prompt: `${activePrompt}, ultra detailed, cinematic lighting`,
           aspect_ratio
         }
       );
@@ -413,7 +424,7 @@ export async function onRequest(context) {
     //////////////////////
     
     // Add Search Context to Normal Chat Prompt
-    let finalUserPrompt = prompt;
+    let finalUserPrompt = activePrompt;
     if (searchContext) {
       finalUserPrompt += `\n\n${searchContext}\n[INSTRUCTION: Use the above search results to answer the user request.]`;
     }
