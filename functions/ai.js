@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.30)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.32)
  * FEATURES: MISTRAL + LUCID ORIGIN (STABILITY FIXES)
- * UPDATE: Forced Auto-Loop for Chat (Unified Streaming)
+ * UPDATE: Removed Legacy Chat (Forced Streaming) & Fixed Syntax
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.30";
+const VERSION = "9.9.32";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -26,15 +26,12 @@ const AI_MAX_OUTPUT_LINES = 300;
 //////////////////////////////
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-// UPDATED: Less aggressive cleaner to preserve code operators (**) and comments (#)
 function cleanAiResponse(text) {
   if (!text) return "";
-
   return text
-    .replace(/#\*[\s\S]*?\*#/g, "") // Remove custom internal tags only
+    .replace(/#\*[\s\S]*?\*#/g, "") 
     .replace(/#\*/g, "")
     .replace(/\*#/g, "")
-    // Removed ** and # header stripping to protect code syntax
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -72,9 +69,7 @@ async function runTavilySearch(env, query) {
   try {
     const response = await fetch("https://api.tavily.com/search", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         api_key: env.TAVILY_API_KEY,
         query: query,
@@ -83,16 +78,10 @@ async function runTavilySearch(env, query) {
         max_results: 3
       })
     });
-
     if (!response.ok) return null;
-    
     const data = await response.json();
     if (!data.results || data.results.length === 0) return null;
-
-    const snippets = data.results
-      .map(r => `• ${r.title}: ${r.content} (${r.url})`)
-      .join("\n");
-      
+    const snippets = data.results.map(r => `• ${r.title}: ${r.content} (${r.url})`).join("\n");
     return `\n[REAL-TIME SEARCH RESULTS FROM WEB]:\n${snippets}\n\n`;
   } catch (e) {
     console.error("Tavily Search Error:", e);
@@ -149,7 +138,7 @@ const SPIDER_SYSTEM_PROMPT =
 "6. TONE: Friendly, casual, and helpful like a close friend 😎🤝.\n" +
 "\nCODING STANDARDS:\n" +
 "- ACCURACY: Verify logic, syntax, and imports before writing code. Ensure no missing brackets or semicolons.\n" +
-"- COMPLETENESS: Write full, runnable code. Do not leave placeholders like '// ... rest of code' unless the file is massive.\n" +
+"- COMPLETENESS: NEVER write full code unless the user explicitly asks for 'full code', 'complete', or 'rewrite'. Default to concise snippets.\n" +
 "- CONSISTENCY: When updating code, only modify the necessary parts. Keep the rest of the original code exactly the same to prevent breaking changes.\n" +
 "- BEST PRACTICES: Use modern conventions (e.g., ES6+ for JS, React Hooks, functional components).\n" +
 "- EXPLANATION: If code is complex, briefly explain the key logic.\n" +
@@ -202,7 +191,6 @@ async function runAi(env, model, payload) {
     }
   }
 }
-
 
 //////////////////////////////
 // MAIN HANDLER
@@ -262,7 +250,6 @@ export async function onRequest(context) {
     // -- Language Detection --
     const isTelugu = shouldTriggerTelugu(cleanPrompt);
     let finalSystemPrompt = SPIDER_SYSTEM_PROMPT;
-    
     if (isTelugu) {
       finalSystemPrompt += "\n[SYSTEM: DETECTED TELUGU INPUT (Romanized). REPLY STRICTLY IN TELUGU USING ENGLISH LETTERS.]";
     }
@@ -279,9 +266,9 @@ export async function onRequest(context) {
     // Fetch memory
     let memory = await getMemory(env, memKey);
 
-    //////////////////////
-    // DELETE MEMORY MODE
-    //////////////////////
+    // =================================================================
+    // MODE 1: DELETE MEMORY
+    // =================================================================
     if (
       mode === "delete_memory" || 
       mode === "clear_memory" || 
@@ -301,180 +288,12 @@ export async function onRequest(context) {
       );
     }
 
-    //////////////////////
-    // STREAM MODE (TRUE STREAMING + AUTO CONTINUE)
-    //////////////////////
-    // CRITICAL FIX: Explicitly exclude image_gen mode here.
-    // ALSO FIX: Force "analyze_file" AND "chat" into streaming mode so they get the Auto-Continue Loop.
-    if ((mode === "stream" || mode === "analyze_file" || mode === "chat" || stream === true) && mode !== "image_gen") {
-      const encoder = new TextEncoder();
-      
-      // FIX: Use existing stream_id if available to append to same UI bubble
-      const activeStreamId = stream_id || crypto.randomUUID();
-
-      const streamResp = new ReadableStream({
-        async start(controller) {
-          try {
-            let currentLoop = 0;
-            // UPDATE: 30 loops (30 * 300 = 9000 lines capacity)
-            const MAX_LOOPS = 30; 
-            let isFullyDone = false;
-            
-            // 1. Initial Prompt Setup
-            let currentPrompt = activePrompt;
-            if (mode === "analyze_file" && file_content && !isContinue) {
-              currentPrompt = `FILE: ${filename || "unknown"}\nCONTENT:\n${file_content}\n\nREQUEST:\n${activePrompt}`;
-            }
-            if (searchContext) {
-              currentPrompt += `\n\n${searchContext}\n[INSTRUCTION: Use the above search results to answer the user request.]`;
-            }
-
-            // Push initial user message
-            memory.push({ role: "user", content: currentPrompt, ts: Date.now() });
-
-            // 2. Loop until done or limit hit
-            while (currentLoop < MAX_LOOPS && !isFullyDone) {
-                currentLoop++;
-
-                // Build messages from memory
-                const currentMessages = [
-                    { role: "system", content: finalSystemPrompt },
-                    ...memory.map(m => ({ role: m.role, content: m.content }))
-                ];
-
-                // Run AI (Optimized for Speed: Max tokens set high, but we control via lines)
-                const aiStream = await env.SPY_AI.run(
-                  "@cf/mistralai/mistral-small-3.1-24b-instruct",
-                  {
-                    messages: currentMessages,
-                    max_tokens: 8192,
-                    temperature: 0.7,
-                    stream: true
-                  }
-                );
-
-                const reader = aiStream.getReader();
-                const decoder = new TextDecoder();
-                let buffer = ""; // RESTORED BUFFER FOR SMOOTHNESS
-                let loopBuffer = ""; 
-                let loopLineCount = 0;
-                let streamEndedNaturally = true;
-
-                // Inner Reader Loop
-                while (true) {
-                  const { done, value } = await reader.read();
-                  if (done) break;
-
-                  const chunk = decoder.decode(value, { stream: true });
-                  buffer += chunk;
-                  const lines = buffer.split("\n");
-                  buffer = lines.pop(); // Keep incomplete line in buffer
-                  
-                  // Process chunk lines
-                  for (const line of lines) {
-                    const trimmed = line.trim();
-                    if (trimmed.startsWith("data:")) {
-                      const dataStr = trimmed.replace("data:", "").trim();
-                      if (dataStr === "[DONE]") continue;
-
-                      try {
-                        const json = JSON.parse(dataStr);
-                        const textChunk = json.response; 
-                        
-                        if (textChunk) {
-                          // Stream to user immediately
-                          controller.enqueue(
-                            encoder.encode(`data: ${JSON.stringify({ text: textChunk, stream_id: activeStreamId })}\n\n`)
-                          );
-                          
-                          loopBuffer += textChunk;
-                          
-                          // LIGHTWEIGHT LINE COUNTING
-                          // We check lines to predict token exhaustion
-                          for (let i = 0; i < textChunk.length; i++) {
-                              if (textChunk[i] === '\n') loopLineCount++;
-                          }
-
-                          // TRIGGER AUTO-CONTINUE
-                          if (loopLineCount >= AI_MAX_OUTPUT_LINES) {
-                              streamEndedNaturally = false;
-                              break; 
-                          }
-                        }
-                      } catch(e) {}
-                    }
-                  }
-                  
-                  // If limit reached, cancel stream and break inner loop
-                  if (!streamEndedNaturally) {
-                     await reader.cancel();
-                     break; 
-                  }
-                }
-
-                // Decision: Done or Continue?
-                if (streamEndedNaturally) {
-                    // AI finished naturally
-                    memory.push({ role: "assistant", content: cleanAiResponse(loopBuffer), ts: Date.now() });
-                    isFullyDone = true;
-                } else {
-                    // Safety trigger hit - AUTO CONTINUE
-                    // 1. Save partial output
-                    memory.push({ role: "assistant", content: cleanAiResponse(loopBuffer), ts: Date.now() });
-                    // 2. Add continue prompt (Optimized to prevent duplication/UI breaks)
-                    const continueMsg = "OUTPUT ONLY THE NEXT PART OF THE CODE. DO NOT REPEAT THE LAST LINES. DO NOT START WITH MARKDOWN ``` IF CONTINUING A BLOCK. IMMEDIATE CONTINUATION ONLY.";
-                    memory.push({ role: "user", content: continueMsg, ts: Date.now() });
-                    // 3. Loop repeats...
-                }
-            } // End While
-
-            // Save final memory state
-            const memoryToSave = memory.slice(-AI_MEMORY_TRIM_TARGET);
-            context.waitUntil(saveMemory(env, memKey, memoryToSave));
-
-            // ALWAYS send DONE signal
-            controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
-            controller.close();
-
-          } catch (err) {
-            try {
-                controller.enqueue(
-                  encoder.encode(`data: ${JSON.stringify({ text: "\n[Error]\n" + err.message })}\n\n`)
-                );
-                controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
-                controller.close();
-            } catch(e) {}
-          }
-        }
-      });
-
-      return new Response(streamResp, {
-        headers: {
-          ...cors,
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache",
-          "Connection": "keep-alive"
-        }
-      });
-    }
-
-    //////////////////////
-    // IMAGE GENERATION (FIXED & STABILIZED)
-    //////////////////////
+    // =================================================================
+    // MODE 2: IMAGE GENERATION
+    // =================================================================
     if (mode === "image_gen") {
-      // 1. Calculate Standard Width/Height
-      let width = 1024;
-      let height = 1024;
-
-      if (aspect_ratio === "16:9") { width = 1280; height = 720; }
-      else if (aspect_ratio === "9:16") { width = 720; height = 1280; }
-      else if (aspect_ratio === "4:3")  { width = 1152; height = 864; }
-      else if (aspect_ratio === "3:4")  { width = 864; height = 1152; }
-      else { width = 1024; height = 1024; }
-
-      // 2. PROMPT OPTIMIZER (Non-blocking attempt)
+      // 1. PROMPT OPTIMIZER (Non-blocking attempt)
       let enhancedPrompt = `${activePrompt}, ultra detailed, cinematic lighting`; 
-      
       try {
         const promptOptimizerSys = 
           "You are an expert Image Prompt Engineer. " +
@@ -493,20 +312,17 @@ export async function onRequest(context) {
              max_tokens: 300
            }
         );
-        
         const optimizedText = extractText(optimizerRes);
         if (optimizedText && optimizedText.length > 5) {
             enhancedPrompt = cleanAiResponse(optimizedText); 
         }
       } catch (optError) {
-        // Silently fail optimizer and use default prompt if it crashes
         console.error("Optimizer Warning:", optError);
       }
 
-      // 3. SAVE TO MEMORY
+      // 2. SAVE TO MEMORY (CLEAN LOG)
       try {
         memory.push({ role: "user", content: activePrompt, ts: Date.now() });
-        // FIXED: CLEAN MEMORY LOG
         memory.push({ 
            role: "assistant", 
            content: `Generating image: "${enhancedPrompt}"`, 
@@ -516,20 +332,18 @@ export async function onRequest(context) {
         context.waitUntil(saveMemory(env, memKey, memoryToSave));
       } catch (memErr) {}
 
-      // 4. CALL AI (SAFE MODE - NO OPTIONAL PARAMS)
+      // 3. CALL AI (Lucid Origin - Auto Resolution)
       try {
         const response = await runAi(
           env,
           "@cf/leonardo/lucid-origin",
           {
-            prompt: enhancedPrompt,
-            width: width,   
-            height: height
-            // num_steps: removed to prevent API errors
+            prompt: enhancedPrompt
+            // Auto resolution: params removed
           }
         );
 
-        // 5. UNIVERSAL HANDLER
+        // 4. UNIVERSAL HANDLER
         let base64Image = null;
         const extraHeaders = {
             ...cors, 
@@ -542,7 +356,6 @@ export async function onRequest(context) {
           });
         }
 
-        // Handle various JSON formats
         if (response && response.image) {
           base64Image = response.image;
         } else if (response && response.result && response.result.image) {
@@ -567,7 +380,6 @@ export async function onRequest(context) {
           }
         }
 
-        // If we get here, the AI returned a success code but no image data we recognize
         return new Response(JSON.stringify({ 
           error: "Image Generation Failed - Unknown Format", 
           debug_response: response 
@@ -576,7 +388,6 @@ export async function onRequest(context) {
         });
 
       } catch (genError) {
-        // Return JSON error so frontend doesn't just show broken image
         return new Response(JSON.stringify({ 
           error: "Image API Error", 
           message: genError.message 
@@ -586,41 +397,137 @@ export async function onRequest(context) {
       }
     }
 
-    //////////////////////
-    // NORMAL CHAT
-    //////////////////////
+    // =================================================================
+    // MODE 3: ALL TEXT (CHAT, CODE, STREAM, FILE) -> FORCED STREAMING
+    // =================================================================
+    // There is NO "Normal Chat" anymore. Everything hits this block.
     
-    let finalUserPrompt = activePrompt;
-    if (searchContext) {
-      finalUserPrompt += `\n\n${searchContext}\n[INSTRUCTION: Use the above search results to answer the user request.]`;
-    }
+    const encoder = new TextEncoder();
+    const activeStreamId = stream_id || crypto.randomUUID();
 
-    memory.push({ role: "user", content: finalUserPrompt, ts: Date.now() });
-    memory = memory.slice(-AI_MEMORY_TRIM_TARGET);
+    const streamResp = new ReadableStream({
+      async start(controller) {
+        try {
+          let currentLoop = 0;
+          const MAX_LOOPS = 30; // 9000 Lines Capacity
+          let isFullyDone = false;
+          
+          // 1. Initial Prompt Setup
+          let currentPrompt = activePrompt;
+          // If file analysis but NOT a continuation, wrap the file.
+          if (mode === "analyze_file" && file_content && !isContinue) {
+            currentPrompt = `FILE: ${filename || "unknown"}\nCONTENT:\n${file_content}\n\nREQUEST:\n${activePrompt}`;
+          }
+          if (searchContext) {
+            currentPrompt += `\n\n${searchContext}\n[INSTRUCTION: Use the above search results to answer the user request.]`;
+          }
 
-    const messages = [
-      { role: "system", content: finalSystemPrompt },
-      ...memory.map(m => ({ role: m.role, content: m.content }))
-    ];
+          // Push initial user message
+          memory.push({ role: "user", content: currentPrompt, ts: Date.now() });
 
-    // USING MISTRAL (Text Logic)
-    const aiRes = await runAi(
-      env,
-      "@cf/mistralai/mistral-small-3.1-24b-instruct",
-      {
-        messages,
-        max_tokens: 4096,
-        temperature: 0.7
+          // 2. Loop until done or limit hit
+          while (currentLoop < MAX_LOOPS && !isFullyDone) {
+              currentLoop++;
+
+              const currentMessages = [
+                  { role: "system", content: finalSystemPrompt },
+                  ...memory.map(m => ({ role: m.role, content: m.content }))
+              ];
+
+              const aiStream = await env.SPY_AI.run(
+                "@cf/mistralai/mistral-small-3.1-24b-instruct",
+                {
+                  messages: currentMessages,
+                  max_tokens: 4096,
+                  temperature: 0.7,
+                  stream: true
+                }
+              );
+
+              const reader = aiStream.getReader();
+              const decoder = new TextDecoder();
+              let loopBuffer = ""; 
+              let loopLineCount = 0;
+              let streamEndedNaturally = true;
+
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value, { stream: true });
+                const lines = chunk.split("\n");
+                
+                for (const line of lines) {
+                  const trimmed = line.trim();
+                  if (trimmed.startsWith("data:")) {
+                    const dataStr = trimmed.replace("data:", "").trim();
+                    if (dataStr === "[DONE]") continue;
+
+                    try {
+                      const json = JSON.parse(dataStr);
+                      const textChunk = json.response; 
+                      
+                      if (textChunk) {
+                        controller.enqueue(
+                          encoder.encode(`data: ${JSON.stringify({ text: textChunk, stream_id: activeStreamId })}\n\n`)
+                        );
+                        
+                        loopBuffer += textChunk;
+                        
+                        for (let i = 0; i < textChunk.length; i++) {
+                            if (textChunk[i] === '\n') loopLineCount++;
+                        }
+
+                        if (loopLineCount >= AI_MAX_OUTPUT_LINES) {
+                            streamEndedNaturally = false;
+                            break; 
+                        }
+                      }
+                    } catch(e) {}
+                  }
+                }
+                
+                if (!streamEndedNaturally) {
+                   await reader.cancel();
+                   break; 
+                }
+              }
+
+              if (streamEndedNaturally) {
+                  memory.push({ role: "assistant", content: cleanAiResponse(loopBuffer), ts: Date.now() });
+                  isFullyDone = true;
+              } else {
+                  memory.push({ role: "assistant", content: cleanAiResponse(loopBuffer), ts: Date.now() });
+                  const continueMsg = "OUTPUT ONLY THE NEXT PART OF THE CODE. DO NOT REPEAT THE LAST LINES. DO NOT START WITH MARKDOWN ``` IF CONTINUING A BLOCK. IMMEDIATE CONTINUATION ONLY.";
+                  memory.push({ role: "user", content: continueMsg, ts: Date.now() });
+              }
+          } 
+
+          const memoryToSave = memory.slice(-AI_MEMORY_TRIM_TARGET);
+          context.waitUntil(saveMemory(env, memKey, memoryToSave));
+
+          controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
+          controller.close();
+
+        } catch (err) {
+          try {
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify({ text: "\n[Error]\n" + err.message })}\n\n`)
+              );
+              controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
+              controller.close();
+          } catch(e) {}
+        }
       }
-    );
+    });
 
-    const output = cleanAiResponse(extractText(aiRes));
-    
-    memory.push({ role: "assistant", content: output, ts: Date.now() });
-    await saveMemory(env, memKey, memory);
-
-    return new Response(output, {
-      headers: { ...cors, "Content-Type": "text/plain" }
+    return new Response(streamResp, {
+      headers: {
+        ...cors,
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive"
+      }
     });
 
   } catch (e) {
