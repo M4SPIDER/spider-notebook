@@ -1,7 +1,7 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.12)
- * FEATURES: MISTRAL + LUCID ORIGIN (STRICT NAMING + CODE RULES)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.14)
+ * FEATURES: MISTRAL + LUCID ORIGIN (STREAM FLAG CONTROL)
  * Author: M4 Spider
  * =========================================================
  */
@@ -10,7 +10,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.12";
+const VERSION = "9.9.14";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -242,14 +242,14 @@ export async function onRequest(context) {
     // -----------------------------------------------------------------
     // AUTO-IMAGE MODE DETECTOR
     // -----------------------------------------------------------------
-    // Fixes issue where AI just talks about images ("Chalo...") instead of generating them.
     const IMAGE_TRIGGERS = [
       "generate image", "create image", "make an image", "draw a", 
       "generate a picture", "create a picture", "imagine this", "draw this"
     ];
     
     // If user is in chat mode but asks for an image, FORCE image_gen mode.
-    if (mode === "chat" && IMAGE_TRIGGERS.some(t => cleanPrompt.includes(t))) {
+    // UPDATED: Only switch to image_gen if stream is FALSE.
+    if (!stream && mode === "chat" && IMAGE_TRIGGERS.some(t => cleanPrompt.includes(t))) {
        mode = "image_gen";
     }
     // -----------------------------------------------------------------
@@ -402,7 +402,7 @@ export async function onRequest(context) {
     }
 
     //////////////////////
-    // IMAGE GENERATION (MEMORY PERSISTENCE FIXED)
+    // IMAGE GENERATION (FIXED & STABILIZED)
     //////////////////////
     if (mode === "image_gen") {
       // 1. Calculate Standard Width/Height
@@ -415,7 +415,7 @@ export async function onRequest(context) {
       else if (aspect_ratio === "3:4")  { width = 864; height = 1152; }
       else { width = 1024; height = 1024; }
 
-      // 2. PROMPT OPTIMIZER (Tuned to be faithful)
+      // 2. PROMPT OPTIMIZER (Non-blocking attempt)
       let enhancedPrompt = `${activePrompt}, ultra detailed, cinematic lighting`; 
       
       try {
@@ -442,11 +442,11 @@ export async function onRequest(context) {
             enhancedPrompt = cleanAiResponse(optimizedText); 
         }
       } catch (optError) {
-        console.error("Optimizer Error:", optError);
+        // Silently fail optimizer and use default prompt if it crashes
+        console.error("Optimizer Warning:", optError);
       }
 
-      // 3. SAVE TO MEMORY (CRITICAL FIX)
-      // This ensures the LLM knows it generated an image in the next turn.
+      // 3. SAVE TO MEMORY
       try {
         memory.push({ role: "user", content: activePrompt, ts: Date.now() });
         memory.push({ 
@@ -454,14 +454,11 @@ export async function onRequest(context) {
            content: `[System Action: Generated an image based on prompt: "${enhancedPrompt}"]`, 
            ts: Date.now() 
         });
-        
         const memoryToSave = memory.slice(-AI_MEMORY_TRIM_TARGET);
         context.waitUntil(saveMemory(env, memKey, memoryToSave));
-      } catch (memErr) {
-        console.error("Memory Save Failed:", memErr);
-      }
+      } catch (memErr) {}
 
-      // 4. Call the AI
+      // 4. CALL AI (SAFE MODE - NO OPTIONAL PARAMS)
       try {
         const response = await runAi(
           env,
@@ -469,8 +466,8 @@ export async function onRequest(context) {
           {
             prompt: enhancedPrompt,
             width: width,   
-            height: height, 
-            num_steps: 20   
+            height: height
+            // num_steps: removed to prevent API errors
           }
         );
 
@@ -487,6 +484,7 @@ export async function onRequest(context) {
           });
         }
 
+        // Handle various JSON formats
         if (response && response.image) {
           base64Image = response.image;
         } else if (response && response.result && response.result.image) {
@@ -496,17 +494,22 @@ export async function onRequest(context) {
         }
 
         if (base64Image) {
-          const binaryString = atob(base64Image);
-          const len = binaryString.length;
-          const bytes = new Uint8Array(len);
-          for (let i = 0; i < len; i++) {
-              bytes[i] = binaryString.charCodeAt(i);
+          try {
+            const binaryString = atob(base64Image);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            return new Response(bytes.buffer, {
+              headers: { ...extraHeaders, "Content-Type": "image/png" }
+            });
+          } catch (decErr) {
+             throw new Error("Base64 decode failed: " + decErr.message);
           }
-          return new Response(bytes.buffer, {
-            headers: { ...extraHeaders, "Content-Type": "image/png" }
-          });
         }
 
+        // If we get here, the AI returned a success code but no image data we recognize
         return new Response(JSON.stringify({ 
           error: "Image Generation Failed - Unknown Format", 
           debug_response: response 
@@ -515,6 +518,7 @@ export async function onRequest(context) {
         });
 
       } catch (genError) {
+        // Return JSON error so frontend doesn't just show broken image
         return new Response(JSON.stringify({ 
           error: "Image API Error", 
           message: genError.message 
