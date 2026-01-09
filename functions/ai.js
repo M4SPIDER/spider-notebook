@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.21)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.23)
  * FEATURES: MISTRAL + LUCID ORIGIN (STABILITY FIXES)
- * UPDATE: Fixed Duplicate Code & UI Breaks in Auto-Continue
+ * UPDATE: 8K Image Resolution Support
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,15 +11,15 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.21";
+const VERSION = "9.9.23";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
 const AI_MEMORY_USER_KEY_PREFIX = "spider_ai_mem:";
 const AI_RETRY_LIMIT = 2;
 const AI_RETRY_DELAY_BASE = 1500;
-// CRITICAL FIX: Keep at 300 to catch context limit BEFORE it breaks
-const AI_MAX_OUTPUT_LINES = 300;
+// SPEED FIX: Increased to 400 to reduce number of "loop pauses"
+const AI_MAX_OUTPUT_LINES = 400; 
 
 //////////////////////////////
 // UTILS
@@ -58,7 +58,7 @@ function shouldTriggerSearch(text) {
 
 async function runTavilySearch(env, query) {
   if (!env.TAVILY_API_KEY) return null;
-
+   
   try {
     const response = await fetch("https://api.tavily.com/search", {
       method: "POST",
@@ -75,14 +75,14 @@ async function runTavilySearch(env, query) {
     });
 
     if (!response.ok) return null;
-
+    
     const data = await response.json();
     if (!data.results || data.results.length === 0) return null;
 
     const snippets = data.results
       .map(r => `• ${r.title}: ${r.content} (${r.url})`)
       .join("\n");
-
+      
     return `\n[REAL-TIME SEARCH RESULTS FROM WEB]:\n${snippets}\n\n`;
   } catch (e) {
     console.error("Tavily Search Error:", e);
@@ -233,7 +233,7 @@ export async function onRequest(context) {
     } = payload;
 
     const memKey = AI_MEMORY_USER_KEY_PREFIX + user_preference_id;
-
+    
     // Handle Continue requests
     let activePrompt = prompt;
     let isContinue = false; // TRACK CONTINUATION
@@ -241,17 +241,17 @@ export async function onRequest(context) {
         activePrompt = "The previous code/text was incomplete. Please CONTINUE generating EXACTLY from where you left off. Do not restart. Just output the remaining part.";
         isContinue = true;
     }
-
+    
     const cleanPrompt = (activePrompt || "").trim().toLowerCase();
 
     // -----------------------------------------------------------------
     // AUTO-IMAGE MODE DETECTOR
     // -----------------------------------------------------------------
     const IMAGE_TRIGGERS = [
-      "generate image", "create image", "make an image", "draw a",
+      "generate image", "create image", "make an image", "draw a", 
       "generate a picture", "create a picture", "imagine this", "draw this"
     ];
-
+    
     // If user is in chat mode but asks for an image, FORCE image_gen mode.
     if (mode === "chat" && IMAGE_TRIGGERS.some(t => cleanPrompt.includes(t))) {
        mode = "image_gen";
@@ -261,7 +261,7 @@ export async function onRequest(context) {
     // -- Language Detection --
     const isTelugu = shouldTriggerTelugu(cleanPrompt);
     let finalSystemPrompt = SPIDER_SYSTEM_PROMPT;
-
+    
     if (isTelugu) {
       finalSystemPrompt += "\n[SYSTEM: DETECTED TELUGU INPUT (Romanized). REPLY STRICTLY IN TELUGU USING ENGLISH LETTERS.]";
     }
@@ -282,9 +282,9 @@ export async function onRequest(context) {
     // DELETE MEMORY MODE
     //////////////////////
     if (
-      mode === "delete_memory" ||
-      mode === "clear_memory" ||
-      mode === "delete_all" ||
+      mode === "delete_memory" || 
+      mode === "clear_memory" || 
+      mode === "delete_all" || 
       cleanPrompt === "delete all"
     ) {
       const success = await deleteMemory(env, memKey);
@@ -295,7 +295,7 @@ export async function onRequest(context) {
       }
 
       return new Response(
-      JSON.stringify({ status: success ? "success" : "skipped", message: msg }),
+        JSON.stringify({ status: success ? "success" : "skipped", message: msg }), 
         { headers: { ...cors, "Content-Type": "application/json" } }
       );
     }
@@ -305,7 +305,7 @@ export async function onRequest(context) {
     //////////////////////
     if (mode === "stream" || stream === true) {
       const encoder = new TextEncoder();
-
+      
       // FIX: Use existing stream_id if available to append to same UI bubble
       const activeStreamId = stream_id || crypto.randomUUID();
 
@@ -313,10 +313,10 @@ export async function onRequest(context) {
         async start(controller) {
           try {
             let currentLoop = 0;
-            // UPDATE: Increased to 20 loops (20 * 300 = 6000 lines capacity)
-            const MAX_LOOPS = 20;
+            // UPDATE: Increased to 20 loops (20 * 400 = 8000 lines capacity)
+            const MAX_LOOPS = 20; 
             let isFullyDone = false;
-
+            
             // 1. Initial Prompt Setup
             let currentPrompt = activePrompt;
             if (mode === "analyze_file" && file_content && !isContinue) {
@@ -352,7 +352,8 @@ export async function onRequest(context) {
 
                 const reader = aiStream.getReader();
                 const decoder = new TextDecoder();
-                let loopBuffer = "";
+                let buffer = ""; // RESTORED BUFFER FOR SMOOTHNESS
+                let loopBuffer = ""; 
                 let loopLineCount = 0;
                 let streamEndedNaturally = true;
 
@@ -362,8 +363,10 @@ export async function onRequest(context) {
                   if (done) break;
 
                   const chunk = decoder.decode(value, { stream: true });
-                  const lines = chunk.split("\n");
-
+                  buffer += chunk;
+                  const lines = buffer.split("\n");
+                  buffer = lines.pop(); // Keep incomplete line in buffer
+                  
                   // Process chunk lines
                   for (const line of lines) {
                     const trimmed = line.trim();
@@ -373,16 +376,16 @@ export async function onRequest(context) {
 
                       try {
                         const json = JSON.parse(dataStr);
-                        const textChunk = json.response;
-
+                        const textChunk = json.response; 
+                        
                         if (textChunk) {
                           // Stream to user immediately
                           controller.enqueue(
                             encoder.encode(`data: ${JSON.stringify({ text: textChunk, stream_id: activeStreamId })}\n\n`)
                           );
-
+                          
                           loopBuffer += textChunk;
-
+                          
                           // LIGHTWEIGHT LINE COUNTING
                           // We check lines to predict token exhaustion
                           for (let i = 0; i < textChunk.length; i++) {
@@ -392,17 +395,17 @@ export async function onRequest(context) {
                           // TRIGGER AUTO-CONTINUE
                           if (loopLineCount >= AI_MAX_OUTPUT_LINES) {
                               streamEndedNaturally = false;
-                              break;
+                              break; 
                           }
                         }
                       } catch(e) {}
                     }
                   }
-
+                  
                   // If limit reached, cancel stream and break inner loop
                   if (!streamEndedNaturally) {
                      await reader.cancel();
-                     break;
+                     break; 
                   }
                 }
 
@@ -456,22 +459,28 @@ export async function onRequest(context) {
     // IMAGE GENERATION (FIXED & STABILIZED)
     //////////////////////
     if (mode === "image_gen") {
-      // 1. Set 4K resolution as default
-      let width = 3840;
-      let height = 2160;
+      // 1. Calculate Standard Width/Height (Updated to 8K Ultra HD)
+      let width = 7680;
+      let height = 4320;
+
+      if (aspect_ratio === "16:9") { width = 7680; height = 4320; } // 8K UHD Landscape
+      else if (aspect_ratio === "9:16") { width = 4320; height = 7680; } // 8K UHD Portrait
+      else if (aspect_ratio === "4:3")  { width = 7168; height = 5376; } // High Res 4:3
+      else if (aspect_ratio === "3:4")  { width = 5376; height = 7168; } // High Res 3:4
+      else { width = 3840; height = 2160; } // Fallback to 4K
 
       // 2. PROMPT OPTIMIZER (Non-blocking attempt)
-      let enhancedPrompt = `${activePrompt}, ultra detailed, cinematic lighting`;
-
+      let enhancedPrompt = `${activePrompt}, ultra detailed, cinematic lighting`; 
+      
       try {
-        const promptOptimizerSys =
+        const promptOptimizerSys = 
           "You are an expert Image Prompt Engineer. " +
           "Your goal: Take the user's idea and add lighting/style details to make it look professional. " +
           "CRITICAL: Keep the MAIN SUBJECT exactly as the user described. " +
           "REPLY WITH THE PROMPT ONLY. No talk.";
-
+        
         const optimizerRes = await runAi(
-           env,
+           env, 
            "@cf/mistralai/mistral-small-3.1-24b-instruct",
            {
              messages: [
@@ -481,10 +490,10 @@ export async function onRequest(context) {
              max_tokens: 300
            }
         );
-
+        
         const optimizedText = extractText(optimizerRes);
         if (optimizedText && optimizedText.length > 5) {
-            enhancedPrompt = cleanAiResponse(optimizedText);
+            enhancedPrompt = cleanAiResponse(optimizedText); 
         }
       } catch (optError) {
         // Silently fail optimizer and use default prompt if it crashes
@@ -494,10 +503,10 @@ export async function onRequest(context) {
       // 3. SAVE TO MEMORY
       try {
         memory.push({ role: "user", content: activePrompt, ts: Date.now() });
-        memory.push({
-           role: "assistant",
-           content: `[System Action: Generated an image based on prompt: "${enhancedPrompt}"]`,
-           ts: Date.now()
+        memory.push({ 
+           role: "assistant", 
+           content: `[System Action: Generated an image based on prompt: "${enhancedPrompt}"]`, 
+           ts: Date.now() 
         });
         const memoryToSave = memory.slice(-AI_MEMORY_TRIM_TARGET);
         context.waitUntil(saveMemory(env, memKey, memoryToSave));
@@ -510,7 +519,7 @@ export async function onRequest(context) {
           "@cf/leonardo/lucid-origin",
           {
             prompt: enhancedPrompt,
-            width: width,
+            width: width,   
             height: height
             // num_steps: removed to prevent API errors
           }
@@ -519,8 +528,8 @@ export async function onRequest(context) {
         // 5. UNIVERSAL HANDLER
         let base64Image = null;
         const extraHeaders = {
-            ...cors,
-            "X-Ai-Expanded-Prompt": enhancedPrompt.substring(0, 500)
+            ...cors, 
+            "X-Ai-Expanded-Prompt": enhancedPrompt.substring(0, 500) 
         };
 
         if (response instanceof ReadableStream) {
@@ -555,18 +564,18 @@ export async function onRequest(context) {
         }
 
         // If we get here, the AI returned a success code but no image data we recognize
-        return new Response(JSON.stringify({
-          error: "Image Generation Failed - Unknown Format",
-          debug_response: response
+        return new Response(JSON.stringify({ 
+          error: "Image Generation Failed - Unknown Format", 
+          debug_response: response 
         }), {
            headers: { ...cors, "Content-Type": "application/json" }
         });
 
       } catch (genError) {
         // Return JSON error so frontend doesn't just show broken image
-        return new Response(JSON.stringify({
-          error: "Image API Error",
-          message: genError.message
+        return new Response(JSON.stringify({ 
+          error: "Image API Error", 
+          message: genError.message 
         }), {
            headers: { ...cors, "Content-Type": "application/json" }
         });
@@ -576,7 +585,7 @@ export async function onRequest(context) {
     //////////////////////
     // NORMAL CHAT
     //////////////////////
-
+    
     let finalUserPrompt = activePrompt;
     if (searchContext) {
       finalUserPrompt += `\n\n${searchContext}\n[INSTRUCTION: Use the above search results to answer the user request.]`;
@@ -595,20 +604,21 @@ export async function onRequest(context) {
       env,
       "@cf/mistralai/mistral-small-3.1-24b-instruct",
       {
-messages,
+        messages,
         max_tokens: 4096,
         temperature: 0.7
       }
     );
 
     const output = cleanAiResponse(extractText(aiRes));
-
+    
     memory.push({ role: "assistant", content: output, ts: Date.now() });
     await saveMemory(env, memKey, memory);
 
     return new Response(output, {
       headers: { ...cors, "Content-Type": "text/plain" }
     });
+
   } catch (e) {
     return new Response("Spider AI Error: " + e.message, {
       status: 500,
