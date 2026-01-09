@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.26)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.27)
  * FEATURES: MISTRAL + LUCID ORIGIN (STABILITY FIXES)
- * UPDATE: Fixed "Saying not Doing" (Force Image Execution)
+ * UPDATE: Tuned for Mistral 24B (300 Lines / 30 Loops)
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,15 +11,15 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.26";
+const VERSION = "9.9.27";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
 const AI_MEMORY_USER_KEY_PREFIX = "spider_ai_mem:";
 const AI_RETRY_LIMIT = 2;
 const AI_RETRY_DELAY_BASE = 1500;
-// SPEED FIX: Increased to 400 to reduce number of "loop pauses"
-const AI_MAX_OUTPUT_LINES = 400; 
+// OPTIMIZED: 300 lines is the "Sweet Spot" for Mistral 24B accuracy
+const AI_MAX_OUTPUT_LINES = 300; 
 
 //////////////////////////////
 // UTILS
@@ -304,7 +304,6 @@ export async function onRequest(context) {
     // STREAM MODE (TRUE STREAMING + AUTO CONTINUE)
     //////////////////////
     // CRITICAL FIX: Explicitly exclude image_gen mode here.
-    // This prevents the text streamer from hijacking image requests.
     if ((mode === "stream" || stream === true) && mode !== "image_gen") {
       const encoder = new TextEncoder();
       
@@ -315,8 +314,8 @@ export async function onRequest(context) {
         async start(controller) {
           try {
             let currentLoop = 0;
-            // UPDATE: Increased to 20 loops (20 * 400 = 8000 lines capacity)
-            const MAX_LOOPS = 20; 
+            // UPDATE: Increased to 30 loops (30 * 300 = 9000 lines capacity)
+            const MAX_LOOPS = 30; 
             let isFullyDone = false;
             
             // 1. Initial Prompt Setup
