@@ -1395,6 +1395,7 @@ const SpiderAIApp = ({
     const imageInputRef = useRef(null);
     const chatEndRef = useRef(null);
     const textareaRef = useRef(null);
+    const [showContinueButton, setShowContinueButton] = useState(false);
     const streamReaderRef = useRef(null);
     const accumulatedTokensRef = useRef('');
     const fileContentBufferRef = useRef('');
@@ -4758,6 +4759,7 @@ int main() {
         </>
     );
 }
+
 
 
 
