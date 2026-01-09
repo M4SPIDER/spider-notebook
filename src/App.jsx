@@ -2344,7 +2344,7 @@ const SpiderAIApp = ({
                             
                             if (parsed.is_full_code) {
                                 setIsFullCodeMode(true);
-                                setShowContinueButton(true);
+                                setShowContinueButton(false);
                             }
                             
                         } catch (e) {
@@ -3541,31 +3541,6 @@ const SpiderAIApp = ({
                                 </div>
                             </div>
                         )}
-                        
-                    {/* Continue Button */}
-{/* 
-{showContinueButton && !isLoading && (
-    <div className="flex justify-start mb-4 px-2">
-        <div className="bg-[var(--spider-dark)] p-3 rounded-lg border border-[var(--spider-light)]">
-            <div className="flex items-center space-x-3">
-                <div className="text-sm text-[var(--spider-text-dim)]">
-                    {isFullCodeMode 
-                        ? 'Project generation seems incomplete. Continue?' 
-                        : 'Response seems incomplete. Continue generation?'}
-                </div>
-                <button 
-                    onClick={handleContinueGeneration}
-                    className="bg-[var(--spider-neon-blue)] text-black text-xs font-semibold px-4 py-2 rounded-lg hover:opacity-90 transition"
-                >
-                    Continue
-                </button>
-            </div>
-        </div>
-    </div>
-)}
-*/}
-                        
-
                 {/* Hidden file inputs */}
                 <input 
                     type="file" 
@@ -4759,6 +4734,7 @@ int main() {
         </>
     );
 }
+
 
 
 
