@@ -238,6 +238,9 @@ export async function onRequest(context) {
     if (!activePrompt && stream_id) {
         activePrompt = "The previous code/text was incomplete. Please CONTINUE generating EXACTLY from where you left off. Do not restart. Just output the remaining part.";
     }
+
+    // Fetch memory EARLY for context awareness
+    let memory = await getMemory(env, memKey);
     
     // -----------------------------------------------------------------
     // AUTO-IMAGE MODE DETECTOR (ENHANCED v9.9.16)
@@ -266,8 +269,23 @@ export async function onRequest(context) {
     const isExplicitRequest = IMAGE_TRIGGERS.some(t => normalizedPrompt.includes(t));
     const isRawPrompt = VISUAL_KEYWORDS.some(t => normalizedPrompt.includes(t));
 
-    // If user is in chat mode but asks for an image OR pastes a raw visual prompt
-    if (!stream && mode === "chat" && (isExplicitRequest || isRawPrompt)) {
+    // 3. Contextual Trigger (NEW: Handles "Yes, please" responses)
+    let isContextualTrigger = false;
+    if (memory.length > 0) {
+       const lastAiMsg = memory[memory.length - 1];
+       const isAffirmative = /^(yes|yeah|sure|ok|okay|do it|go ahead|proceed|please|generate|make it)/i.test(normalizedPrompt);
+       const aiProposedImage = lastAiMsg.role === "assistant" && 
+                              (lastAiMsg.content.includes("Lucid Origin") || lastAiMsg.content.includes("generate"));
+       
+       if (isAffirmative && aiProposedImage) {
+          isContextualTrigger = true;
+          // Merge context so the image generator knows what to generate
+          activePrompt = `Based on this description: ${lastAiMsg.content}. User request: ${activePrompt}`;
+       }
+    }
+
+    // If user is in chat mode but asks for an image OR pastes a raw visual prompt OR confirms a proposal
+    if (!stream && mode === "chat" && (isExplicitRequest || isRawPrompt || isContextualTrigger)) {
        mode = "image_gen";
     }
     // -----------------------------------------------------------------
@@ -288,9 +306,6 @@ export async function onRequest(context) {
          searchContext = searchRes;
        }
     }
-
-    // Fetch memory
-    let memory = await getMemory(env, memKey);
 
     //////////////////////
     // DELETE MEMORY MODE
