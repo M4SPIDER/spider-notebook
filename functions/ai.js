@@ -1,7 +1,7 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.3)
- * FEATURES: MISTRAL MODEL + CODE SAFE (NO AGGRESSIVE CLEANING)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.4)
+ * FEATURES: MISTRAL + LUCID ORIGIN (FIXED) + SEARCH
  * Author: M4 Spider
  * =========================================================
  */
@@ -10,7 +10,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.3";
+const VERSION = "9.9.4";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -55,7 +55,7 @@ function shouldTriggerSearch(text) {
 
 async function runTavilySearch(env, query) {
   if (!env.TAVILY_API_KEY) return null;
-  
+   
   try {
     const response = await fetch("https://api.tavily.com/search", {
       method: "POST",
@@ -306,7 +306,7 @@ export async function onRequest(context) {
 
             memory.push({ role: "user", content: finalUserPrompt, ts: Date.now() });
 
-            // USING MISTRAL (Old Model)
+            // USING MISTRAL (Text Logic)
             const aiStream = await env.SPY_AI.run(
               "@cf/mistralai/mistral-small-3.1-24b-instruct",
               {
@@ -385,19 +385,35 @@ export async function onRequest(context) {
     }
 
     //////////////////////
-    // IMAGE GENERATION
+    // IMAGE GENERATION (FIXED FOR LUCID ORIGIN/SDXL)
     //////////////////////
     if (mode === "image_gen") {
-      const image = await runAi(
+      // 1. Calculate Standard Width/Height (Fixes invalid param error)
+      let width = 1024;
+      let height = 1024;
+
+      if (aspect_ratio === "16:9") { width = 1280; height = 720; }
+      else if (aspect_ratio === "9:16") { width = 720; height = 1280; }
+      else if (aspect_ratio === "4:3")  { width = 1152; height = 864; }
+      else if (aspect_ratio === "3:4")  { width = 864; height = 1152; }
+      else { width = 1024; height = 1024; }
+
+      // 2. Call the AI
+      // NOTE: Using the ID you requested. If Lucid Origin is unavailable, 
+      // replace string below with "@cf/stabilityai/stable-diffusion-xl-base-1.0"
+      const imageResponse = await runAi(
         env,
         "@cf/leonardo/lucid-origin",
         {
           prompt: `${activePrompt}, ultra detailed, cinematic lighting`,
-          aspect_ratio
+          width: width,   // Send Integer
+          height: height, // Send Integer
+          num_steps: 20   // Standard step count for better quality
         }
       );
 
-      return new Response(image, {
+      // 3. Return as Image (Handle Stream vs Blob)
+      return new Response(imageResponse, {
         headers: { ...cors, "Content-Type": "image/png" }
       });
     }
@@ -419,7 +435,7 @@ export async function onRequest(context) {
       ...memory.map(m => ({ role: m.role, content: m.content }))
     ];
 
-    // USING MISTRAL (Old Model)
+    // USING MISTRAL (Text Logic)
     const aiRes = await runAi(
       env,
       "@cf/mistralai/mistral-small-3.1-24b-instruct",
