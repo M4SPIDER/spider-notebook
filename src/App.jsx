@@ -2326,7 +2326,8 @@ const SpiderAIApp = ({
                                         }
                                     }
                                 }
-                                
+
+                              
                                 // Show continue button if we detect incomplete code blocks
                                 if (parsed.text.includes('```') && !accumulatedTokensRef.current.includes('```\n```')) {
                                     const codeBlockCount = (accumulatedTokensRef.current.match(/```/g) || []).length;
@@ -3541,30 +3542,29 @@ const SpiderAIApp = ({
                             </div>
                         )}
                         
-                        {/* Continue Button */}
-                        {showContinueButton && !isLoading && (
-                            <div className="flex justify-start mb-4 px-2">
-                                <div className="bg-[var(--spider-dark)] p-3 rounded-lg border border-[var(--spider-light)]">
-                                    <div className="flex items-center space-x-3">
-                                        <div className="text-sm text-[var(--spider-text-dim)]">
-                                            {isFullCodeMode 
-                                                ? 'Project generation seems incomplete. Continue?' 
-                                                : 'Response seems incomplete. Continue generation?'}
-                                        </div>
-                                        <button 
-                                            onClick={handleContinueGeneration}
-                                            className="bg-[var(--spider-neon-blue)] text-black text-xs font-semibold px-4 py-2 rounded-lg hover:opacity-90 transition"
-                                        >
-                                            Continue
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
+                    {/* Continue Button */}
+{/* 
+{showContinueButton && !isLoading && (
+    <div className="flex justify-start mb-4 px-2">
+        <div className="bg-[var(--spider-dark)] p-3 rounded-lg border border-[var(--spider-light)]">
+            <div className="flex items-center space-x-3">
+                <div className="text-sm text-[var(--spider-text-dim)]">
+                    {isFullCodeMode 
+                        ? 'Project generation seems incomplete. Continue?' 
+                        : 'Response seems incomplete. Continue generation?'}
+                </div>
+                <button 
+                    onClick={handleContinueGeneration}
+                    className="bg-[var(--spider-neon-blue)] text-black text-xs font-semibold px-4 py-2 rounded-lg hover:opacity-90 transition"
+                >
+                    Continue
+                </button>
+            </div>
+        </div>
+    </div>
+)}
+*/}
                         
-                        <div ref={chatEndRef} />
-                    </div>
-                )}
 
                 {/* Hidden file inputs */}
                 <input 
@@ -4759,6 +4759,7 @@ int main() {
         </>
     );
 }
+
 
 
 
