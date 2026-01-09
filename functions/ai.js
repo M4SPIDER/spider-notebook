@@ -2,7 +2,7 @@
  * =========================================================
  * SPIDER AI — FINAL STABLE BACKEND (v9.9.27)
  * FEATURES: MISTRAL + LUCID ORIGIN (STABILITY FIXES)
- * UPDATE: Tuned for Mistral 24B (300 Lines / 30 Loops)
+ * UPDATE: Cleaned Code Structure & Fixed Syntax Errors
  * Author: M4 Spider
  * =========================================================
  */
@@ -37,6 +37,16 @@ function cleanAiResponse(text) {
     // Removed ** and # header stripping to protect code syntax
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+function extractText(resp) {
+  return (
+    resp?.output?.[1]?.content?.[0]?.text ||
+    resp?.output?.[0]?.content?.[0]?.text ||
+    resp?.response ||
+    resp?.result ||
+    ""
+  );
 }
 
 //////////////////////////////
@@ -193,15 +203,6 @@ async function runAi(env, model, payload) {
   }
 }
 
-function extractText(resp) {
-  return (
-    resp?.output?.[1]?.content?.[0]?.text ||
-    resp?.output?.[0]?.content?.[0]?.text ||
-    resp?.response ||
-    resp?.result ||
-    ""
-  );
-}
 
 //////////////////////////////
 // MAIN HANDLER
@@ -314,7 +315,7 @@ export async function onRequest(context) {
         async start(controller) {
           try {
             let currentLoop = 0;
-            // UPDATE: Increased to 30 loops (30 * 300 = 9000 lines capacity)
+            // UPDATE: 30 loops (30 * 300 = 9000 lines capacity)
             const MAX_LOOPS = 30; 
             let isFullyDone = false;
             
