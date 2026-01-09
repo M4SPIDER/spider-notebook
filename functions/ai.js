@@ -1,4 +1,4 @@
-/**
+/
  * =========================================================
  * SPIDER AI — FINAL STABLE BACKEND (v9.9.1)
  * FEATURES: TRUE STREAMING + MEMORY + TAVILY + CODE FIXES
@@ -56,7 +56,7 @@ function shouldTriggerSearch(text) {
 
 async function runTavilySearch(env, query) {
   if (!env.TAVILY_API_KEY) return null;
-  
+
   try {
     const response = await fetch("https://api.tavily.com/search", {
       method: "POST",
@@ -73,7 +73,7 @@ async function runTavilySearch(env, query) {
     });
 
     if (!response.ok) return null;
-    
+
     const data = await response.json();
     if (!data.results || data.results.length === 0) return null;
 
@@ -81,7 +81,7 @@ async function runTavilySearch(env, query) {
     const snippets = data.results
       .map(r => `• ${r.title}: ${r.content} (${r.url})`)
       .join("\n");
-      
+
     return `\n[REAL-TIME SEARCH RESULTS FROM WEB]:\n${snippets}\n\n`;
   } catch (e) {
     console.error("Tavily Search Error:", e);
@@ -180,13 +180,15 @@ async function deleteMemory(env, key) {
 //////////////////////////////
 // AI CALL (RETRIES FOR NON-STREAM)
 //////////////////////////////
-async function runAi(env, model, payload) {
+const MODEL_ID = "@cf/leonardo/lucid-origin"; // Updated model ID
+
+async function runAi(env, payload) {
   for (let i = 0; i <= AI_RETRY_LIMIT; i++) {
     try {
-      return await env.SPY_AI.run(model, payload);
+      return await env.SPY_AI.run(MODEL_ID, payload);
     } catch (e) {
       if (i === AI_RETRY_LIMIT) throw e;
-      await sleep(AI_RETRY_DELAY_BASE * (2 ** i));
+      await sleep(AI_RETRY_DELAY_BASE * (2  i));
     }
   }
 }
@@ -231,19 +233,19 @@ export async function onRequest(context) {
     } = payload;
 
     const memKey = AI_MEMORY_USER_KEY_PREFIX + user_preference_id;
-    
+
     // FIX: Handle "Continue" requests (where prompt is empty but stream_id exists)
     let activePrompt = prompt;
     if (!activePrompt && stream_id) {
         activePrompt = "Continue generating strictly from where you stopped. Do not repeat the beginning.";
     }
-    
+
     const cleanPrompt = (activePrompt || "").trim().toLowerCase();
 
     // -- Language Detection Trigger --
     const isTelugu = shouldTriggerTelugu(cleanPrompt);
     let finalSystemPrompt = SPIDER_SYSTEM_PROMPT;
-    
+
     if (isTelugu) {
       finalSystemPrompt += "\n[SYSTEM: DETECTED TELUGU INPUT (Romanized). REPLY STRICTLY IN TELUGU USING ENGLISH LETTERS.]";
     }
@@ -264,9 +266,9 @@ export async function onRequest(context) {
     // DELETE MEMORY MODE
     //////////////////////
     if (
-      mode === "delete_memory" || 
-      mode === "clear_memory" || 
-      mode === "delete_all" || 
+      mode === "delete_memory" ||
+      mode === "clear_memory" ||
+      mode === "delete_all" ||
       cleanPrompt === "delete all"
     ) {
       const success = await deleteMemory(env, memKey);
@@ -277,7 +279,7 @@ export async function onRequest(context) {
       }
 
       return new Response(
-        JSON.stringify({ status: success ? "success" : "skipped", message: msg }), 
+        JSON.stringify({ status: success ? "success" : "skipped", message: msg }),
         { headers: { ...cors, "Content-Type": "application/json" } }
       );
     }
@@ -287,7 +289,7 @@ export async function onRequest(context) {
     //////////////////////
     if (mode === "stream" || stream === true) {
       const encoder = new TextEncoder();
-      
+
       // FIX: Generate a new Stream ID so frontend can continue next time
       const newStreamId = crypto.randomUUID();
 
@@ -296,7 +298,7 @@ export async function onRequest(context) {
           try {
             // 1. Prepare User Prompt with potential Search Context
             let finalUserPrompt = activePrompt;
-            
+
             // Add File content if exists
             if (mode === "analyze_file" && file_content) {
               finalUserPrompt = `FILE: ${filename || "unknown"}\nCONTENT:\n${file_content}\n\nREQUEST:\n${activePrompt}`;
@@ -318,7 +320,7 @@ export async function onRequest(context) {
 
             // 4. Run AI with TRUE STREAMING (Fixes Timeout)
             const aiStream = await env.SPY_AI.run(
-              "@cf/mistralai/mistral-small-3.1-24b-instruct",
+              MODEL_ID, // Updated model ID
               {
                 messages: finalMessages,
                 max_tokens: 8192,
@@ -351,12 +353,12 @@ export async function onRequest(context) {
                   try {
                     const json = JSON.parse(dataStr);
                     const textChunk = json.response; // Cloudflare output format
-                    
+
                     if (textChunk) {
                       fullAiResponse += textChunk;
-                      
+
                       // AGGRESSIVE STREAM CLEANER
-                      // Removes ** and (# + space)
+                      // Removes  and (# + space)
                       let cleanChunk = textChunk
                         .replace(/\*\*/g, "")
                         .replace(/(^|\n)\s*#{1,6}\s+/g, "$1");
@@ -378,7 +380,7 @@ export async function onRequest(context) {
                const cleanSaved = cleanAiResponse(fullAiResponse);
                // Add assistant turn
                memory.push({ role: "assistant", content: cleanSaved, ts: Date.now() });
-               
+
                // Trim and Save
                const memoryToSave = memory.slice(-AI_MEMORY_TRIM_TARGET);
                context.waitUntil(saveMemory(env, memKey, memoryToSave));
@@ -412,7 +414,6 @@ export async function onRequest(context) {
     if (mode === "image_gen") {
       const image = await runAi(
         env,
-        "@cf/stabilityai/stable-diffusion-xl-base-1.0",
         {
           prompt: `${activePrompt}, ultra detailed, cinematic lighting`,
           aspect_ratio
@@ -445,7 +446,6 @@ export async function onRequest(context) {
 
     const aiRes = await runAi(
       env,
-      "@cf/mistralai/mistral-small-3.1-24b-instruct",
       {
         messages,
         max_tokens: 4096,
@@ -454,7 +454,7 @@ export async function onRequest(context) {
     );
 
     const output = cleanAiResponse(extractText(aiRes));
-    
+
     // Save Assistant response
     memory.push({ role: "assistant", content: output, ts: Date.now() });
     await saveMemory(env, memKey, memory);
