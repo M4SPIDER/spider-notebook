@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.15)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.16)
  * FEATURES: MISTRAL + LUCID ORIGIN (STABILITY FIXES)
- * UPDATE: Fixed Stream ID Persistence (Solves Split UI)
+ * UPDATE: Added 400-Line Output Limit & Auto-Pause
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,13 +11,14 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.15";
+const VERSION = "9.9.16";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
 const AI_MEMORY_USER_KEY_PREFIX = "spider_ai_mem:";
 const AI_RETRY_LIMIT = 2;
 const AI_RETRY_DELAY_BASE = 1500;
+const AI_MAX_OUTPUT_LINES = 400; // NEW: Max lines before pausing
 
 //////////////////////////////
 // UTILS
@@ -343,6 +344,7 @@ export async function onRequest(context) {
             const decoder = new TextDecoder();
             let fullAiResponse = "";
             let buffer = "";
+            let lineCount = 0; // NEW: Track lines to prevent massive output breaks
 
             while (true) {
               const { done, value } = await reader.read();
@@ -366,14 +368,31 @@ export async function onRequest(context) {
                     if (textChunk) {
                       fullAiResponse += textChunk;
                       
+                      // NEW: Count lines in this chunk
+                      const chunkLines = (textChunk.match(/\n/g) || []).length;
+                      lineCount += chunkLines;
+
                       // Using activeStreamId ensures we append to the same message
                       controller.enqueue(
                         encoder.encode(`data: ${JSON.stringify({ text: textChunk, stream_id: activeStreamId })}\n\n`)
                       );
+
+                      // NEW: Auto-Pause logic
+                      if (lineCount >= AI_MAX_OUTPUT_LINES) {
+                          const stopMsg = "\n\n[SYSTEM: Output limit reached (400 lines). Click 'Continue' to generate the rest.]";
+                          fullAiResponse += stopMsg;
+                          controller.enqueue(
+                            encoder.encode(`data: ${JSON.stringify({ text: stopMsg, stream_id: activeStreamId })}\n\n`)
+                          );
+                          // Force loop break
+                          break;
+                      }
                     }
                   } catch(e) {}
                 }
               }
+              // NEW: Break the outer reader loop if limit reached
+              if (lineCount >= AI_MAX_OUTPUT_LINES) break;
             }
 
             if (fullAiResponse) {
