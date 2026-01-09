@@ -1,7 +1,7 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.11)
- * FEATURES: MISTRAL + LUCID ORIGIN (SYSTEM PROMPT FIX)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.12)
+ * FEATURES: MISTRAL + LUCID ORIGIN (STRICT NAMING + CODE RULES)
  * Author: M4 Spider
  * =========================================================
  */
@@ -10,7 +10,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.11";
+const VERSION = "9.9.12";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -137,6 +137,7 @@ const SPIDER_SYSTEM_PROMPT =
 "\nCODING STANDARDS:\n" +
 "- ACCURACY: Verify logic, syntax, and imports before writing code. Ensure no missing brackets or semicolons.\n" +
 "- COMPLETENESS: Write full, runnable code. Do not leave placeholders like '// ... rest of code' unless the file is massive.\n" +
+"- CONSISTENCY: When updating code, only modify the necessary parts. Keep the rest of the original code exactly the same to prevent breaking changes.\n" +
 "- BEST PRACTICES: Use modern conventions (e.g., ES6+ for JS, React Hooks, functional components).\n" +
 "- EXPLANATION: If code is complex, briefly explain the key logic.\n" +
 "\nMOVIE/RELEASE INFO RULE:\n" +
