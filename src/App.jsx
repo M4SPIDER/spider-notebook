@@ -4223,35 +4223,35 @@ export default function App() {
 // 🔥 SPIDER AI — Cloudflare GPT-120B + SDXL Integration (FINAL VERSION)
 const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat", options = {}) => {
     
-    // ==========================================================
-    // 🔥 THE REAL FIX: Pass options.signal and return raw 'res' for streams
-    // ==========================================================
-    
+    // 1. Determine if we should force streaming
+    // We stream for 'chat', 'analyze_file', 'stream', or if the prompt doesn't trigger image gen
+    const isImageGen = mode === "image_gen" || (payload.prompt && /generate image|create image/i.test(payload.prompt));
+    const shouldStream = !isImageGen;
+
     let fetchOptions = {
         method: "POST",
-headers: {
+        headers: {
             "Content-Type": "application/json"
         },
-        // Stringify the entire payload (includes file_content, images, etc.)
-        body: JSON.stringify(payload),
-        // Allows the frontend to cancel the request via handleStopGeneration
+        body: JSON.stringify({
+            ...payload,
+            // Force stream flag to true for all text/chat requests 
+            stream: shouldStream 
+        }),
         signal: options.signal 
     };
 
     try {
-        // Use the new fetchOptions, sending to the /ai worker endpoint
         const res = await fetch("/ai", fetchOptions);
 
-        // ---------------- STREAMING HANDLER (NEW) ----------------
-        // If the frontend explicitly passed { stream: true } in the options,
-        // we return the raw Response object so res.body.getReader() works.
-        if (options.stream) {
+        // ---------------- 1. STREAMING HANDLER (CHAT & ANALYZE) ----------------
+        // If it's not an image, we return the raw response for the UI stream reader [cite: 122]
+        if (shouldStream) {
             return res; 
         }
 
+        // ---------------- 2. IMAGE RESPONSE (PNG) ----------------
         const contentType = res.headers.get("content-type") || "";
-
-        // ---------------- IMAGE RESPONSE (PNG) ----------------
         if (contentType.includes("image/")) {
             const blob = await res.blob();
 
@@ -4264,27 +4264,23 @@ headers: {
             return {
                 text: payload.prompt || "",
                 base64_image: base64,
-                model_used: "SDXL"
+                model_used: "Lucid Origin" // Consistent with Backend [cite: 21, 101]
             };
-}
-
-        // ---------------- TEXT RESPONSE ----------------
-        const rawText = await res.text();
-
-        if (!rawText || rawText.trim() === "") {
-            return { error: "Empty response from Spider AI." };
         }
 
-        // Spider AI 2.0 returns plain text for non-streaming requests
-        return {
-            text: rawText,
-            raw: rawText
-        };
+        // ---------------- 3. JSON RESPONSES (MEMORY OPS) ----------------
+        if (contentType.includes("application/json")) {
+            return await res.json();
+        }
+
+        // Fallback for plain text errors
+        const rawText = await res.text();
+        return { text: rawText };
 
     } catch (err) {
-        // Return error object instead of throwing to avoid breaking the UI flow
+        // Prevent UI crash on network errors
         return { error: err.message };
-}
+    }
 }, []);
     
     // --- WebSocket Handlers (NEW) ---
@@ -5012,3 +5008,4 @@ int main() {
         </>
     );
 }
+
