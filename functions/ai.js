@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.14)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.15)
  * FEATURES: MISTRAL + LUCID ORIGIN (STABILITY FIXES)
- * UPDATE: Fixed File Analysis Continuation
+ * UPDATE: Fixed Stream ID Persistence (Solves Split UI)
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.14";
+const VERSION = "9.9.15";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -303,7 +303,9 @@ export async function onRequest(context) {
     //////////////////////
     if (mode === "stream" || stream === true) {
       const encoder = new TextEncoder();
-      const newStreamId = crypto.randomUUID();
+      
+      // FIX: Use existing stream_id if available to append to same UI bubble
+      const activeStreamId = stream_id || crypto.randomUUID();
 
       const streamResp = new ReadableStream({
         async start(controller) {
@@ -311,8 +313,6 @@ export async function onRequest(context) {
             let finalUserPrompt = activePrompt;
             
             // FIXED: Only inject file content if this is NOT a continue request.
-            // If it IS a continue request, the file is already in memory from the previous turn.
-            // Re-sending it causes context duplication and confusion.
             if (mode === "analyze_file" && file_content && !isContinue) {
               finalUserPrompt = `FILE: ${filename || "unknown"}\nCONTENT:\n${file_content}\n\nREQUEST:\n${activePrompt}`;
             }
@@ -366,9 +366,9 @@ export async function onRequest(context) {
                     if (textChunk) {
                       fullAiResponse += textChunk;
                       
-                      // NO AGGRESSIVE CLEANING - Passing raw tokens to preserve code
+                      // Using activeStreamId ensures we append to the same message
                       controller.enqueue(
-                        encoder.encode(`data: ${JSON.stringify({ text: textChunk, stream_id: newStreamId })}\n\n`)
+                        encoder.encode(`data: ${JSON.stringify({ text: textChunk, stream_id: activeStreamId })}\n\n`)
                       );
                     }
                   } catch(e) {}
