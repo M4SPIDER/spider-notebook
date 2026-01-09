@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.17)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.18)
  * FEATURES: MISTRAL + LUCID ORIGIN (STABILITY FIXES)
- * UPDATE: Limit increased to 700 Lines & Fixed Stream Hanging
+ * UPDATE: Auto-Continuation (No Stop Button needed)
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,14 +11,14 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.17";
+const VERSION = "9.9.18";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
 const AI_MEMORY_USER_KEY_PREFIX = "spider_ai_mem:";
 const AI_RETRY_LIMIT = 2;
 const AI_RETRY_DELAY_BASE = 1500;
-const AI_MAX_OUTPUT_LINES = 700; // UPDATED: Increased to 700 lines (~8k tokens)
+const AI_MAX_OUTPUT_LINES = 700; // Trigger for auto-continuation
 
 //////////////////////////////
 // UTILS
@@ -300,7 +300,7 @@ export async function onRequest(context) {
     }
 
     //////////////////////
-    // STREAM MODE (TRUE STREAMING)
+    // STREAM MODE (TRUE STREAMING + AUTO CONTINUE)
     //////////////////////
     if (mode === "stream" || stream === true) {
       const encoder = new TextEncoder();
@@ -311,107 +311,122 @@ export async function onRequest(context) {
       const streamResp = new ReadableStream({
         async start(controller) {
           try {
-            let finalUserPrompt = activePrompt;
+            let currentLoop = 0;
+            const MAX_LOOPS = 5; // Allow 5 auto-continues (~3500 lines)
+            let isFullyDone = false;
             
-            // FIXED: Only inject file content if this is NOT a continue request.
+            // 1. Initial Prompt Setup
+            let currentPrompt = activePrompt;
             if (mode === "analyze_file" && file_content && !isContinue) {
-              finalUserPrompt = `FILE: ${filename || "unknown"}\nCONTENT:\n${file_content}\n\nREQUEST:\n${activePrompt}`;
+              currentPrompt = `FILE: ${filename || "unknown"}\nCONTENT:\n${file_content}\n\nREQUEST:\n${activePrompt}`;
             }
-
             if (searchContext) {
-              finalUserPrompt += `\n\n${searchContext}\n[INSTRUCTION: Use the above search results to answer the user request.]`;
+              currentPrompt += `\n\n${searchContext}\n[INSTRUCTION: Use the above search results to answer the user request.]`;
             }
 
-            let finalMessages = [];
-            finalMessages.push({ role: "system", content: finalSystemPrompt });
-            finalMessages.push(...memory.map(m => ({ role: m.role, content: m.content })));
-            finalMessages.push({ role: "user", content: finalUserPrompt });
+            // Push initial user message
+            memory.push({ role: "user", content: currentPrompt, ts: Date.now() });
 
-            memory.push({ role: "user", content: finalUserPrompt, ts: Date.now() });
+            // 2. Loop until done or limit hit
+            while (currentLoop < MAX_LOOPS && !isFullyDone) {
+                currentLoop++;
 
-            // USING MISTRAL (Text Logic)
-            const aiStream = await env.SPY_AI.run(
-              "@cf/mistralai/mistral-small-3.1-24b-instruct",
-              {
-                messages: finalMessages,
-                max_tokens: 8192,
-                temperature: 0.7,
-                stream: true
-              }
-            );
+                // Build messages from memory
+                const currentMessages = [
+                    { role: "system", content: finalSystemPrompt },
+                    ...memory.map(m => ({ role: m.role, content: m.content }))
+                ];
 
-            const reader = aiStream.getReader();
-            const decoder = new TextDecoder();
-            let fullAiResponse = "";
-            let buffer = "";
-            let lineCount = 0; 
+                // Run AI
+                const aiStream = await env.SPY_AI.run(
+                  "@cf/mistralai/mistral-small-3.1-24b-instruct",
+                  {
+                    messages: currentMessages,
+                    max_tokens: 8192,
+                    temperature: 0.7,
+                    stream: true
+                  }
+                );
 
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
+                const reader = aiStream.getReader();
+                const decoder = new TextDecoder();
+                let loopBuffer = ""; 
+                let loopLineCount = 0;
+                let streamEndedNaturally = true;
 
-              const chunk = decoder.decode(value, { stream: true });
-              buffer += chunk;
-              const lines = buffer.split("\n");
-              buffer = lines.pop(); 
+                // Inner Reader Loop
+                while (true) {
+                  const { done, value } = await reader.read();
+                  if (done) break;
 
-              for (const line of lines) {
-                const trimmed = line.trim();
-                if (trimmed.startsWith("data:")) {
-                  const dataStr = trimmed.replace("data:", "").trim();
-                  if (dataStr === "[DONE]") continue;
+                  const chunk = decoder.decode(value, { stream: true });
+                  const lines = chunk.split("\n");
+                  
+                  // Process chunk lines
+                  for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (trimmed.startsWith("data:")) {
+                      const dataStr = trimmed.replace("data:", "").trim();
+                      if (dataStr === "[DONE]") continue;
 
-                  try {
-                    const json = JSON.parse(dataStr);
-                    const textChunk = json.response; 
-                    
-                    if (textChunk) {
-                      fullAiResponse += textChunk;
-                      
-                      // Count lines in this chunk
-                      const chunkLines = (textChunk.match(/\n/g) || []).length;
-                      lineCount += chunkLines;
-
-                      // Using activeStreamId ensures we append to the same message
-                      controller.enqueue(
-                        encoder.encode(`data: ${JSON.stringify({ text: textChunk, stream_id: activeStreamId })}\n\n`)
-                      );
-
-                      // NEW: Auto-Pause logic with SAFE EXIT
-                      if (lineCount >= AI_MAX_OUTPUT_LINES) {
-                          const stopMsg = "\n\n[SYSTEM: Output limit reached (700 lines). Click 'Continue' to generate the rest.]";
-                          fullAiResponse += stopMsg;
+                      try {
+                        const json = JSON.parse(dataStr);
+                        const textChunk = json.response; 
+                        
+                        if (textChunk) {
+                          // Stream to user immediately
                           controller.enqueue(
-                            encoder.encode(`data: ${JSON.stringify({ text: stopMsg, stream_id: activeStreamId })}\n\n`)
+                            encoder.encode(`data: ${JSON.stringify({ text: textChunk, stream_id: activeStreamId })}\n\n`)
                           );
-                          break; // Break inner parsing loop
-                      }
+                          
+                          loopBuffer += textChunk;
+                          
+                          // Count lines for this loop only
+                          const chunkLines = (textChunk.match(/\n/g) || []).length;
+                          loopLineCount += chunkLines;
+
+                          // Check Limit
+                          if (loopLineCount >= AI_MAX_OUTPUT_LINES) {
+                              streamEndedNaturally = false;
+                              break; // Break data processing, then break reader
+                          }
+                        }
+                      } catch(e) {}
                     }
-                  } catch(e) {}
+                  }
+                  
+                  // If limit reached, cancel stream and break inner loop
+                  if (!streamEndedNaturally) {
+                     await reader.cancel();
+                     break; 
+                  }
                 }
-              }
-              
-              // CRITICAL FIX: If limit reached, cancel upstream reader and break outer loop
-              if (lineCount >= AI_MAX_OUTPUT_LINES) {
-                 await reader.cancel();
-                 break; 
-              }
-            }
 
-            if (fullAiResponse) {
-               const cleanSaved = cleanAiResponse(fullAiResponse);
-               memory.push({ role: "assistant", content: cleanSaved, ts: Date.now() });
-               
-               const memoryToSave = memory.slice(-AI_MEMORY_TRIM_TARGET);
-               context.waitUntil(saveMemory(env, memKey, memoryToSave));
-            }
+                // Decision: Done or Continue?
+                if (streamEndedNaturally) {
+                    // AI finished on its own
+                    memory.push({ role: "assistant", content: cleanAiResponse(loopBuffer), ts: Date.now() });
+                    isFullyDone = true;
+                } else {
+                    // Limit hit - AUTO CONTINUE
+                    // 1. Save partial output
+                    memory.push({ role: "assistant", content: cleanAiResponse(loopBuffer), ts: Date.now() });
+                    // 2. Add continue prompt
+                    const continueMsg = "The code/text was cut off. Please continue EXACTLY from where you left off. Do not repeat the last part, just continue.";
+                    memory.push({ role: "user", content: continueMsg, ts: Date.now() });
+                    // 3. Loop repeats...
+                }
+            } // End While
 
-            // ALWAYS send DONE signal to prevent UI from hanging/spinning
+            // Save final memory state
+            const memoryToSave = memory.slice(-AI_MEMORY_TRIM_TARGET);
+            context.waitUntil(saveMemory(env, memKey, memoryToSave));
+
+            // ALWAYS send DONE signal
             controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
             controller.close();
 
           } catch (err) {
-            // Ensure error also closes stream properly
             try {
                 controller.enqueue(
                   encoder.encode(`data: ${JSON.stringify({ text: "\n[Error]\n" + err.message })}\n\n`)
