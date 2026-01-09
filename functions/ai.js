@@ -1,7 +1,7 @@
-/
+/**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.1)
- * FEATURES: TRUE STREAMING + MEMORY + TAVILY + CODE FIXES
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.3)
+ * FEATURES: MISTRAL MODEL + CODE SAFE (NO AGGRESSIVE CLEANING)
  * Author: M4 Spider
  * =========================================================
  */
@@ -10,7 +10,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.1";
+const VERSION = "9.9.3";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -23,15 +23,15 @@ const AI_RETRY_DELAY_BASE = 1500;
 //////////////////////////////
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+// UPDATED: Less aggressive cleaner to preserve code operators (**) and comments (#)
 function cleanAiResponse(text) {
   if (!text) return "";
 
   return text
-    .replace(/#\*[\s\S]*?\*#/g, "") // Remove custom internal tags
+    .replace(/#\*[\s\S]*?\*#/g, "") // Remove custom internal tags only
     .replace(/#\*/g, "")
     .replace(/\*#/g, "")
-    .replace(/\*\*/g, "")           // Remove bold
-    .replace(/(^|\n)\s*#{1,6}\s+/g, "$1") // Remove Markdown Headers (# Title) carefully
+    // Removed ** and # header stripping to protect code syntax
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -39,7 +39,6 @@ function cleanAiResponse(text) {
 //////////////////////////////
 // TAVILY SEARCH INTEGRATION
 //////////////////////////////
-// EXPANDED TRIGGERS: Includes movies, dates, and "when is" questions
 const SEARCH_TRIGGER_WORDS = [
   "latest", "updated", "news", "today", "current", "live", "recent", "now",
   "price", "stock", "score", "weather", "search for", "google", "find info",
@@ -56,7 +55,7 @@ function shouldTriggerSearch(text) {
 
 async function runTavilySearch(env, query) {
   if (!env.TAVILY_API_KEY) return null;
-
+  
   try {
     const response = await fetch("https://api.tavily.com/search", {
       method: "POST",
@@ -73,15 +72,14 @@ async function runTavilySearch(env, query) {
     });
 
     if (!response.ok) return null;
-
+    
     const data = await response.json();
     if (!data.results || data.results.length === 0) return null;
 
-    // Format results for the AI
     const snippets = data.results
       .map(r => `• ${r.title}: ${r.content} (${r.url})`)
       .join("\n");
-
+      
     return `\n[REAL-TIME SEARCH RESULTS FROM WEB]:\n${snippets}\n\n`;
   } catch (e) {
     console.error("Tavily Search Error:", e);
@@ -112,7 +110,6 @@ function buildTeluguRegex(words) {
 }
 const TELUGU_TRIGGER_REGEX = buildTeluguRegex(TELUGU_TRIGGER_WORDS);
 
-/* ===== REQUIRE 2+ TELUGU WORDS ===== */
 function shouldTriggerTelugu(message) {
   if (!message || typeof message !== "string") return false;
   const words = message.toLowerCase().split(/\s+/);
@@ -178,17 +175,15 @@ async function deleteMemory(env, key) {
 }
 
 //////////////////////////////
-// AI CALL (RETRIES FOR NON-STREAM)
+// AI CALL
 //////////////////////////////
-const MODEL_ID = "@cf/leonardo/lucid-origin"; // Updated model ID
-
-async function runAi(env, payload) {
+async function runAi(env, model, payload) {
   for (let i = 0; i <= AI_RETRY_LIMIT; i++) {
     try {
-      return await env.SPY_AI.run(MODEL_ID, payload);
+      return await env.SPY_AI.run(model, payload);
     } catch (e) {
       if (i === AI_RETRY_LIMIT) throw e;
-      await sleep(AI_RETRY_DELAY_BASE * (2  i));
+      await sleep(AI_RETRY_DELAY_BASE * (2 ** i));
     }
   }
 }
@@ -229,23 +224,23 @@ export async function onRequest(context) {
       stream = false,
       file_content,
       filename,
-      stream_id // FIX: Extract stream_id for continue logic
+      stream_id
     } = payload;
 
     const memKey = AI_MEMORY_USER_KEY_PREFIX + user_preference_id;
-
-    // FIX: Handle "Continue" requests (where prompt is empty but stream_id exists)
+    
+    // Handle Continue requests
     let activePrompt = prompt;
     if (!activePrompt && stream_id) {
-        activePrompt = "Continue generating strictly from where you stopped. Do not repeat the beginning.";
+        activePrompt = "The previous code/text was incomplete. Please CONTINUE generating EXACTLY from where you left off. Do not restart. Just output the remaining part.";
     }
-
+    
     const cleanPrompt = (activePrompt || "").trim().toLowerCase();
 
-    // -- Language Detection Trigger --
+    // -- Language Detection --
     const isTelugu = shouldTriggerTelugu(cleanPrompt);
     let finalSystemPrompt = SPIDER_SYSTEM_PROMPT;
-
+    
     if (isTelugu) {
       finalSystemPrompt += "\n[SYSTEM: DETECTED TELUGU INPUT (Romanized). REPLY STRICTLY IN TELUGU USING ENGLISH LETTERS.]";
     }
@@ -259,16 +254,16 @@ export async function onRequest(context) {
        }
     }
 
-    // Fetch memory (SHARED for both modes)
+    // Fetch memory
     let memory = await getMemory(env, memKey);
 
     //////////////////////
     // DELETE MEMORY MODE
     //////////////////////
     if (
-      mode === "delete_memory" ||
-      mode === "clear_memory" ||
-      mode === "delete_all" ||
+      mode === "delete_memory" || 
+      mode === "clear_memory" || 
+      mode === "delete_all" || 
       cleanPrompt === "delete all"
     ) {
       const success = await deleteMemory(env, memKey);
@@ -279,57 +274,49 @@ export async function onRequest(context) {
       }
 
       return new Response(
-        JSON.stringify({ status: success ? "success" : "skipped", message: msg }),
+        JSON.stringify({ status: success ? "success" : "skipped", message: msg }), 
         { headers: { ...cors, "Content-Type": "application/json" } }
       );
     }
 
     //////////////////////
-    // STREAM MODE (TRUE STREAMING + MEMORY + SEARCH)
+    // STREAM MODE (TRUE STREAMING)
     //////////////////////
     if (mode === "stream" || stream === true) {
       const encoder = new TextEncoder();
-
-      // FIX: Generate a new Stream ID so frontend can continue next time
       const newStreamId = crypto.randomUUID();
 
       const streamResp = new ReadableStream({
         async start(controller) {
           try {
-            // 1. Prepare User Prompt with potential Search Context
             let finalUserPrompt = activePrompt;
-
-            // Add File content if exists
+            
             if (mode === "analyze_file" && file_content) {
               finalUserPrompt = `FILE: ${filename || "unknown"}\nCONTENT:\n${file_content}\n\nREQUEST:\n${activePrompt}`;
             }
 
-            // Append Search Context if it exists
             if (searchContext) {
               finalUserPrompt += `\n\n${searchContext}\n[INSTRUCTION: Use the above search results to answer the user request.]`;
             }
 
-            // 2. Build Context (System + History + Current)
             let finalMessages = [];
             finalMessages.push({ role: "system", content: finalSystemPrompt });
             finalMessages.push(...memory.map(m => ({ role: m.role, content: m.content })));
             finalMessages.push({ role: "user", content: finalUserPrompt });
 
-            // 3. Temporarily update local memory for the AI run (User turn)
             memory.push({ role: "user", content: finalUserPrompt, ts: Date.now() });
 
-            // 4. Run AI with TRUE STREAMING (Fixes Timeout)
+            // USING MISTRAL (Old Model)
             const aiStream = await env.SPY_AI.run(
-              MODEL_ID, // Updated model ID
+              "@cf/mistralai/mistral-small-3.1-24b-instruct",
               {
                 messages: finalMessages,
                 max_tokens: 8192,
                 temperature: 0.7,
-                stream: true // Enable direct streaming from model
+                stream: true
               }
             );
 
-            // 5. Parse the SSE Stream
             const reader = aiStream.getReader();
             const decoder = new TextDecoder();
             let fullAiResponse = "";
@@ -342,7 +329,7 @@ export async function onRequest(context) {
               const chunk = decoder.decode(value, { stream: true });
               buffer += chunk;
               const lines = buffer.split("\n");
-              buffer = lines.pop(); // Keep incomplete line
+              buffer = lines.pop(); 
 
               for (const line of lines) {
                 const trimmed = line.trim();
@@ -352,36 +339,25 @@ export async function onRequest(context) {
 
                   try {
                     const json = JSON.parse(dataStr);
-                    const textChunk = json.response; // Cloudflare output format
-
+                    const textChunk = json.response; 
+                    
                     if (textChunk) {
                       fullAiResponse += textChunk;
-
-                      // AGGRESSIVE STREAM CLEANER
-                      // Removes  and (# + space)
-                      let cleanChunk = textChunk
-                        .replace(/\*\*/g, "")
-                        .replace(/(^|\n)\s*#{1,6}\s+/g, "$1");
-
-                      // FIX: Send stream_id with chunks so frontend can enable 'Continue'
+                      
+                      // NO AGGRESSIVE CLEANING - Passing raw tokens to preserve code
                       controller.enqueue(
-                        encoder.encode(`data: ${JSON.stringify({ text: cleanChunk, stream_id: newStreamId })}\n\n`)
+                        encoder.encode(`data: ${JSON.stringify({ text: textChunk, stream_id: newStreamId })}\n\n`)
                       );
                     }
-                  } catch(e) {
-                    // ignore JSON parse errors
-                  }
+                  } catch(e) {}
                 }
               }
             }
 
-            // 6. SAVE CONTINUITY: Update KV with Full Response
             if (fullAiResponse) {
                const cleanSaved = cleanAiResponse(fullAiResponse);
-               // Add assistant turn
                memory.push({ role: "assistant", content: cleanSaved, ts: Date.now() });
-
-               // Trim and Save
+               
                const memoryToSave = memory.slice(-AI_MEMORY_TRIM_TARGET);
                context.waitUntil(saveMemory(env, memKey, memoryToSave));
             }
@@ -414,6 +390,7 @@ export async function onRequest(context) {
     if (mode === "image_gen") {
       const image = await runAi(
         env,
+        "@cf/stabilityai/stable-diffusion-xl-base-1.0",
         {
           prompt: `${activePrompt}, ultra detailed, cinematic lighting`,
           aspect_ratio
@@ -426,16 +403,14 @@ export async function onRequest(context) {
     }
 
     //////////////////////
-    // NORMAL CHAT (WITH MEMORY CONTINUITY + SEARCH)
+    // NORMAL CHAT
     //////////////////////
     
-    // Add Search Context to Normal Chat Prompt
     let finalUserPrompt = activePrompt;
     if (searchContext) {
       finalUserPrompt += `\n\n${searchContext}\n[INSTRUCTION: Use the above search results to answer the user request.]`;
     }
 
-    // Add new user prompt
     memory.push({ role: "user", content: finalUserPrompt, ts: Date.now() });
     memory = memory.slice(-AI_MEMORY_TRIM_TARGET);
 
@@ -444,8 +419,10 @@ export async function onRequest(context) {
       ...memory.map(m => ({ role: m.role, content: m.content }))
     ];
 
+    // USING MISTRAL (Old Model)
     const aiRes = await runAi(
       env,
+      "@cf/mistralai/mistral-small-3.1-24b-instruct",
       {
         messages,
         max_tokens: 4096,
@@ -454,8 +431,7 @@ export async function onRequest(context) {
     );
 
     const output = cleanAiResponse(extractText(aiRes));
-
-    // Save Assistant response
+    
     memory.push({ role: "assistant", content: output, ts: Date.now() });
     await saveMemory(env, memKey, memory);
 
