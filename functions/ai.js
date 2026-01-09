@@ -390,7 +390,7 @@ export async function onRequest(context) {
     if (mode === "image_gen") {
       const image = await runAi(
         env,
-        "@cf/stabilityai/stable-diffusion-xl-base-1.0",
+        "@cf/leonardo/lucid-origin",
         {
           prompt: `${activePrompt}, ultra detailed, cinematic lighting`,
           aspect_ratio
