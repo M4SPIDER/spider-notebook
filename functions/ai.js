@@ -1,7 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.13)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.14)
  * FEATURES: MISTRAL + LUCID ORIGIN (STABILITY FIXES)
+ * UPDATE: Fixed File Analysis Continuation
  * Author: M4 Spider
  * =========================================================
  */
@@ -10,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.13";
+const VERSION = "9.9.14";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -233,8 +234,10 @@ export async function onRequest(context) {
     
     // Handle Continue requests
     let activePrompt = prompt;
+    let isContinue = false; // TRACK CONTINUATION
     if (!activePrompt && stream_id) {
         activePrompt = "The previous code/text was incomplete. Please CONTINUE generating EXACTLY from where you left off. Do not restart. Just output the remaining part.";
+        isContinue = true;
     }
     
     const cleanPrompt = (activePrompt || "").trim().toLowerCase();
@@ -307,7 +310,10 @@ export async function onRequest(context) {
           try {
             let finalUserPrompt = activePrompt;
             
-            if (mode === "analyze_file" && file_content) {
+            // FIXED: Only inject file content if this is NOT a continue request.
+            // If it IS a continue request, the file is already in memory from the previous turn.
+            // Re-sending it causes context duplication and confusion.
+            if (mode === "analyze_file" && file_content && !isContinue) {
               finalUserPrompt = `FILE: ${filename || "unknown"}\nCONTENT:\n${file_content}\n\nREQUEST:\n${activePrompt}`;
             }
 
