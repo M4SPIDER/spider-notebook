@@ -1,7 +1,7 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.9)
- * FEATURES: MISTRAL + LUCID ORIGIN (RESTORED FULL CODE)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.10)
+ * FEATURES: MISTRAL + LUCID ORIGIN + MEMORY PERSISTENCE
  * Author: M4 Spider
  * =========================================================
  */
@@ -10,7 +10,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.9";
+const VERSION = "9.9.10";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -400,7 +400,7 @@ export async function onRequest(context) {
     }
 
     //////////////////////
-    // IMAGE GENERATION (DEBUGGABLE + LLM OPTIMIZED)
+    // IMAGE GENERATION (MEMORY PERSISTENCE FIXED)
     //////////////////////
     if (mode === "image_gen") {
       // 1. Calculate Standard Width/Height
@@ -415,13 +415,12 @@ export async function onRequest(context) {
 
       // 2. PROMPT OPTIMIZER (Tuned to be faithful)
       let enhancedPrompt = `${activePrompt}, ultra detailed, cinematic lighting`; 
-      let wasEnhanced = false;
-
+      
       try {
         const promptOptimizerSys = 
           "You are an expert Image Prompt Engineer. " +
           "Your goal: Take the user's idea and add lighting/style details to make it look professional. " +
-          "CRITICAL: Keep the MAIN SUBJECT exactly as the user described. Do not change the subject. " +
+          "CRITICAL: Keep the MAIN SUBJECT exactly as the user described. " +
           "REPLY WITH THE PROMPT ONLY. No talk.";
         
         const optimizerRes = await runAi(
@@ -439,16 +438,29 @@ export async function onRequest(context) {
         const optimizedText = extractText(optimizerRes);
         if (optimizedText && optimizedText.length > 5) {
             enhancedPrompt = cleanAiResponse(optimizedText); 
-            wasEnhanced = true;
         }
       } catch (optError) {
         console.error("Optimizer Error:", optError);
       }
 
-      console.log(`[SpiderAI] Original: "${activePrompt}" | Enhanced: "${enhancedPrompt}"`);
-
+      // 3. SAVE TO MEMORY (CRITICAL FIX)
+      // This ensures the LLM knows it generated an image in the next turn.
       try {
-        // 3. Call the AI
+        memory.push({ role: "user", content: activePrompt, ts: Date.now() });
+        memory.push({ 
+           role: "assistant", 
+           content: `[System Action: Generated an image based on prompt: "${enhancedPrompt}"]`, 
+           ts: Date.now() 
+        });
+        
+        const memoryToSave = memory.slice(-AI_MEMORY_TRIM_TARGET);
+        context.waitUntil(saveMemory(env, memKey, memoryToSave));
+      } catch (memErr) {
+        console.error("Memory Save Failed:", memErr);
+      }
+
+      // 4. Call the AI
+      try {
         const response = await runAi(
           env,
           "@cf/leonardo/lucid-origin",
@@ -460,37 +472,27 @@ export async function onRequest(context) {
           }
         );
 
-        // 4. UNIVERSAL HANDLER + DEBUG HEADERS
+        // 5. UNIVERSAL HANDLER
         let base64Image = null;
-        
-        // Return helpful headers so you can see what the AI actually used
         const extraHeaders = {
             ...cors, 
-            "X-Ai-Original-Prompt": activePrompt.substring(0, 100), // Truncate for header safety
-            "X-Ai-Expanded-Prompt": enhancedPrompt.substring(0, 500) // Let user see what happened
+            "X-Ai-Expanded-Prompt": enhancedPrompt.substring(0, 500) 
         };
 
-        // Case A: Binary Stream (Direct)
         if (response instanceof ReadableStream) {
           return new Response(response, {
             headers: { ...extraHeaders, "Content-Type": "image/png" }
           });
         }
 
-        // Case B: Standard JSON { image: "..." }
         if (response && response.image) {
           base64Image = response.image;
-        }
-        // Case C: Nested JSON { result: { image: "..." } }
-        else if (response && response.result && response.result.image) {
+        } else if (response && response.result && response.result.image) {
           base64Image = response.result.image;
-        }
-        // Case D: Array JSON [{ image: "..." }]
-        else if (Array.isArray(response) && response[0] && response[0].image) {
+        } else if (Array.isArray(response) && response[0] && response[0].image) {
           base64Image = response[0].image;
         }
 
-        // If we found a base64 string, convert and return it
         if (base64Image) {
           const binaryString = atob(base64Image);
           const len = binaryString.length;
@@ -503,7 +505,6 @@ export async function onRequest(context) {
           });
         }
 
-        // Case E: Failure - Return JSON Debug Info
         return new Response(JSON.stringify({ 
           error: "Image Generation Failed - Unknown Format", 
           debug_response: response 
