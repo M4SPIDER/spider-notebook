@@ -1,7 +1,7 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.4)
- * FEATURES: MISTRAL + LUCID ORIGIN (FIXED) + SEARCH
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.5)
+ * FEATURES: MISTRAL + LUCID ORIGIN (FIXED BASE64) + SEARCH
  * Author: M4 Spider
  * =========================================================
  */
@@ -10,7 +10,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.4";
+const VERSION = "9.9.5";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -399,9 +399,7 @@ export async function onRequest(context) {
       else { width = 1024; height = 1024; }
 
       // 2. Call the AI
-      // NOTE: Using the ID you requested. If Lucid Origin is unavailable, 
-      // replace string below with "@cf/stabilityai/stable-diffusion-xl-base-1.0"
-      const imageResponse = await runAi(
+      const response = await runAi(
         env,
         "@cf/leonardo/lucid-origin",
         {
@@ -412,9 +410,33 @@ export async function onRequest(context) {
         }
       );
 
-      // 3. Return as Image (Handle Stream vs Blob)
-      return new Response(imageResponse, {
-        headers: { ...cors, "Content-Type": "image/png" }
+      // 3. Handle Binary Stream vs Base64 JSON (CRITICAL FIX)
+      
+      // Case A: Response is a ReadableStream (Binary) - Common for Stable Diffusion
+      if (response instanceof ReadableStream) {
+        return new Response(response, {
+          headers: { ...cors, "Content-Type": "image/png" }
+        });
+      }
+
+      // Case B: Response is a JSON Object with Base64 (Common for Lucid Origin)
+      if (response && response.image) {
+        // Decode Base64 to Binary
+        const binaryString = atob(response.image);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+
+        return new Response(bytes.buffer, {
+          headers: { ...cors, "Content-Type": "image/png" }
+        });
+      }
+
+      // Case C: Fallback/Debug (If it's an error message or unexpected format)
+      return new Response(JSON.stringify(response), {
+         headers: { ...cors, "Content-Type": "application/json" }
       });
     }
 
