@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.16)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.17)
  * FEATURES: MISTRAL + LUCID ORIGIN (STABILITY FIXES)
- * UPDATE: Added 400-Line Output Limit & Auto-Pause
+ * UPDATE: Limit increased to 700 Lines & Fixed Stream Hanging
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,14 +11,14 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.16";
+const VERSION = "9.9.17";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
 const AI_MEMORY_USER_KEY_PREFIX = "spider_ai_mem:";
 const AI_RETRY_LIMIT = 2;
 const AI_RETRY_DELAY_BASE = 1500;
-const AI_MAX_OUTPUT_LINES = 400; // NEW: Max lines before pausing
+const AI_MAX_OUTPUT_LINES = 700; // UPDATED: Increased to 700 lines (~8k tokens)
 
 //////////////////////////////
 // UTILS
@@ -344,7 +344,7 @@ export async function onRequest(context) {
             const decoder = new TextDecoder();
             let fullAiResponse = "";
             let buffer = "";
-            let lineCount = 0; // NEW: Track lines to prevent massive output breaks
+            let lineCount = 0; 
 
             while (true) {
               const { done, value } = await reader.read();
@@ -368,7 +368,7 @@ export async function onRequest(context) {
                     if (textChunk) {
                       fullAiResponse += textChunk;
                       
-                      // NEW: Count lines in this chunk
+                      // Count lines in this chunk
                       const chunkLines = (textChunk.match(/\n/g) || []).length;
                       lineCount += chunkLines;
 
@@ -377,22 +377,25 @@ export async function onRequest(context) {
                         encoder.encode(`data: ${JSON.stringify({ text: textChunk, stream_id: activeStreamId })}\n\n`)
                       );
 
-                      // NEW: Auto-Pause logic
+                      // NEW: Auto-Pause logic with SAFE EXIT
                       if (lineCount >= AI_MAX_OUTPUT_LINES) {
-                          const stopMsg = "\n\n[SYSTEM: Output limit reached (400 lines). Click 'Continue' to generate the rest.]";
+                          const stopMsg = "\n\n[SYSTEM: Output limit reached (700 lines). Click 'Continue' to generate the rest.]";
                           fullAiResponse += stopMsg;
                           controller.enqueue(
                             encoder.encode(`data: ${JSON.stringify({ text: stopMsg, stream_id: activeStreamId })}\n\n`)
                           );
-                          // Force loop break
-                          break;
+                          break; // Break inner parsing loop
                       }
                     }
                   } catch(e) {}
                 }
               }
-              // NEW: Break the outer reader loop if limit reached
-              if (lineCount >= AI_MAX_OUTPUT_LINES) break;
+              
+              // CRITICAL FIX: If limit reached, cancel upstream reader and break outer loop
+              if (lineCount >= AI_MAX_OUTPUT_LINES) {
+                 await reader.cancel();
+                 break; 
+              }
             }
 
             if (fullAiResponse) {
@@ -403,14 +406,19 @@ export async function onRequest(context) {
                context.waitUntil(saveMemory(env, memKey, memoryToSave));
             }
 
+            // ALWAYS send DONE signal to prevent UI from hanging/spinning
             controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
             controller.close();
 
           } catch (err) {
-            controller.enqueue(
-              encoder.encode(`data: ${JSON.stringify({ text: "\n[Error]\n" + err.message })}\n\n`)
-            );
-            controller.close();
+            // Ensure error also closes stream properly
+            try {
+                controller.enqueue(
+                  encoder.encode(`data: ${JSON.stringify({ text: "\n[Error]\n" + err.message })}\n\n`)
+                );
+                controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
+                controller.close();
+            } catch(e) {}
           }
         }
       });
@@ -429,15 +437,15 @@ export async function onRequest(context) {
     // IMAGE GENERATION (FIXED & STABILIZED)
     //////////////////////
     if (mode === "image_gen") {
-      // 1. Calculate Standard Width/Height
-      let width = 1024;
-      let height = 1024;
+      // 1. Calculate Standard Width/Height (Default 4K)
+      let width = 3840;
+      let height = 2160;
 
-      if (aspect_ratio === "16:9") { width = 1280; height = 720; }
-      else if (aspect_ratio === "9:16") { width = 720; height = 1280; }
-      else if (aspect_ratio === "4:3")  { width = 1152; height = 864; }
-      else if (aspect_ratio === "3:4")  { width = 864; height = 1152; }
-      else { width = 1024; height = 1024; }
+      if (aspect_ratio === "16:9") { width = 3840; height = 2160; }
+      else if (aspect_ratio === "9:16") { width = 2160; height = 3840; }
+      else if (aspect_ratio === "4:3")  { width = 3456; height = 2592; }
+      else if (aspect_ratio === "3:4")  { width = 2592; height = 3456; }
+      else { width = 3840; height = 2160; }
 
       // 2. PROMPT OPTIMIZER (Non-blocking attempt)
       let enhancedPrompt = `${activePrompt}, ultra detailed, cinematic lighting`; 
