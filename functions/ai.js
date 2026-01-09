@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.27)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.29)
  * FEATURES: MISTRAL + LUCID ORIGIN (STABILITY FIXES)
- * UPDATE: Cleaned Code Structure & Fixed Syntax Errors
+ * UPDATE: Forced Auto-Loop for File Analysis & Fixes
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.27";
+const VERSION = "9.9.29";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -305,7 +305,8 @@ export async function onRequest(context) {
     // STREAM MODE (TRUE STREAMING + AUTO CONTINUE)
     //////////////////////
     // CRITICAL FIX: Explicitly exclude image_gen mode here.
-    if ((mode === "stream" || stream === true) && mode !== "image_gen") {
+    // ALSO FIX: Force "analyze_file" into streaming mode so it gets the Auto-Continue Loop.
+    if ((mode === "stream" || mode === "analyze_file" || stream === true) && mode !== "image_gen") {
       const encoder = new TextEncoder();
       
       // FIX: Use existing stream_id if available to append to same UI bubble
