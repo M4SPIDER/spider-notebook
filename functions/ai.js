@@ -1,7 +1,7 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.8)
- * FEATURES: MISTRAL + LUCID ORIGIN (DEBUG HEADERS ADDED)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.9)
+ * FEATURES: MISTRAL + LUCID ORIGIN (RESTORED FULL CODE)
  * Author: M4 Spider
  * =========================================================
  */
@@ -10,7 +10,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.8";
+const VERSION = "9.9.9";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -23,12 +23,15 @@ const AI_RETRY_DELAY_BASE = 1500;
 //////////////////////////////
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+// UPDATED: Less aggressive cleaner to preserve code operators (**) and comments (#)
 function cleanAiResponse(text) {
   if (!text) return "";
+
   return text
-    .replace(/#\*[\s\S]*?\*#/g, "")
+    .replace(/#\*[\s\S]*?\*#/g, "") // Remove custom internal tags only
     .replace(/#\*/g, "")
     .replace(/\*#/g, "")
+    // Removed ** and # header stripping to protect code syntax
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -56,7 +59,9 @@ async function runTavilySearch(env, query) {
   try {
     const response = await fetch("https://api.tavily.com/search", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json"
+      },
       body: JSON.stringify({
         api_key: env.TAVILY_API_KEY,
         query: query,
@@ -67,6 +72,7 @@ async function runTavilySearch(env, query) {
     });
 
     if (!response.ok) return null;
+    
     const data = await response.json();
     if (!data.results || data.results.length === 0) return null;
 
@@ -102,6 +108,7 @@ function buildTeluguRegex(words) {
   const pattern = "\\b(?:" + escaped.join("|") + ")\\b";
   return new RegExp(pattern, "iu");
 }
+const TELUGU_TRIGGER_REGEX = buildTeluguRegex(TELUGU_TRIGGER_WORDS);
 
 function shouldTriggerTelugu(message) {
   if (!message || typeof message !== "string") return false;
@@ -146,13 +153,19 @@ const SPIDER_SYSTEM_PROMPT =
 //////////////////////////////
 async function getMemory(env, key) {
   try {
-    return env.CHAT_KV ? JSON.parse(await env.CHAT_KV.get(key)) || [] : [];
-  } catch { return []; }
+    return env.CHAT_KV
+      ? JSON.parse(await env.CHAT_KV.get(key)) || []
+      : [];
+  } catch {
+    return [];
+  }
 }
 
 async function saveMemory(env, key, mem) {
   if (!env.CHAT_KV) return;
-  await env.CHAT_KV.put(key, JSON.stringify(mem), { expirationTtl: AI_MEMORY_TTL_DAYS * 86400 });
+  await env.CHAT_KV.put(key, JSON.stringify(mem), {
+    expirationTtl: AI_MEMORY_TTL_DAYS * 86400
+  });
 }
 
 async function deleteMemory(env, key) {
@@ -194,7 +207,7 @@ export async function onRequest(context) {
   const cors = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, X-Ai-Expanded-Prompt" // Allow our new header
+    "Access-Control-Allow-Headers": "Content-Type, X-Ai-Expanded-Prompt"
   };
 
   if (request.method === "OPTIONS") {
@@ -216,6 +229,7 @@ export async function onRequest(context) {
 
     const memKey = AI_MEMORY_USER_KEY_PREFIX + user_preference_id;
     
+    // Handle Continue requests
     let activePrompt = prompt;
     if (!activePrompt && stream_id) {
         activePrompt = "The previous code/text was incomplete. Please CONTINUE generating EXACTLY from where you left off. Do not restart. Just output the remaining part.";
@@ -226,6 +240,7 @@ export async function onRequest(context) {
     // -- Language Detection --
     const isTelugu = shouldTriggerTelugu(cleanPrompt);
     let finalSystemPrompt = SPIDER_SYSTEM_PROMPT;
+    
     if (isTelugu) {
       finalSystemPrompt += "\n[SYSTEM: DETECTED TELUGU INPUT (Romanized). REPLY STRICTLY IN TELUGU USING ENGLISH LETTERS.]";
     }
@@ -234,23 +249,38 @@ export async function onRequest(context) {
     let searchContext = "";
     if (shouldTriggerSearch(cleanPrompt)) {
        const searchRes = await runTavilySearch(env, activePrompt);
-       if (searchRes) searchContext = searchRes;
+       if (searchRes) {
+         searchContext = searchRes;
+       }
     }
 
+    // Fetch memory
     let memory = await getMemory(env, memKey);
 
     //////////////////////
-    // DELETE MEMORY
+    // DELETE MEMORY MODE
     //////////////////////
-    if (["delete_memory", "clear_memory", "delete_all"].includes(mode) || cleanPrompt === "delete all") {
+    if (
+      mode === "delete_memory" || 
+      mode === "clear_memory" || 
+      mode === "delete_all" || 
+      cleanPrompt === "delete all"
+    ) {
       const success = await deleteMemory(env, memKey);
       const msg = success ? "Memory wiped successfully 🧹" : "No KV found or empty.";
-      if (cleanPrompt === "delete all") return new Response(msg, { headers: { ...cors, "Content-Type": "text/plain" } });
-      return new Response(JSON.stringify({ status: success ? "success" : "skipped", message: msg }), { headers: { ...cors, "Content-Type": "application/json" } });
+
+      if (cleanPrompt === "delete all") {
+        return new Response(msg, { headers: { ...cors, "Content-Type": "text/plain" } });
+      }
+
+      return new Response(
+        JSON.stringify({ status: success ? "success" : "skipped", message: msg }), 
+        { headers: { ...cors, "Content-Type": "application/json" } }
+      );
     }
 
     //////////////////////
-    // STREAM MODE
+    // STREAM MODE (TRUE STREAMING)
     //////////////////////
     if (mode === "stream" || stream === true) {
       const encoder = new TextEncoder();
@@ -260,9 +290,11 @@ export async function onRequest(context) {
         async start(controller) {
           try {
             let finalUserPrompt = activePrompt;
+            
             if (mode === "analyze_file" && file_content) {
               finalUserPrompt = `FILE: ${filename || "unknown"}\nCONTENT:\n${file_content}\n\nREQUEST:\n${activePrompt}`;
             }
+
             if (searchContext) {
               finalUserPrompt += `\n\n${searchContext}\n[INSTRUCTION: Use the above search results to answer the user request.]`;
             }
@@ -274,9 +306,15 @@ export async function onRequest(context) {
 
             memory.push({ role: "user", content: finalUserPrompt, ts: Date.now() });
 
+            // USING MISTRAL (Text Logic)
             const aiStream = await env.SPY_AI.run(
               "@cf/mistralai/mistral-small-3.1-24b-instruct",
-              { messages: finalMessages, max_tokens: 8192, temperature: 0.7, stream: true }
+              {
+                messages: finalMessages,
+                max_tokens: 8192,
+                temperature: 0.7,
+                stream: true
+              }
             );
 
             const reader = aiStream.getReader();
@@ -298,12 +336,18 @@ export async function onRequest(context) {
                 if (trimmed.startsWith("data:")) {
                   const dataStr = trimmed.replace("data:", "").trim();
                   if (dataStr === "[DONE]") continue;
+
                   try {
                     const json = JSON.parse(dataStr);
                     const textChunk = json.response; 
+                    
                     if (textChunk) {
                       fullAiResponse += textChunk;
-                      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: textChunk, stream_id: newStreamId })}\n\n`));
+                      
+                      // NO AGGRESSIVE CLEANING - Passing raw tokens to preserve code
+                      controller.enqueue(
+                        encoder.encode(`data: ${JSON.stringify({ text: textChunk, stream_id: newStreamId })}\n\n`)
+                      );
                     }
                   } catch(e) {}
                 }
@@ -313,33 +357,46 @@ export async function onRequest(context) {
             if (fullAiResponse) {
                const cleanSaved = cleanAiResponse(fullAiResponse);
                memory.push({ role: "assistant", content: cleanSaved, ts: Date.now() });
+               
                const memoryToSave = memory.slice(-AI_MEMORY_TRIM_TARGET);
                context.waitUntil(saveMemory(env, memKey, memoryToSave));
             }
 
             controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
             controller.close();
+
           } catch (err) {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: "\n[Error]\n" + err.message })}\n\n`));
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({ text: "\n[Error]\n" + err.message })}\n\n`)
+            );
             controller.close();
           }
         }
       });
 
       return new Response(streamResp, {
-        headers: { ...cors, "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive" }
+        headers: {
+          ...cors,
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          "Connection": "keep-alive"
+        }
       });
     }
 
     //////////////////////
-    // IMAGE GENERATION (DEBUGGABLE)
+    // IMAGE GENERATION (DEBUGGABLE + LLM OPTIMIZED)
     //////////////////////
     if (mode === "image_gen") {
-      let width = 1024, height = 1024;
+      // 1. Calculate Standard Width/Height
+      let width = 1024;
+      let height = 1024;
+
       if (aspect_ratio === "16:9") { width = 1280; height = 720; }
       else if (aspect_ratio === "9:16") { width = 720; height = 1280; }
       else if (aspect_ratio === "4:3")  { width = 1152; height = 864; }
       else if (aspect_ratio === "3:4")  { width = 864; height = 1152; }
+      else { width = 1024; height = 1024; }
 
       // 2. PROMPT OPTIMIZER (Tuned to be faithful)
       let enhancedPrompt = `${activePrompt}, ultra detailed, cinematic lighting`; 
@@ -352,10 +409,17 @@ export async function onRequest(context) {
           "CRITICAL: Keep the MAIN SUBJECT exactly as the user described. Do not change the subject. " +
           "REPLY WITH THE PROMPT ONLY. No talk.";
         
-        const optimizerRes = await runAi(env, "@cf/mistralai/mistral-small-3.1-24b-instruct", {
-             messages: [{ role: "system", content: promptOptimizerSys }, { role: "user", content: activePrompt }],
+        const optimizerRes = await runAi(
+           env, 
+           "@cf/mistralai/mistral-small-3.1-24b-instruct",
+           {
+             messages: [
+               { role: "system", content: promptOptimizerSys },
+               { role: "user", content: activePrompt }
+             ],
              max_tokens: 300
-        });
+           }
+        );
         
         const optimizedText = extractText(optimizerRes);
         if (optimizedText && optimizedText.length > 5) {
@@ -369,60 +433,120 @@ export async function onRequest(context) {
       console.log(`[SpiderAI] Original: "${activePrompt}" | Enhanced: "${enhancedPrompt}"`);
 
       try {
-        const response = await runAi(env, "@cf/leonardo/lucid-origin", {
-            prompt: enhancedPrompt, width, height, num_steps: 20   
-        });
+        // 3. Call the AI
+        const response = await runAi(
+          env,
+          "@cf/leonardo/lucid-origin",
+          {
+            prompt: enhancedPrompt,
+            width: width,   
+            height: height, 
+            num_steps: 20   
+          }
+        );
 
-        // 3. UNIVERSAL HANDLER + DEBUG HEADERS
+        // 4. UNIVERSAL HANDLER + DEBUG HEADERS
         let base64Image = null;
+        
+        // Return helpful headers so you can see what the AI actually used
         const extraHeaders = {
             ...cors, 
             "X-Ai-Original-Prompt": activePrompt.substring(0, 100), // Truncate for header safety
             "X-Ai-Expanded-Prompt": enhancedPrompt.substring(0, 500) // Let user see what happened
         };
 
+        // Case A: Binary Stream (Direct)
         if (response instanceof ReadableStream) {
-          return new Response(response, { headers: { ...extraHeaders, "Content-Type": "image/png" } });
+          return new Response(response, {
+            headers: { ...extraHeaders, "Content-Type": "image/png" }
+          });
         }
 
-        if (response && response.image) base64Image = response.image;
-        else if (response?.result?.image) base64Image = response.result.image;
-        else if (Array.isArray(response) && response[0]?.image) base64Image = response[0].image;
+        // Case B: Standard JSON { image: "..." }
+        if (response && response.image) {
+          base64Image = response.image;
+        }
+        // Case C: Nested JSON { result: { image: "..." } }
+        else if (response && response.result && response.result.image) {
+          base64Image = response.result.image;
+        }
+        // Case D: Array JSON [{ image: "..." }]
+        else if (Array.isArray(response) && response[0] && response[0].image) {
+          base64Image = response[0].image;
+        }
 
+        // If we found a base64 string, convert and return it
         if (base64Image) {
           const binaryString = atob(base64Image);
-          const bytes = new Uint8Array(binaryString.length);
-          for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
-          return new Response(bytes.buffer, { headers: { ...extraHeaders, "Content-Type": "image/png" } });
+          const len = binaryString.length;
+          const bytes = new Uint8Array(len);
+          for (let i = 0; i < len; i++) {
+              bytes[i] = binaryString.charCodeAt(i);
+          }
+          return new Response(bytes.buffer, {
+            headers: { ...extraHeaders, "Content-Type": "image/png" }
+          });
         }
 
-        return new Response(JSON.stringify({ error: "Unknown Format", response }), { headers: { ...cors, "Content-Type": "application/json" } });
+        // Case E: Failure - Return JSON Debug Info
+        return new Response(JSON.stringify({ 
+          error: "Image Generation Failed - Unknown Format", 
+          debug_response: response 
+        }), {
+           headers: { ...cors, "Content-Type": "application/json" }
+        });
 
       } catch (genError) {
-        return new Response(JSON.stringify({ error: "Image API Error", message: genError.message }), { headers: { ...cors, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify({ 
+          error: "Image API Error", 
+          message: genError.message 
+        }), {
+           headers: { ...cors, "Content-Type": "application/json" }
+        });
       }
     }
 
     //////////////////////
     // NORMAL CHAT
     //////////////////////
+    
     let finalUserPrompt = activePrompt;
-    if (searchContext) finalUserPrompt += `\n\n${searchContext}\n[INSTRUCTION: Use the above search results to answer the user request.]`;
+    if (searchContext) {
+      finalUserPrompt += `\n\n${searchContext}\n[INSTRUCTION: Use the above search results to answer the user request.]`;
+    }
 
     memory.push({ role: "user", content: finalUserPrompt, ts: Date.now() });
     memory = memory.slice(-AI_MEMORY_TRIM_TARGET);
 
-    const messages = [{ role: "system", content: finalSystemPrompt }, ...memory.map(m => ({ role: m.role, content: m.content }))];
+    const messages = [
+      { role: "system", content: finalSystemPrompt },
+      ...memory.map(m => ({ role: m.role, content: m.content }))
+    ];
 
-    const aiRes = await runAi(env, "@cf/mistralai/mistral-small-3.1-24b-instruct", { messages, max_tokens: 4096, temperature: 0.7 });
+    // USING MISTRAL (Text Logic)
+    const aiRes = await runAi(
+      env,
+      "@cf/mistralai/mistral-small-3.1-24b-instruct",
+      {
+        messages,
+        max_tokens: 4096,
+        temperature: 0.7
+      }
+    );
+
     const output = cleanAiResponse(extractText(aiRes));
     
     memory.push({ role: "assistant", content: output, ts: Date.now() });
     await saveMemory(env, memKey, memory);
 
-    return new Response(output, { headers: { ...cors, "Content-Type": "text/plain" } });
+    return new Response(output, {
+      headers: { ...cors, "Content-Type": "text/plain" }
+    });
 
   } catch (e) {
-    return new Response("Spider AI Error: " + e.message, { status: 500, headers: cors });
+    return new Response("Spider AI Error: " + e.message, {
+      status: 500,
+      headers: cors
+    });
   }
 }
