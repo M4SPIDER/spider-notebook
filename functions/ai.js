@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.31)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.37)
  * FEATURES: MISTRAL + LUCID ORIGIN (STABILITY FIXES)
- * UPDATE: Default to Snippets (Full Code only on Request)
+ * UPDATE: 30 Loops + Forced Stream for Files + Full Code Default
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.31";
+const VERSION = "9.9.37";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -149,7 +149,7 @@ const SPIDER_SYSTEM_PROMPT =
 "6. TONE: Friendly, casual, and helpful like a close friend 😎🤝.\n" +
 "\nCODING STANDARDS:\n" +
 "- ACCURACY: Verify logic, syntax, and imports before writing code. Ensure no missing brackets or semicolons.\n" +
-"- COMPLETENESS: NEVER write full code unless the user explicitly asks for 'full code', 'complete', or 'rewrite'. Default to concise snippets.\n" +
+"- COMPLETENESS: Write full, runnable code. Do not leave placeholders like '// ... rest of code' unless the file is massive.\n" +
 "- CONSISTENCY: When updating code, only modify the necessary parts. Keep the rest of the original code exactly the same to prevent breaking changes.\n" +
 "- BEST PRACTICES: Use modern conventions (e.g., ES6+ for JS, React Hooks, functional components).\n" +
 "- EXPLANATION: If code is complex, briefly explain the key logic.\n" +
@@ -304,9 +304,9 @@ export async function onRequest(context) {
     //////////////////////
     // STREAM MODE (TRUE STREAMING + AUTO CONTINUE)
     //////////////////////
-    // CRITICAL FIX: Explicitly exclude image_gen mode here.
-    // ALSO FIX: Force "analyze_file" AND "chat" into streaming mode so they get the Auto-Continue Loop.
-    if ((mode === "stream" || mode === "analyze_file" || mode === "chat" || stream === true) && mode !== "image_gen") {
+    // CRITICAL: File analysis AND Explicit Stream mode must use the 30-Loop Engine.
+    // Exclude image_gen to prevent conflicts.
+    if ((mode === "stream" || mode === "analyze_file" || stream === true) && mode !== "image_gen") {
       const encoder = new TextEncoder();
       
       // FIX: Use existing stream_id if available to append to same UI bubble
@@ -347,7 +347,7 @@ export async function onRequest(context) {
                   "@cf/mistralai/mistral-small-3.1-24b-instruct",
                   {
                     messages: currentMessages,
-                    max_tokens: 8192,
+                    max_tokens: 4096,
                     temperature: 0.7,
                     stream: true
                   }
@@ -355,7 +355,6 @@ export async function onRequest(context) {
 
                 const reader = aiStream.getReader();
                 const decoder = new TextDecoder();
-                let buffer = ""; // RESTORED BUFFER FOR SMOOTHNESS
                 let loopBuffer = ""; 
                 let loopLineCount = 0;
                 let streamEndedNaturally = true;
@@ -366,9 +365,7 @@ export async function onRequest(context) {
                   if (done) break;
 
                   const chunk = decoder.decode(value, { stream: true });
-                  buffer += chunk;
-                  const lines = buffer.split("\n");
-                  buffer = lines.pop(); // Keep incomplete line in buffer
+                  const lines = chunk.split("\n");
                   
                   // Process chunk lines
                   for (const line of lines) {
@@ -587,7 +584,7 @@ export async function onRequest(context) {
     }
 
     //////////////////////
-    // NORMAL CHAT
+    // NORMAL CHAT (LEGACY FALLBACK)
     //////////////////////
     
     let finalUserPrompt = activePrompt;
