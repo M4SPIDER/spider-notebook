@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.24)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.26)
  * FEATURES: MISTRAL + LUCID ORIGIN (STABILITY FIXES)
- * UPDATE: Fixed Image Gen (Reverted 8K to Safe Limits)
+ * UPDATE: Fixed "Saying not Doing" (Force Image Execution)
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.24";
+const VERSION = "9.9.26";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -303,7 +303,9 @@ export async function onRequest(context) {
     //////////////////////
     // STREAM MODE (TRUE STREAMING + AUTO CONTINUE)
     //////////////////////
-    if (mode === "stream" || stream === true) {
+    // CRITICAL FIX: Explicitly exclude image_gen mode here.
+    // This prevents the text streamer from hijacking image requests.
+    if ((mode === "stream" || stream === true) && mode !== "image_gen") {
       const encoder = new TextEncoder();
       
       // FIX: Use existing stream_id if available to append to same UI bubble
@@ -460,7 +462,6 @@ export async function onRequest(context) {
     //////////////////////
     if (mode === "image_gen") {
       // 1. Calculate Standard Width/Height
-      // FIX: Reverted to 1024px because 8K/4K causes API timeouts/failures
       let width = 1024;
       let height = 1024;
 
@@ -504,9 +505,10 @@ export async function onRequest(context) {
       // 3. SAVE TO MEMORY
       try {
         memory.push({ role: "user", content: activePrompt, ts: Date.now() });
+        // FIXED: CLEAN MEMORY LOG
         memory.push({ 
            role: "assistant", 
-           content: `[System Action: Generated an image based on prompt: "${enhancedPrompt}"]`, 
+           content: `Generating image: "${enhancedPrompt}"`, 
            ts: Date.now() 
         });
         const memoryToSave = memory.slice(-AI_MEMORY_TRIM_TARGET);
