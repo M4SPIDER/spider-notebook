@@ -1,7 +1,7 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.16)
- * FEATURES: MISTRAL + LUCID ORIGIN (SMART PROMPT DETECTION)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.13)
+ * FEATURES: MISTRAL + LUCID ORIGIN (STABILITY FIXES)
  * Author: M4 Spider
  * =========================================================
  */
@@ -10,7 +10,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.16";
+const VERSION = "9.9.13";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -23,16 +23,15 @@ const AI_RETRY_DELAY_BASE = 1500;
 //////////////////////////////
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-// UPDATED: Aggressive cleaner restored to remove ** and # artifacts as requested
+// UPDATED: Less aggressive cleaner to preserve code operators (**) and comments (#)
 function cleanAiResponse(text) {
   if (!text) return "";
 
   return text
-    .replace(/#\*[\s\S]*?\*#/g, "") // Remove custom internal tags
+    .replace(/#\*[\s\S]*?\*#/g, "") // Remove custom internal tags only
     .replace(/#\*/g, "")
     .replace(/\*#/g, "")
-    .replace(/\*\*/g, "") // Remove Markdown bolding (e.g. **Text**)
-    .replace(/^#{1,6}\s+/gm, "") // Remove Markdown headers (e.g. ### Title)
+    // Removed ** and # header stripping to protect code syntax
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -128,8 +127,7 @@ const SPIDER_SYSTEM_PROMPT =
 "You are M4 Spider AI, a friendly AI assistant created by M4 Spider 🕷️🤖.\n" +
 "RULES:\n" +
 "1. IDENTITY: You are M4 Spider AI. Only mention your creator (M4 Spider) if the user asks 'Who created you?' or 'Who are you?'. Do NOT start every message with this introduction.\n" +
-"2. IMAGE CAPABILITY: You CAN generate images. If a user asks you to generate/create/draw an image OR gives a description of one, say YES. You use the 'Lucid Origin' model for this. Do NOT mention the full Cloudflare model path (e.g., @cf/leonardo...). Just say 'Lucid Origin'.\n" +
-"   - NEVER say 'I do not have the tools'. You DO have them. If the user provides a detailed description/script, assume they want an image.\n" +
+"2. IMAGE CAPABILITY: You CAN generate images. If a user asks you to generate/create/draw an image, say YES. You use the 'Lucid Origin' model for this. Do NOT mention the full Cloudflare model path (e.g., @cf/leonardo...). Just say 'Lucid Origin'.\n" +
 "3. LANGUAGE: You are fluent in ALL languages (Telugu, Hindi, English, etc.).\n" +
 "   - CRITICAL: When speaking Indian languages (Telugu, Hindi), use ENGLISH LETTERS (Romanized/Transliterated). Example: 'Ela unnav?' instead of 'ఎలా ఉన్నావ్?'.\n" +
 "   - Do NOT say you only know English. You understand everything, just reply in the user's language using English alphabet.\n" +
@@ -238,62 +236,25 @@ export async function onRequest(context) {
     if (!activePrompt && stream_id) {
         activePrompt = "The previous code/text was incomplete. Please CONTINUE generating EXACTLY from where you left off. Do not restart. Just output the remaining part.";
     }
-
-    // Fetch memory EARLY for context awareness
-    let memory = await getMemory(env, memKey);
     
-    // -----------------------------------------------------------------
-    // AUTO-IMAGE MODE DETECTOR (ENHANCED v9.9.16)
-    // -----------------------------------------------------------------
-    
-    // 1. Normalize formatting (remove newlines/excess spaces) for easier matching
-    const normalizedPrompt = (activePrompt || "").replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+    const cleanPrompt = (activePrompt || "").trim().toLowerCase();
 
+    // -----------------------------------------------------------------
+    // AUTO-IMAGE MODE DETECTOR
+    // -----------------------------------------------------------------
     const IMAGE_TRIGGERS = [
       "generate image", "create image", "make an image", "draw a", 
-      "generate a picture", "create a picture", "imagine this", "draw this",
-      "create an image", "make me an image", "generate an image", // Grammar variations
-      "visualize this", "show me", "description of the image",
-      "here is a description", "here's a description", // NEW: Catches "Here's a description of..."
-      "here is a detailed description", "here's a detailed description", // NEW: Conversational pastes
-      "create this", "generate this" // NEW: Catches "Create this" referring to previous context
-    ];
-
-    // 2. Detect "Prompt Engineering" style inputs (raw descriptions without verbs)
-    const VISUAL_KEYWORDS = [
-      "cinematic lighting", "hyper realistic", "4k resolution", "octane render",
-      "unreal engine", "photorealistic", "ultra detailed", "high contrast",
-      "aspect ratio", "style:", "lighting:", "composition:", "8k resolution",
-      "cinematic", "advertisement", "poster", "logo", "banner",
-      "opening scene", "visual style", "color palette", "closing scene" // NEW: Script headers
+      "generate a picture", "create a picture", "imagine this", "draw this"
     ];
     
-    const isExplicitRequest = IMAGE_TRIGGERS.some(t => normalizedPrompt.includes(t));
-    const isRawPrompt = VISUAL_KEYWORDS.some(t => normalizedPrompt.includes(t));
-
-    // 3. Contextual Trigger (NEW: Handles "Yes, please" responses)
-    let isContextualTrigger = false;
-    if (memory.length > 0) {
-       const lastAiMsg = memory[memory.length - 1];
-       const isAffirmative = /^(yes|yeah|sure|ok|okay|do it|go ahead|proceed|please|generate|make it)/i.test(normalizedPrompt);
-       const aiProposedImage = lastAiMsg.role === "assistant" && 
-                              (lastAiMsg.content.includes("Lucid Origin") || lastAiMsg.content.includes("generate"));
-       
-       if (isAffirmative && aiProposedImage) {
-          isContextualTrigger = true;
-          // Merge context so the image generator knows what to generate
-          activePrompt = `Based on this description: ${lastAiMsg.content}. User request: ${activePrompt}`;
-       }
-    }
-
-    // If user is in chat mode but asks for an image OR pastes a raw visual prompt OR confirms a proposal
-    if (!stream && mode === "chat" && (isExplicitRequest || isRawPrompt || isContextualTrigger)) {
+    // If user is in chat mode but asks for an image, FORCE image_gen mode.
+    if (mode === "chat" && IMAGE_TRIGGERS.some(t => cleanPrompt.includes(t))) {
        mode = "image_gen";
     }
     // -----------------------------------------------------------------
 
     // -- Language Detection --
-    const isTelugu = shouldTriggerTelugu(normalizedPrompt); // Use normalized for detection too
+    const isTelugu = shouldTriggerTelugu(cleanPrompt);
     let finalSystemPrompt = SPIDER_SYSTEM_PROMPT;
     
     if (isTelugu) {
@@ -302,12 +263,15 @@ export async function onRequest(context) {
 
     // -- Search Trigger --
     let searchContext = "";
-    if (mode === "chat" && shouldTriggerSearch(normalizedPrompt)) {
+    if (mode === "chat" && shouldTriggerSearch(cleanPrompt)) {
        const searchRes = await runTavilySearch(env, activePrompt);
        if (searchRes) {
          searchContext = searchRes;
        }
     }
+
+    // Fetch memory
+    let memory = await getMemory(env, memKey);
 
     //////////////////////
     // DELETE MEMORY MODE
@@ -316,12 +280,12 @@ export async function onRequest(context) {
       mode === "delete_memory" || 
       mode === "clear_memory" || 
       mode === "delete_all" || 
-      normalizedPrompt === "delete all"
+      cleanPrompt === "delete all"
     ) {
       const success = await deleteMemory(env, memKey);
       const msg = success ? "Memory wiped successfully 🧹" : "No KV found or empty.";
 
-      if (normalizedPrompt === "delete all") {
+      if (cleanPrompt === "delete all") {
         return new Response(msg, { headers: { ...cors, "Content-Type": "text/plain" } });
       }
 
