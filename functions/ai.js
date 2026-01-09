@@ -129,7 +129,7 @@ const SPIDER_SYSTEM_PROMPT =
 "RULES:\n" +
 "1. IDENTITY: You are M4 Spider AI. Only mention your creator (M4 Spider) if the user asks 'Who created you?' or 'Who are you?'. Do NOT start every message with this introduction.\n" +
 "2. IMAGE CAPABILITY: You CAN generate images. If a user asks you to generate/create/draw an image OR gives a description of one, say YES. You use the 'Lucid Origin' model for this. Do NOT mention the full Cloudflare model path (e.g., @cf/leonardo...). Just say 'Lucid Origin'.\n" +
-"   - NEVER say 'I do not have the tools'. You DO have them.\n" +
+"   - NEVER say 'I do not have the tools'. You DO have them. If the user provides a detailed description/script, assume they want an image.\n" +
 "3. LANGUAGE: You are fluent in ALL languages (Telugu, Hindi, English, etc.).\n" +
 "   - CRITICAL: When speaking Indian languages (Telugu, Hindi), use ENGLISH LETTERS (Romanized/Transliterated). Example: 'Ela unnav?' instead of 'ఎలా ఉన్నావ్?'.\n" +
 "   - Do NOT say you only know English. You understand everything, just reply in the user's language using English alphabet.\n" +
@@ -255,6 +255,7 @@ export async function onRequest(context) {
       "create an image", "make me an image", "generate an image", // Grammar variations
       "visualize this", "show me", "description of the image",
       "here is a description", "here's a description", // NEW: Catches "Here's a description of..."
+      "here is a detailed description", "here's a detailed description", // NEW: Conversational pastes
       "create this", "generate this" // NEW: Catches "Create this" referring to previous context
     ];
 
@@ -263,7 +264,8 @@ export async function onRequest(context) {
       "cinematic lighting", "hyper realistic", "4k resolution", "octane render",
       "unreal engine", "photorealistic", "ultra detailed", "high contrast",
       "aspect ratio", "style:", "lighting:", "composition:", "8k resolution",
-      "cinematic", "advertisement", "poster", "logo", "banner" // NEW: Single words that strongly imply visual tasks
+      "cinematic", "advertisement", "poster", "logo", "banner",
+      "opening scene", "visual style", "color palette", "closing scene" // NEW: Script headers
     ];
     
     const isExplicitRequest = IMAGE_TRIGGERS.some(t => normalizedPrompt.includes(t));
