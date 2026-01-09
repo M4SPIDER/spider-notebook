@@ -2332,7 +2332,7 @@ const SpiderAIApp = ({
                                     const codeBlockCount = (accumulatedTokensRef.current.match(/```/g) || []).length;
                                     if (codeBlockCount % 2 === 1) {
                                         // Unclosed code block
-                                        setShowContinueButton(true);
+                                        setShowContinueButton(false);
                                     }
                                 }
                             }
@@ -4759,5 +4759,6 @@ int main() {
         </>
     );
 }
+
 
 
