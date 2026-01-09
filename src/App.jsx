@@ -1377,7 +1377,6 @@ const SpiderAIApp = ({
     // ---------- Streaming State ----------
     const [isStreaming, setIsStreaming] = useState(false);
     const [streamedContent, setStreamedContent] = useState('');
-    const [showContinueButton, setShowContinueButton] = useState(false);
     const [lastStreamId, setLastStreamId] = useState(null);
     
     // ---------- Full Code Mode State ----------
@@ -4759,6 +4758,7 @@ int main() {
         </>
     );
 }
+
 
 
 
