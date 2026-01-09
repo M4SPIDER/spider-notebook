@@ -1,7 +1,7 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.14)
- * FEATURES: MISTRAL + LUCID ORIGIN (STREAM FLAG CONTROL)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.16)
+ * FEATURES: MISTRAL + LUCID ORIGIN (SMART PROMPT DETECTION)
  * Author: M4 Spider
  * =========================================================
  */
@@ -10,7 +10,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.14";
+const VERSION = "9.9.16";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -23,15 +23,16 @@ const AI_RETRY_DELAY_BASE = 1500;
 //////////////////////////////
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-// UPDATED: Less aggressive cleaner to preserve code operators (**) and comments (#)
+// UPDATED: Aggressive cleaner restored to remove ** and # artifacts as requested
 function cleanAiResponse(text) {
   if (!text) return "";
 
   return text
-    .replace(/#\*[\s\S]*?\*#/g, "") // Remove custom internal tags only
+    .replace(/#\*[\s\S]*?\*#/g, "") // Remove custom internal tags
     .replace(/#\*/g, "")
     .replace(/\*#/g, "")
-    // Removed ** and # header stripping to protect code syntax
+    .replace(/\*\*/g, "") // Remove Markdown bolding (e.g. **Text**)
+    .replace(/^#{1,6}\s+/gm, "") // Remove Markdown headers (e.g. ### Title)
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -237,25 +238,38 @@ export async function onRequest(context) {
         activePrompt = "The previous code/text was incomplete. Please CONTINUE generating EXACTLY from where you left off. Do not restart. Just output the remaining part.";
     }
     
-    const cleanPrompt = (activePrompt || "").trim().toLowerCase();
+    // -----------------------------------------------------------------
+    // AUTO-IMAGE MODE DETECTOR (ENHANCED v9.9.16)
+    // -----------------------------------------------------------------
+    
+    // 1. Normalize formatting (remove newlines/excess spaces) for easier matching
+    const normalizedPrompt = (activePrompt || "").replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
 
-    // -----------------------------------------------------------------
-    // AUTO-IMAGE MODE DETECTOR
-    // -----------------------------------------------------------------
     const IMAGE_TRIGGERS = [
       "generate image", "create image", "make an image", "draw a", 
-      "generate a picture", "create a picture", "imagine this", "draw this"
+      "generate a picture", "create a picture", "imagine this", "draw this",
+      "create an image", "make me an image", "generate an image", // Grammar variations
+      "visualize this", "show me", "description of the image"
+    ];
+
+    // 2. Detect "Prompt Engineering" style inputs (raw descriptions without verbs)
+    const VISUAL_KEYWORDS = [
+      "cinematic lighting", "hyper realistic", "4k resolution", "octane render",
+      "unreal engine", "photorealistic", "ultra detailed", "high contrast",
+      "aspect ratio", "style:", "lighting:", "composition:", "8k resolution"
     ];
     
-    // If user is in chat mode but asks for an image, FORCE image_gen mode.
-    // UPDATED: Only switch to image_gen if stream is FALSE.
-    if (!stream && mode === "chat" && IMAGE_TRIGGERS.some(t => cleanPrompt.includes(t))) {
+    const isExplicitRequest = IMAGE_TRIGGERS.some(t => normalizedPrompt.includes(t));
+    const isRawPrompt = VISUAL_KEYWORDS.some(t => normalizedPrompt.includes(t));
+
+    // If user is in chat mode but asks for an image OR pastes a raw visual prompt
+    if (!stream && mode === "chat" && (isExplicitRequest || isRawPrompt)) {
        mode = "image_gen";
     }
     // -----------------------------------------------------------------
 
     // -- Language Detection --
-    const isTelugu = shouldTriggerTelugu(cleanPrompt);
+    const isTelugu = shouldTriggerTelugu(normalizedPrompt); // Use normalized for detection too
     let finalSystemPrompt = SPIDER_SYSTEM_PROMPT;
     
     if (isTelugu) {
@@ -264,7 +278,7 @@ export async function onRequest(context) {
 
     // -- Search Trigger --
     let searchContext = "";
-    if (mode === "chat" && shouldTriggerSearch(cleanPrompt)) {
+    if (mode === "chat" && shouldTriggerSearch(normalizedPrompt)) {
        const searchRes = await runTavilySearch(env, activePrompt);
        if (searchRes) {
          searchContext = searchRes;
@@ -281,12 +295,12 @@ export async function onRequest(context) {
       mode === "delete_memory" || 
       mode === "clear_memory" || 
       mode === "delete_all" || 
-      cleanPrompt === "delete all"
+      normalizedPrompt === "delete all"
     ) {
       const success = await deleteMemory(env, memKey);
       const msg = success ? "Memory wiped successfully 🧹" : "No KV found or empty.";
 
-      if (cleanPrompt === "delete all") {
+      if (normalizedPrompt === "delete all") {
         return new Response(msg, { headers: { ...cors, "Content-Type": "text/plain" } });
       }
 
