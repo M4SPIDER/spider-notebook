@@ -216,7 +216,7 @@ export async function onRequest(context) {
 
   try {
     const payload = await request.json();
-    const {
+    let {
       prompt = "",
       mode = "chat",
       user_preference_id = "anon",
@@ -237,6 +237,21 @@ export async function onRequest(context) {
     
     const cleanPrompt = (activePrompt || "").trim().toLowerCase();
 
+    // -----------------------------------------------------------------
+    // AUTO-IMAGE MODE DETECTOR
+    // -----------------------------------------------------------------
+    // Fixes issue where AI just talks about images ("Chalo...") instead of generating them.
+    const IMAGE_TRIGGERS = [
+      "generate image", "create image", "make an image", "draw a", 
+      "generate a picture", "create a picture", "imagine this", "draw this"
+    ];
+    
+    // If user is in chat mode but asks for an image, FORCE image_gen mode.
+    if (mode === "chat" && IMAGE_TRIGGERS.some(t => cleanPrompt.includes(t))) {
+       mode = "image_gen";
+    }
+    // -----------------------------------------------------------------
+
     // -- Language Detection --
     const isTelugu = shouldTriggerTelugu(cleanPrompt);
     let finalSystemPrompt = SPIDER_SYSTEM_PROMPT;
@@ -247,7 +262,7 @@ export async function onRequest(context) {
 
     // -- Search Trigger --
     let searchContext = "";
-    if (shouldTriggerSearch(cleanPrompt)) {
+    if (mode === "chat" && shouldTriggerSearch(cleanPrompt)) {
        const searchRes = await runTavilySearch(env, activePrompt);
        if (searchRes) {
          searchContext = searchRes;
