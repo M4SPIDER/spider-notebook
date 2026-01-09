@@ -28,9 +28,9 @@ function cleanAiResponse(text) {
   if (!text) return "";
 
   return text
-    .replace(/#\*[\s\S]*?\*#/g, "") // Remove custom internal tags only
+    .replace(/#\*[\s\S]*?\/g, "") // Remove custom internal tags only
     .replace(/#\*/g, "")
-    .replace(/\*#/g, "")
+    .replace(/\/g, "")
     // Removed ** and # header stripping to protect code syntax
     .replace(/\n{3,}/g, "\n\n")
     .trim();
@@ -388,18 +388,31 @@ export async function onRequest(context) {
     // IMAGE GENERATION
     //////////////////////
     if (mode === "image_gen") {
-      const image = await runAi(
-        env,
-        "@cf/leonardo/lucid-origin",
-        {
-          prompt: `${activePrompt}, ultra detailed, cinematic lighting`,
-          aspect_ratio
-        }
-      );
+      try {
+        const imageResponse = await runAi(
+          env,
+          "@cf/leonardo/lucid-origin",
+          {
+            prompt: `${activePrompt}, ultra detailed, cinematic lighting`,
+            aspect_ratio
+          }
+        );
 
-      return new Response(image, {
-        headers: { ...cors, "Content-Type": "image/png" }
-      });
+        if (imageResponse && imageResponse.image) {
+          const imageBuffer = Buffer.from(imageResponse.image, 'base64');
+          return new Response(imageBuffer, {
+            headers: { ...cors, "Content-Type": "image/png" }
+          });
+        } else {
+          throw new Error("Image generation failed: No image data in response");
+        }
+      } catch (error) {
+        console.error("Image generation error:", error);
+        return new Response("Image generation failed: " + error.message, {
+          status: 500,
+          headers: cors
+        });
+      }
     }
 
     //////////////////////
@@ -434,15 +447,3 @@ export async function onRequest(context) {
 
     memory.push({ role: "assistant", content: output, ts: Date.now() });
     await saveMemory(env, memKey, memory);
-
-    return new Response(output, {
-      headers: { ...cors, "Content-Type": "text/plain" }
-    });
-
-  } catch (e) {
-    return new Response("Spider AI Error: " + e.message, {
-      status: 500,
-      headers: cors
-    });
-  }
-}
