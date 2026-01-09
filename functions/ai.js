@@ -1,7 +1,7 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.5)
- * FEATURES: MISTRAL + LUCID ORIGIN (FIXED BASE64) + SEARCH
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.6)
+ * FEATURES: MISTRAL + LUCID ORIGIN (UNIVERSAL FIX) + SEARCH
  * Author: M4 Spider
  * =========================================================
  */
@@ -10,7 +10,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.5";
+const VERSION = "9.9.6";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -385,10 +385,10 @@ export async function onRequest(context) {
     }
 
     //////////////////////
-    // IMAGE GENERATION (FIXED FOR LUCID ORIGIN/SDXL)
+    // IMAGE GENERATION (UNIVERSAL FIX)
     //////////////////////
     if (mode === "image_gen") {
-      // 1. Calculate Standard Width/Height (Fixes invalid param error)
+      // 1. Calculate Standard Width/Height
       let width = 1024;
       let height = 1024;
 
@@ -398,46 +398,74 @@ export async function onRequest(context) {
       else if (aspect_ratio === "3:4")  { width = 864; height = 1152; }
       else { width = 1024; height = 1024; }
 
-      // 2. Call the AI
-      const response = await runAi(
-        env,
-        "@cf/leonardo/lucid-origin",
-        {
-          prompt: `${activePrompt}, ultra detailed, cinematic lighting`,
-          width: width,   // Send Integer
-          height: height, // Send Integer
-          num_steps: 20   // Standard step count for better quality
-        }
-      );
+      try {
+        // 2. Call the AI
+        const response = await runAi(
+          env,
+          "@cf/leonardo/lucid-origin",
+          {
+            prompt: `${activePrompt}, ultra detailed, cinematic lighting`,
+            width: width,   
+            height: height, 
+            num_steps: 20   
+          }
+        );
 
-      // 3. Handle Binary Stream vs Base64 JSON (CRITICAL FIX)
-      
-      // Case A: Response is a ReadableStream (Binary) - Common for Stable Diffusion
-      if (response instanceof ReadableStream) {
-        return new Response(response, {
-          headers: { ...cors, "Content-Type": "image/png" }
-        });
-      }
+        // 3. Universal Response Handler (Checks all possible formats)
+        let base64Image = null;
 
-      // Case B: Response is a JSON Object with Base64 (Common for Lucid Origin)
-      if (response && response.image) {
-        // Decode Base64 to Binary
-        const binaryString = atob(response.image);
-        const len = binaryString.length;
-        const bytes = new Uint8Array(len);
-        for (let i = 0; i < len; i++) {
-            bytes[i] = binaryString.charCodeAt(i);
+        // Case A: Binary Stream (Direct)
+        if (response instanceof ReadableStream) {
+          return new Response(response, {
+            headers: { ...cors, "Content-Type": "image/png" }
+          });
         }
 
-        return new Response(bytes.buffer, {
-          headers: { ...cors, "Content-Type": "image/png" }
+        // Case B: Standard JSON { image: "..." }
+        if (response && response.image) {
+          base64Image = response.image;
+        }
+        // Case C: Nested JSON { result: { image: "..." } }
+        else if (response && response.result && response.result.image) {
+          base64Image = response.result.image;
+        }
+        // Case D: Array JSON [{ image: "..." }]
+        else if (Array.isArray(response) && response[0] && response[0].image) {
+          base64Image = response[0].image;
+        }
+
+        // If we found a base64 string, convert and return it
+        if (base64Image) {
+          const binaryString = atob(base64Image);
+          const len = binaryString.length;
+          const bytes = new Uint8Array(len);
+          for (let i = 0; i < len; i++) {
+              bytes[i] = binaryString.charCodeAt(i);
+          }
+          return new Response(bytes.buffer, {
+            headers: { ...cors, "Content-Type": "image/png" }
+          });
+        }
+
+        // Case E: Failure - Return JSON Debug Info
+        // If we reached here, the AI returned something, but not an image we recognize.
+        // Return as JSON so we can debug it in the browser network tab.
+        return new Response(JSON.stringify({ 
+          error: "Image Generation Failed - Unknown Format", 
+          debug_response: response 
+        }), {
+           headers: { ...cors, "Content-Type": "application/json" }
+        });
+
+      } catch (genError) {
+        // Catch network or API errors specifically for images
+        return new Response(JSON.stringify({ 
+          error: "Image API Error", 
+          message: genError.message 
+        }), {
+           headers: { ...cors, "Content-Type": "application/json" }
         });
       }
-
-      // Case C: Fallback/Debug (If it's an error message or unexpected format)
-      return new Response(JSON.stringify(response), {
-         headers: { ...cors, "Content-Type": "application/json" }
-      });
     }
 
     //////////////////////
