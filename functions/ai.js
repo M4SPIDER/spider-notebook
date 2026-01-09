@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.23)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.24)
  * FEATURES: MISTRAL + LUCID ORIGIN (STABILITY FIXES)
- * UPDATE: 8K Image Resolution Support
+ * UPDATE: Fixed Image Gen (Reverted 8K to Safe Limits)
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.23";
+const VERSION = "9.9.24";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -459,15 +459,16 @@ export async function onRequest(context) {
     // IMAGE GENERATION (FIXED & STABILIZED)
     //////////////////////
     if (mode === "image_gen") {
-      // 1. Calculate Standard Width/Height (Updated to 8K Ultra HD)
-      let width = 7680;
-      let height = 4320;
+      // 1. Calculate Standard Width/Height
+      // FIX: Reverted to 1024px because 8K/4K causes API timeouts/failures
+      let width = 1024;
+      let height = 1024;
 
-      if (aspect_ratio === "16:9") { width = 7680; height = 4320; } // 8K UHD Landscape
-      else if (aspect_ratio === "9:16") { width = 4320; height = 7680; } // 8K UHD Portrait
-      else if (aspect_ratio === "4:3")  { width = 7168; height = 5376; } // High Res 4:3
-      else if (aspect_ratio === "3:4")  { width = 5376; height = 7168; } // High Res 3:4
-      else { width = 3840; height = 2160; } // Fallback to 4K
+      if (aspect_ratio === "16:9") { width = 1280; height = 720; }
+      else if (aspect_ratio === "9:16") { width = 720; height = 1280; }
+      else if (aspect_ratio === "4:3")  { width = 1152; height = 864; }
+      else if (aspect_ratio === "3:4")  { width = 864; height = 1152; }
+      else { width = 1024; height = 1024; }
 
       // 2. PROMPT OPTIMIZER (Non-blocking attempt)
       let enhancedPrompt = `${activePrompt}, ultra detailed, cinematic lighting`; 
