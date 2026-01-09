@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.18)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.19)
  * FEATURES: MISTRAL + LUCID ORIGIN (STABILITY FIXES)
- * UPDATE: Auto-Continuation (No Stop Button needed)
+ * UPDATE: Aggressive Auto-Loop (Fixed Premature Stops)
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,14 +11,15 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.18";
+const VERSION = "9.9.19";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
 const AI_MEMORY_USER_KEY_PREFIX = "spider_ai_mem:";
 const AI_RETRY_LIMIT = 2;
 const AI_RETRY_DELAY_BASE = 1500;
-const AI_MAX_OUTPUT_LINES = 700; // Trigger for auto-continuation
+// CRITICAL FIX: Lowered to 300 to catch context limit BEFORE it breaks
+const AI_MAX_OUTPUT_LINES = 300; 
 
 //////////////////////////////
 // UTILS
@@ -312,7 +313,7 @@ export async function onRequest(context) {
         async start(controller) {
           try {
             let currentLoop = 0;
-            const MAX_LOOPS = 5; // Allow 5 auto-continues (~3500 lines)
+            const MAX_LOOPS = 10; // HIGH SPEED LOOP: Allow up to 10 auto-continues
             let isFullyDone = false;
             
             // 1. Initial Prompt Setup
@@ -337,7 +338,7 @@ export async function onRequest(context) {
                     ...memory.map(m => ({ role: m.role, content: m.content }))
                 ];
 
-                // Run AI
+                // Run AI (Optimized for Speed: Max tokens set high, but we control via lines)
                 const aiStream = await env.SPY_AI.run(
                   "@cf/mistralai/mistral-small-3.1-24b-instruct",
                   {
@@ -381,14 +382,16 @@ export async function onRequest(context) {
                           
                           loopBuffer += textChunk;
                           
-                          // Count lines for this loop only
-                          const chunkLines = (textChunk.match(/\n/g) || []).length;
-                          loopLineCount += chunkLines;
+                          // LIGHTWEIGHT LINE COUNTING
+                          // We check lines to predict token exhaustion
+                          for (let i = 0; i < textChunk.length; i++) {
+                              if (textChunk[i] === '\n') loopLineCount++;
+                          }
 
-                          // Check Limit
+                          // TRIGGER AUTO-CONTINUE
                           if (loopLineCount >= AI_MAX_OUTPUT_LINES) {
                               streamEndedNaturally = false;
-                              break; // Break data processing, then break reader
+                              break; 
                           }
                         }
                       } catch(e) {}
@@ -404,15 +407,15 @@ export async function onRequest(context) {
 
                 // Decision: Done or Continue?
                 if (streamEndedNaturally) {
-                    // AI finished on its own
+                    // AI finished naturally
                     memory.push({ role: "assistant", content: cleanAiResponse(loopBuffer), ts: Date.now() });
                     isFullyDone = true;
                 } else {
-                    // Limit hit - AUTO CONTINUE
+                    // Safety trigger hit - AUTO CONTINUE
                     // 1. Save partial output
                     memory.push({ role: "assistant", content: cleanAiResponse(loopBuffer), ts: Date.now() });
-                    // 2. Add continue prompt
-                    const continueMsg = "The code/text was cut off. Please continue EXACTLY from where you left off. Do not repeat the last part, just continue.";
+                    // 2. Add continue prompt (Optimized to be short)
+                    const continueMsg = "Continue code EXACTLY from where left off. Do not repeat.";
                     memory.push({ role: "user", content: continueMsg, ts: Date.now() });
                     // 3. Loop repeats...
                 }
