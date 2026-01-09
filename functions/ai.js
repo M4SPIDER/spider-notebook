@@ -1,7 +1,7 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.6)
- * FEATURES: MISTRAL + LUCID ORIGIN (UNIVERSAL FIX) + SEARCH
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.7)
+ * FEATURES: MISTRAL + LUCID ORIGIN (LLM ENHANCED PROMPTS) + SEARCH
  * Author: M4 Spider
  * =========================================================
  */
@@ -10,7 +10,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.6";
+const VERSION = "9.9.7";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -385,7 +385,7 @@ export async function onRequest(context) {
     }
 
     //////////////////////
-    // IMAGE GENERATION (UNIVERSAL FIX)
+    // IMAGE GENERATION (UNIVERSAL FIX + LLM ENHANCEMENT)
     //////////////////////
     if (mode === "image_gen") {
       // 1. Calculate Standard Width/Height
@@ -398,20 +398,47 @@ export async function onRequest(context) {
       else if (aspect_ratio === "3:4")  { width = 864; height = 1152; }
       else { width = 1024; height = 1024; }
 
+      // 2. [NEW] Optimize Prompt using Mistral LLM
+      // This connects the LLM to the image generator to "perfect" the prompt.
+      let enhancedPrompt = `${activePrompt}, ultra detailed, cinematic lighting`; // Fallback default
+
       try {
-        // 2. Call the AI
+        const promptOptimizerSys = "You are an expert AI Image Prompt Engineer. Your task is to refine the user's idea into a professional, highly detailed English prompt for an image generator. Focus on lighting, artistic style, camera angle, and textures. REPLY WITH THE PROMPT ONLY. Do not add conversational text.";
+        
+        const optimizerRes = await runAi(
+           env, 
+           "@cf/mistralai/mistral-small-3.1-24b-instruct",
+           {
+             messages: [
+               { role: "system", content: promptOptimizerSys },
+               { role: "user", content: activePrompt }
+             ],
+             max_tokens: 300 // Keep it concise but detailed
+           }
+        );
+        
+        const optimizedText = extractText(optimizerRes);
+        if (optimizedText && optimizedText.length > 10) {
+            enhancedPrompt = cleanAiResponse(optimizedText); 
+        }
+      } catch (optError) {
+        console.error("Prompt Optimization Failed (using fallback):", optError);
+      }
+
+      try {
+        // 3. Call the AI Image Generator with the Enhanced Prompt
         const response = await runAi(
           env,
           "@cf/leonardo/lucid-origin",
           {
-            prompt: `${activePrompt}, ultra detailed, cinematic lighting`,
+            prompt: enhancedPrompt, // Using the LLM-optimized prompt
             width: width,   
             height: height, 
             num_steps: 20   
           }
         );
 
-        // 3. Universal Response Handler (Checks all possible formats)
+        // 4. Universal Response Handler (Checks all possible formats)
         let base64Image = null;
 
         // Case A: Binary Stream (Direct)
@@ -448,8 +475,6 @@ export async function onRequest(context) {
         }
 
         // Case E: Failure - Return JSON Debug Info
-        // If we reached here, the AI returned something, but not an image we recognize.
-        // Return as JSON so we can debug it in the browser network tab.
         return new Response(JSON.stringify({ 
           error: "Image Generation Failed - Unknown Format", 
           debug_response: response 
@@ -458,7 +483,6 @@ export async function onRequest(context) {
         });
 
       } catch (genError) {
-        // Catch network or API errors specifically for images
         return new Response(JSON.stringify({ 
           error: "Image API Error", 
           message: genError.message 
