@@ -657,7 +657,7 @@ export async function onRequest(context) {
             image: [...imageArray], // Cloudflare AI expects array of numbers
             num_steps: 20,
             guidance: 7.5,
-            strength: 0.6, // BALANCED: 0.6 allows additions (powers) while keeping layout
+            strength: 0.0, // BALANCED: 0.6 allows additions (powers) while keeping layout
             negative_prompt: "low quality, bad quality, blurry, distorted, deformed, ugly, bad anatomy, extra limbs"
         };
 
