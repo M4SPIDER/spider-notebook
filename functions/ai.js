@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.45)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.46)
  * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN + FLUX EDIT + ASR
- * UPDATE: Fixed GPT-OSS 120B Payload Schema (Input/Instructions)
+ * UPDATE: Fixed 120OSS Streaming (Added Fallback & Token Parsing)
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.45";
+const VERSION = "9.9.46";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -423,15 +423,12 @@ export async function onRequest(context) {
 
                 // --- SMART MODEL HANDLING ---
                 let aiResponse;
-                
-                // CRITICAL FIX: GPT-OSS models require 'input' schema (Not messages/prompt).
-                // Mistral requires 'messages' array.
                 const isGptOss = ACTIVE_MODEL.includes("gpt-oss");
                 
+                // Construct Payload
                 const aiPayload = isGptOss
                   ? {
                       // FIX: Use 'instructions' + 'input' schema for GPT-OSS 120B
-                      // Resolves 5006 Error (required properties: input)
                       instructions: currentMessages.find(m => m.role === 'system')?.content || "",
                       input: currentMessages
                         .filter(m => m.role !== 'system')
@@ -441,18 +438,36 @@ export async function onRequest(context) {
                         })
                         .join("\n\n") + "\n\nAssistant:",
                       max_tokens: 4096,
-                      // temperature: 0.7, // Often rigid schema rejects extra params
-                      stream: true
+                      stream: true 
                     }
                   : {
-                      // ✅ MISTRAL WORKS WITH THIS (Standard Array)
+                      // MISTRAL STANDARD
                       messages: currentMessages,
                       max_tokens: 8192,
                       temperature: 0.7,
                       stream: true
                     };
 
-                aiResponse = await env.SPY_AI.run(ACTIVE_MODEL, aiPayload);
+                // --- EXECUTE WITH FALLBACK ---
+                try {
+                    // Try Streaming First
+                    aiResponse = await env.SPY_AI.run(ACTIVE_MODEL, aiPayload);
+                } catch (streamErr) {
+                    console.error("Stream failed, falling back to static:", streamErr);
+                    // Fallback: If 'stream: true' is rejected (5006), retry without it
+                    if (isGptOss) {
+                        const staticPayload = { ...aiPayload };
+                        delete staticPayload.stream; // Remove stream flag
+                        
+                        // Fetch full response safely
+                        const staticRes = await env.SPY_AI.run(ACTIVE_MODEL, staticPayload);
+                        
+                        // Convert to simulated stream object for the reader below
+                        aiResponse = { isStatic: true, text: extractText(staticRes) };
+                    } else {
+                        throw streamErr; // Re-throw if it's not our specific fix case
+                    }
+                }
 
                 let reader;
                 // If it's a real stream
@@ -501,7 +516,8 @@ export async function onRequest(context) {
 
                       try {
                         const json = JSON.parse(dataStr);
-                        const textChunk = json.response; 
+                        // ROBUST PARSING: Check for 'response', 'token', or 'text'
+                        const textChunk = json.response || json.token || json.text; 
                         
                         if (textChunk) {
                           // Stream to user immediately
@@ -512,7 +528,6 @@ export async function onRequest(context) {
                           loopBuffer += textChunk;
                           
                           // LIGHTWEIGHT LINE COUNTING
-                          // We check lines to predict token exhaustion
                           for (let i = 0; i < textChunk.length; i++) {
                               if (textChunk[i] === '\n') loopLineCount++;
                           }
