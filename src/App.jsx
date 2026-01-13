@@ -2873,19 +2873,17 @@ const SpiderAIApp = ({
                         className={`px-4 py-3 rounded-2xl max-w-[95%] sm:max-w-4xl ${bubbleClass}`}
                     >
                         {message.type === "image" && message.base64_image && (
-                            <div className="w-full rounded-xl overflow-hidden bg-black mb-3">
-                                <img
-                                    src={`data:image/jpeg;base64,${message.base64_image}`}
-                                    alt="AI Generated"
-                                    className="w-full h-auto max-h-96 object-contain"
-                                    onError={(e) => {
-                                        e.target.style.display = 'none';
-                                        e.target.parentElement.innerHTML = 
-                                            '<div class="p-4 text-center text-gray-400">Image failed to load</div>';
-                                    }}
-                                />
-                            </div>
-                        )}
+    <div className="w-full rounded-xl overflow-hidden bg-black mb-3 border border-[var(--spider-light)]">
+        <img
+            // Change jpeg to png or use a generic data:image prefix
+            src={`data:image/png;base64,${message.base64_image}`}
+            alt="AI Generated"
+            className="w-full h-auto max-h-[500px] object-contain cursor-zoom-in"
+            onClick={(e) => window.open(e.target.src, '_blank')}
+            loading="lazy"
+        />
+    </div>
+)}
 
                         <div className="space-y-3">
                             {contentBlocks.map((block, index) => {
@@ -5020,6 +5018,7 @@ int main() {
         </>
     );
 }
+
 
 
 
