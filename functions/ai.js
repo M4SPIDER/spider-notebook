@@ -624,7 +624,7 @@ export async function onRequest(context) {
 
         // SWITCH: If mask exists, use Inpainting. If no mask, use Img2Img.
         // Flux does not support this, so we use Stable Diffusion v1.5 which is robust for editing.
-        let editModel = "@cf/runwayml/stable-diffusion-v1-5-img2img";
+        let editModel = "@cf/black-forest-labs/flux-2-dev";
         const inputArgs = {
             prompt: editPrompt,
             image: imageArray,
