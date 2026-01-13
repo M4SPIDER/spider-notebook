@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.33)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.34)
  * FEATURES: MISTRAL + LUCID ORIGIN + FLUX EDIT + ASR + PRO MODE
- * UPDATE: Enforced Pro Mode Always Streams (v9.9.33)
+ * UPDATE: Fixed Frontend/Backend Mode Mismatch ("pro" vs "pro_chat")
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.33";
+const VERSION = "9.9.34";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -366,14 +366,23 @@ export async function onRequest(context) {
     }
 
     //////////////////////
-    // STREAM MODE (CHAT + PRO MODE + FILE ANALYZER)
+    // STREAM MODE (CHAT + PRO MODE + FILE ANALYZER + REASONING)
     //////////////////////
-    // CRITICAL: Forces analyze_file and pro_chat to always use this block
-    if ((mode === "stream" || mode === "analyze_file" || mode === "pro_chat" || stream === true) && mode !== "image_gen" && mode !== "image_edit") {
+    // CRITICAL: Forces analyze_file, pro_chat/pro, and reasoning to always use this block
+    if (
+        (mode === "stream" || 
+         mode === "analyze_file" || 
+         mode === "pro_chat" || 
+         mode === "pro" ||        // Matched frontend
+         mode === "reasoning" ||  // Matched frontend
+         stream === true) && 
+        mode !== "image_gen" && 
+        mode !== "image_edit"
+    ) {
       const encoder = new TextEncoder();
       
-      // Select Model: Pro vs Standard
-      const ACTIVE_MODEL = (mode === "pro_chat") ? MODEL_PRO_CHAT : MODEL_STD_CHAT;
+      // Select Model: Pro vs Standard (Updated logic to match frontend "pro")
+      const ACTIVE_MODEL = (mode === "pro_chat" || mode === "pro") ? MODEL_PRO_CHAT : MODEL_STD_CHAT;
 
       // FIX: Use existing stream_id if available to append to same UI bubble
       const activeStreamId = stream_id || crypto.randomUUID();
@@ -409,7 +418,7 @@ export async function onRequest(context) {
                 ];
 
                 // Run AI (Optimized for Speed: Max tokens set high, but we control via lines)
-                // Note: PRO MODE (mode === 'pro_chat') ALWAYS STREAMS HERE due to if-condition
+                // Note: PRO MODE (mode === 'pro' or 'pro_chat') ALWAYS STREAMS HERE due to if-condition
                 const aiStream = await env.SPY_AI.run(
                   ACTIVE_MODEL,
                   {
