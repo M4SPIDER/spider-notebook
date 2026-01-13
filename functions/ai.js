@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.58)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.59)
  * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN + FLUX EDIT + ASR
- * UPDATE: Fixed Image Edit (Switched Flux -> SD1.5 Img2Img due to CF API Limits)
+ * UPDATE: Fixed Image Edit Strength (Lowered to 0.35 to preserve original image structure)
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.58";
+const VERSION = "9.9.59";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -657,7 +657,7 @@ export async function onRequest(context) {
             image: [...imageArray], // Cloudflare AI expects array of numbers
             num_steps: 20,
             guidance: 7.5,
-            strength: 0.7 
+            strength: 0.35 // LOWERED FROM 0.7 TO PRESERVE ORIGINAL IMAGE
         };
 
         // 4. Inpainting Logic (Masked Editing)
