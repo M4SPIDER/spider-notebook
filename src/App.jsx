@@ -1347,6 +1347,7 @@ const SpiderNotebookApp = ({
     );
 };
 
+
 const SpiderAIApp = ({ 
     currentUser, 
     showModal, 
@@ -1390,6 +1391,16 @@ const SpiderAIApp = ({
     });
     const [activeFileIndex, setActiveFileIndex] = useState(0);
     const [isProjectView, setIsProjectView] = useState(false);
+    
+    // ---------- Voice Recording State ----------
+    const [isRecording, setIsRecording] = useState(false);
+    const [recordingTime, setRecordingTime] = useState(0);
+    const [mediaRecorder, setMediaRecorder] = useState(null);
+    const [audioChunks, setAudioChunks] = useState([]);
+    const [isTranscribing, setIsTranscribing] = useState(false);
+    
+    // ---------- AI Mode State ----------
+    const [selectedAIMode, setSelectedAIMode] = useState('chat'); // chat, reasoning, pro
 
     const fileInputRef = useRef(null);
     const imageInputRef = useRef(null);
@@ -1398,6 +1409,8 @@ const SpiderAIApp = ({
     const streamReaderRef = useRef(null);
     const accumulatedTokensRef = useRef('');
     const fileContentBufferRef = useRef('');
+    const recordingTimerRef = useRef(null);
+    const continueStreamIdRef = useRef(null);
 
     const getAppId = () => typeof __app_id !== 'undefined' ? __app_id : 'default-m4-app';
     const LOCAL_STORAGE_KEY = `spider_chat_history_${getAppId()}_${(currentUser?.email || 'anon')}`;
@@ -1411,7 +1424,7 @@ const SpiderAIApp = ({
             localStorage.setItem(key, userId);
         }
         return userId;
-    }, [getAppId]);
+    }, [getAppId()]);
 
     // ---------- Full Code Detection Patterns ----------
     const fullCodePatterns = useMemo(() => ({
@@ -1991,6 +2004,120 @@ const SpiderAIApp = ({
         }
     }, [message]);
 
+    // ---------- Voice Recording Functions ----------
+    const startRecording = useCallback(async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    sampleRate: 16000
+                } 
+            });
+            
+            const recorder = new MediaRecorder(stream);
+            const chunks = [];
+            
+            recorder.ondataavailable = (e) => {
+                if (e.data.size > 0) {
+                    chunks.push(e.data);
+                }
+            };
+            
+            recorder.onstop = async () => {
+                const audioBlob = new Blob(chunks, { type: 'audio/wav' });
+                await transcribeAudio(audioBlob);
+                
+                // Stop all tracks
+                stream.getTracks().forEach(track => track.stop());
+            };
+            
+            recorder.start();
+            setMediaRecorder(recorder);
+            setAudioChunks(chunks);
+            setIsRecording(true);
+            setRecordingTime(0);
+            
+            // Start timer
+            recordingTimerRef.current = setInterval(() => {
+                setRecordingTime(prev => prev + 1);
+            }, 1000);
+            
+            // Auto stop after 60 seconds
+            setTimeout(() => {
+                if (recorder.state === 'recording') {
+                    stopRecording();
+                }
+            }, 60000);
+            
+        } catch (error) {
+            console.error('Error starting recording:', error);
+            showModal("Microphone Error", "Could not access microphone. Please check permissions.");
+        }
+    }, [showModal]);
+
+    const stopRecording = useCallback(() => {
+        if (mediaRecorder && mediaRecorder.state === 'recording') {
+            mediaRecorder.stop();
+            setIsRecording(false);
+            
+            if (recordingTimerRef.current) {
+                clearInterval(recordingTimerRef.current);
+                recordingTimerRef.current = null;
+            }
+        }
+    }, [mediaRecorder]);
+
+    const transcribeAudio = useCallback(async (audioBlob) => {
+        setIsTranscribing(true);
+        
+        try {
+            // Convert blob to base64
+            const reader = new FileReader();
+            reader.readAsDataURL(audioBlob);
+            
+            reader.onloadend = async () => {
+                const base64Audio = reader.result.split(',')[1];
+                
+                // Call Whisper API
+                const apiUrl = '/api/transcribe';
+                const apiPayload = {
+                    audio: base64Audio,
+                    model: 'whisper-large',
+                    language: 'en',
+                    user_preference_id: getPersistentUserId()
+                };
+                
+                const result = await callFastAPI(apiUrl, apiPayload, 'transcribe');
+                
+                if (result?.text) {
+                    setMessage(prev => prev + (prev ? ' ' : '') + result.text);
+                } else {
+                    showModal("Transcription Error", "Could not transcribe audio.");
+                }
+                
+                setIsTranscribing(false);
+            };
+            
+        } catch (error) {
+            console.error('Transcription error:', error);
+            showModal("Transcription Error", "Failed to transcribe audio.");
+            setIsTranscribing(false);
+        }
+    }, [callFastAPI, getPersistentUserId, showModal]);
+
+    // Clean up recording on unmount
+    useEffect(() => {
+        return () => {
+            if (recordingTimerRef.current) {
+                clearInterval(recordingTimerRef.current);
+            }
+            if (mediaRecorder) {
+                mediaRecorder.stream?.getTracks().forEach(track => track.stop());
+            }
+        };
+    }, [mediaRecorder]);
+
     // ---------- Open Database ----------
     const openDatabase = useCallback(() => {
         return new Promise((resolve, reject) => {
@@ -2043,7 +2170,8 @@ const SpiderAIApp = ({
                             id: chat.id,
                             title: chat.title || 'Untitled Chat',
                             timestamp: chat.timestamp,
-                            mode: chat.mode || 'chat'
+                            mode: chat.mode || 'chat',
+                            aiMode: chat.aiMode || 'chat'
                         }));
                     
                     setRecentChats(sortedChats);
@@ -2084,6 +2212,7 @@ const SpiderAIApp = ({
                             if (Array.isArray(history) && history.length > 0) {
                                 setChatHistory(history);
                                 setActiveChatId(chatId);
+                                setSelectedAIMode(chat.aiMode || 'chat');
                                 resolve(history);
                             } else {
                                 throw new Error('Invalid chat history');
@@ -2110,7 +2239,7 @@ const SpiderAIApp = ({
     }, [openDatabase]);
 
     // ---------- Save Chat History ----------
-    const saveChatHistory = useCallback(async (history) => {
+    const saveChatHistory = useCallback(async (history, aiMode = selectedAIMode) => {
         if (!Array.isArray(history) || history.length <= 1) return;
         
         try {
@@ -2131,6 +2260,7 @@ const SpiderAIApp = ({
             history: JSON.stringify(history),
             timestamp: Date.now(),
             mode: history[1]?.type || 'chat',
+            aiMode: aiMode,
             userId: userId,
             appId: getAppId()
         };
@@ -2157,7 +2287,7 @@ const SpiderAIApp = ({
         } catch (error) {
             console.error('Error saving chat:', error);
         }
-    }, [activeChatId, openDatabase, getUserId, loadRecentChats]);
+    }, [activeChatId, openDatabase, getUserId, loadRecentChats, selectedAIMode]);
 
     // ---------- Delete Chat ----------
     const deleteChat = useCallback(async (chatId) => {
@@ -2259,8 +2389,8 @@ const SpiderAIApp = ({
         typeNextWord();
     }, []);
 
-    // ---------- Enhanced Streaming Handler ----------
-    const handleStreamResponse = useCallback(async (response) => {
+    // ---------- Fixed Streaming Handler with Code Block Continuation ----------
+    const handleStreamResponse = useCallback(async (response, isContinue = false) => {
         if (!response.body) {
             throw new Error('ReadableStream not supported in this browser');
         }
@@ -2273,14 +2403,26 @@ const SpiderAIApp = ({
         let isFirstChunk = true;
         let startTime = Date.now();
         let tokenCount = 0;
+        let codeBlockBuffer = '';
+        let inCodeBlock = false;
+        let currentLanguage = '';
 
         try {
             while (true) {
                 const { done, value } = await reader.read();
                 
                 if (done) {
+                    // Handle incomplete code blocks
+                    if (inCodeBlock) {
+                        codeBlockBuffer += '```';
+                    }
+                    
                     // Check if response was truncated
-                    if (accumulatedTokensRef.current.length > 0 && !accumulatedTokensRef.current.trim().endsWith('.')) {
+                    const currentContent = isContinue 
+                        ? (streamedContent + accumulatedTokensRef.current)
+                        : accumulatedTokensRef.current;
+                    
+                    if (currentContent.length > 0 && !currentContent.trim().endsWith('.')) {
                         setShowContinueButton(true);
                     }
                     break;
@@ -2309,14 +2451,62 @@ const SpiderAIApp = ({
                             
                             if (parsed.text) {
                                 tokenCount++;
-                                accumulatedTokensRef.current += parsed.text;
+                                let textToAdd = parsed.text;
+                                
+                                // Handle code block continuation
+                                if (isContinue && codeBlockBuffer) {
+                                    textToAdd = codeBlockBuffer + textToAdd;
+                                    codeBlockBuffer = '';
+                                }
+                                
+                                // Track code blocks for continuation
+                                if (textToAdd.includes('```')) {
+                                    const parts = textToAdd.split('```');
+                                    for (let i = 0; i < parts.length; i++) {
+                                        if (i === 0 && !inCodeBlock) {
+                                            // Regular text before code block
+                                            accumulatedTokensRef.current += parts[i];
+                                            continue;
+                                        }
+                                        
+                                        if (i % 2 === 1) {
+                                            // Code block delimiter
+                                            if (!inCodeBlock) {
+                                                // Starting a code block
+                                                inCodeBlock = true;
+                                                currentLanguage = parts[i].trim() || '';
+                                                accumulatedTokensRef.current += '```' + currentLanguage + '\n';
+                                            } else {
+                                                // Ending a code block
+                                                inCodeBlock = false;
+                                                currentLanguage = '';
+                                                accumulatedTokensRef.current += '```\n';
+                                            }
+                                        } else {
+                                            // Code block content or text between code blocks
+                                            accumulatedTokensRef.current += parts[i];
+                                        }
+                                    }
+                                } else {
+                                    if (inCodeBlock) {
+                                        // Inside code block
+                                        accumulatedTokensRef.current += textToAdd;
+                                    } else {
+                                        // Regular text
+                                        accumulatedTokensRef.current += textToAdd;
+                                    }
+                                }
                                 
                                 // Update streaming content
-                                setStreamedContent(prev => prev + parsed.text);
+                                if (isContinue) {
+                                    setStreamedContent(prev => prev + textToAdd);
+                                } else {
+                                    setStreamedContent(prev => prev + textToAdd);
+                                }
                                 
                                 // In full code mode, parse files as they arrive
                                 if (isFullCodeMode) {
-                                    fileContentBufferRef.current += parsed.text;
+                                    fileContentBufferRef.current += textToAdd;
                                     // Try to parse files from buffer periodically
                                     if (tokenCount % 20 === 0) {
                                         const files = parseCodeForFiles(fileContentBufferRef.current);
@@ -2326,18 +2516,16 @@ const SpiderAIApp = ({
                                     }
                                 }
                                 
-                                // Show continue button if we detect incomplete code blocks
-                                if (parsed.text.includes('```') && !accumulatedTokensRef.current.includes('```\n```')) {
-                                    const codeBlockCount = (accumulatedTokensRef.current.match(/```/g) || []).length;
-                                    if (codeBlockCount % 2 === 1) {
-                                        // Unclosed code block
-                                        setShowContinueButton(true);
-                                    }
+                                // Store incomplete code block for continuation
+                                if (inCodeBlock && accumulatedTokensRef.current.endsWith('```')) {
+                                    // Actually complete code block
+                                    inCodeBlock = false;
                                 }
                             }
                             
                             if (parsed.stream_id) {
                                 setLastStreamId(parsed.stream_id);
+                                continueStreamIdRef.current = parsed.stream_id;
                             }
                             
                             if (parsed.is_full_code) {
@@ -2375,10 +2563,15 @@ const SpiderAIApp = ({
                     }));
                 }
             }
+            
+            // Add incomplete code block to buffer for next continuation
+            if (inCodeBlock) {
+                codeBlockBuffer = '```' + (currentLanguage ? currentLanguage + '\n' : '');
+            }
         }
-    }, [isFullCodeMode, parseCodeForFiles]);
+    }, [isFullCodeMode, parseCodeForFiles, streamedContent]);
 
-    // ---------- Continue Generation ----------
+    // ---------- Fixed Continue Generation ----------
     const handleContinueGeneration = useCallback(async () => {
         if (!lastStreamId) return;
         
@@ -2388,7 +2581,7 @@ const SpiderAIApp = ({
         
         const apiUrl = '/api/generate/continue';
         const apiPayload = {
-            stream_id: lastStreamId,
+            stream_id: continueStreamIdRef.current || lastStreamId,
             user_preference_id: getPersistentUserId(),
             firebase_token: currentUser?.firebaseToken || '',
             stream: true
@@ -2407,7 +2600,32 @@ const SpiderAIApp = ({
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
             
-            await handleStreamResponse(response);
+            // Clear previous content for clean continuation
+            accumulatedTokensRef.current = '';
+            
+            // Show streaming UI with continuation indicator
+            setStreamingMessage({
+                role: 'assistant',
+                content: '',
+                type: 'text',
+                ts: Date.now(),
+                isStreaming: true,
+                isContinue: true
+            });
+            
+            await handleStreamResponse(response, true);
+            
+            // Add continued content to chat history
+            if (accumulatedTokensRef.current) {
+                const assistantMessage = {
+                    role: 'assistant',
+                    content: accumulatedTokensRef.current,
+                    type: 'text',
+                    ts: Date.now(),
+                    isContinued: true
+                };
+                setChatHistory(prev => [...prev, assistantMessage]);
+            }
             
         } catch (error) {
             if (error.name === 'AbortError') {
@@ -2419,6 +2637,7 @@ const SpiderAIApp = ({
         } finally {
             setIsLoading(false);
             setIsStreaming(false);
+            setStreamingMessage(null);
         }
     }, [lastStreamId, getPersistentUserId, currentUser, callFastAPI, handleStreamResponse, showModal]);
 
@@ -2507,7 +2726,38 @@ const SpiderAIApp = ({
         event.target.value = null;
     };
 
-    // ---------- Fixed PlusMenu Component ----------
+    // ---------- AI Mode Selector Component ----------
+    const AIModeSelector = useMemo(() => {
+        return React.memo(({ selectedMode, onSelectMode }) => {
+            const modes = [
+                { id: 'chat', name: 'Chat', icon: '💬', desc: 'Standard AI Chat' },
+                { id: 'reasoning', name: 'Reasoning', icon: '🧠', desc: 'Step-by-step Reasoning' },
+                { id: 'pro', name: 'Spider Pro', icon: '🚀', desc: 'Experimental 120B Model' }
+            ];
+            
+            return (
+                <div className="flex items-center space-x-1 bg-[var(--spider-light)] rounded-lg p-1">
+                    {modes.map((mode) => (
+                        <button
+                            key={mode.id}
+                            onClick={() => onSelectMode(mode.id)}
+                            className={`flex items-center space-x-2 px-3 py-2 rounded-md text-sm transition-colors ${
+                                selectedMode === mode.id
+                                    ? 'bg-[var(--spider-neon-blue)] text-black font-semibold'
+                                    : 'text-white hover:bg-[var(--spider-med)]'
+                            }`}
+                            title={mode.desc}
+                        >
+                            <span>{mode.icon}</span>
+                            <span className="hidden sm:inline">{mode.name}</span>
+                        </button>
+                    ))}
+                </div>
+            );
+        });
+    }, []);
+
+    // ---------- Enhanced PlusMenu with AI Modes ----------
     const PlusMenu = useMemo(() => {
         return React.memo(({ setActiveAIMode: _setActiveAIMode, fileInputRef, imageInputRef }) => {
             const [open, setOpen] = useState(false);
@@ -2567,7 +2817,10 @@ const SpiderAIApp = ({
                         {open ? '×' : '+'}
                     </button>
                     {open && (
-                        <div className="absolute bottom-12 right-0 bg-[var(--spider-dark)] border border-[var(--spider-light)] rounded-md shadow-lg w-40 p-2 z-50">
+                        <div className="absolute bottom-12 right-0 bg-[var(--spider-dark)] border border-[var(--spider-light)] rounded-md shadow-lg w-48 p-2 z-50">
+                            <div className="text-xs text-[var(--spider-text-dim)] px-3 py-2 border-b border-[var(--spider-light)] mb-2">
+                                AI Tools
+                            </div>
                             <button 
                                 onClick={onUploadFile} 
                                 className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center touch-manipulation active:scale-95 transition-colors"
@@ -2589,6 +2842,59 @@ const SpiderAIApp = ({
                         </div>
                     )}
                 </div>
+            );
+        });
+    }, []);
+
+    // ---------- Voice Recording Button ----------
+    const VoiceButton = useMemo(() => {
+        return React.memo(({ isRecording, recordingTime, isTranscribing, onStartRecording, onStopRecording }) => {
+            const formatTime = (seconds) => {
+                const mins = Math.floor(seconds / 60);
+                const secs = seconds % 60;
+                return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+            };
+
+            if (isTranscribing) {
+                return (
+                    <button 
+                        className="w-10 h-10 flex items-center justify-center bg-[var(--spider-light)] text-white rounded-md hover:opacity-90 transition"
+                        disabled
+                    >
+                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    </button>
+                );
+            }
+
+            if (isRecording) {
+                return (
+                    <div className="relative">
+                        <button 
+                            onClick={onStopRecording}
+                            className="w-10 h-10 flex items-center justify-center bg-red-500 text-white rounded-md hover:bg-red-600 transition animate-pulse"
+                        >
+                            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
+                            </svg>
+                        </button>
+                        <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-red-500 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
+                            {formatTime(recordingTime)}
+                        </div>
+                        <div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-2 h-2 bg-red-500 rounded-full animate-ping"></div>
+                    </div>
+                );
+            }
+
+            return (
+                <button 
+                    onClick={onStartRecording}
+                    className="w-10 h-10 flex items-center justify-center bg-[var(--spider-light)] text-white rounded-md hover:opacity-90 transition hover:bg-[var(--spider-med)]"
+                    title="Voice Input"
+                >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
+                    </svg>
+                </button>
             );
         });
     }, []);
@@ -3006,12 +3312,14 @@ const SpiderAIApp = ({
 
     // Helper function for mode display
     const getModeText = () => {
+        if (selectedAIMode === 'reasoning') return "Reasoning Mode";
+        if (selectedAIMode === 'pro') return "Spider AI Pro";
         if (isFullCodeMode) return "Full Code Project";
         if (uploadedFile) return "File Analysis";
         if (uploadedImage) return "Image Edit";
         if (activeAIMode === 'image_gen') return "Create Image";
         if (activeAIMode === 'image_edit') return "Edit Image";
-        return "Chat / Code / Image";
+        return "Chat Mode";
     };
 
     // ---------- New Chat Handler ----------
@@ -3019,6 +3327,7 @@ const SpiderAIApp = ({
         setUploadedFile(null);
         setUploadedImage(null);
         setActiveAIMode && setActiveAIMode('chat');
+        setSelectedAIMode('chat');
         setActiveChatId(null);
         setLastStreamId(null);
         setShowContinueButton(false);
@@ -3034,6 +3343,7 @@ const SpiderAIApp = ({
         accumulatedTokensRef.current = '';
         setStreamedContent('');
         fileContentBufferRef.current = '';
+        continueStreamIdRef.current = null;
         const welcome = [{ 
             role: 'assistant', 
             content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', 
@@ -3047,14 +3357,15 @@ const SpiderAIApp = ({
         }
     };
 
-    // ---------- Enhanced Send Message ----------
+    // ---------- Enhanced Send Message with AI Modes ----------
     const handleSendMessage = async () => {
         if (!message.trim() && !uploadedFile && !uploadedImage) return;
 
         console.log('Sending message:', {
             persistentId: getPersistentUserId(),
             currentUser: currentUser,
-            message: message
+            message: message,
+            aiMode: selectedAIMode
         });
 
         setIsLoading(true);
@@ -3063,7 +3374,7 @@ const SpiderAIApp = ({
 
         const fileCopy = uploadedFile;
         const imageCopy = uploadedImage;
-        let mode = activeAIMode || "chat";
+        let mode = activeAIMode || selectedAIMode;
 
         // Auto-detect image generation
         if (!fileCopy && !imageCopy && detectImageGeneration(message)) {
@@ -3088,7 +3399,8 @@ const SpiderAIApp = ({
             fileName: fileCopy ? fileCopy.name : undefined,
             imageName: imageCopy ? imageCopy.name : undefined,
             ts: Date.now(),
-            isFullCodeRequest: isFullCodeRequest
+            isFullCodeRequest: isFullCodeRequest,
+            aiMode: selectedAIMode
         };
 
         setChatHistory(prev => [...prev, userMessage]);
@@ -3100,20 +3412,24 @@ const SpiderAIApp = ({
         setShowContinueButton(false);
         setLastStreamId(null);
         fileContentBufferRef.current = '';
+        continueStreamIdRef.current = null;
 
         // DECISION: When to use streaming vs normal API
-        const shouldUseStreaming = 
+        const shouldStream = 
             isFullCodeRequest ||                            // Full code mode
             detectLargeCodeRequest(message) ||              // Large code expected
             mode === "analyze_file" ||                      // File analysis
             message.toLowerCase().includes('stream') ||     // User explicitly asks for streaming
             message.toLowerCase().includes('step by step') || // Detailed explanations
-            detectMathRequest(message);                     // Math problems
+            detectMathRequest(message) ||                   // Math problems
+            selectedAIMode === 'reasoning' ||               // Reasoning mode always streams
+            selectedAIMode === 'pro';                       // Pro mode always streams
 
         console.log('Streaming decision:', {
-            shouldUseStreaming,
+            shouldStream,
             isFullCodeRequest,
             mode,
+            selectedAIMode,
             messageLength: message.length
         });
 
@@ -3155,7 +3471,8 @@ const SpiderAIApp = ({
                     file_type: fileCopy.type,
                     user_preference_id: getPersistentUserId(),
                     firebase_token: currentUser?.firebaseToken || '',
-                    stream: true
+                    stream: true,
+                    ai_mode: selectedAIMode
                 };
                 
                 console.log('Sending file analysis request with streaming');
@@ -3216,7 +3533,8 @@ const SpiderAIApp = ({
                     strength: 0.7,
                     user_preference_id: getPersistentUserId(),
                     firebase_token: currentUser?.firebaseToken || '',
-                    stream: false
+                    stream: false,
+                    ai_mode: selectedAIMode
                 };
                 
                 console.log('Sending image edit request');
@@ -3241,7 +3559,8 @@ const SpiderAIApp = ({
                     aspect_ratio: aspectRatio,
                     user_preference_id: getPersistentUserId(),
                     firebase_token: currentUser?.firebaseToken || '',
-                    stream: false
+                    stream: false,
+                    ai_mode: selectedAIMode
                 };
                 
                 console.log('Sending image generation request');
@@ -3267,7 +3586,8 @@ const SpiderAIApp = ({
                     firebase_token: currentUser?.firebaseToken || '',
                     stream: true,
                     full_code_mode: true,
-                    project_type: projectMetadata.type
+                    project_type: projectMetadata.type,
+                    ai_mode: selectedAIMode
                 };
                 
                 console.log('Sending full-code request with streaming');
@@ -3315,9 +3635,58 @@ const SpiderAIApp = ({
                     }
                 }
             }
-            // NORMAL CHAT (Decision based on shouldUseStreaming)
+            // AI MODES: REASONING & PRO (Always streaming)
+            else if (selectedAIMode === 'reasoning' || selectedAIMode === 'pro') {
+                const apiUrl = '/api/generate/text';
+                const apiPayload = { 
+                    prompt: message, 
+                    mode: selectedAIMode,
+                    user_preference_id: getPersistentUserId(),
+                    firebase_token: currentUser?.firebaseToken || '',
+                    stream: true,
+                    ai_mode: selectedAIMode
+                };
+                
+                console.log(`Sending ${selectedAIMode} request with streaming`);
+                
+                // Show streaming UI
+                setIsStreaming(true);
+                const initialStreamMessage = {
+                    role: 'assistant',
+                    content: selectedAIMode === 'pro' 
+                        ? '🤖 Spider AI Pro is thinking...' 
+                        : '🧠 Reasoning step by step...',
+                    type: 'text',
+                    ts: Date.now(),
+                    isStreaming: true
+                };
+                setStreamingMessage(initialStreamMessage);
+                
+                const response = await callFastAPI(apiUrl, apiPayload, mode, {
+                    signal: controller.signal,
+                    stream: true
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                await handleStreamResponse(response);
+
+                if (accumulatedTokensRef.current) {
+                    const assistantMessage = {
+                        role: 'assistant',
+                        content: accumulatedTokensRef.current,
+                        type: 'text',
+                        ts: Date.now(),
+                        aiMode: selectedAIMode
+                    };
+                    setChatHistory(prev => [...prev, assistantMessage]);
+                }
+            }
+            // NORMAL CHAT (Decision based on shouldStream)
             else {
-                if (shouldUseStreaming) {
+                if (shouldStream) {
                     // Use streaming for large/math responses
                     const apiUrl = '/api/generate/text';
                     const apiPayload = { 
@@ -3325,7 +3694,8 @@ const SpiderAIApp = ({
                         mode,
                         user_preference_id: getPersistentUserId(),
                         firebase_token: currentUser?.firebaseToken || '',
-                        stream: true
+                        stream: true,
+                        ai_mode: selectedAIMode
                     };
                     
                     console.log('Using streaming for this request');
@@ -3369,7 +3739,8 @@ const SpiderAIApp = ({
                         mode,
                         user_preference_id: getPersistentUserId(),
                         firebase_token: currentUser?.firebaseToken || '',
-                        stream: false
+                        stream: false,
+                        ai_mode: selectedAIMode
                     };
                     
                     console.log('Using normal API call for regular chat');
@@ -3589,7 +3960,7 @@ const SpiderAIApp = ({
                                         >
                                             <div className="truncate">{chat.title}</div>
                                             <div className="text-xs text-[var(--spider-text-dim)] mt-1">
-                                                {new Date(chat.timestamp).toLocaleDateString()} • {chat.mode}
+                                                {new Date(chat.timestamp).toLocaleDateString()} • {chat.aiMode || chat.mode}
                                             </div>
                                         </button>
                                         <button
@@ -3599,14 +3970,17 @@ const SpiderAIApp = ({
                                                     deleteChat(chat.id);
                                                 }
                                             }}
-                                            className="ml-2 text-red-400 hover:text-red-300 opacity-0 group-hover:opacity-100 transition-opacity p-2 active:scale-95"
+                                            className="ml-2 text-red-400 hover:text-red-300 p-2 active:scale-95 flex-shrink-0"
                                             title="Delete chat"
                                             disabled={isDeleting}
+                                            aria-label="Delete chat"
                                         >
                                             {isDeleting ? (
                                                 <div className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin"></div>
                                             ) : (
-                                                '×'
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                                </svg>
                                             )}
                                         </button>
                                     </div>
@@ -3681,23 +4055,39 @@ const SpiderAIApp = ({
                             <div className="space-y-1">
                                 {recentChats.length > 0 ? (
                                     recentChats.map((chat) => (
-                                        <button 
-                                            key={chat.id}
-                                            onClick={() => {
-                                                loadChatById(chat.id);
-                                                setSidebarOpen(false);
-                                            }} 
-                                            className={`w-full text-left px-3 py-3 text-sm rounded-lg hover:bg-[var(--spider-light)] truncate transition-colors ${
-                                                activeChatId === chat.id 
-                                                    ? 'bg-[var(--spider-light)] text-white font-medium' 
-                                                    : 'text-[var(--spider-text)] hover:text-white'
-                                            }`}
-                                        >
-                                            <div className="truncate">{chat.title}</div>
-                                            <div className="text-xs text-[var(--spider-text-dim)] mt-1">
-                                                {new Date(chat.timestamp).toLocaleDateString()}
-                                            </div>
-                                        </button>
+                                        <div key={chat.id} className="flex items-center group">
+                                            <button 
+                                                onClick={() => {
+                                                    loadChatById(chat.id);
+                                                    setSidebarOpen(false);
+                                                }} 
+                                                className={`flex-grow text-left px-3 py-3 text-sm rounded-lg hover:bg-[var(--spider-light)] truncate transition-colors ${
+                                                    activeChatId === chat.id 
+                                                        ? 'bg-[var(--spider-light)] text-white font-medium' 
+                                                        : 'text-[var(--spider-text)] hover:text-white'
+                                                }`}
+                                            >
+                                                <div className="truncate">{chat.title}</div>
+                                                <div className="text-xs text-[var(--spider-text-dim)] mt-1">
+                                                    {new Date(chat.timestamp).toLocaleDateString()}
+                                                </div>
+                                            </button>
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    if (window.confirm('Delete this chat?')) {
+                                                        deleteChat(chat.id);
+                                                    }
+                                                }}
+                                                className="ml-2 text-red-400 hover:text-red-300 p-2 flex-shrink-0"
+                                                title="Delete chat"
+                                                aria-label="Delete chat"
+                                            >
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                                </svg>
+                                            </button>
+                                        </div>
                                     ))
                                 ) : (
                                     <div className="text-center py-6 text-[var(--spider-text-dim)] text-sm">
@@ -3836,27 +4226,34 @@ const SpiderAIApp = ({
                 }`}>
                     <div className="max-w-5xl mx-auto">
                         {!isMobile && (
-                            <div className="flex justify-between items-center mb-3">
-                                <span className="flex items-center text-sm text-[var(--spider-neon-blue)] font-semibold">
-                                    {getModeText()}
-                                    {isFullCodeMode && (
-                                        <span className="ml-2 text-xs px-2 py-0.5 bg-[var(--spider-neon-blue)] text-black rounded-full">
-                                            FULL CODE
-                                        </span>
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-3 space-y-2 sm:space-y-0">
+                                <AIModeSelector 
+                                    selectedMode={selectedAIMode}
+                                    onSelectMode={setSelectedAIMode}
+                                />
+                                
+                                <div className="flex items-center space-x-3">
+                                    <span className="text-sm text-[var(--spider-neon-blue)] font-semibold truncate">
+                                        {getModeText()}
+                                        {isFullCodeMode && (
+                                            <span className="ml-2 text-xs px-2 py-0.5 bg-[var(--spider-neon-blue)] text-black rounded-full">
+                                                FULL CODE
+                                            </span>
+                                        )}
+                                    </span>
+                                    {activeAIMode === 'image_gen' && (
+                                        <select 
+                                            value={aspectRatio} 
+                                            onChange={(e) => setAspectRatio(e.target.value)} 
+                                            className="bg-[var(--spider-light)] text-[var(--spider-text)] px-3 py-1.5 rounded-lg text-sm focus:outline-none"
+                                        >
+                                            <option value="1:1">1:1 Square</option>
+                                            <option value="16:9">16:9 Landscape</option>
+                                            <option value="9:16">9:16 Portrait</option>
+                                            <option value="4:3">4:3 Standard</option>
+                                        </select>
                                     )}
-                                </span>
-                                {activeAIMode === 'image_gen' && (
-                                    <select 
-                                        value={aspectRatio} 
-                                        onChange={(e) => setAspectRatio(e.target.value)} 
-                                        className="bg-[var(--spider-light)] text-[var(--spider-text)] px-3 py-1.5 rounded-lg text-sm focus:outline-none"
-                                    >
-                                        <option value="1:1">1:1 Square</option>
-                                        <option value="16:9">16:9 Landscape</option>
-                                        <option value="9:16">9:16 Portrait</option>
-                                        <option value="4:3">4:3 Standard</option>
-                                    </select>
-                                )}
+                                </div>
                             </div>
                         )}
 
@@ -3911,6 +4308,24 @@ const SpiderAIApp = ({
                                 />
                             </div>
 
+                            {/* Mobile AI Mode Selector */}
+                            {isMobile && (
+                                <div className="flex space-x-1 mb-1">
+                                    <AIModeSelector 
+                                        selectedMode={selectedAIMode}
+                                        onSelectMode={setSelectedAIMode}
+                                    />
+                                </div>
+                            )}
+
+                            <VoiceButton 
+                                isRecording={isRecording}
+                                recordingTime={recordingTime}
+                                isTranscribing={isTranscribing}
+                                onStartRecording={startRecording}
+                                onStopRecording={stopRecording}
+                            />
+
                             <PlusMenu 
                                 setActiveAIMode={setActiveAIMode} 
                                 fileInputRef={fileInputRef} 
@@ -3939,8 +4354,6 @@ const SpiderAIApp = ({
         </div>
     );
 };
-
-
 
 // --- END Plus Menu Component ---
 const SpiderVFXApp = () => { /* ... (Remains Placeholder) ... */ return (<div className="flex-grow h-full flex flex-col items-center justify-center bg-black text-white p-8 pattern-vfx-grid overflow-y-auto"><div className="bg-black bg-opacity-80 p-10 rounded-lg text-center shadow-xl"><h1 className="text-4xl font-bold mb-4 text-[var(--spider-neon-blue)]">Spider VFX</h1><p className="text-lg text-gray-400 mb-8">Coming Soon!</p><div className="animate-pulse text-6xl">✨</div></div></div>);};
