@@ -487,67 +487,67 @@ export async function onRequest(context) {
     //////////////////////
     // IMAGE EDITING (FLUX 2 DEV)
     //////////////////////
-    if (mode === "image_edit") {
-        if (!payload.image) {
-            return new Response(JSON.stringify({ error: "No image provided for editing" }), { headers: cors });
-        }
-
-        const imageArray = base64ToArray(payload.image);
-        if (!imageArray) {
-             return new Response(JSON.stringify({ error: "Invalid image data" }), { headers: cors });
-        }
-
-        const inputArgs = {
-            prompt: activePrompt,
-            image: imageArray,
-            num_steps: 20, // Standard step count
-            guidance: 7.5
-        };
-        
-        // If mask exists (inpainting), include it
-        if (payload.mask) {
-            const maskArray = base64ToArray(payload.mask);
-            if (maskArray) inputArgs.mask = maskArray;
-        }
-
-        try {
-            const response = await runAi(
-                env,
-                "@cf/black-forest-labs/flux-2-dev", // SPECIFIC USER REQUEST
-                inputArgs
-            );
-
-            // Universal Handler for Image Response
-            let base64Image = null;
-            if (response instanceof ReadableStream) {
-                 return new Response(response, { headers: { ...cors, "Content-Type": "image/png" } });
-            }
-
-            if (response && response.image) base64Image = response.image;
-            else if (response && response.result && response.result.image) base64Image = response.result.image;
-
-            if (base64Image) {
-                const binaryString = atob(base64Image);
-                const len = binaryString.length;
-                const bytes = new Uint8Array(len);
-                for (let i = 0; i < len; i++) bytes[i] = binaryString.charCodeAt(i);
-                
-                return new Response(bytes.buffer, {
-                    headers: { ...cors, "Content-Type": "image/png" }
-                });
-            }
-
-            return new Response(JSON.stringify({ error: "Edit Failed - Unknown Format", debug: response }), {
-                headers: { ...cors, "Content-Type": "application/json" }
-            });
-
-        } catch (e) {
-            return new Response(JSON.stringify({ error: "Image Edit Error", message: e.message }), {
-                headers: { ...cors, "Content-Type": "application/json" }
-            });
-        }
+   if (mode === "image_edit") {
+    if (!payload.image) {
+        return new Response(JSON.stringify({ error: "No image provided" }), { headers: cors });
     }
 
+    try {
+        // 1. FLUX.2 requires FormData, NOT JSON
+        const formData = new FormData();
+        
+        // 2. Convert your base64 string to a Blob for the multipart upload
+        const byteString = atob(payload.image);
+        const ab = new ArrayBuffer(byteString.length);
+        const ia = new Uint8Array(ab);
+        for (let i = 0; i < byteString.length; i++) {
+            ia[i] = byteString.charCodeAt(i);
+        }
+        const blob = new Blob([ab], { type: 'image/png' });
+
+        // 3. Append required fields
+        formData.append('prompt', activePrompt || "Edit this image");
+        formData.append('input_image_0', blob); // FLUX.2 uses this specific key
+        
+        // Optional: Add steps/guidance if needed
+        formData.append('steps', '25'); 
+
+        // 4. Run the model using the fetch API (Directly to the AI binding)
+        // Note: env.SPY_AI.run often struggles with FormData in some Worker versions, 
+        // using a direct fetch or the specific binding method is safer here.
+        const response = await env.SPY_AI.run(
+            "@cf/black-forest-labs/flux-2-dev",
+            formData // Pass the FormData object directly
+        );
+
+        // 5. Universal Handler for Flux Output
+        let base64Image = null;
+        if (response instanceof ReadableStream) {
+             return new Response(response, { headers: { ...cors, "Content-Type": "image/png" } });
+        }
+
+        // Flux.2 usually returns an object with the image
+        if (response && response.image) base64Image = response.image;
+
+        if (base64Image) {
+            return new Response(JSON.stringify({ 
+                base64_image: base64Image,
+                finish_reason: "stop"
+            }), {
+                headers: { ...cors, "Content-Type": "application/json" }
+            });
+        }
+
+        return new Response(JSON.stringify({ error: "Flux 2 Failed", debug: response }), {
+            headers: { ...cors, "Content-Type": "application/json" }
+        });
+
+    } catch (e) {
+        return new Response(JSON.stringify({ error: "Flux 2 API Error", message: e.message }), {
+            headers: { ...cors, "Content-Type": "application/json" }
+        });
+    }
+}
     //////////////////////
     // IMAGE GENERATION (FIXED & STABILIZED)
     //////////////////////
