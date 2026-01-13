@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.67)
- * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN + GOOGLE EDIT (ONLY)
- * UPDATE: Added Safety Filters Bypass + Text Error Debugging for Google Edit
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.59)
+ * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN + FLUX EDIT + ASR
+ * UPDATE: Fixed Image Edit Strength (Lowered to 0.35 to preserve original image structure)
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.67";
+const VERSION = "9.9.59";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -25,14 +25,8 @@ const AI_MAX_OUTPUT_LINES = 300;
 // SWAPPED: Standard is now GPT-OSS 120B, Pro is Mistral 24B
 const MODEL_STD_CHAT = "@cf/openai/gpt-oss-120b"; 
 const MODEL_PRO_CHAT = "@cf/mistralai/mistral-small-3.1-24b-instruct"; 
-
-// RESTORED: Lucid Origin as requested
 const MODEL_IMAGE_GEN = "@cf/leonardo/lucid-origin";
-
-// GOOGLE MODEL (Nano Banana) - Requires GEMINI_API_KEY
-// UPDATE: Exact model name as requested
-const MODEL_GOOGLE_EDIT = "gemini-2.5-flash-image"; 
-
+// NOTE: Image Edit model is now selected dynamically (SD v1.5) inside the handler
 const MODEL_ASR = "@cf/openai/whisper-large-v3-turbo";
 
 //////////////////////////////
@@ -64,6 +58,7 @@ function extractText(resp) {
 }
 
 // HELPER: Base64 to Array (Required for Image/Audio Input)
+// MOVED HERE from inside handler to fix scope/syntax errors
 const base64ToArray = (b64) => {
   try {
     const binaryString = atob(b64);
@@ -141,74 +136,6 @@ async function runTavilySearch(env, query) {
     console.error("Tavily Search Error:", e);
     return null;
   }
-}
-
-//////////////////////////////
-// GOOGLE GEMINI API CALLER
-//////////////////////////////
-async function runGoogleEdit(apiKey, prompt, imageBase64) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_GOOGLE_EDIT}:generateContent?key=${apiKey}`;
-    
-    // Clean base64 just in case
-    const cleanBase64 = imageBase64.includes(',') ? imageBase64.split(',').pop() : imageBase64;
-
-    const payload = {
-        contents: [{
-            parts: [
-                { text: prompt }, // Direct prompt
-                { 
-                    inline_data: { 
-                        mime_type: "image/png", 
-                        data: cleanBase64 
-                    } 
-                }
-            ]
-        }],
-        // CRITICAL: Disable safety settings to allow "powers", "fire", etc.
-        safetySettings: [
-            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
-        ]
-    };
-
-    const response = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-    });
-
-    if (!response.ok) {
-        const errText = await response.text();
-        throw new Error(`Google API Error (${response.status}): ${errText}`);
-    }
-
-    const data = await response.json();
-    
-    // Check if Gemini returned an image (Inline Data)
-    const candidates = data.candidates || [];
-    if (candidates.length > 0 && candidates[0].content && candidates[0].content.parts) {
-        let textResponse = "";
-        
-        for (const part of candidates[0].content.parts) {
-             // FIXED: Handle camelCase 'inlineData' (common in new Gemini versions)
-             const inlineData = part.inlineData || part.inline_data;
-             if (inlineData && inlineData.data) {
-                 return { type: 'image', data: inlineData.data }; // Return Base64
-             }
-             if (part.text) {
-                 textResponse += part.text;
-             }
-        }
-        
-        // If we found text but no image, return the text to explain WHY (e.g. "I cannot edit this...")
-        if (textResponse) {
-             return { type: 'text', data: textResponse };
-        }
-    }
-    
-    return null; // Nothing found
 }
 
 //////////////////////////////
@@ -693,8 +620,10 @@ export async function onRequest(context) {
     }
 
     //////////////////////
-    // IMAGE EDITING (GOOGLE GEMINI ONLY - NO FALLBACK)
+    // IMAGE EDITING (FLUX 2 DEV -> SD 1.5 FIX)
     //////////////////////
+    // FIXED: base64ToUint8Array moved to UTILS, removed invalid 'onst' definition here.
+
     if (mode === "image_edit") {
         // 1. Validation: Ensure image exists
         if (!payload.image) {
@@ -704,50 +633,73 @@ export async function onRequest(context) {
             });
         }
 
-        // 2. Prepare Prompt
-        let editPrompt = activePrompt;
-        // Optional: Can remove this quality injection if Gemini is sensitive to it, but keeping for now as safe default.
-        if (!editPrompt.toLowerCase().includes("quality")) {
-             editPrompt = "masterpiece, best quality, " + editPrompt;
-        }
-        if (searchContext) {
-            editPrompt += `\n\n[CONTEXT: ${searchContext}]`;
-        }
-
-        // 3. Google Gemini (Path A Only)
-        // STRICT CHECK: Fail if API key is missing
-        if (!env.GEMINI_API_KEY) {
-             return new Response(JSON.stringify({ error: "Configuration Error: GEMINI_API_KEY is missing. Please add it to environmental variables to use Image Editing." }), { 
-                status: 500, 
+        const imageArray = base64ToUint8Array(payload.image);
+        if (!imageArray) {
+            return new Response(JSON.stringify({ error: "Invalid image data" }), { 
+                status: 400, 
                 headers: { ...cors, "Content-Type": "application/json" } 
             });
         }
 
+        // 2. Prepare Prompt and Search Context
+        let editPrompt = activePrompt;
+        if (searchContext) {
+            editPrompt += `\n\n[CONTEXT: ${searchContext}]`;
+        }
+
+        // 3. Model Configuration
+        // CHANGE: Flux on Cloudflare is Text-to-Image ONLY.
+        // LM Arena uses full Python/GPU environment which supports Img2Img with Flux.
+        // On Cloudflare, we MUST use Stable Diffusion 1.5 for Image-to-Image editing.
+        let editModel = "@cf/runwayml/stable-diffusion-v1-5-img2img"; 
+        let inputArgs = {
+            prompt: editPrompt,
+            image: [...imageArray], // Cloudflare AI expects array of numbers
+            num_steps: 20,
+            guidance: 7.5,
+            strength: 0.35 // LOWERED FROM 0.7 TO PRESERVE ORIGINAL IMAGE
+        };
+
+        // 4. Inpainting Logic (Masked Editing)
+        if (payload.mask) {
+            editModel = "@cf/runwayml/stable-diffusion-v1-5-inpainting";
+            const maskArray = base64ToUint8Array(payload.mask);
+            if (maskArray) {
+                inputArgs.mask = [...maskArray];
+            }
+        }
+
         try {
-            // Use original base64 string directly
-            const result = await runGoogleEdit(env.GEMINI_API_KEY, editPrompt, payload.image);
-            
-            if (result && result.type === 'image') {
-                const finalImage = base64ToUint8Array(result.data);
+            const response = await runAi(env, editModel, inputArgs);
+
+            // 5. Response Handling
+            // Case A: Response is a direct stream (standard for Cloudflare AI image models)
+            if (response instanceof ReadableStream) {
+                return new Response(response, { 
+                    headers: { ...cors, "Content-Type": "image/png" } 
+                });
+            }
+
+            // Case B: Response is a JSON object containing base64 (less common, but handled)
+            let base64Image = response?.image || response?.result?.image;
+
+            if (base64Image) {
+                const finalImage = base64ToUint8Array(base64Image);
                 return new Response(finalImage, {
                     headers: { ...cors, "Content-Type": "image/png" }
                 });
-            } else if (result && result.type === 'text') {
-                 // CRITICAL: Return the Model's Text Explanation as the Error Message
-                 return new Response(JSON.stringify({ error: `Google Refused Edit: ${result.data}` }), { 
-                    status: 500, 
-                    headers: { ...cors, "Content-Type": "application/json" } 
-                });
-            } else {
-                 return new Response(JSON.stringify({ error: "Google Edit Failed: No image or text returned in response." }), { 
-                    status: 500, 
-                    headers: { ...cors, "Content-Type": "application/json" } 
-                });
             }
-        } catch (googleErr) {
-            return new Response(JSON.stringify({ error: "Google Edit API Error", message: googleErr.message }), { 
-                status: 500, 
-                headers: { ...cors, "Content-Type": "application/json" } 
+
+            // Case C: Fallback error if format is unrecognized
+            return new Response(JSON.stringify({ error: "Edit Failed - Unknown Format", debug: response }), {
+                status: 500,
+                headers: { ...cors, "Content-Type": "application/json" }
+            });
+
+        } catch (e) {
+            return new Response(JSON.stringify({ error: "Image Edit Error", message: e.message }), {
+                status: 500,
+                headers: { ...cors, "Content-Type": "application/json" }
             });
         }
     }
