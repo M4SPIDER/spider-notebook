@@ -12,6 +12,7 @@ models = [
   "@cf/leonardo/lucid-origin",
   "@cf/stabilityai/stable-diffusion-xl-refiner-1.0",
   "@cf/web-search/seznam-supersearch"
+  "@cf/black-forest-labs/flux-2-dev" 
 ]
 
 [[kv_namespaces]]
