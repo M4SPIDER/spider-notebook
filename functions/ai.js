@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.29)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.30)
  * FEATURES: MISTRAL + LUCID ORIGIN (STABILITY FIXES)
- * UPDATE: Forced Auto-Loop for File Analysis & Fixes
+ * UPDATE: Forced Auto-Loop for File Analysis (No Chat Shift)
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.29";
+const VERSION = "9.9.30";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -68,7 +68,7 @@ function shouldTriggerSearch(text) {
 
 async function runTavilySearch(env, query) {
   if (!env.TAVILY_API_KEY) return null;
-   
+    
   try {
     const response = await fetch("https://api.tavily.com/search", {
       method: "POST",
@@ -85,7 +85,7 @@ async function runTavilySearch(env, query) {
     });
 
     if (!response.ok) return null;
-    
+     
     const data = await response.json();
     if (!data.results || data.results.length === 0) return null;
 
@@ -234,7 +234,7 @@ export async function onRequest(context) {
     } = payload;
 
     const memKey = AI_MEMORY_USER_KEY_PREFIX + user_preference_id;
-    
+     
     // Handle Continue requests
     let activePrompt = prompt;
     let isContinue = false; // TRACK CONTINUATION
@@ -242,8 +242,17 @@ export async function onRequest(context) {
         activePrompt = "The previous code/text was incomplete. Please CONTINUE generating EXACTLY from where you left off. Do not restart. Just output the remaining part.";
         isContinue = true;
     }
-    
+     
     const cleanPrompt = (activePrompt || "").trim().toLowerCase();
+
+    // -----------------------------------------------------------------
+    // FORCE FILE MODE (CRITICAL FIX)
+    // -----------------------------------------------------------------
+    // Priority: If file_content is present, strictly enforce analyze_file mode.
+    // This prevents falling back to normal chat or triggering unrelated modes.
+    if (file_content && typeof file_content === "string" && file_content.trim().length > 0) {
+        mode = "analyze_file";
+    }
 
     // -----------------------------------------------------------------
     // AUTO-IMAGE MODE DETECTOR
@@ -252,8 +261,9 @@ export async function onRequest(context) {
       "generate image", "create image", "make an image", "draw a", 
       "generate a picture", "create a picture", "imagine this", "draw this"
     ];
-    
-    // If user is in chat mode but asks for an image, FORCE image_gen mode.
+     
+    // If user is in chat mode (AND not analyzing a file) but asks for an image, FORCE image_gen mode.
+    // Check ensures we don't override analyze_file if a file was just uploaded.
     if (mode === "chat" && IMAGE_TRIGGERS.some(t => cleanPrompt.includes(t))) {
        mode = "image_gen";
     }
@@ -262,12 +272,13 @@ export async function onRequest(context) {
     // -- Language Detection --
     const isTelugu = shouldTriggerTelugu(cleanPrompt);
     let finalSystemPrompt = SPIDER_SYSTEM_PROMPT;
-    
+     
     if (isTelugu) {
       finalSystemPrompt += "\n[SYSTEM: DETECTED TELUGU INPUT (Romanized). REPLY STRICTLY IN TELUGU USING ENGLISH LETTERS.]";
     }
 
     // -- Search Trigger --
+    // FIX: Only allow search trigger if we are in strict chat mode (not analyzing files)
     let searchContext = "";
     if (mode === "chat" && shouldTriggerSearch(cleanPrompt)) {
        const searchRes = await runTavilySearch(env, activePrompt);
@@ -302,10 +313,9 @@ export async function onRequest(context) {
     }
 
     //////////////////////
-    // STREAM MODE (TRUE STREAMING + AUTO CONTINUE)
+    // STREAM MODE (TRUE STREAMING + AUTO CONTINUE + FILE ANALYZER)
     //////////////////////
-    // CRITICAL FIX: Explicitly exclude image_gen mode here.
-    // ALSO FIX: Force "analyze_file" into streaming mode so it gets the Auto-Continue Loop.
+    // CRITICAL: Forces analyze_file to always use this block for the Auto-Loop feature
     if ((mode === "stream" || mode === "analyze_file" || stream === true) && mode !== "image_gen") {
       const encoder = new TextEncoder();
       
