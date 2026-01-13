@@ -3193,51 +3193,74 @@ const SpiderAIApp = ({
                 }
             }
             // IMAGE EDIT
-            else if (mode === "image_edit" && imageCopy) {
-    // Show a temporary "Processing" message in chat
+ // --- FULL CORRECTED IMAGE EDIT BLOCK ---
+else if (mode === "image_edit" && imageCopy) {
+    setIsLoading(true);
+
+    // 1. Create and add a temporary "Processing" message to the UI
     const processingMessage = {
         role: 'assistant',
-        content: 'Refining your image with FLUX.2 [dev]...',
+        content: '⚡ Refining your image with FLUX.2 [dev]... This may take a few seconds.',
         type: 'text',
         ts: Date.now(),
     };
     setChatHistory(prev => [...prev, processingMessage]);
 
-    const base64Image = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result.split(",")[1]);
-        reader.onerror = (err) => reject(err);
-        reader.readAsDataURL(imageCopy);
-    });
-
-    const apiUrl = '/ai'; // Use the direct /ai worker endpoint
-    const apiPayload = {
-        prompt: message || "Edit this image",
-        mode: "image_edit",
-        image: base64Image, // The backend handles the conversion to Blob
-        user_preference_id: getPersistentUserId(),
-        firebase_token: currentUser?.firebaseToken || '',
-        stream: false
-    };
-    
     try {
+        // 2. Convert the uploaded image file to a Base64 string first
+        // This MUST happen before we build the apiPayload
+        const base64Image = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+                // Get just the base64 data without the data:image/png;base64, prefix
+                const base64 = reader.result.split(",")[1];
+                resolve(base64);
+            };
+            reader.onerror = (err) => reject(new Error("Failed to read image file"));
+            reader.readAsDataURL(imageCopy);
+        });
+
+        // 3. Construct the API Payload
+        const apiUrl = '/ai'; // Hits your Cloudflare Worker /ai endpoint
+        const apiPayload = {
+            prompt: message || "Edit this image and add cinematic details",
+            mode: "image_edit",
+            image: base64Image,
+            user_preference_id: getPersistentUserId(),
+            firebase_token: currentUser?.firebaseToken || '',
+            stream: false
+        };
+
+        // 4. Execute the API call
         const result = await callFastAPI(apiUrl, apiPayload, mode);
 
-        if (result?.error) throw new Error(result.error);
+        // 5. Check if the result contains the image data
+        if (result && result.base64_image) {
+            const assistantMessage = {
+                role: 'assistant',
+                content: message ? `Edited image based on: "${message}"` : 'Image edited successfully!',
+                type: 'image',
+                base64_image: result.base64_image,
+                ts: Date.now()
+            };
 
-        const assistantMessage = {
-            role: 'assistant',
-            content: message ? `Edited image based on: "${message}"` : 'Image edited successfully.',
-            type: 'image',
-            base64_image: result?.base64_image,
-            ts: Date.now()
-        };
+            // Remove the temporary "Processing" bubble and add the new Image bubble
+            setChatHistory(prev => [
+                ...prev.filter(m => m.ts !== processingMessage.ts), 
+                assistantMessage
+            ]);
+        } else {
+            throw new Error(result?.error || "The AI failed to return an edited image.");
+        }
+    } catch (error) {
+        console.error("Image Edit Error:", error);
+        showModal("Edit Failed", error.message);
         
-        // Remove the "Processing" message and add the real one
-        setChatHistory(prev => [...prev.filter(m => m.content !== processingMessage.content), assistantMessage]);
-    } catch (err) {
-        showModal("Edit Failed", err.message);
-        setChatHistory(prev => [...prev.filter(m => m.content !== processingMessage.content)]);
+        // Cleanup: Remove the processing message if the process failed
+        setChatHistory(prev => prev.filter(m => m.ts !== processingMessage.ts));
+    } finally {
+        setIsLoading(false);
+        setUploadedImage(null); // Clear the upload preview after processing
     }
 }
             // IMAGE GENERATION
@@ -5022,6 +5045,7 @@ int main() {
         </>
     );
 }
+
 
 
 
