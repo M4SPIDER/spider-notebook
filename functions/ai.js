@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.30)
- * FEATURES: MISTRAL + LUCID ORIGIN (STABILITY FIXES)
- * UPDATE: Forced Auto-Loop for File Analysis (No Chat Shift)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.31)
+ * FEATURES: MISTRAL + LUCID ORIGIN + IMAGE EDITING
+ * UPDATE: Added Image Edit Mode (Flux 2 Dev)
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.30";
+const VERSION = "9.9.31";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -47,6 +47,22 @@ function extractText(resp) {
     resp?.result ||
     ""
   );
+}
+
+// HELPER: Base64 to Array (Required for Image Input)
+function base64ToArray(b64) {
+  try {
+    const binaryString = atob(b64);
+    const len = binaryString.length;
+    // Workers AI expects standard array of integers for image input
+    const bytes = new Array(len);
+    for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes;
+  } catch (e) {
+    return null;
+  }
 }
 
 //////////////////////////////
@@ -140,7 +156,7 @@ const SPIDER_SYSTEM_PROMPT =
 "You are M4 Spider AI, a friendly AI assistant created by M4 Spider 🕷️🤖.\n" +
 "RULES:\n" +
 "1. IDENTITY: You are M4 Spider AI. Only mention your creator (M4 Spider) if the user asks 'Who created you?' or 'Who are you?'. Do NOT start every message with this introduction.\n" +
-"2. IMAGE CAPABILITY: You CAN generate images. If a user asks you to generate/create/draw an image, say YES. You use the 'Lucid Origin' model for this. Do NOT mention the full Cloudflare model path (e.g., @cf/leonardo...). Just say 'Lucid Origin'.\n" +
+"2. IMAGE CAPABILITY: You CAN generate and edit images. If a user asks, say YES.\n" +
 "3. LANGUAGE: You are fluent in ALL languages (Telugu, Hindi, English, etc.).\n" +
 "   - CRITICAL: When speaking Indian languages (Telugu, Hindi), use ENGLISH LETTERS (Romanized/Transliterated). Example: 'Ela unnav?' instead of 'ఎలా ఉన్నావ్?'.\n" +
 "   - Do NOT say you only know English. You understand everything, just reply in the user's language using English alphabet.\n" +
@@ -316,7 +332,7 @@ export async function onRequest(context) {
     // STREAM MODE (TRUE STREAMING + AUTO CONTINUE + FILE ANALYZER)
     //////////////////////
     // CRITICAL: Forces analyze_file to always use this block for the Auto-Loop feature
-    if ((mode === "stream" || mode === "analyze_file" || stream === true) && mode !== "image_gen") {
+    if ((mode === "stream" || mode === "analyze_file" || stream === true) && mode !== "image_gen" && mode !== "image_edit") {
       const encoder = new TextEncoder();
       
       // FIX: Use existing stream_id if available to append to same UI bubble
@@ -466,6 +482,70 @@ export async function onRequest(context) {
           "Connection": "keep-alive"
         }
       });
+    }
+
+    //////////////////////
+    // IMAGE EDITING (FLUX 2 DEV)
+    //////////////////////
+    if (mode === "image_edit") {
+        if (!payload.image) {
+            return new Response(JSON.stringify({ error: "No image provided for editing" }), { headers: cors });
+        }
+
+        const imageArray = base64ToArray(payload.image);
+        if (!imageArray) {
+             return new Response(JSON.stringify({ error: "Invalid image data" }), { headers: cors });
+        }
+
+        const inputArgs = {
+            prompt: activePrompt,
+            image: imageArray,
+            num_steps: 20, // Standard step count
+            guidance: 7.5
+        };
+        
+        // If mask exists (inpainting), include it
+        if (payload.mask) {
+            const maskArray = base64ToArray(payload.mask);
+            if (maskArray) inputArgs.mask = maskArray;
+        }
+
+        try {
+            const response = await runAi(
+                env,
+                "@cf/black-forest-labs/flux-2-dev", // SPECIFIC USER REQUEST
+                inputArgs
+            );
+
+            // Universal Handler for Image Response
+            let base64Image = null;
+            if (response instanceof ReadableStream) {
+                 return new Response(response, { headers: { ...cors, "Content-Type": "image/png" } });
+            }
+
+            if (response && response.image) base64Image = response.image;
+            else if (response && response.result && response.result.image) base64Image = response.result.image;
+
+            if (base64Image) {
+                const binaryString = atob(base64Image);
+                const len = binaryString.length;
+                const bytes = new Uint8Array(len);
+                for (let i = 0; i < len; i++) bytes[i] = binaryString.charCodeAt(i);
+                
+                return new Response(bytes.buffer, {
+                    headers: { ...cors, "Content-Type": "image/png" }
+                });
+            }
+
+            return new Response(JSON.stringify({ error: "Edit Failed - Unknown Format", debug: response }), {
+                headers: { ...cors, "Content-Type": "application/json" }
+            });
+
+        } catch (e) {
+            return new Response(JSON.stringify({ error: "Image Edit Error", message: e.message }), {
+                headers: { ...cors, "Content-Type": "application/json" }
+            });
+        }
     }
 
     //////////////////////
