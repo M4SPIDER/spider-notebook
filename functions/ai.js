@@ -2,7 +2,7 @@
  * =========================================================
  * SPIDER AI — FINAL STABLE BACKEND (v9.9.50)
  * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN + FLUX EDIT + ASR
- * UPDATE: Fixed Whisper, Image Editing, and Code Block formatting
+ * UPDATE: Enforced Mistral 24B for ALL Streaming (GPT-OSS Skipped)
  * Author: M4 Spider
  * =========================================================
  */
@@ -34,77 +34,43 @@ const MODEL_ASR = "@cf/openai/whisper-large-v3-turbo";
 //////////////////////////////
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-// UPDATED: Purify text but preserve ** and # ONLY IN CODE BLOCKS
+// UPDATED: Less aggressive cleaner to preserve code operators (**) and comments (#)
 function cleanAiResponse(text) {
   if (!text) return "";
 
-  // First, protect code blocks before processing
-  const codeBlocks = [];
-  let blockIndex = 0;
-  
-  // Extract and replace code blocks with placeholders
-  let protectedText = text.replace(/```[\s\S]*?```/g, (match) => {
-    codeBlocks.push(match);
-    return `__CODE_BLOCK_${blockIndex++}__`;
-  });
-
-  // Also protect inline code
-  protectedText = protectedText.replace(/`[^`]+`/g, (match) => {
-    codeBlocks.push(match);
-    return `__CODE_BLOCK_${blockIndex++}__`;
-  });
-
-  // Clean the non-code text
-  protectedText = protectedText
+  return text
     .replace(/#\*[\s\S]*?\*#/g, "") // Remove custom internal tags only
     .replace(/#\*/g, "")
     .replace(/\*#/g, "")
+    // Removed ** and # header stripping to protect code syntax
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-
-  // Restore code blocks with original content
-  protectedText = protectedText.replace(/__CODE_BLOCK_(\d+)__/g, (_, index) => {
-    return codeBlocks[parseInt(index)] || '';
-  });
-
-  return protectedText;
 }
 
 function extractText(resp) {
-  // Try multiple response formats
-  if (resp?.text) return resp.text;
-  if (resp?.output?.[1]?.content?.[0]?.text) return resp.output[1].content[0].text;
-  if (resp?.output?.[0]?.content?.[0]?.text) return resp.output[0].content[0].text;
-  if (resp?.response) return resp.response;
-  if (resp?.result) return resp.result;
-  if (resp?.transcription) return resp.transcription; // For Whisper
-  if (typeof resp === 'string') return resp;
-  return "";
+  return (
+    resp?.output?.[1]?.content?.[0]?.text ||
+    resp?.output?.[0]?.content?.[0]?.text ||
+    resp?.response ||
+    resp?.result ||
+    resp?.text || // Added for Whisper
+    ""
+  );
 }
 
-// FIXED: Base64 to Uint8Array for Workers AI
-function base64ToUint8Array(base64) {
+// HELPER: Base64 to Array (Required for Image/Audio Input)
+function base64ToArray(b64) {
   try {
-    const binaryString = atob(base64);
+    const binaryString = atob(b64);
     const len = binaryString.length;
-    const bytes = new Uint8Array(len);
+    const bytes = new Array(len);
     for (let i = 0; i < len; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
+        bytes[i] = binaryString.charCodeAt(i);
     }
     return bytes;
   } catch (e) {
-    console.error("Base64 conversion error:", e);
     return null;
   }
-}
-
-// Convert Uint8Array to base64 for debugging
-function uint8ArrayToBase64(bytes) {
-  let binary = '';
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
 }
 
 //////////////////////////////
@@ -211,7 +177,6 @@ const SPIDER_SYSTEM_PROMPT =
 "- CONSISTENCY: When updating code, only modify the necessary parts. Keep the rest of the original code exactly the same to prevent breaking changes.\n" +
 "- BEST PRACTICES: Use modern conventions (e.g., ES6+ for JS, React Hooks, functional components).\n" +
 "- EXPLANATION: If code is complex, briefly explain the key logic.\n" +
-"- CODE FORMATTING: Use **bold** for important code sections and # for comments normally. In markdown code blocks, preserve all original formatting including ** and #.\n" +
 "\nMOVIE/RELEASE INFO RULE:\n" +
 "- When listing movies/shows, ALWAYS include release timing 🗓️.\n" +
 "- If exact date is unknown, use 'Expected: Month Year' or 'Expected: Festival/Quarter'.\n" +
@@ -220,8 +185,7 @@ const SPIDER_SYSTEM_PROMPT =
 "\nCODE BLOCK RULE:\n" +
 "- Always use markdown code blocks for code 💻.\n" +
 "- Format: ```language\\ncode here\\n```.\n" +
-"- NEVER use single backticks for multi-line code.\n" +
-"- Inside code blocks, preserve ALL formatting including **bold** text and # comments.\n";
+"- NEVER use single backticks for multi-line code.\n";
 
 //////////////////////////////
 // KV MEMORY
@@ -255,15 +219,14 @@ async function deleteMemory(env, key) {
 async function runAi(env, model, payload) {
   for (let i = 0; i <= AI_RETRY_LIMIT; i++) {
     try {
-      console.log(`Running AI model ${model}, attempt ${i + 1}`);
       return await env.SPY_AI.run(model, payload);
     } catch (e) {
-      console.error(`AI call attempt ${i + 1} failed:`, e.message);
       if (i === AI_RETRY_LIMIT) throw e;
       await sleep(AI_RETRY_DELAY_BASE * (2 ** i));
     }
   }
 }
+
 
 //////////////////////////////
 // MAIN HANDLER
@@ -283,13 +246,6 @@ export async function onRequest(context) {
 
   try {
     const payload = await request.json();
-    console.log("Received payload:", { 
-      mode: payload.mode, 
-      hasAudio: !!payload.audio,
-      hasImage: !!payload.image,
-      promptLength: payload.prompt?.length || 0 
-    });
-
     let {
       prompt = "",
       mode = "chat",
@@ -298,18 +254,14 @@ export async function onRequest(context) {
       stream = false,
       file_content,
       filename,
-      stream_id,
-      audio,
-      image,
-      mask,
-      strength = 0.7
+      stream_id
     } = payload;
 
     const memKey = AI_MEMORY_USER_KEY_PREFIX + user_preference_id;
      
     // Handle Continue requests
     let activePrompt = prompt;
-    let isContinue = false;
+    let isContinue = false; // TRACK CONTINUATION
     if (!activePrompt && stream_id) {
         activePrompt = "The previous code/text was incomplete. Please CONTINUE generating EXACTLY from where you left off. Do not restart. Just output the remaining part.";
         isContinue = true;
@@ -318,8 +270,10 @@ export async function onRequest(context) {
     const cleanPrompt = (activePrompt || "").trim().toLowerCase();
 
     // -----------------------------------------------------------------
-    // FORCE FILE MODE
+    // FORCE FILE MODE (CRITICAL FIX)
     // -----------------------------------------------------------------
+    // Priority: If file_content is present, strictly enforce analyze_file mode.
+    // This prevents falling back to normal chat or triggering unrelated modes.
     if (file_content && typeof file_content === "string" && file_content.trim().length > 0) {
         mode = "analyze_file";
     }
@@ -332,9 +286,12 @@ export async function onRequest(context) {
       "generate a picture", "create a picture", "imagine this", "draw this"
     ];
      
+    // If user is in chat mode (AND not analyzing a file) but asks for an image, FORCE image_gen mode.
+    // Check ensures we don't override analyze_file if a file was just uploaded.
     if (mode === "chat" && IMAGE_TRIGGERS.some(t => cleanPrompt.includes(t))) {
        mode = "image_gen";
     }
+    // -----------------------------------------------------------------
 
     // -- Language Detection --
     const isTelugu = shouldTriggerTelugu(cleanPrompt);
@@ -345,6 +302,7 @@ export async function onRequest(context) {
     }
 
     // -- Search Trigger --
+    // FIX: Only allow search trigger if we are in strict chat mode (not analyzing files)
     let searchContext = "";
     if (mode === "chat" && shouldTriggerSearch(cleanPrompt)) {
        const searchRes = await runTavilySearch(env, activePrompt);
@@ -379,63 +337,34 @@ export async function onRequest(context) {
     }
 
     //////////////////////
-    // FIXED: ASR / TRANSCRIBE MODE (WHISPER)
+    // ASR / TRANSCRIBE MODE (NEW)
     //////////////////////
-    if (mode === "transcribe" || (audio && !prompt)) {
-        console.log("Starting Whisper transcription...");
-        
-        if (!audio) {
-            return new Response(JSON.stringify({ error: "No audio data provided" }), { 
-                status: 400, 
-                headers: { ...cors, "Content-Type": "application/json" } 
-            });
+    if (mode === "transcribe") {
+        if (!payload.audio) {
+            return new Response(JSON.stringify({ error: "No audio data provided" }), { headers: cors });
         }
         
-        const audioBytes = base64ToUint8Array(audio);
-        if (!audioBytes) {
-             return new Response(JSON.stringify({ error: "Invalid audio format" }), { 
-                status: 400, 
-                headers: { ...cors, "Content-Type": "application/json" } 
-            });
+        const audioArray = base64ToArray(payload.audio);
+        if (!audioArray) {
+             return new Response(JSON.stringify({ error: "Invalid audio format" }), { headers: cors });
         }
 
         try {
-            console.log("Audio data size:", audioBytes.length);
-            
+            // REMOVED 'language' param for Whisper Turbo to prevent 5006 Error
             const inputArgs = {
-                audio: [...audioBytes], // Convert Uint8Array to array for Workers AI
-                model: "whisper-large-v3-turbo",
-                task: "transcribe"
+                audio: audioArray
             };
 
-            console.log("Calling Whisper model...");
-            const response = await env.SPY_AI.run(MODEL_ASR, inputArgs);
-            console.log("Whisper response received:", response);
-
-            if (!response) {
-                throw new Error("Empty response from Whisper");
-            }
-
+            const response = await runAi(env, MODEL_ASR, inputArgs);
+            
             const text = extractText(response);
-            console.log("Transcribed text:", text);
-
-            return new Response(JSON.stringify({ 
-                success: true, 
-                text: text || "No speech detected"
-            }), { 
+            return new Response(JSON.stringify({ text: text }), { 
                 headers: { ...cors, "Content-Type": "application/json" } 
             });
 
         } catch (e) {
-            console.error("Whisper transcription error:", e);
-            return new Response(JSON.stringify({ 
-                success: false, 
-                error: "ASR Failed", 
-                message: e.message,
-                details: e.toString()
-            }), {
-                status: 500,
-                headers: { ...cors, "Content-Type": "application/json" }
+            return new Response(JSON.stringify({ error: "ASR Failed", message: e.message }), {
+                 headers: { ...cors, "Content-Type": "application/json" }
             });
         }
     }
@@ -443,31 +372,35 @@ export async function onRequest(context) {
     //////////////////////
     // STREAM MODE (CHAT + PRO MODE + FILE ANALYZER + REASONING)
     //////////////////////
+    // CRITICAL: Forces analyze_file, pro_chat/pro, and reasoning to always use this block
     if (
         (mode === "stream" || 
          mode === "analyze_file" || 
          mode === "pro_chat" || 
-         mode === "pro" ||        
-         mode === "reasoning" ||  
+         mode === "pro" ||        // Matched frontend
+         mode === "reasoning" ||  // Matched frontend
          stream === true) && 
         mode !== "image_gen" && 
         mode !== "image_edit"
     ) {
       const encoder = new TextEncoder();
       
-      const ACTIVE_MODEL = (mode === "pro_chat" || mode === "pro" || mode === "reasoning" || mode === "analyze_file") 
-        ? MODEL_PRO_CHAT 
-        : MODEL_STD_CHAT;
+      // CRITICAL UPDATE: Enforce Mistral 24B for ALL streaming.
+      // GPT-OSS 120B does not support streaming effectively.
+      const ACTIVE_MODEL = MODEL_PRO_CHAT;
 
+      // FIX: Use existing stream_id if available to append to same UI bubble
       const activeStreamId = stream_id || crypto.randomUUID();
 
       const streamResp = new ReadableStream({
         async start(controller) {
           try {
             let currentLoop = 0;
+            // UPDATE: 30 loops (30 * 300 = 9000 lines capacity)
             const MAX_LOOPS = 30; 
             let isFullyDone = false;
             
+            // 1. Initial Prompt Setup
             let currentPrompt = activePrompt;
             if (mode === "analyze_file" && file_content && !isContinue) {
               currentPrompt = `FILE: ${filename || "unknown"}\nCONTENT:\n${file_content}\n\nREQUEST:\n${activePrompt}`;
@@ -476,85 +409,97 @@ export async function onRequest(context) {
               currentPrompt += `\n\n${searchContext}\n[INSTRUCTION: Use the above search results to answer the user request.]`;
             }
 
+            // Push initial user message
             memory.push({ role: "user", content: currentPrompt, ts: Date.now() });
 
+            // 2. Loop until done or limit hit
             while (currentLoop < MAX_LOOPS && !isFullyDone) {
                 currentLoop++;
 
+                // Build messages from memory
                 const currentMessages = [
                     { role: "system", content: finalSystemPrompt },
                     ...memory.map(m => ({ role: m.role, content: m.content }))
                 ];
 
+                // --- SMART MODEL HANDLING ---
                 let aiResponse;
-                const isGptOss = ACTIVE_MODEL.includes("gpt-oss");
+                // Since we forced Mistral, isGptOss is always false here
+                const isGptOss = false; 
                 
-                const aiPayload = isGptOss
-                  ? {
-                      instructions: currentMessages.find(m => m.role === 'system')?.content || "",
-                      input: currentMessages
-                        .filter(m => m.role !== 'system')
-                        .map(m => {
-                          const role = m.role === 'user' ? 'User' : 'Assistant';
-                          return `${role}: ${m.content}`;
-                        })
-                        .join("\n\n") + "\n\nAssistant:",
-                      max_tokens: 4096,
-                      stream: true 
-                    }
-                  : {
+                // Construct Payload (Optimized for Mistral)
+                const aiPayload = {
                       messages: currentMessages,
-                      max_tokens: 8192,
+                      max_tokens: 4096,
                       temperature: 0.7,
                       stream: true
-                    };
+                };
 
+                // --- EXECUTE WITH ROBUST FALLBACK ---
                 try {
+                    // ATTEMPT 1: Primary Stream Request (Mistral)
                     aiResponse = await env.SPY_AI.run(ACTIVE_MODEL, aiPayload);
                 } catch (streamErr) {
-                    console.error("Stream failed, falling back:", streamErr);
+                    console.error("Stream failed, attempting fallbacks:", streamErr);
                     
-                    if (isGptOss) {
-                        const mistralPayload = {
-                            messages: currentMessages,
-                            max_tokens: 8192,
-                            temperature: 0.7,
-                            stream: true
-                        };
-                        aiResponse = await env.SPY_AI.run(MODEL_PRO_CHAT, mistralPayload);
-                    } else {
-                        throw streamErr;
+                    // FALLBACK STRATEGY
+                    try {
+                        // ATTEMPT 2: Try Same Model in STATIC Mode (Remove stream flag)
+                        // This fixes issues where 'stream: true' is rejected or times out
+                        const staticPayload = { ...aiPayload };
+                        delete staticPayload.stream;
+                        
+                        aiResponse = await env.SPY_AI.run(ACTIVE_MODEL, staticPayload);
+                        // Wrap as simulated stream
+                        aiResponse = { isStatic: true, text: extractText(aiResponse) };
+                        
+                    } catch (fallbackErr) {
+                         // ATTEMPT 3: Ultimate Fallback -> GPT-OSS 120B (Static)
+                         // If Mistral fails completely, fall back to Standard Model to guarantee response
+                         const fallbackModel = MODEL_STD_CHAT;
+                         const fallbackPayload = {
+                             instructions: finalSystemPrompt,
+                             input: currentMessages
+                                 .filter(m => m.role !== 'system')
+                                 .map(m => `${m.role === 'user'?'User':'Assistant'}: ${m.content}`)
+                                 .join("\n\n") + "\n\nAssistant:",
+                             max_tokens: 4096
+                         };
+                         
+                         const finalRes = await env.SPY_AI.run(fallbackModel, fallbackPayload);
+                         aiResponse = { isStatic: true, text: extractText(finalRes) };
                     }
                 }
 
                 let reader;
+                // If it's a real stream
                 if (aiResponse instanceof ReadableStream) {
                     reader = aiResponse.getReader();
                 } 
-                else if (aiResponse && aiResponse.body && aiResponse.body.getReader) {
-                    reader = aiResponse.body.getReader();
-                }
-                else if (aiResponse && typeof aiResponse.getReader === 'function') {
-                    reader = aiResponse.getReader();
-                }
-                else {
-                    const fullText = extractText(aiResponse);
+                // If it's our static fallback or valid object but not a stream
+                else if (aiResponse.isStatic || (aiResponse && !aiResponse.body)) {
+                    const fullText = aiResponse.isStatic ? aiResponse.text : extractText(aiResponse);
+                    // Create a simulated reader for the loop below
                     const simulatedStream = new ReadableStream({
                         start(c) {
-                            c.enqueue(encoder.encode(`data: ${JSON.stringify({ text: fullText, stream_id: activeStreamId })}\n\n`));
-                            c.enqueue(encoder.encode("data: [DONE]\n\n"));
+                            c.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ response: fullText })}\n\n`));
+                            c.enqueue(new TextEncoder().encode("data: [DONE]\n\n"));
                             c.close();
                         }
                     });
                     reader = simulatedStream.getReader();
+                } else {
+                    // It is likely a ReadableStream property on the object (some models return { body: ... })
+                    reader = (aiResponse.body || aiResponse).getReader();
                 }
 
                 const decoder = new TextDecoder();
-                let buffer = "";
-                let loopBuffer = "";
+                let buffer = ""; // RESTORED BUFFER FOR SMOOTHNESS
+                let loopBuffer = ""; 
                 let loopLineCount = 0;
                 let streamEndedNaturally = true;
 
+                // Inner Reader Loop
                 while (true) {
                   const { done, value } = await reader.read();
                   if (done) break;
@@ -562,8 +507,9 @@ export async function onRequest(context) {
                   const chunk = decoder.decode(value, { stream: true });
                   buffer += chunk;
                   const lines = buffer.split("\n");
-                  buffer = lines.pop();
+                  buffer = lines.pop(); // Keep incomplete line in buffer
                   
+                  // Process chunk lines
                   for (const line of lines) {
                     const trimmed = line.trim();
                     if (trimmed.startsWith("data:")) {
@@ -572,63 +518,71 @@ export async function onRequest(context) {
 
                       try {
                         const json = JSON.parse(dataStr);
-                        const textChunk = json.response || json.token || json.text || json.content || "";
+                        // ROBUST PARSING: Check for 'response', 'token', or 'text'
+                        const textChunk = json.response || json.token || json.text; 
                         
                         if (textChunk) {
+                          // Stream to user immediately
                           controller.enqueue(
                             encoder.encode(`data: ${JSON.stringify({ text: textChunk, stream_id: activeStreamId })}\n\n`)
                           );
                           
                           loopBuffer += textChunk;
                           
+                          // LIGHTWEIGHT LINE COUNTING
                           for (let i = 0; i < textChunk.length; i++) {
                               if (textChunk[i] === '\n') loopLineCount++;
                           }
 
+                          // TRIGGER AUTO-CONTINUE
                           if (loopLineCount >= AI_MAX_OUTPUT_LINES) {
                               streamEndedNaturally = false;
-                              break;
+                              break; 
                           }
                         }
-                      } catch(e) {
-                        console.error("Failed to parse SSE data:", e);
-                      }
+                      } catch(e) {}
                     }
                   }
                   
+                  // If limit reached, cancel stream and break inner loop
                   if (!streamEndedNaturally) {
                      await reader.cancel();
-                     break;
+                     break; 
                   }
                 }
 
+                // Decision: Done or Continue?
                 if (streamEndedNaturally) {
+                    // AI finished naturally
                     memory.push({ role: "assistant", content: cleanAiResponse(loopBuffer), ts: Date.now() });
                     isFullyDone = true;
                 } else {
+                    // Safety trigger hit - AUTO CONTINUE
+                    // 1. Save partial output
                     memory.push({ role: "assistant", content: cleanAiResponse(loopBuffer), ts: Date.now() });
+                    // 2. Add continue prompt (Optimized to prevent duplication/UI breaks)
                     const continueMsg = "OUTPUT ONLY THE NEXT PART OF THE CODE. DO NOT REPEAT THE LAST LINES. DO NOT START WITH MARKDOWN ``` IF CONTINUING A BLOCK. IMMEDIATE CONTINUATION ONLY.";
                     memory.push({ role: "user", content: continueMsg, ts: Date.now() });
+                    // 3. Loop repeats...
                 }
-            }
+            } // End While
 
+            // Save final memory state
             const memoryToSave = memory.slice(-AI_MEMORY_TRIM_TARGET);
             context.waitUntil(saveMemory(env, memKey, memoryToSave));
 
+            // ALWAYS send DONE signal
             controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
             controller.close();
 
           } catch (err) {
-            console.error("Stream error:", err);
             try {
                 controller.enqueue(
-                  encoder.encode(`data: ${JSON.stringify({ text: "\n[Error]\n" + err.message, stream_id: activeStreamId })}\n\n`)
+                  encoder.encode(`data: ${JSON.stringify({ text: "\n[Error]\n" + err.message })}\n\n`)
                 );
                 controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
                 controller.close();
-            } catch(e) {
-                controller.close();
-            }
+            } catch(e) {}
           }
         }
       });
@@ -644,78 +598,46 @@ export async function onRequest(context) {
     }
 
     //////////////////////
-    // FIXED: IMAGE EDITING (FLUX 2 DEV)
+    // IMAGE EDITING (FLUX 2 DEV)
     //////////////////////
     if (mode === "image_edit") {
-        console.log("Starting image edit with Flux 2 Dev...");
-        
-        if (!image) {
-            return new Response(JSON.stringify({ error: "No image provided for editing" }), { 
-                status: 400, 
-                headers: { ...cors, "Content-Type": "application/json" } 
-            });
+        if (!payload.image) {
+            return new Response(JSON.stringify({ error: "No image provided for editing" }), { headers: cors });
         }
 
-        const imageBytes = base64ToUint8Array(image);
-        if (!imageBytes) {
-             return new Response(JSON.stringify({ error: "Invalid image data" }), { 
-                status: 400, 
-                headers: { ...cors, "Content-Type": "application/json" } 
-            });
+        const imageArray = base64ToArray(payload.image);
+        if (!imageArray) {
+             return new Response(JSON.stringify({ error: "Invalid image data" }), { headers: cors });
+        }
+
+        const inputArgs = {
+            prompt: activePrompt,
+            image: imageArray,
+            num_steps: 20, // Standard step count
+            guidance: 7.5
+        };
+        
+        // If mask exists (inpainting), include it
+        if (payload.mask) {
+            const maskArray = base64ToArray(payload.mask);
+            if (maskArray) inputArgs.mask = maskArray;
         }
 
         try {
-            const inputArgs = {
-                prompt: activePrompt || "Edit this image",
-                image: [...imageBytes], // Convert to array
-                num_steps: 20,
-                guidance: 7.5,
-                strength: strength || 0.7
-            };
-            
-            // Add mask if provided
-            if (mask) {
-                const maskBytes = base64ToUint8Array(mask);
-                if (maskBytes) {
-                    inputArgs.mask = [...maskBytes];
-                }
-            }
+            const response = await runAi(
+                env,
+                MODEL_IMAGE_EDIT, 
+                inputArgs
+            );
 
-            console.log("Calling Flux 2 Dev model with parameters:", {
-                promptLength: inputArgs.prompt.length,
-                imageSize: inputArgs.image.length,
-                hasMask: !!inputArgs.mask,
-                strength: inputArgs.strength
-            });
-
-            const response = await env.SPY_AI.run(MODEL_IMAGE_EDIT, inputArgs);
-            console.log("Image edit response type:", typeof response);
-
-            // Handle different response formats
-            if (response instanceof ReadableStream) {
-                return new Response(response, { 
-                    headers: { ...cors, "Content-Type": "image/png" } 
-                });
-            }
-
+            // Universal Handler for Image Response
             let base64Image = null;
-            
-            // Try various response formats
-            if (response?.image) {
-                base64Image = response.image;
-            } else if (response?.result?.image) {
-                base64Image = response.result.image;
-            } else if (Array.isArray(response) && response[0]?.image) {
-                base64Image = response[0].image;
-            } else if (typeof response === 'string' && response.startsWith('data:image')) {
-                // Direct data URL
-                base64Image = response.split(',')[1];
-            } else if (response && response.body) {
-                // Stream in body
-                return new Response(response.body, { 
-                    headers: { ...cors, "Content-Type": "image/png" } 
-                });
+            if (response instanceof ReadableStream) {
+                 return new Response(response, { headers: { ...cors, "Content-Type": "image/png" } });
             }
+
+            if (response && response.image) base64Image = response.image;
+            else if (response && response.result && response.result.image) base64Image = response.result.image;
 
             if (base64Image) {
                 const binaryString = atob(base64Image);
@@ -728,32 +650,22 @@ export async function onRequest(context) {
                 });
             }
 
-            console.error("Unknown image format:", response);
-            return new Response(JSON.stringify({ 
-                error: "Image edit failed - unknown response format",
-                responseType: typeof response
-            }), {
-                status: 500,
+            return new Response(JSON.stringify({ error: "Edit Failed - Unknown Format", debug: response }), {
                 headers: { ...cors, "Content-Type": "application/json" }
             });
 
         } catch (e) {
-            console.error("Image edit error:", e);
-            return new Response(JSON.stringify({ 
-                error: "Image Edit Error", 
-                message: e.message,
-                stack: e.stack 
-            }), {
-                status: 500,
+            return new Response(JSON.stringify({ error: "Image Edit Error", message: e.message }), {
                 headers: { ...cors, "Content-Type": "application/json" }
             });
         }
     }
 
     //////////////////////
-    // IMAGE GENERATION (LUCID ORIGIN)
+    // IMAGE GENERATION (FIXED & STABILIZED)
     //////////////////////
     if (mode === "image_gen") {
+      // 1. Calculate Standard Width/Height
       let width = 1024;
       let height = 1024;
 
@@ -763,7 +675,8 @@ export async function onRequest(context) {
       else if (aspect_ratio === "3:4")  { width = 864; height = 1152; }
       else { width = 1024; height = 1024; }
 
-      let enhancedPrompt = `${activePrompt}, ultra detailed, cinematic lighting`;
+      // 2. PROMPT OPTIMIZER (Non-blocking attempt)
+      let enhancedPrompt = `${activePrompt}, ultra detailed, cinematic lighting`; 
       
       try {
         const promptOptimizerSys = 
@@ -772,9 +685,11 @@ export async function onRequest(context) {
           "CRITICAL: Keep the MAIN SUBJECT exactly as the user described. " +
           "REPLY WITH THE PROMPT ONLY. No talk.";
         
-        const optimizerRes = await env.SPY_AI.run(
+        const optimizerRes = await runAi(
+           env, 
            MODEL_STD_CHAT,
            {
+             // Use new Schema for GPT-OSS optimizer calls too
              instructions: promptOptimizerSys,
              input: `User Request: ${activePrompt}\n\nOptimized Prompt:`,
              max_tokens: 300
@@ -783,14 +698,17 @@ export async function onRequest(context) {
         
         const optimizedText = extractText(optimizerRes);
         if (optimizedText && optimizedText.length > 5) {
-            enhancedPrompt = cleanAiResponse(optimizedText);
+            enhancedPrompt = cleanAiResponse(optimizedText); 
         }
       } catch (optError) {
-        console.error("Optimizer warning:", optError);
+        // Silently fail optimizer and use default prompt if it crashes
+        console.error("Optimizer Warning:", optError);
       }
 
+      // 3. SAVE TO MEMORY
       try {
         memory.push({ role: "user", content: activePrompt, ts: Date.now() });
+        // FIXED: CLEAN MEMORY LOG
         memory.push({ 
            role: "assistant", 
            content: `Generating image: "${enhancedPrompt}"`, 
@@ -798,20 +716,22 @@ export async function onRequest(context) {
         });
         const memoryToSave = memory.slice(-AI_MEMORY_TRIM_TARGET);
         context.waitUntil(saveMemory(env, memKey, memoryToSave));
-      } catch (memErr) {
-        console.error("Memory save error:", memErr);
-      }
+      } catch (memErr) {}
 
+      // 4. CALL AI (SAFE MODE - NO OPTIONAL PARAMS)
       try {
-        const response = await env.SPY_AI.run(
+        const response = await runAi(
+          env,
           MODEL_IMAGE_GEN,
           {
             prompt: enhancedPrompt,
-            width: width,
+            width: width,   
             height: height
+            // num_steps: removed to prevent API errors
           }
         );
 
+        // 5. UNIVERSAL HANDLER
         let base64Image = null;
         const extraHeaders = {
             ...cors, 
@@ -824,6 +744,7 @@ export async function onRequest(context) {
           });
         }
 
+        // Handle various JSON formats
         if (response && response.image) {
           base64Image = response.image;
         } else if (response && response.result && response.result.image) {
@@ -848,13 +769,16 @@ export async function onRequest(context) {
           }
         }
 
+        // If we get here, the AI returned a success code but no image data we recognize
         return new Response(JSON.stringify({ 
-          error: "Image Generation Failed - Unknown Format"
+          error: "Image Generation Failed - Unknown Format", 
+          debug_response: response 
         }), {
            headers: { ...cors, "Content-Type": "application/json" }
         });
 
       } catch (genError) {
+        // Return JSON error so frontend doesn't just show broken image
         return new Response(JSON.stringify({ 
           error: "Image API Error", 
           message: genError.message 
@@ -881,6 +805,8 @@ export async function onRequest(context) {
       ...memory.map(m => ({ role: m.role, content: m.content }))
     ];
 
+    // USING MISTRAL (Text Logic)
+    // FIX: Apply same schema check for normal chat
     const isGptOss = MODEL_STD_CHAT.includes("gpt-oss");
     
     const aiPayload = isGptOss
@@ -901,7 +827,11 @@ export async function onRequest(context) {
           temperature: 0.7
       };
 
-    const aiRes = await env.SPY_AI.run(MODEL_STD_CHAT, aiPayload);
+    const aiRes = await runAi(
+      env,
+      MODEL_STD_CHAT,
+      aiPayload
+    );
 
     const output = cleanAiResponse(extractText(aiRes));
     
@@ -913,14 +843,9 @@ export async function onRequest(context) {
     });
 
   } catch (e) {
-    console.error("Global error:", e);
-    return new Response(JSON.stringify({ 
-      error: "Spider AI Error", 
-      message: e.message,
-      stack: e.stack 
-    }), {
+    return new Response("Spider AI Error: " + e.message, {
       status: 500,
-      headers: { ...cors, "Content-Type": "application/json" }
+      headers: cors
     });
   }
 }
