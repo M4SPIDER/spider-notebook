@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.40)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.41)
  * FEATURES: MISTRAL + LUCID ORIGIN + FLUX EDIT + ASR + PRO MODE
- * UPDATE: Fixed Pro Mode Streaming (Added Fallback for Non-Streaming Models)
+ * UPDATE: Fixed Pro Mode Payload (Using 'requests' for GPT-OSS-120B)
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.40";
+const VERSION = "9.9.41";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -422,34 +422,28 @@ export async function onRequest(context) {
 
                 // --- SMART PRO MODE HANDLING ---
                 let aiResponse;
-                try {
-                    // Try streaming first
-                    aiResponse = await env.SPY_AI.run(
-                        ACTIVE_MODEL,
-                        {
-                            messages: currentMessages,
-                            max_tokens: 8192,
-                            temperature: 0.7,
-                            stream: true
-                        }
-                    );
-                } catch (streamErr) {
-                    // If streaming fails (e.g. model doesn't support it), try non-streaming fallback
-                    console.warn(`Streaming failed for ${ACTIVE_MODEL}, falling back to non-streaming`, streamErr);
-                    const staticResponse = await env.SPY_AI.run(
-                        ACTIVE_MODEL,
-                        {
-                            messages: currentMessages,
-                            max_tokens: 8192,
-                            temperature: 0.7
-                        }
-                    );
-                    // Convert static response to pseudo-stream format
-                    aiResponse = {
-                        isStatic: true,
-                        text: extractText(staticResponse)
+                
+                const isProModel = ACTIVE_MODEL === MODEL_PRO_CHAT;
+                const aiPayload = isProModel
+                  ? {
+                      // ✅ GPT-OSS-120B REQUIRES THIS
+                      requests: currentMessages.map(m => ({
+                        role: m.role,
+                        content: m.content
+                      })),
+                      max_tokens: 8192,
+                      temperature: 0.7,
+                      stream: true
+                    }
+                  : {
+                      // ✅ MISTRAL WORKS WITH THIS
+                      messages: currentMessages,
+                      max_tokens: 8192,
+                      temperature: 0.7,
+                      stream: true
                     };
-                }
+
+                aiResponse = await env.SPY_AI.run(ACTIVE_MODEL, aiPayload);
 
                 let reader;
                 // If it's a real stream
