@@ -1347,7 +1347,6 @@ const SpiderNotebookApp = ({
     );
 };
 
-
 const SpiderAIApp = ({ 
     currentUser, 
     showModal, 
@@ -1379,7 +1378,9 @@ const SpiderAIApp = ({
     const [streamedContent, setStreamedContent] = useState('');
     const [showContinueButton, setShowContinueButton] = useState(false);
     const [lastStreamId, setLastStreamId] = useState(null);
-    
+    const [isContinuing, setIsContinuing] = useState(false);
+    const [pendingCodeBlock, setPendingCodeBlock] = useState(''); // Track incomplete code blocks
+
     // ---------- Full Code Mode State ----------
     const [isFullCodeMode, setIsFullCodeMode] = useState(false);
     const [generatedFiles, setGeneratedFiles] = useState([]);
@@ -1392,7 +1393,7 @@ const SpiderAIApp = ({
     const [activeFileIndex, setActiveFileIndex] = useState(0);
     const [isProjectView, setIsProjectView] = useState(false);
 
-    // ---------- NEW: ASR & Modes State ----------
+    // ---------- ASR & Modes State ----------
     const [isListening, setIsListening] = useState(false);
     const [isTranscribing, setIsTranscribing] = useState(false);
     const [transcription, setTranscription] = useState('');
@@ -1408,8 +1409,9 @@ const SpiderAIApp = ({
     const streamReaderRef = useRef(null);
     const accumulatedTokensRef = useRef('');
     const fileContentBufferRef = useRef('');
+    const pendingContentRef = useRef(''); // For tracking content between continues
     
-    // NEW: ASR Refs
+    // ASR Refs
     const mediaRecorderRef = useRef(null);
     const audioChunksRef = useRef([]);
     const audioContextRef = useRef(null);
@@ -1987,7 +1989,7 @@ const SpiderAIApp = ({
             );
             return false;
         }
-    }, [showModal]);
+    }, [showModal, sendAudioToWhisper]);
 
     // ---------- ASR: Start Listening ----------
     const startListening = useCallback(async () => {
@@ -2349,7 +2351,7 @@ const SpiderAIApp = ({
         };
         
         initializeChats();
-    }, [currentUser]);
+    }, []);
 
     // Auto-save chat history
     useEffect(() => {
@@ -2398,8 +2400,8 @@ const SpiderAIApp = ({
         typeNextWord();
     }, []);
 
-    // ---------- Enhanced Streaming Handler ----------
-    const handleStreamResponse = useCallback(async (response) => {
+    // ---------- Enhanced Streaming Handler with Code Block Fix ----------
+    const handleStreamResponse = useCallback(async (response, isContinue = false) => {
         if (!response.body) {
             throw new Error('ReadableStream not supported in this browser');
         }
@@ -2412,13 +2414,33 @@ const SpiderAIApp = ({
         let isFirstChunk = true;
         let startTime = Date.now();
         let tokenCount = 0;
+        
+        // Track code blocks
+        let openCodeBlocks = 0;
+        let isInCodeBlock = false;
+        let currentCodeLanguage = '';
+        let currentCodeContent = '';
+        
+        if (isContinue) {
+            setIsContinuing(true);
+            // If continuing, preserve pending content
+            if (pendingContentRef.current) {
+                accumulatedTokensRef.current = pendingContentRef.current;
+                setStreamedContent(pendingContentRef.current);
+            }
+        }
 
         try {
             while (true) {
                 const { done, value } = await reader.read();
                 
                 if (done) {
-                    if (accumulatedTokensRef.current.length > 0 && !accumulatedTokensRef.current.trim().endsWith('.')) {
+                    // Check for incomplete code blocks
+                    if (isInCodeBlock) {
+                        setPendingCodeBlock(currentCodeContent);
+                        setShowContinueButton(true);
+                    } else if (accumulatedTokensRef.current.length > 0 && 
+                              !accumulatedTokensRef.current.trim().endsWith('.')) {
                         setShowContinueButton(true);
                     }
                     break;
@@ -2436,6 +2458,31 @@ const SpiderAIApp = ({
                         
                         if (data === '[DONE]') {
                             console.log(`Stream completed. Tokens: ${tokenCount}, Time: ${Date.now() - startTime}ms`);
+                            
+                            // Handle DONE for continues
+                            if (isContinue && accumulatedTokensRef.current) {
+                                const assistantMessage = {
+                                    role: 'assistant',
+                                    content: accumulatedTokensRef.current,
+                                    type: 'text',
+                                    ts: Date.now(),
+                                    isContinued: true
+                                };
+                                
+                                setChatHistory(prev => {
+                                    const lastMessage = prev[prev.length - 1];
+                                    if (lastMessage.role === 'assistant' && lastMessage.isPartial) {
+                                        return [...prev.slice(0, -1), assistantMessage];
+                                    }
+                                    return [...prev, assistantMessage];
+                                });
+                                
+                                // Clear for next continue
+                                pendingContentRef.current = '';
+                                setStreamedContent('');
+                                accumulatedTokensRef.current = '';
+                                setStreamingMessage(null);
+                            }
                             break;
                         }
                         
@@ -2444,24 +2491,47 @@ const SpiderAIApp = ({
                             
                             if (parsed.text) {
                                 tokenCount++;
-                                accumulatedTokensRef.current += parsed.text;
+                                const newText = parsed.text;
                                 
-                                setStreamedContent(prev => prev + parsed.text);
+                                // Check for code block markers
+                                const codeBlockMatches = newText.match(/```/g);
+                                if (codeBlockMatches) {
+                                    openCodeBlocks += codeBlockMatches.length;
+                                    isInCodeBlock = openCodeBlocks % 2 === 1;
+                                    
+                                    if (isInCodeBlock && !currentCodeLanguage) {
+                                        // Extract language from code block opening
+                                        const langMatch = newText.match(/```(\w+)/);
+                                        if (langMatch) {
+                                            currentCodeLanguage = langMatch[1];
+                                        }
+                                    }
+                                }
                                 
+                                // Accumulate tokens
+                                accumulatedTokensRef.current += newText;
+                                setStreamedContent(prev => prev + newText);
+                                
+                                // Update streaming UI
+                                if (isContinue || isStreaming) {
+                                    setStreamingMessage(prev => ({
+                                        role: 'assistant',
+                                        content: accumulatedTokensRef.current,
+                                        type: 'text',
+                                        ts: Date.now(),
+                                        isStreaming: true,
+                                        isContinued: isContinue
+                                    }));
+                                }
+                                
+                                // Handle file parsing for full code mode
                                 if (isFullCodeMode) {
-                                    fileContentBufferRef.current += parsed.text;
+                                    fileContentBufferRef.current += newText;
                                     if (tokenCount % 20 === 0) {
                                         const files = parseCodeForFiles(fileContentBufferRef.current);
                                         if (files.length > 0) {
                                             setGeneratedFiles(files);
                                         }
-                                    }
-                                }
-                                
-                                if (parsed.text.includes('```') && !accumulatedTokensRef.current.includes('```\n```')) {
-                                    const codeBlockCount = (accumulatedTokensRef.current.match(/```/g) || []).length;
-                                    if (codeBlockCount % 2 === 1) {
-                                        setShowContinueButton(true);
                                     }
                                 }
                             }
@@ -2493,6 +2563,14 @@ const SpiderAIApp = ({
         } finally {
             reader.releaseLock();
             
+            // Save pending content for continue
+            if (isInCodeBlock) {
+                pendingContentRef.current = accumulatedTokensRef.current;
+            } else {
+                pendingContentRef.current = '';
+            }
+            
+            // Parse final files
             if (isFullCodeMode && fileContentBufferRef.current) {
                 const files = parseCodeForFiles(fileContentBufferRef.current);
                 if (files.length > 0) {
@@ -2503,10 +2581,14 @@ const SpiderAIApp = ({
                     }));
                 }
             }
+            
+            if (isContinue) {
+                setIsContinuing(false);
+            }
         }
-    }, [isFullCodeMode, parseCodeForFiles]);
+    }, [isFullCodeMode, parseCodeForFiles, isStreaming]);
 
-    // ---------- Continue Generation ----------
+    // ---------- Fixed Continue Generation ----------
     const handleContinueGeneration = useCallback(async () => {
         if (!lastStreamId) return;
         
@@ -2521,7 +2603,9 @@ const SpiderAIApp = ({
             firebase_token: currentUser?.firebaseToken || '',
             stream: true,
             reasoning_mode: reasoningMode,
-            pro_mode: proMode
+            pro_mode: proMode,
+            // FIX: Include incomplete content to continue properly
+            incomplete_content: pendingContentRef.current || accumulatedTokensRef.current
         };
         
         try {
@@ -2537,7 +2621,7 @@ const SpiderAIApp = ({
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
             
-            await handleStreamResponse(response);
+            await handleStreamResponse(response, true);
             
         } catch (error) {
             if (error.name === 'AbortError') {
@@ -2552,7 +2636,7 @@ const SpiderAIApp = ({
         }
     }, [lastStreamId, getPersistentUserId, currentUser, callFastAPI, handleStreamResponse, showModal, reasoningMode, proMode]);
 
-    // ---------- Stop Generation ----------
+    // ---------- Enhanced Stop Generation ----------
     const handleStopGeneration = useCallback(() => {
         if (abortController) {
             abortController.abort();
@@ -2566,24 +2650,38 @@ const SpiderAIApp = ({
         setIsLoading(false);
         setIsStreaming(false);
         
+        // Save accumulated content
         if (accumulatedTokensRef.current) {
             const assistantMessage = {
                 role: 'assistant',
                 content: accumulatedTokensRef.current,
                 type: 'text',
                 ts: Date.now(),
-                isPartial: true
+                isPartial: !accumulatedTokensRef.current.trim().endsWith('.')
             };
-            setChatHistory(prev => [...prev, assistantMessage]);
+            
+            setChatHistory(prev => {
+                const lastMessage = prev[prev.length - 1];
+                if (lastMessage.role === 'assistant' && lastMessage.isStreaming) {
+                    return [...prev.slice(0, -1), assistantMessage];
+                }
+                return [...prev, assistantMessage];
+            });
+            
+            // Clear for next interaction
+            pendingContentRef.current = '';
+            setPendingCodeBlock('');
             accumulatedTokensRef.current = '';
             setStreamedContent('');
         }
         
         setStreamingMessage(null);
+        setShowContinueButton(false);
+        setIsContinuing(false);
     }, [abortController]);
 
     // ---------- Auto-detect Image Generation ----------
-    const detectImageGeneration = (prompt) => {
+    const detectImageGeneration = useCallback((prompt) => {
         const lowerPrompt = prompt.toLowerCase();
         const imageTriggers = [
             'generate image', 'create image', 'make image', 'draw', 'paint',
@@ -2594,10 +2692,10 @@ const SpiderAIApp = ({
         ];
         
         return imageTriggers.some(trigger => lowerPrompt.includes(trigger));
-    };
+    }, []);
 
     // ---------- File / Image Upload Handlers ----------
-    const handleFileUpload = (event) => {
+    const handleFileUpload = useCallback((event) => {
         const file = event?.target?.files?.[0];
         if (!file) {
             if (event) event.target.value = null;
@@ -2612,9 +2710,9 @@ const SpiderAIApp = ({
         setUploadedImage(null);
         setMessage(`Analyze the contents of ${file.name}.`);
         event.target.value = null;
-    };
+    }, [showModal, setUploadedFile, setUploadedImage]);
 
-    const handleImageUpload = (event) => {
+    const handleImageUpload = useCallback((event) => {
         const file = event?.target?.files?.[0];
         if (!file) {
             if (event) event.target.value = null;
@@ -2634,7 +2732,7 @@ const SpiderAIApp = ({
         setUploadedFile(null);
         setMessage("Transform or edit this image to: ");
         event.target.value = null;
-    };
+    }, [showModal, setUploadedImage, setUploadedFile]);
 
     // ---------- Mode Selection Component ----------
     const ModeSelector = useMemo(() => {
@@ -3360,6 +3458,8 @@ const SpiderAIApp = ({
         setReasoningMode(false);
         setProMode(false);
         setAiMode('chat');
+        setPendingCodeBlock('');
+        pendingContentRef.current = '';
         const welcome = [{ 
             role: 'assistant', 
             content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', 
@@ -3432,11 +3532,18 @@ const SpiderAIApp = ({
         setMessage('');
         setTranscription('');
 
-        accumulatedTokensRef.current = '';
+        // Reset streaming state
         setStreamedContent('');
         setShowContinueButton(false);
         setLastStreamId(null);
         fileContentBufferRef.current = '';
+        
+        // Clear accumulated tokens for new messages, not continues
+        if (!isContinuing) {
+            accumulatedTokensRef.current = '';
+            pendingContentRef.current = '';
+            setPendingCodeBlock('');
+        }
 
         try {
             if (finalMode === "analyze_file" && fileCopy) {
@@ -3729,13 +3836,13 @@ const SpiderAIApp = ({
             setIsStreaming(false);
             setStreamingMessage(null);
             setStreamedContent('');
-            accumulatedTokensRef.current = '';
+            // Don't clear accumulatedTokensRef here as it might be used for continues
         }
     }, [
         message, uploadedFile, uploadedImage, activeAIMode, aiMode, reasoningMode, proMode,
         detectImageGeneration, detectFullCodeRequest, extractProjectMetadata, getPersistentUserId,
         currentUser, callFastAPI, handleStreamResponse, typeText, shouldUseStreaming,
-        showModal, aspectRatio, projectMetadata.type, generatedFiles
+        showModal, aspectRatio, projectMetadata.type, generatedFiles, isContinuing
     ]);
 
     // ---------- Download Project ----------
@@ -3906,6 +4013,7 @@ const SpiderAIApp = ({
                                                 {new Date(chat.timestamp).toLocaleDateString()} • {chat.mode}
                                             </div>
                                         </button>
+                                        {/* FIX: Always show delete button on Android/mobile */}
                                         <button
                                             onClick={(e) => {
                                                 e.stopPropagation();
@@ -3913,7 +4021,7 @@ const SpiderAIApp = ({
                                                     deleteChat(chat.id);
                                                 }
                                             }}
-                                            className="ml-2 text-red-400 hover:text-red-300 opacity-0 group-hover:opacity-100 transition-opacity p-2 active:scale-95"
+                                            className="ml-2 text-red-400 hover:text-red-300 p-2 active:scale-95"
                                             title="Delete chat"
                                             disabled={isDeleting}
                                         >
@@ -4004,23 +4112,43 @@ const SpiderAIApp = ({
                             <div className="space-y-1">
                                 {recentChats.length > 0 ? (
                                     recentChats.map((chat) => (
-                                        <button 
-                                            key={chat.id}
-                                            onClick={() => {
-                                                loadChatById(chat.id);
-                                                setSidebarOpen(false);
-                                            }} 
-                                            className={`w-full text-left px-3 py-3 text-sm rounded-lg hover:bg-[var(--spider-light)] truncate transition-colors ${
-                                                activeChatId === chat.id 
-                                                    ? 'bg-[var(--spider-light)] text-white font-medium' 
-                                                    : 'text-[var(--spider-text)] hover:text-white'
-                                            }`}
-                                        >
-                                            <div className="truncate">{chat.title}</div>
-                                            <div className="text-xs text-[var(--spider-text-dim)] mt-1">
-                                                {new Date(chat.timestamp).toLocaleDateString()}
-                                            </div>
-                                        </button>
+                                        <div key={chat.id} className="flex items-center">
+                                            <button 
+                                                onClick={() => {
+                                                    loadChatById(chat.id);
+                                                    setSidebarOpen(false);
+                                                }} 
+                                                className={`flex-grow text-left px-3 py-3 text-sm rounded-lg hover:bg-[var(--spider-light)] truncate transition-colors ${
+                                                    activeChatId === chat.id 
+                                                        ? 'bg-[var(--spider-light)] text-white font-medium' 
+                                                        : 'text-[var(--spider-text)] hover:text-white'
+                                                }`}
+                                            >
+                                                <div className="truncate">{chat.title}</div>
+                                                <div className="text-xs text-[var(--spider-text-dim)] mt-1">
+                                                    {new Date(chat.timestamp).toLocaleDateString()}
+                                                </div>
+                                            </button>
+                                            {/* FIX: Always show delete button on Android/mobile */}
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    if (window.confirm('Delete this chat?')) {
+                                                        deleteChat(chat.id);
+                                                    }
+                                                    setSidebarOpen(false);
+                                                }}
+                                                className="ml-2 text-red-400 hover:text-red-300 p-2"
+                                                title="Delete chat"
+                                                disabled={isDeleting}
+                                            >
+                                                {isDeleting ? (
+                                                    <div className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin"></div>
+                                                ) : (
+                                                    '×'
+                                                )}
+                                            </button>
+                                        </div>
                                     ))
                                 ) : (
                                     <div className="text-center py-6 text-[var(--spider-text-dim)] text-sm">
@@ -4097,7 +4225,7 @@ const SpiderAIApp = ({
                                                 <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
                                             </div>
                                             <span className="text-xs text-[var(--spider-text-dim)]">
-                                                {isStreaming ? 'AI is generating...' : 'AI is typing...'}
+                                                {isContinuing ? 'Continuing...' : isStreaming ? 'AI is generating...' : 'AI is typing...'}
                                             </span>
                                         </div>
                                         <button 
@@ -4322,6 +4450,7 @@ const SpiderAIApp = ({
         </div>
     );
 };
+
 
 // --- END Plus Menu Component ---
 const SpiderVFXApp = () => { /* ... (Remains Placeholder) ... */ return (<div className="flex-grow h-full flex flex-col items-center justify-center bg-black text-white p-8 pattern-vfx-grid overflow-y-auto"><div className="bg-black bg-opacity-80 p-10 rounded-lg text-center shadow-xl"><h1 className="text-4xl font-bold mb-4 text-[var(--spider-neon-blue)]">Spider VFX</h1><p className="text-lg text-gray-400 mb-8">Coming Soon!</p><div className="animate-pulse text-6xl">✨</div></div></div>);};
@@ -5394,6 +5523,7 @@ int main() {
         </>
     );
 }
+
 
 
 
