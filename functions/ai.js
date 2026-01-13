@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.35)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.37)
  * FEATURES: MISTRAL + LUCID ORIGIN + FLUX EDIT + ASR + PRO MODE
- * UPDATE: Improved ASR (Added Language Support)
+ * UPDATE: Fixed ASR Schema Error (5006) for Whisper Turbo
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.36";
+const VERSION = "9.9.37";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -349,10 +349,11 @@ export async function onRequest(context) {
         }
 
         try {
-            // FIXED: Pass language param if available to improve accuracy
+            // FIXED: Removed 'language' param as it causes schema validation errors (5006)
+            // with the @cf/openai/whisper-large-v3-turbo model.
+            // This model auto-detects language efficiently.
             const inputArgs = {
-                audio: audioArray,
-                language: payload.language || 'en'
+                audio: audioArray
             };
 
             const response = await runAi(env, MODEL_ASR, inputArgs);
