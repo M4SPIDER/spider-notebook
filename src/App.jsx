@@ -1378,9 +1378,7 @@ const SpiderAIApp = ({
     const [streamedContent, setStreamedContent] = useState('');
     const [showContinueButton, setShowContinueButton] = useState(false);
     const [lastStreamId, setLastStreamId] = useState(null);
-    const [isContinuing, setIsContinuing] = useState(false);
-    const [pendingCodeBlock, setPendingCodeBlock] = useState(''); // Track incomplete code blocks
-
+    
     // ---------- Full Code Mode State ----------
     const [isFullCodeMode, setIsFullCodeMode] = useState(false);
     const [generatedFiles, setGeneratedFiles] = useState([]);
@@ -1393,15 +1391,6 @@ const SpiderAIApp = ({
     const [activeFileIndex, setActiveFileIndex] = useState(0);
     const [isProjectView, setIsProjectView] = useState(false);
 
-    // ---------- ASR & Modes State ----------
-    const [isListening, setIsListening] = useState(false);
-    const [isTranscribing, setIsTranscribing] = useState(false);
-    const [transcription, setTranscription] = useState('');
-    const [audioLevel, setAudioLevel] = useState(0);
-    const [reasoningMode, setReasoningMode] = useState(false);
-    const [proMode, setProMode] = useState(false);
-    const [aiMode, setAiMode] = useState('chat');
-
     const fileInputRef = useRef(null);
     const imageInputRef = useRef(null);
     const chatEndRef = useRef(null);
@@ -1409,15 +1398,6 @@ const SpiderAIApp = ({
     const streamReaderRef = useRef(null);
     const accumulatedTokensRef = useRef('');
     const fileContentBufferRef = useRef('');
-    const pendingContentRef = useRef(''); // For tracking content between continues
-    
-    // ASR Refs
-    const mediaRecorderRef = useRef(null);
-    const audioChunksRef = useRef([]);
-    const audioContextRef = useRef(null);
-    const analyserRef = useRef(null);
-    const microphoneRef = useRef(null);
-    const animationRef = useRef(null);
 
     const getAppId = () => typeof __app_id !== 'undefined' ? __app_id : 'default-m4-app';
     const LOCAL_STORAGE_KEY = `spider_chat_history_${getAppId()}_${(currentUser?.email || 'anon')}`;
@@ -1512,14 +1492,14 @@ const SpiderAIApp = ({
     // ---------- Math Detection Patterns ----------
     const mathPatterns = useMemo(() => ({
         latexInline: [
-            /\$([^$]+?)\$/g,
-            /\$\\displaystyle\s*([^$]+?)\$/g,
-            /\\\(([^)]+?)\\\)/g,
-            /\\\[([\s\S]+?)\\\]/g,
+            /\$([^$]+?)\$/g,                         // $...$
+            /\$\\displaystyle\s*([^$]+?)\$/g,        // $\displaystyle ...$
+            /\\\(([^)]+?)\\\)/g,                     // \(...\)
+            /\\\[([\s\S]+?)\\\]/g,                   // \[...\]
             /\\begin\{equation\}([\s\S]+?)\\end\{equation\}/g,
             /\\begin\{align\}([\s\S]+?)\\end\{align\}/g,
             /\\begin\{gather\}([\s\S]+?)\\end\{gather\}/g,
-            /\\boxed\{([^}]+?)\}/g
+            /\\boxed\{([^}]+?)\}/g                   // \boxed{...}
         ],
         
         mathKeywords: [
@@ -1577,32 +1557,39 @@ const SpiderAIApp = ({
         const lowerText = text.toLowerCase();
         let score = 0;
         
+        // Check strong patterns (2 points each)
         fullCodePatterns.strong.forEach(pattern => {
             if (lowerText.includes(pattern)) score += 2;
         });
         
+        // Check medium patterns (1 point each)
         fullCodePatterns.medium.forEach(pattern => {
             if (lowerText.includes(pattern)) score += 1;
         });
         
+        // Check for project type mentions
         fullCodePatterns.projectTypes.forEach(type => {
             if (lowerText.includes(type)) score += 1;
         });
         
+        // Check for explicit file requests
         const fileExtensions = ['.js', '.jsx', '.ts', '.tsx', '.py', '.html', '.css', '.json', '.md', '.txt'];
         fileExtensions.forEach(ext => {
             if (lowerText.includes(ext)) score += 1;
         });
         
+        // Check for file count mentions
         const fileCountMatch = lowerText.match(/(\d+)\s*(files|file)/);
         if (fileCountMatch && parseInt(fileCountMatch[1]) > 1) {
             score += 2;
         }
         
+        // Check for structure keywords
         if (lowerText.includes('structure') || lowerText.includes('architecture')) {
             score += 1;
         }
         
+        // Threshold for triggering full code mode
         return score >= 3;
     }, [fullCodePatterns]);
 
@@ -1612,13 +1599,16 @@ const SpiderAIApp = ({
         
         const lowerText = text.toLowerCase();
         
+        // Check for math keywords
         const hasMathKeywords = mathPatterns.mathKeywords.some(keyword => 
             lowerText.includes(keyword) || 
             text.includes(`\\${keyword}`)
         );
         
+        // Check for LaTeX patterns
         const hasLatex = mathPatterns.latexInline.some(pattern => pattern.test(text));
         
+        // Check for common math phrases
         const mathPhrases = [
             'solve for',
             'calculate',
@@ -1644,6 +1634,7 @@ const SpiderAIApp = ({
         
         const lowerText = text.toLowerCase();
         
+        // Code-specific keywords that usually mean large responses
         const codeKeywords = [
             'write code for',
             'create a function',
@@ -1659,8 +1650,13 @@ const SpiderAIApp = ({
             'source code'
         ];
         
+        // Check length - long questions usually mean long answers
         const isLongQuestion = text.length > 100;
+        
+        // Check for code block indicators
         const hasCodeIndicators = codeKeywords.some(keyword => lowerText.includes(keyword));
+        
+        // Check for multiple file mentions
         const hasMultipleFiles = lowerText.match(/\d+\s*(?:files|file)/);
         
         return isLongQuestion && (hasCodeIndicators || hasMultipleFiles);
@@ -1668,10 +1664,12 @@ const SpiderAIApp = ({
 
     // ---------- Decision: When to Use Streaming ----------
     const shouldUseStreaming = useCallback((text, isFullCode, mode) => {
+        // Always stream for these cases:
         if (isFullCode) return true;
         if (mode === "analyze_file") return true;
         if (detectLargeCodeRequest(text)) return true;
         
+        // Check for streaming keywords in user request
         const streamingKeywords = [
             'stream',
             'live',
@@ -1702,6 +1700,7 @@ const SpiderAIApp = ({
             hasDatabase: false
         };
         
+        // Detect project type
         if (lowerText.includes('react') || lowerText.includes('frontend')) {
             metadata.type = 'react';
             metadata.techStack.push('React');
@@ -1722,6 +1721,7 @@ const SpiderAIApp = ({
             metadata.hasBackend = true;
         }
         
+        // Try to extract project name
         const nameMatch = lowerText.match(/(?:create|build|make|generate)\s+(?:a|an)?\s+([a-z\s]+?)(?:\s+(?:app|application|project|website|platform))/);
         if (nameMatch) {
             metadata.name = nameMatch[1].trim().replace(/\b\w/g, l => l.toUpperCase());
@@ -1742,10 +1742,12 @@ const SpiderAIApp = ({
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
             
+            // Detect file headers
             const fileHeaderMatch = line.match(/^(?:File|Filename|File name|## |# |📁|📄)\s*[:：]?\s*(.+?\.(?:js|jsx|ts|tsx|py|html|css|json|md|txt|yml|yaml|xml|env))$/i);
             const pathMatch = line.match(/^([a-zA-Z0-9_\-./]+\.(?:js|jsx|ts|tsx|py|html|css|json|md|txt|yml|yaml|xml|env))$/);
             
             if (fileHeaderMatch || pathMatch) {
+                // Save previous file if exists
                 if (currentFile && currentContent.length > 0) {
                     files.push({
                         ...currentFile,
@@ -1765,11 +1767,13 @@ const SpiderAIApp = ({
                 continue;
             }
             
+            // Accumulate content
             if (currentFile) {
                 currentContent.push(line);
             }
         }
         
+        // Save last file
         if (currentFile && currentContent.length > 0) {
             files.push({
                 ...currentFile,
@@ -1800,12 +1804,15 @@ const SpiderAIApp = ({
         let i = 0;
         
         while (i < text.length) {
+            // Check for inline math: $...$
             if (text[i] === '$' && i + 1 < text.length && text[i + 1] !== '$') {
+                // Flush previous text
                 if (currentText.trim()) {
                     blocks.push({ type: "text", content: currentText });
                     currentText = '';
                 }
                 
+                // Find closing $
                 let j = i + 1;
                 while (j < text.length && text[j] !== '$') j++;
                 
@@ -1825,12 +1832,15 @@ const SpiderAIApp = ({
                 }
             }
             
+            // Check for display math: $$...$$
             if (text.substr(i, 2) === '$$' && i + 2 < text.length) {
+                // Flush previous text
                 if (currentText.trim()) {
                     blocks.push({ type: "text", content: currentText });
                     currentText = '';
                 }
                 
+                // Find closing $$
                 let j = i + 2;
                 while (j < text.length - 1 && text.substr(j, 2) !== '$$') j++;
                 
@@ -1850,12 +1860,15 @@ const SpiderAIApp = ({
                 }
             }
             
+            // Check for LaTeX brackets: \(...\)
             if (text.substr(i, 2) === '\\(' && i + 2 < text.length) {
+                // Flush previous text
                 if (currentText.trim()) {
                     blocks.push({ type: "text", content: currentText });
                     currentText = '';
                 }
                 
+                // Find closing \)
                 let j = i + 2;
                 while (j < text.length - 1 && text.substr(j, 2) !== '\\)') j++;
                 
@@ -1875,12 +1888,15 @@ const SpiderAIApp = ({
                 }
             }
             
+            // Check for LaTeX brackets: \[...\]
             if (text.substr(i, 2) === '\\[' && i + 2 < text.length) {
+                // Flush previous text
                 if (currentText.trim()) {
                     blocks.push({ type: "text", content: currentText });
                     currentText = '';
                 }
                 
+                // Find closing \]
                 let j = i + 2;
                 while (j < text.length - 1 && text.substr(j, 2) !== '\\]') j++;
                 
@@ -1900,12 +1916,15 @@ const SpiderAIApp = ({
                 }
             }
             
+            // Check for \boxed{...}
             if (text.substr(i, 7) === '\\boxed{' && i + 7 < text.length) {
+                // Flush previous text
                 if (currentText.trim()) {
                     blocks.push({ type: "text", content: currentText });
                     currentText = '';
                 }
                 
+                // Find closing }
                 let j = i + 7;
                 let braceCount = 1;
                 while (j < text.length && braceCount > 0) {
@@ -1930,10 +1949,12 @@ const SpiderAIApp = ({
                 }
             }
             
+            // Add regular character
             currentText += text[i];
             i++;
         }
         
+        // Flush remaining text
         if (currentText.trim()) {
             blocks.push({ type: "text", content: currentText });
         }
@@ -1945,168 +1966,6 @@ const SpiderAIApp = ({
     const DB_NAME = 'SpiderAIChatsDB';
     const DB_VERSION = 1;
     const STORE_NAME = 'chats';
-
-    // ---------- ASR: Initialize Audio ----------
-    const initializeAudio = useCallback(async () => {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ 
-                audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    sampleRate: 16000
-                } 
-            });
-            
-            audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
-            analyserRef.current = audioContextRef.current.createAnalyser();
-            const source = audioContextRef.current.createMediaStreamSource(stream);
-            source.connect(analyserRef.current);
-            
-            mediaRecorderRef.current = new MediaRecorder(stream, {
-                mimeType: 'audio/webm;codecs=opus',
-                audioBitsPerSecond: 16000
-            });
-            
-            audioChunksRef.current = [];
-            
-            mediaRecorderRef.current.ondataavailable = (event) => {
-                if (event.data.size > 0) {
-                    audioChunksRef.current.push(event.data);
-                }
-            };
-            
-            mediaRecorderRef.current.onstop = async () => {
-                const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-                await sendAudioToWhisper(audioBlob);
-                audioChunksRef.current = [];
-            };
-            
-            return true;
-        } catch (error) {
-            console.error('Error initializing audio:', error);
-            showModal("Microphone Error", 
-                "Failed to access microphone. Please check permissions and try again."
-            );
-            return false;
-        }
-    }, [showModal, sendAudioToWhisper]);
-
-    // ---------- ASR: Start Listening ----------
-    const startListening = useCallback(async () => {
-        if (isListening) return;
-        
-        try {
-            const initialized = await initializeAudio();
-            if (!initialized) return;
-            
-            setIsListening(true);
-            setTranscription('');
-            audioChunksRef.current = [];
-            
-            mediaRecorderRef.current.start(1000);
-            
-            const updateAudioLevel = () => {
-                if (analyserRef.current && isListening) {
-                    const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
-                    analyserRef.current.getByteFrequencyData(dataArray);
-                    
-                    let sum = 0;
-                    for (let i = 0; i < dataArray.length; i++) {
-                        sum += dataArray[i];
-                    }
-                    const average = sum / dataArray.length;
-                    setAudioLevel(Math.min(average / 128, 1));
-                    
-                    animationRef.current = requestAnimationFrame(updateAudioLevel);
-                }
-            };
-            
-            animationRef.current = requestAnimationFrame(updateAudioLevel);
-            
-        } catch (error) {
-            console.error('Error starting listening:', error);
-            setIsListening(false);
-        }
-    }, [isListening, initializeAudio]);
-
-    // ---------- ASR: Stop Listening ----------
-    const stopListening = useCallback(() => {
-        if (!isListening || !mediaRecorderRef.current) return;
-        
-        setIsListening(false);
-        setIsTranscribing(true);
-        
-        if (animationRef.current) {
-            cancelAnimationFrame(animationRef.current);
-            animationRef.current = null;
-        }
-        
-        if (mediaRecorderRef.current.state === 'recording') {
-            mediaRecorderRef.current.stop();
-        }
-        
-        if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-            audioContextRef.current.close();
-        }
-        if (microphoneRef.current) {
-            microphoneRef.current.getTracks().forEach(track => track.stop());
-        }
-    }, [isListening]);
-
-    // ---------- ASR: Send to Whisper Backend ----------
-    const sendAudioToWhisper = useCallback(async (audioBlob) => {
-        try {
-            const formData = new FormData();
-            formData.append('audio', audioBlob, 'recording.webm');
-            formData.append('model', 'whisper-large');
-            formData.append('language', 'en');
-            formData.append('temperature', '0.0');
-            
-            const response = await fetch('/api/transcribe', {
-                method: 'POST',
-                body: formData,
-                headers: {
-                    'X-User-ID': currentUser?.email || getPersistentUserId()
-                }
-            });
-            
-            if (!response.ok) {
-                throw new Error(`Transcription failed: ${response.status}`);
-            }
-            
-            const result = await response.json();
-            
-            if (result.text) {
-                const cleanedText = result.text.trim();
-                setTranscription(cleanedText);
-                setMessage(prev => prev + (prev ? ' ' : '') + cleanedText);
-                
-                const shouldAutoSend = cleanedText.endsWith('?') || 
-                    /^(create|make|build|write|generate|analyze|solve|calculate)/i.test(cleanedText);
-                
-                if (shouldAutoSend && !isLoading) {
-                    setTimeout(() => {
-                        handleSendMessage();
-                    }, 500);
-                }
-            }
-            
-        } catch (error) {
-            console.error('Transcription error:', error);
-            showModal("Transcription Error", "Failed to transcribe audio. Please try again.");
-        } finally {
-            setIsTranscribing(false);
-        }
-    }, [currentUser, isLoading, showModal, getPersistentUserId, handleSendMessage]);
-
-    // ---------- Toggle Listening ----------
-    const toggleListening = useCallback(() => {
-        if (isListening) {
-            stopListening();
-        } else {
-            startListening();
-        }
-    }, [isListening, startListening, stopListening]);
 
     // ---------- Detect Mobile & Responsive ----------
     useEffect(() => {
@@ -2330,7 +2189,7 @@ const SpiderAIApp = ({
             console.error('Error in deleteChat:', error);
             setIsDeleting(false);
         }
-    }, [activeChatId, openDatabase, loadRecentChats, handleNewChat]);
+    }, [activeChatId, openDatabase, loadRecentChats]);
 
     // ---------- Initialize ----------
     useEffect(() => {
@@ -2351,7 +2210,7 @@ const SpiderAIApp = ({
         };
         
         initializeChats();
-    }, []);
+    }, [currentUser]);
 
     // Auto-save chat history
     useEffect(() => {
@@ -2400,8 +2259,8 @@ const SpiderAIApp = ({
         typeNextWord();
     }, []);
 
-    // ---------- Enhanced Streaming Handler with Code Block Fix ----------
-    const handleStreamResponse = useCallback(async (response, isContinue = false) => {
+    // ---------- Enhanced Streaming Handler ----------
+    const handleStreamResponse = useCallback(async (response) => {
         if (!response.body) {
             throw new Error('ReadableStream not supported in this browser');
         }
@@ -2414,41 +2273,24 @@ const SpiderAIApp = ({
         let isFirstChunk = true;
         let startTime = Date.now();
         let tokenCount = 0;
-        
-        // Track code blocks
-        let openCodeBlocks = 0;
-        let isInCodeBlock = false;
-        let currentCodeLanguage = '';
-        let currentCodeContent = '';
-        
-        if (isContinue) {
-            setIsContinuing(true);
-            // If continuing, preserve pending content
-            if (pendingContentRef.current) {
-                accumulatedTokensRef.current = pendingContentRef.current;
-                setStreamedContent(pendingContentRef.current);
-            }
-        }
 
         try {
             while (true) {
                 const { done, value } = await reader.read();
                 
                 if (done) {
-                    // Check for incomplete code blocks
-                    if (isInCodeBlock) {
-                        setPendingCodeBlock(currentCodeContent);
-                        setShowContinueButton(true);
-                    } else if (accumulatedTokensRef.current.length > 0 && 
-                              !accumulatedTokensRef.current.trim().endsWith('.')) {
+                    // Check if response was truncated
+                    if (accumulatedTokensRef.current.length > 0 && !accumulatedTokensRef.current.trim().endsWith('.')) {
                         setShowContinueButton(true);
                     }
                     break;
                 }
                 
+                // Decode the chunk
                 const chunk = decoder.decode(value, { stream: true });
                 buffer += chunk;
                 
+                // Process lines
                 const lines = buffer.split('\n');
                 buffer = lines.pop() || '';
                 
@@ -2457,32 +2299,8 @@ const SpiderAIApp = ({
                         const data = line.slice(6);
                         
                         if (data === '[DONE]') {
+                            // Streaming complete
                             console.log(`Stream completed. Tokens: ${tokenCount}, Time: ${Date.now() - startTime}ms`);
-                            
-                            // Handle DONE for continues
-                            if (isContinue && accumulatedTokensRef.current) {
-                                const assistantMessage = {
-                                    role: 'assistant',
-                                    content: accumulatedTokensRef.current,
-                                    type: 'text',
-                                    ts: Date.now(),
-                                    isContinued: true
-                                };
-                                
-                                setChatHistory(prev => {
-                                    const lastMessage = prev[prev.length - 1];
-                                    if (lastMessage.role === 'assistant' && lastMessage.isPartial) {
-                                        return [...prev.slice(0, -1), assistantMessage];
-                                    }
-                                    return [...prev, assistantMessage];
-                                });
-                                
-                                // Clear for next continue
-                                pendingContentRef.current = '';
-                                setStreamedContent('');
-                                accumulatedTokensRef.current = '';
-                                setStreamingMessage(null);
-                            }
                             break;
                         }
                         
@@ -2491,47 +2309,29 @@ const SpiderAIApp = ({
                             
                             if (parsed.text) {
                                 tokenCount++;
-                                const newText = parsed.text;
+                                accumulatedTokensRef.current += parsed.text;
                                 
-                                // Check for code block markers
-                                const codeBlockMatches = newText.match(/```/g);
-                                if (codeBlockMatches) {
-                                    openCodeBlocks += codeBlockMatches.length;
-                                    isInCodeBlock = openCodeBlocks % 2 === 1;
-                                    
-                                    if (isInCodeBlock && !currentCodeLanguage) {
-                                        // Extract language from code block opening
-                                        const langMatch = newText.match(/```(\w+)/);
-                                        if (langMatch) {
-                                            currentCodeLanguage = langMatch[1];
-                                        }
-                                    }
-                                }
+                                // Update streaming content
+                                setStreamedContent(prev => prev + parsed.text);
                                 
-                                // Accumulate tokens
-                                accumulatedTokensRef.current += newText;
-                                setStreamedContent(prev => prev + newText);
-                                
-                                // Update streaming UI
-                                if (isContinue || isStreaming) {
-                                    setStreamingMessage(prev => ({
-                                        role: 'assistant',
-                                        content: accumulatedTokensRef.current,
-                                        type: 'text',
-                                        ts: Date.now(),
-                                        isStreaming: true,
-                                        isContinued: isContinue
-                                    }));
-                                }
-                                
-                                // Handle file parsing for full code mode
+                                // In full code mode, parse files as they arrive
                                 if (isFullCodeMode) {
-                                    fileContentBufferRef.current += newText;
+                                    fileContentBufferRef.current += parsed.text;
+                                    // Try to parse files from buffer periodically
                                     if (tokenCount % 20 === 0) {
                                         const files = parseCodeForFiles(fileContentBufferRef.current);
                                         if (files.length > 0) {
                                             setGeneratedFiles(files);
                                         }
+                                    }
+                                }
+                                
+                                // Show continue button if we detect incomplete code blocks
+                                if (parsed.text.includes('```') && !accumulatedTokensRef.current.includes('```\n```')) {
+                                    const codeBlockCount = (accumulatedTokensRef.current.match(/```/g) || []).length;
+                                    if (codeBlockCount % 2 === 1) {
+                                        // Unclosed code block
+                                        setShowContinueButton(true);
                                     }
                                 }
                             }
@@ -2551,6 +2351,7 @@ const SpiderAIApp = ({
                     }
                 }
                 
+                // Speed up typing for first chunks
                 if (isFirstChunk && accumulatedTokensRef.current.length > 50) {
                     isFirstChunk = false;
                 }
@@ -2563,14 +2364,7 @@ const SpiderAIApp = ({
         } finally {
             reader.releaseLock();
             
-            // Save pending content for continue
-            if (isInCodeBlock) {
-                pendingContentRef.current = accumulatedTokensRef.current;
-            } else {
-                pendingContentRef.current = '';
-            }
-            
-            // Parse final files
+            // Parse final files if in full code mode
             if (isFullCodeMode && fileContentBufferRef.current) {
                 const files = parseCodeForFiles(fileContentBufferRef.current);
                 if (files.length > 0) {
@@ -2581,14 +2375,10 @@ const SpiderAIApp = ({
                     }));
                 }
             }
-            
-            if (isContinue) {
-                setIsContinuing(false);
-            }
         }
-    }, [isFullCodeMode, parseCodeForFiles, isStreaming]);
+    }, [isFullCodeMode, parseCodeForFiles]);
 
-    // ---------- Fixed Continue Generation ----------
+    // ---------- Continue Generation ----------
     const handleContinueGeneration = useCallback(async () => {
         if (!lastStreamId) return;
         
@@ -2601,11 +2391,7 @@ const SpiderAIApp = ({
             stream_id: lastStreamId,
             user_preference_id: getPersistentUserId(),
             firebase_token: currentUser?.firebaseToken || '',
-            stream: true,
-            reasoning_mode: reasoningMode,
-            pro_mode: proMode,
-            // FIX: Include incomplete content to continue properly
-            incomplete_content: pendingContentRef.current || accumulatedTokensRef.current
+            stream: true
         };
         
         try {
@@ -2621,7 +2407,7 @@ const SpiderAIApp = ({
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
             
-            await handleStreamResponse(response, true);
+            await handleStreamResponse(response);
             
         } catch (error) {
             if (error.name === 'AbortError') {
@@ -2634,9 +2420,9 @@ const SpiderAIApp = ({
             setIsLoading(false);
             setIsStreaming(false);
         }
-    }, [lastStreamId, getPersistentUserId, currentUser, callFastAPI, handleStreamResponse, showModal, reasoningMode, proMode]);
+    }, [lastStreamId, getPersistentUserId, currentUser, callFastAPI, handleStreamResponse, showModal]);
 
-    // ---------- Enhanced Stop Generation ----------
+    // ---------- Stop Generation ----------
     const handleStopGeneration = useCallback(() => {
         if (abortController) {
             abortController.abort();
@@ -2650,38 +2436,25 @@ const SpiderAIApp = ({
         setIsLoading(false);
         setIsStreaming(false);
         
-        // Save accumulated content
+        // Save whatever we've streamed so far
         if (accumulatedTokensRef.current) {
             const assistantMessage = {
                 role: 'assistant',
                 content: accumulatedTokensRef.current,
                 type: 'text',
                 ts: Date.now(),
-                isPartial: !accumulatedTokensRef.current.trim().endsWith('.')
+                isPartial: true
             };
-            
-            setChatHistory(prev => {
-                const lastMessage = prev[prev.length - 1];
-                if (lastMessage.role === 'assistant' && lastMessage.isStreaming) {
-                    return [...prev.slice(0, -1), assistantMessage];
-                }
-                return [...prev, assistantMessage];
-            });
-            
-            // Clear for next interaction
-            pendingContentRef.current = '';
-            setPendingCodeBlock('');
+            setChatHistory(prev => [...prev, assistantMessage]);
             accumulatedTokensRef.current = '';
             setStreamedContent('');
         }
         
         setStreamingMessage(null);
-        setShowContinueButton(false);
-        setIsContinuing(false);
     }, [abortController]);
 
     // ---------- Auto-detect Image Generation ----------
-    const detectImageGeneration = useCallback((prompt) => {
+    const detectImageGeneration = (prompt) => {
         const lowerPrompt = prompt.toLowerCase();
         const imageTriggers = [
             'generate image', 'create image', 'make image', 'draw', 'paint',
@@ -2692,10 +2465,10 @@ const SpiderAIApp = ({
         ];
         
         return imageTriggers.some(trigger => lowerPrompt.includes(trigger));
-    }, []);
+    };
 
     // ---------- File / Image Upload Handlers ----------
-    const handleFileUpload = useCallback((event) => {
+    const handleFileUpload = (event) => {
         const file = event?.target?.files?.[0];
         if (!file) {
             if (event) event.target.value = null;
@@ -2710,9 +2483,9 @@ const SpiderAIApp = ({
         setUploadedImage(null);
         setMessage(`Analyze the contents of ${file.name}.`);
         event.target.value = null;
-    }, [showModal, setUploadedFile, setUploadedImage]);
+    };
 
-    const handleImageUpload = useCallback((event) => {
+    const handleImageUpload = (event) => {
         const file = event?.target?.files?.[0];
         if (!file) {
             if (event) event.target.value = null;
@@ -2732,179 +2505,7 @@ const SpiderAIApp = ({
         setUploadedFile(null);
         setMessage("Transform or edit this image to: ");
         event.target.value = null;
-    }, [showModal, setUploadedImage, setUploadedFile]);
-
-    // ---------- Mode Selection Component ----------
-    const ModeSelector = useMemo(() => {
-        return React.memo(({ 
-            aiMode, 
-            setAiMode, 
-            reasoningMode, 
-            setReasoningMode, 
-            proMode, 
-            setProMode 
-        }) => {
-            const [open, setOpen] = useState(false);
-            const menuRef = useRef(null);
-
-            useEffect(() => {
-                const handleClickOutside = (event) => {
-                    if (menuRef.current && !menuRef.current.contains(event.target)) {
-                        setOpen(false);
-                    }
-                };
-
-                if (open) {
-                    document.addEventListener('mousedown', handleClickOutside);
-                }
-
-                return () => {
-                    document.removeEventListener('mousedown', handleClickOutside);
-                };
-            }, [open]);
-
-            const handleModeChange = (mode) => {
-                switch(mode) {
-                    case 'reasoning':
-                        setReasoningMode(!reasoningMode);
-                        setAiMode('reasoning');
-                        break;
-                    case 'pro':
-                        setProMode(!proMode);
-                        setAiMode('pro');
-                        break;
-                    default:
-                        setReasoningMode(false);
-                        setProMode(false);
-                        setAiMode('chat');
-                }
-                setOpen(false);
-            };
-
-            const getModeLabel = () => {
-                if (proMode) return '🚀 Pro';
-                if (reasoningMode) return '🤔 Reasoning';
-                return '💬 Chat';
-            };
-
-            const getModeIcon = () => {
-                if (proMode) return '🚀';
-                if (reasoningMode) return '🤔';
-                return '💬';
-            };
-
-            return (
-                <div className="relative" ref={menuRef}>
-                    <button 
-                        onClick={() => setOpen(!open)}
-                        className={`
-                            flex items-center space-x-2 px-3 py-2 rounded-lg border transition-all duration-200
-                            ${proMode 
-                                ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white border-purple-500' 
-                                : reasoningMode 
-                                ? 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white border-blue-500'
-                                : 'bg-[var(--spider-med)] text-[var(--spider-text)] border-[var(--spider-light)] hover:bg-[var(--spider-light)]'
-                            }
-                        `}
-                    >
-                        <span className="text-lg">{getModeIcon()}</span>
-                        <span className="text-sm font-medium">{getModeLabel()}</span>
-                        <svg className={`w-4 h-4 transition-transform ${open ? 'rotate-180' : ''}`} 
-                             fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                        </svg>
-                    </button>
-
-                    {open && (
-                        <div className="absolute bottom-12 left-0 bg-[var(--spider-dark)] border border-[var(--spider-light)] rounded-lg shadow-xl w-48 p-2 z-50">
-                            <div className="mb-2 px-3 py-1">
-                                <div className="text-xs text-[var(--spider-text-dim)] font-semibold">AI MODES</div>
-                            </div>
-                            
-                            <button 
-                                onClick={() => handleModeChange('chat')}
-                                className={`w-full text-left px-3 py-2 rounded-md mb-1 flex items-center justify-between ${
-                                    aiMode === 'chat' 
-                                        ? 'bg-[var(--spider-light)] text-white' 
-                                        : 'text-[var(--spider-text)] hover:bg-[var(--spider-med)]'
-                                }`}
-                            >
-                                <div className="flex items-center space-x-2">
-                                    <span className="text-lg">💬</span>
-                                    <div>
-                                        <div className="text-sm font-medium">Chat Mode</div>
-                                        <div className="text-xs text-[var(--spider-text-dim)]">Standard conversation</div>
-                                    </div>
-                                </div>
-                                {aiMode === 'chat' && (
-                                    <svg className="w-4 h-4 text-green-400" fill="currentColor" viewBox="0 0 20 20">
-                                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                    </svg>
-                                )}
-                            </button>
-
-                            <button 
-                                onClick={() => handleModeChange('reasoning')}
-                                className={`w-full text-left px-3 py-2 rounded-md mb-1 flex items-center justify-between ${
-                                    reasoningMode 
-                                        ? 'bg-gradient-to-r from-blue-500/20 to-cyan-500/20 text-white border border-blue-500/30' 
-                                        : 'text-[var(--spider-text)] hover:bg-[var(--spider-med)]'
-                                }`}
-                            >
-                                <div className="flex items-center space-x-2">
-                                    <span className="text-lg">🤔</span>
-                                    <div>
-                                        <div className="text-sm font-medium">Reasoning Mode</div>
-                                        <div className="text-xs text-[var(--spider-text-dim)]">Step-by-step thinking</div>
-                                    </div>
-                                </div>
-                                {reasoningMode && (
-                                    <svg className="w-4 h-4 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
-                                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                    </svg>
-                                )}
-                            </button>
-
-                            <button 
-                                onClick={() => handleModeChange('pro')}
-                                className={`w-full text-left px-3 py-2 rounded-md flex items-center justify-between ${
-                                    proMode 
-                                        ? 'bg-gradient-to-r from-purple-500/20 to-pink-500/20 text-white border border-purple-500/30' 
-                                        : 'text-[var(--spider-text)] hover:bg-[var(--spider-med)]'
-                                }`}
-                            >
-                                <div className="flex items-center space-x-2">
-                                    <span className="text-lg">🚀</span>
-                                    <div>
-                                        <div className="text-sm font-medium">Pro Mode</div>
-                                        <div className="text-xs text-[var(--spider-text-dim)]">Advanced capabilities</div>
-                                    </div>
-                                </div>
-                                {proMode && (
-                                    <svg className="w-4 h-4 text-purple-400" fill="currentColor" viewBox="0 0 20 20">
-                                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                    </svg>
-                                )}
-                            </button>
-
-                            <div className="mt-3 pt-2 border-t border-[var(--spider-light)]">
-                                <div className="px-3 py-1 text-xs text-[var(--spider-text-dim)]">
-                                    {proMode && (
-                                        <div className="mb-1">
-                                            <span className="text-yellow-400">⚠️ Experimental:</span> Advanced features enabled
-                                        </div>
-                                    )}
-                                    {reasoningMode && (
-                                        <div className="text-cyan-400">Shows step-by-step reasoning</div>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                </div>
-            );
-        });
-    }, []);
+    };
 
     // ---------- Fixed PlusMenu Component ----------
     const PlusMenu = useMemo(() => {
@@ -2992,73 +2593,6 @@ const SpiderAIApp = ({
         });
     }, []);
 
-    // ---------- ASR Microphone Button ----------
-    const MicrophoneButton = useMemo(() => {
-        return React.memo(({ 
-            isListening, 
-            isTranscribing, 
-            audioLevel, 
-            onClick,
-            transcription 
-        }) => {
-            return (
-                <div className="relative">
-                    <button
-                        onClick={onClick}
-                        disabled={isTranscribing}
-                        className={`
-                            relative w-10 h-10 rounded-full flex items-center justify-center transition-all duration-200
-                            ${isListening 
-                                ? 'bg-gradient-to-r from-red-500 to-pink-500 shadow-lg shadow-red-500/30' 
-                                : isTranscribing
-                                ? 'bg-gradient-to-r from-blue-500 to-cyan-500'
-                                : 'bg-gradient-to-r from-[var(--spider-neon-blue)] to-cyan-500 hover:opacity-90'
-                            }
-                            ${isTranscribing ? 'cursor-not-allowed' : 'cursor-pointer active:scale-95'}
-                        `}
-                        aria-label={isListening ? "Stop voice input" : "Start voice input"}
-                    >
-                        {isListening && (
-                            <>
-                                <div className="absolute inset-0 rounded-full bg-red-400 animate-ping opacity-20"></div>
-                                <div 
-                                    className="absolute inset-0 rounded-full border-2 border-red-400 opacity-50"
-                                    style={{
-                                        transform: `scale(${1 + audioLevel * 0.3})`,
-                                        transition: 'transform 0.1s'
-                                    }}
-                                ></div>
-                            </>
-                        )}
-
-                        {isTranscribing ? (
-                            <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                        ) : (
-                            <svg className={`w-5 h-5 ${isListening ? 'text-white' : 'text-black'}`} 
-                                 fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                {isListening ? (
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                                ) : (
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                                )}
-                            </svg>
-                        )}
-                    </button>
-
-                    {transcription && !isTranscribing && (
-                        <div className="absolute bottom-12 right-0 w-64 bg-[var(--spider-dark)] border border-[var(--spider-light)] rounded-lg p-3 shadow-xl z-50">
-                            <div className="text-xs text-[var(--spider-text-dim)] mb-1">Transcribed:</div>
-                            <div className="text-sm text-white">{transcription}</div>
-                            <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 translate-y-1/2">
-                                <div className="w-3 h-3 bg-[var(--spider-dark)] border-r border-b border-[var(--spider-light)] transform rotate-45"></div>
-                            </div>
-                        </div>
-                    )}
-                </div>
-            );
-        });
-    }, []);
-
     // ---------- Optimized Content Processing ----------
     const processContent = useCallback((text) => {
         if (!text || typeof text !== "string") {
@@ -3093,6 +2627,7 @@ const SpiderAIApp = ({
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
 
+            // Handle code blocks
             if (line.trim().startsWith('```')) {
                 if (!inCodeBlock) {
                     flushCurrentBlock();
@@ -3116,6 +2651,7 @@ const SpiderAIApp = ({
                 continue;
             }
 
+            // Handle tables
             const trimmedLine = line.trim();
             if (trimmedLine.includes('|') && 
                 !trimmedLine.includes('```') && 
@@ -3158,6 +2694,7 @@ const SpiderAIApp = ({
                 }
             }
 
+            // Regular text
             if (line.trim() === '') {
                 flushCurrentBlock();
                 currentBlock.content += '\n';
@@ -3184,17 +2721,33 @@ const SpiderAIApp = ({
     const ChatBubble = useMemo(() => {
         return React.memo(({ message }) => {
             const [contentBlocks, setContentBlocks] = useState([]);
+            const [mathBlocks, setMathBlocks] = useState([]);
+            const [combinedBlocks, setCombinedBlocks] = useState([]);
 
             useEffect(() => {
+                // Process LaTeX math first
+                const mathBlocks = processMathContent(message.content);
+                
+                // Then process regular content
+                const regularBlocks = processContent(message.content);
+                
+                // Combine both
+                const combined = [];
+                let regularIndex = 0;
+                let mathIndex = 0;
+                
+                // For now, just use regular blocks with math processing
                 const blocks = processContent(message.content);
                 setContentBlocks(blocks);
                 
+                // Apply syntax highlighting
                 if (typeof window !== "undefined" && window.Prism) {
                     setTimeout(() => {
                         window.Prism.highlightAll();
                     }, 50);
                 }
                 
+                // Re-render KaTeX for any math in text blocks
                 setTimeout(() => {
                     document.querySelectorAll('.math-content').forEach(element => {
                         const latex = element.getAttribute('data-latex');
@@ -3211,7 +2764,7 @@ const SpiderAIApp = ({
                         }
                     });
                 }, 100);
-            }, [message.content, processContent]);
+            }, [message.content, processContent, processMathContent]);
 
             const handleCopyCode = (content) => {
                 navigator.clipboard.writeText(content);
@@ -3277,6 +2830,29 @@ const SpiderAIApp = ({
                                 })}
                             </tbody>
                         </table>
+                    </div>
+                );
+            };
+
+            const renderMathBlock = (block) => {
+                if (!block.html) {
+                    return (
+                        <div className={`my-2 ${block.type === 'math-display' || block.type === 'math-boxed' ? 'text-center' : ''}`}>
+                            <span className="text-gray-400">
+                                {block.type === 'math-display' ? `$$${block.content}$$` :
+                                 block.type === 'math-boxed' ? `\\boxed{${block.content}}` :
+                                 `$${block.content}$`}
+                            </span>
+                        </div>
+                    );
+                }
+
+                return (
+                    <div className={`my-2 ${block.type === 'math-display' || block.type === 'math-boxed' ? 'text-center' : ''}`}>
+                        <div 
+                            className={`inline-block ${block.type === 'math-boxed' ? 'border-2 border-green-500 p-2 rounded' : ''}`}
+                            dangerouslySetInnerHTML={{ __html: block.html }}
+                        />
                     </div>
                 );
             };
@@ -3348,14 +2924,17 @@ const SpiderAIApp = ({
                                 }
 
                                 if (block.type === "text") {
+                                    // Process math in text blocks
                                     const text = block.content;
                                     const parts = [];
                                     let lastIndex = 0;
                                     
+                                    // Find inline math: $...$
                                     const inlineMathRegex = /\$([^$]+?)\$/g;
                                     let match;
                                     
                                     while ((match = inlineMathRegex.exec(text)) !== null) {
+                                        // Add text before math
                                         if (match.index > lastIndex) {
                                             parts.push({
                                                 type: 'text',
@@ -3363,6 +2942,7 @@ const SpiderAIApp = ({
                                             });
                                         }
                                         
+                                        // Add math
                                         const latex = match[1];
                                         try {
                                             const html = katex.renderToString(latex, {
@@ -3384,6 +2964,7 @@ const SpiderAIApp = ({
                                         lastIndex = match.index + match[0].length;
                                     }
                                     
+                                    // Add remaining text
                                     if (lastIndex < text.length) {
                                         parts.push({
                                             type: 'text',
@@ -3421,7 +3002,7 @@ const SpiderAIApp = ({
                 </div>
             );
         });
-    }, [processContent]);
+    }, [processContent, processMathContent]);
 
     // Helper function for mode display
     const getModeText = () => {
@@ -3430,13 +3011,11 @@ const SpiderAIApp = ({
         if (uploadedImage) return "Image Edit";
         if (activeAIMode === 'image_gen') return "Create Image";
         if (activeAIMode === 'image_edit') return "Edit Image";
-        if (proMode) return "Pro Mode";
-        if (reasoningMode) return "Reasoning Mode";
-        return "Chat Mode";
+        return "Chat / Code / Image";
     };
 
     // ---------- New Chat Handler ----------
-    const handleNewChat = useCallback(() => {
+    const handleNewChat = () => {
         setUploadedFile(null);
         setUploadedImage(null);
         setActiveAIMode && setActiveAIMode('chat');
@@ -3455,11 +3034,6 @@ const SpiderAIApp = ({
         accumulatedTokensRef.current = '';
         setStreamedContent('');
         fileContentBufferRef.current = '';
-        setReasoningMode(false);
-        setProMode(false);
-        setAiMode('chat');
-        setPendingCodeBlock('');
-        pendingContentRef.current = '';
         const welcome = [{ 
             role: 'assistant', 
             content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', 
@@ -3471,16 +3045,15 @@ const SpiderAIApp = ({
         } catch (e) { 
             console.warn("Error clearing localStorage:", e);
         }
-    }, [setActiveAIMode]);
+    };
 
     // ---------- Enhanced Send Message ----------
-    const handleSendMessage = useCallback(async () => {
+    const handleSendMessage = async () => {
         if (!message.trim() && !uploadedFile && !uploadedImage) return;
 
         console.log('Sending message:', {
-            mode: aiMode,
-            reasoningMode,
-            proMode,
+            persistentId: getPersistentUserId(),
+            currentUser: currentUser,
             message: message
         });
 
@@ -3490,63 +3063,63 @@ const SpiderAIApp = ({
 
         const fileCopy = uploadedFile;
         const imageCopy = uploadedImage;
-        let finalMode = activeAIMode || "chat";
+        let mode = activeAIMode || "chat";
 
-        const modeConfig = {
-            ...(proMode && { pro_mode: true, temperature: 0.8, max_tokens: 4000 }),
-            ...(reasoningMode && { reasoning_mode: true, show_steps: true }),
-            ...(aiMode === 'pro' && { 
-                advanced_features: true,
-                code_analysis: true,
-                deep_reasoning: true 
-            })
-        };
-
+        // Auto-detect image generation
         if (!fileCopy && !imageCopy && detectImageGeneration(message)) {
-            finalMode = 'image_gen';
+            mode = 'image_gen';
         }
 
+        // Auto-detect full code requests
         const isFullCodeRequest = detectFullCodeRequest(message);
         if (isFullCodeRequest && !fileCopy && !imageCopy) {
             setIsFullCodeMode(true);
             setProjectMetadata(extractProjectMetadata(message));
         }
 
-        if (fileCopy) finalMode = "analyze_file";
-        if (imageCopy) finalMode = "image_edit";
+        // Override based on file/image uploads
+        if (fileCopy) mode = "analyze_file";
+        if (imageCopy) mode = "image_edit";
 
         const userMessage = {
             role: 'user',
             content: message,
-            type: finalMode,
+            type: mode,
             fileName: fileCopy ? fileCopy.name : undefined,
             imageName: imageCopy ? imageCopy.name : undefined,
             ts: Date.now(),
-            isFullCodeRequest: isFullCodeRequest,
-            aiMode: aiMode,
-            reasoningMode: reasoningMode,
-            proMode: proMode
+            isFullCodeRequest: isFullCodeRequest
         };
 
         setChatHistory(prev => [...prev, userMessage]);
         setMessage('');
-        setTranscription('');
 
         // Reset streaming state
+        accumulatedTokensRef.current = '';
         setStreamedContent('');
         setShowContinueButton(false);
         setLastStreamId(null);
         fileContentBufferRef.current = '';
-        
-        // Clear accumulated tokens for new messages, not continues
-        if (!isContinuing) {
-            accumulatedTokensRef.current = '';
-            pendingContentRef.current = '';
-            setPendingCodeBlock('');
-        }
+
+        // DECISION: When to use streaming vs normal API
+        const shouldUseStreaming = 
+            isFullCodeRequest ||                            // Full code mode
+            detectLargeCodeRequest(message) ||              // Large code expected
+            mode === "analyze_file" ||                      // File analysis
+            message.toLowerCase().includes('stream') ||     // User explicitly asks for streaming
+            message.toLowerCase().includes('step by step') || // Detailed explanations
+            detectMathRequest(message);                     // Math problems
+
+        console.log('Streaming decision:', {
+            shouldUseStreaming,
+            isFullCodeRequest,
+            mode,
+            messageLength: message.length
+        });
 
         try {
-            if (finalMode === "analyze_file" && fileCopy) {
+            // FILE ANALYSIS (Always streaming because it's large)
+            if (mode === "analyze_file" && fileCopy) {
                 let fileContent;
                 
                 if (fileCopy.type.startsWith('text/') || 
@@ -3582,10 +3155,12 @@ const SpiderAIApp = ({
                     file_type: fileCopy.type,
                     user_preference_id: getPersistentUserId(),
                     firebase_token: currentUser?.firebaseToken || '',
-                    stream: true,
-                    ...modeConfig
+                    stream: true
                 };
                 
+                console.log('Sending file analysis request with streaming');
+                
+                // Show streaming UI
                 setIsStreaming(true);
                 const initialStreamMessage = {
                     role: 'assistant',
@@ -3596,7 +3171,7 @@ const SpiderAIApp = ({
                 };
                 setStreamingMessage(initialStreamMessage);
                 
-                const response = await callFastAPI(apiUrl, apiPayload, finalMode, {
+                const response = await callFastAPI(apiUrl, apiPayload, mode, {
                     signal: controller.signal,
                     stream: true
                 });
@@ -3617,7 +3192,8 @@ const SpiderAIApp = ({
                     setChatHistory(prev => [...prev, assistantMessage]);
                 }
             }
-            else if (finalMode === "image_edit" && imageCopy) {
+            // IMAGE EDIT
+            else if (mode === "image_edit" && imageCopy) {
                 const base64Image = await new Promise((resolve, reject) => {
                     const reader = new FileReader();
                     reader.onload = () => {
@@ -3640,11 +3216,12 @@ const SpiderAIApp = ({
                     strength: 0.7,
                     user_preference_id: getPersistentUserId(),
                     firebase_token: currentUser?.firebaseToken || '',
-                    stream: false,
-                    ...modeConfig
+                    stream: false
                 };
                 
-                const result = await callFastAPI(apiUrl, apiPayload, finalMode);
+                console.log('Sending image edit request');
+                
+                const result = await callFastAPI(apiUrl, apiPayload, mode);
 
                 const assistantMessage = {
                     role: 'assistant',
@@ -3655,7 +3232,8 @@ const SpiderAIApp = ({
                 };
                 setChatHistory(prev => [...prev, assistantMessage]);
             }
-            else if (finalMode === "image_gen") {
+            // IMAGE GENERATION
+            else if (mode === "image_gen") {
                 const apiUrl = '/api/generate/text';
                 const apiPayload = { 
                     prompt: message, 
@@ -3663,11 +3241,12 @@ const SpiderAIApp = ({
                     aspect_ratio: aspectRatio,
                     user_preference_id: getPersistentUserId(),
                     firebase_token: currentUser?.firebaseToken || '',
-                    stream: false,
-                    ...modeConfig
+                    stream: false
                 };
                 
-                const result = await callFastAPI(apiUrl, apiPayload, finalMode);
+                console.log('Sending image generation request');
+                
+                const result = await callFastAPI(apiUrl, apiPayload, mode);
 
                 const assistantMessage = {
                     role: 'assistant',
@@ -3678,6 +3257,7 @@ const SpiderAIApp = ({
                 };
                 setChatHistory(prev => [...prev, assistantMessage]);
             }
+            // FULL CODE MODE (Always streaming)
             else if (isFullCodeRequest) {
                 const apiUrl = '/api/generate/text';
                 const apiPayload = { 
@@ -3687,10 +3267,12 @@ const SpiderAIApp = ({
                     firebase_token: currentUser?.firebaseToken || '',
                     stream: true,
                     full_code_mode: true,
-                    project_type: projectMetadata.type,
-                    ...modeConfig
+                    project_type: projectMetadata.type
                 };
                 
+                console.log('Sending full-code request with streaming');
+                
+                // Show streaming UI
                 setIsStreaming(true);
                 const initialStreamMessage = {
                     role: 'assistant',
@@ -3701,7 +3283,7 @@ const SpiderAIApp = ({
                 };
                 setStreamingMessage(initialStreamMessage);
                 
-                const response = await callFastAPI(apiUrl, apiPayload, finalMode, {
+                const response = await callFastAPI(apiUrl, apiPayload, mode, {
                     signal: controller.signal,
                     stream: true
                 });
@@ -3733,20 +3315,22 @@ const SpiderAIApp = ({
                     }
                 }
             }
+            // NORMAL CHAT (Decision based on shouldUseStreaming)
             else {
-                const shouldStream = shouldUseStreaming(message, isFullCodeRequest, finalMode);
-                
-                if (shouldStream) {
+                if (shouldUseStreaming) {
+                    // Use streaming for large/math responses
                     const apiUrl = '/api/generate/text';
                     const apiPayload = { 
                         prompt: message, 
-                        mode: finalMode,
+                        mode,
                         user_preference_id: getPersistentUserId(),
                         firebase_token: currentUser?.firebaseToken || '',
-                        stream: true,
-                        ...modeConfig
+                        stream: true
                     };
                     
+                    console.log('Using streaming for this request');
+                    
+                    // Show streaming UI
                     setIsStreaming(true);
                     const initialStreamMessage = {
                         role: 'assistant',
@@ -3757,7 +3341,7 @@ const SpiderAIApp = ({
                     };
                     setStreamingMessage(initialStreamMessage);
                     
-                    const response = await callFastAPI(apiUrl, apiPayload, finalMode, {
+                    const response = await callFastAPI(apiUrl, apiPayload, mode, {
                         signal: controller.signal,
                         stream: true
                     });
@@ -3778,22 +3362,30 @@ const SpiderAIApp = ({
                         setChatHistory(prev => [...prev, assistantMessage]);
                     }
                 } else {
+                    // Use normal API call for regular chat
                     const apiUrl = '/api/generate/text';
                     const apiPayload = { 
                         prompt: message, 
-                        mode: finalMode,
+                        mode,
                         user_preference_id: getPersistentUserId(),
                         firebase_token: currentUser?.firebaseToken || '',
-                        stream: false,
-                        ...modeConfig
+                        stream: false
                     };
                     
-                    const result = await callFastAPI(apiUrl, apiPayload, finalMode, {
+                    console.log('Using normal API call for regular chat');
+                    
+                    const result = await callFastAPI(apiUrl, apiPayload, mode, {
                         signal: controller.signal,
                         stream: false
                     });
 
+                    console.log('Received normal response:', {
+                        hasText: !!result?.text,
+                        textLength: result?.text?.length
+                    });
+
                     if (result?.text) {
+                        // Use fast typing animation for better UX
                         typeText(result.text, () => {
                             const assistantMessage = {
                                 role: 'assistant',
@@ -3829,21 +3421,19 @@ const SpiderAIApp = ({
                 setChatHistory(prev => [...prev, assistantError]);
             }
         } finally {
+            // Clean up
             setAbortController(null);
             setUploadedFile(null);
             setUploadedImage(null);
             setIsLoading(false);
             setIsStreaming(false);
             setStreamingMessage(null);
+            
+            // Clear streaming content
             setStreamedContent('');
-            // Don't clear accumulatedTokensRef here as it might be used for continues
+            accumulatedTokensRef.current = '';
         }
-    }, [
-        message, uploadedFile, uploadedImage, activeAIMode, aiMode, reasoningMode, proMode,
-        detectImageGeneration, detectFullCodeRequest, extractProjectMetadata, getPersistentUserId,
-        currentUser, callFastAPI, handleStreamResponse, typeText, shouldUseStreaming,
-        showModal, aspectRatio, projectMetadata.type, generatedFiles, isContinuing
-    ]);
+    };
 
     // ---------- Download Project ----------
     const downloadProjectAsZip = useCallback(async () => {
@@ -3969,17 +3559,6 @@ const SpiderAIApp = ({
             {/* Desktop Sidebar */}
             {!isMobile && (
                 <div className="hidden md:flex flex-col bg-[var(--spider-med)] w-64 p-4 border-r border-[var(--spider-light)] flex-shrink-0 space-y-4 overflow-y-auto">
-                    <div className="mb-4">
-                        <ModeSelector 
-                            aiMode={aiMode}
-                            setAiMode={setAiMode}
-                            reasoningMode={reasoningMode}
-                            setReasoningMode={setReasoningMode}
-                            proMode={proMode}
-                            setProMode={setProMode}
-                        />
-                    </div>
-
                     <button 
                         onClick={handleNewChat} 
                         className="w-full bg-[var(--spider-neon-blue)] text-black text-sm font-semibold py-3 px-4 rounded-lg hover:opacity-90 transition flex items-center space-x-2 justify-center active:scale-95"
@@ -4013,7 +3592,6 @@ const SpiderAIApp = ({
                                                 {new Date(chat.timestamp).toLocaleDateString()} • {chat.mode}
                                             </div>
                                         </button>
-                                        {/* FIX: Always show delete button on Android/mobile */}
                                         <button
                                             onClick={(e) => {
                                                 e.stopPropagation();
@@ -4021,7 +3599,7 @@ const SpiderAIApp = ({
                                                     deleteChat(chat.id);
                                                 }
                                             }}
-                                            className="ml-2 text-red-400 hover:text-red-300 p-2 active:scale-95"
+                                            className="ml-2 text-red-400 hover:text-red-300 opacity-0 group-hover:opacity-100 transition-opacity p-2 active:scale-95"
                                             title="Delete chat"
                                             disabled={isDeleting}
                                         >
@@ -4057,18 +3635,9 @@ const SpiderAIApp = ({
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path>
                             </svg>
                         </button>
-                        
-                        <div className="flex-1 px-2">
-                            <ModeSelector 
-                                aiMode={aiMode}
-                                setAiMode={setAiMode}
-                                reasoningMode={reasoningMode}
-                                setReasoningMode={setReasoningMode}
-                                proMode={proMode}
-                                setProMode={setProMode}
-                            />
-                        </div>
-                        
+                        <span className="text-sm font-semibold text-[var(--spider-neon-blue)] truncate px-2">
+                            {getModeText()}
+                        </span>
                         <button 
                             onClick={handleNewChat}
                             className="text-white p-2 touch-manipulation active:scale-95"
@@ -4112,43 +3681,23 @@ const SpiderAIApp = ({
                             <div className="space-y-1">
                                 {recentChats.length > 0 ? (
                                     recentChats.map((chat) => (
-                                        <div key={chat.id} className="flex items-center">
-                                            <button 
-                                                onClick={() => {
-                                                    loadChatById(chat.id);
-                                                    setSidebarOpen(false);
-                                                }} 
-                                                className={`flex-grow text-left px-3 py-3 text-sm rounded-lg hover:bg-[var(--spider-light)] truncate transition-colors ${
-                                                    activeChatId === chat.id 
-                                                        ? 'bg-[var(--spider-light)] text-white font-medium' 
-                                                        : 'text-[var(--spider-text)] hover:text-white'
-                                                }`}
-                                            >
-                                                <div className="truncate">{chat.title}</div>
-                                                <div className="text-xs text-[var(--spider-text-dim)] mt-1">
-                                                    {new Date(chat.timestamp).toLocaleDateString()}
-                                                </div>
-                                            </button>
-                                            {/* FIX: Always show delete button on Android/mobile */}
-                                            <button
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    if (window.confirm('Delete this chat?')) {
-                                                        deleteChat(chat.id);
-                                                    }
-                                                    setSidebarOpen(false);
-                                                }}
-                                                className="ml-2 text-red-400 hover:text-red-300 p-2"
-                                                title="Delete chat"
-                                                disabled={isDeleting}
-                                            >
-                                                {isDeleting ? (
-                                                    <div className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin"></div>
-                                                ) : (
-                                                    '×'
-                                                )}
-                                            </button>
-                                        </div>
+                                        <button 
+                                            key={chat.id}
+                                            onClick={() => {
+                                                loadChatById(chat.id);
+                                                setSidebarOpen(false);
+                                            }} 
+                                            className={`w-full text-left px-3 py-3 text-sm rounded-lg hover:bg-[var(--spider-light)] truncate transition-colors ${
+                                                activeChatId === chat.id 
+                                                    ? 'bg-[var(--spider-light)] text-white font-medium' 
+                                                    : 'text-[var(--spider-text)] hover:text-white'
+                                            }`}
+                                        >
+                                            <div className="truncate">{chat.title}</div>
+                                            <div className="text-xs text-[var(--spider-text-dim)] mt-1">
+                                                {new Date(chat.timestamp).toLocaleDateString()}
+                                            </div>
+                                        </button>
                                     ))
                                 ) : (
                                     <div className="text-center py-6 text-[var(--spider-text-dim)] text-sm">
@@ -4211,6 +3760,7 @@ const SpiderAIApp = ({
                             <ChatBubble key={`${msg.ts}_${index}`} message={msg} />
                         ))}
                         
+                        {/* Streaming Message */}
                         {(streamingMessage || isStreaming) && (
                             <div className="flex justify-start mb-4 px-2">
                                 <div className="bg-[var(--spider-med)] text-white p-4 rounded-2xl max-w-[95%] shadow-md border border-[var(--spider-light)]">
@@ -4225,7 +3775,7 @@ const SpiderAIApp = ({
                                                 <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
                                             </div>
                                             <span className="text-xs text-[var(--spider-text-dim)]">
-                                                {isContinuing ? 'Continuing...' : isStreaming ? 'AI is generating...' : 'AI is typing...'}
+                                                {isStreaming ? 'AI is generating...' : 'AI is typing...'}
                                             </span>
                                         </div>
                                         <button 
@@ -4239,6 +3789,7 @@ const SpiderAIApp = ({
                             </div>
                         )}
                         
+                        {/* Continue Button */}
                         {showContinueButton && !isLoading && (
                             <div className="flex justify-start mb-4 px-2">
                                 <div className="bg-[var(--spider-dark)] p-3 rounded-lg border border-[var(--spider-light)]">
@@ -4263,6 +3814,7 @@ const SpiderAIApp = ({
                     </div>
                 )}
 
+                {/* Hidden file inputs */}
                 <input 
                     type="file" 
                     ref={fileInputRef} 
@@ -4278,30 +3830,21 @@ const SpiderAIApp = ({
                     accept="image/*" 
                 />
 
+                {/* Input Area */}
                 <div className={`bg-[var(--spider-med)] border-t border-[var(--spider-light)] flex-shrink-0 w-full ${
                     isMobile ? 'fixed bottom-0 left-0 right-0 p-3' : 'p-4'
                 }`}>
                     <div className="max-w-5xl mx-auto">
                         {!isMobile && (
                             <div className="flex justify-between items-center mb-3">
-                                <div className="flex items-center space-x-3">
-                                    <ModeSelector 
-                                        aiMode={aiMode}
-                                        setAiMode={setAiMode}
-                                        reasoningMode={reasoningMode}
-                                        setReasoningMode={setReasoningMode}
-                                        proMode={proMode}
-                                        setProMode={setProMode}
-                                    />
-                                    <span className="flex items-center text-sm text-[var(--spider-neon-blue)] font-semibold">
-                                        {getModeText()}
-                                        {isFullCodeMode && (
-                                            <span className="ml-2 text-xs px-2 py-0.5 bg-[var(--spider-neon-blue)] text-black rounded-full">
-                                                FULL CODE
-                                            </span>
-                                        )}
-                                    </span>
-                                </div>
+                                <span className="flex items-center text-sm text-[var(--spider-neon-blue)] font-semibold">
+                                    {getModeText()}
+                                    {isFullCodeMode && (
+                                        <span className="ml-2 text-xs px-2 py-0.5 bg-[var(--spider-neon-blue)] text-black rounded-full">
+                                            FULL CODE
+                                        </span>
+                                    )}
+                                </span>
                                 {activeAIMode === 'image_gen' && (
                                     <select 
                                         value={aspectRatio} 
@@ -4345,23 +3888,16 @@ const SpiderAIApp = ({
                         )}
 
                         <div className="flex items-end w-full space-x-3">
-                            <div className="flex-1 bg-[var(--spider-light)] rounded-xl p-3 min-h-[48px] border border-[var(--spider-light)] relative">
-                                {isTranscribing && (
-                                    <div className="absolute -top-8 left-0 right-0 bg-gradient-to-r from-blue-500 to-cyan-500 text-white text-xs px-3 py-1.5 rounded-lg flex items-center">
-                                        <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                                        Transcribing...
-                                    </div>
-                                )}
-                                
+                            <div className="flex-1 bg-[var(--spider-light)] rounded-xl p-3 min-h-[48px] border border-[var(--spider-light)]">
                                 <textarea 
                                     ref={textareaRef}
                                     placeholder={
                                         isFullCodeMode ? "Describe your complete project..." :
                                         uploadedImage ? "Describe how to edit this image..." : 
                                         uploadedFile ? `Analyze "${uploadedFile.name}"...` : 
-                                        "Message Spider AI... (Press mic to speak)"
+                                        "Message Spider AI... (Try: 'solve x² + 2x - 3 = 0' or 'write full code for a todo app')"
                                     } 
-                                    className="w-full bg-transparent text-white focus:outline-none resize-none text-sm sm:text-base max-h-32 overflow-y-auto pr-10"
+                                    className="w-full bg-transparent text-white focus:outline-none resize-none text-sm sm:text-base max-h-32 overflow-y-auto"
                                     value={message} 
                                     onChange={(e) => setMessage(e.target.value)} 
                                     onKeyDown={(e) => { 
@@ -4373,18 +3909,6 @@ const SpiderAIApp = ({
                                     rows={1}
                                     disabled={isLoading}
                                 />
-                                
-                                {message.length === 0 && !isLoading && (
-                                    <div className="absolute right-3 bottom-3">
-                                        <MicrophoneButton 
-                                            isListening={isListening}
-                                            isTranscribing={isTranscribing}
-                                            audioLevel={audioLevel}
-                                            onClick={toggleListening}
-                                            transcription={transcription}
-                                        />
-                                    </div>
-                                )}
                             </div>
 
                             <PlusMenu 
@@ -4407,41 +3931,6 @@ const SpiderAIApp = ({
                                 )}
                             </button>
                         </div>
-                        
-                        {isListening && (
-                            <div className="mt-3">
-                                <div className="flex items-center justify-between text-xs">
-                                    <div className="flex items-center space-x-2">
-                                        <div className="flex space-x-1">
-                                            {[0, 1, 2].map(i => (
-                                                <div 
-                                                    key={i}
-                                                    className="w-1.5 h-1.5 bg-red-500 rounded-full"
-                                                    style={{
-                                                        animation: `bounce 1s infinite ${i * 0.1}s`,
-                                                        transform: `scale(${audioLevel > i/3 ? 1.2 : 1})`
-                                                    }}
-                                                ></div>
-                                            ))}
-                                        </div>
-                                        <span className="text-red-400">Listening... Speak now</span>
-                                    </div>
-                                    <button 
-                                        onClick={stopListening}
-                                        className="text-red-400 hover:text-red-300 text-sm"
-                                    >
-                                        Stop
-                                    </button>
-                                </div>
-                                
-                                <div className="mt-2 h-1 w-full bg-[var(--spider-dark)] rounded-full overflow-hidden">
-                                    <div 
-                                        className="h-full bg-gradient-to-r from-red-500 to-pink-500 transition-all duration-75"
-                                        style={{ width: `${audioLevel * 100}%` }}
-                                    ></div>
-                                </div>
-                            </div>
-                        )}
                     </div>
                 </div>
 
@@ -4450,6 +3939,7 @@ const SpiderAIApp = ({
         </div>
     );
 };
+
 
 
 // --- END Plus Menu Component ---
