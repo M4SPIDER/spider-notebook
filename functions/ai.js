@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.31)
- * FEATURES: MISTRAL + LUCID ORIGIN + IMAGE EDITING
- * UPDATE: Added Image Edit Mode (Flux 2 Dev)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.33)
+ * FEATURES: MISTRAL + LUCID ORIGIN + FLUX EDIT + ASR + PRO MODE
+ * UPDATE: Enforced Pro Mode Always Streams (v9.9.33)
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.31";
+const VERSION = "9.9.33";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -20,6 +20,13 @@ const AI_RETRY_LIMIT = 2;
 const AI_RETRY_DELAY_BASE = 1500;
 // OPTIMIZED: 300 lines is the "Sweet Spot" for Mistral 24B accuracy
 const AI_MAX_OUTPUT_LINES = 300; 
+
+// MODELS
+const MODEL_STD_CHAT = "@cf/mistralai/mistral-small-3.1-24b-instruct";
+const MODEL_PRO_CHAT = "@cf/openai/gpt-oss-120b"; // User requested specific model
+const MODEL_IMAGE_GEN = "@cf/leonardo/lucid-origin";
+const MODEL_IMAGE_EDIT = "@cf/black-forest-labs/flux-2-dev";
+const MODEL_ASR = "@cf/openai/whisper";
 
 //////////////////////////////
 // UTILS
@@ -45,16 +52,16 @@ function extractText(resp) {
     resp?.output?.[0]?.content?.[0]?.text ||
     resp?.response ||
     resp?.result ||
+    resp?.text || // Added for Whisper
     ""
   );
 }
 
-// HELPER: Base64 to Array (Required for Image Input)
+// HELPER: Base64 to Array (Required for Image/Audio Input)
 function base64ToArray(b64) {
   try {
     const binaryString = atob(b64);
     const len = binaryString.length;
-    // Workers AI expects standard array of integers for image input
     const bytes = new Array(len);
     for (let i = 0; i < len; i++) {
         bytes[i] = binaryString.charCodeAt(i);
@@ -329,12 +336,45 @@ export async function onRequest(context) {
     }
 
     //////////////////////
-    // STREAM MODE (TRUE STREAMING + AUTO CONTINUE + FILE ANALYZER)
+    // ASR / TRANSCRIBE MODE (NEW)
     //////////////////////
-    // CRITICAL: Forces analyze_file to always use this block for the Auto-Loop feature
-    if ((mode === "stream" || mode === "analyze_file" || stream === true) && mode !== "image_gen" && mode !== "image_edit") {
+    if (mode === "transcribe") {
+        if (!payload.audio) {
+            return new Response(JSON.stringify({ error: "No audio data provided" }), { headers: cors });
+        }
+        
+        const audioArray = base64ToArray(payload.audio);
+        if (!audioArray) {
+             return new Response(JSON.stringify({ error: "Invalid audio format" }), { headers: cors });
+        }
+
+        try {
+            const response = await runAi(env, MODEL_ASR, {
+                audio: audioArray
+            });
+            
+            const text = extractText(response);
+            return new Response(JSON.stringify({ text: text }), { 
+                headers: { ...cors, "Content-Type": "application/json" } 
+            });
+
+        } catch (e) {
+            return new Response(JSON.stringify({ error: "ASR Failed", message: e.message }), {
+                 headers: { ...cors, "Content-Type": "application/json" }
+            });
+        }
+    }
+
+    //////////////////////
+    // STREAM MODE (CHAT + PRO MODE + FILE ANALYZER)
+    //////////////////////
+    // CRITICAL: Forces analyze_file and pro_chat to always use this block
+    if ((mode === "stream" || mode === "analyze_file" || mode === "pro_chat" || stream === true) && mode !== "image_gen" && mode !== "image_edit") {
       const encoder = new TextEncoder();
       
+      // Select Model: Pro vs Standard
+      const ACTIVE_MODEL = (mode === "pro_chat") ? MODEL_PRO_CHAT : MODEL_STD_CHAT;
+
       // FIX: Use existing stream_id if available to append to same UI bubble
       const activeStreamId = stream_id || crypto.randomUUID();
 
@@ -369,8 +409,9 @@ export async function onRequest(context) {
                 ];
 
                 // Run AI (Optimized for Speed: Max tokens set high, but we control via lines)
+                // Note: PRO MODE (mode === 'pro_chat') ALWAYS STREAMS HERE due to if-condition
                 const aiStream = await env.SPY_AI.run(
-                  "@cf/mistralai/mistral-small-3.1-24b-instruct",
+                  ACTIVE_MODEL,
                   {
                     messages: currentMessages,
                     max_tokens: 8192,
@@ -487,67 +528,67 @@ export async function onRequest(context) {
     //////////////////////
     // IMAGE EDITING (FLUX 2 DEV)
     //////////////////////
-   if (mode === "image_edit") {
-    if (!payload.image) {
-        return new Response(JSON.stringify({ error: "No image provided" }), { headers: cors });
-    }
-
-    try {
-        // 1. FLUX.2 requires FormData, NOT JSON
-        const formData = new FormData();
-        
-        // 2. Convert your base64 string to a Blob for the multipart upload
-        const byteString = atob(payload.image);
-        const ab = new ArrayBuffer(byteString.length);
-        const ia = new Uint8Array(ab);
-        for (let i = 0; i < byteString.length; i++) {
-            ia[i] = byteString.charCodeAt(i);
-        }
-        const blob = new Blob([ab], { type: 'image/png' });
-
-        // 3. Append required fields
-        formData.append('prompt', activePrompt || "Edit this image");
-        formData.append('input_image_0', blob); // FLUX.2 uses this specific key
-        
-        // Optional: Add steps/guidance if needed
-        formData.append('steps', '25'); 
-
-        // 4. Run the model using the fetch API (Directly to the AI binding)
-        // Note: env.SPY_AI.run often struggles with FormData in some Worker versions, 
-        // using a direct fetch or the specific binding method is safer here.
-        const response = await env.SPY_AI.run(
-            "@cf/black-forest-labs/flux-2-dev",
-            formData // Pass the FormData object directly
-        );
-
-        // 5. Universal Handler for Flux Output
-        let base64Image = null;
-        if (response instanceof ReadableStream) {
-             return new Response(response, { headers: { ...cors, "Content-Type": "image/png" } });
+    if (mode === "image_edit") {
+        if (!payload.image) {
+            return new Response(JSON.stringify({ error: "No image provided for editing" }), { headers: cors });
         }
 
-        // Flux.2 usually returns an object with the image
-        if (response && response.image) base64Image = response.image;
-if (base64Image) {
-    return new Response(JSON.stringify({ 
-        base64_image: base64Image,
-        finish_reason: "stop"
-    }), {
-        // FORCE JSON header so frontend knows how to parse it
-        headers: { ...cors, "Content-Type": "application/json" }
-    });
-}
+        const imageArray = base64ToArray(payload.image);
+        if (!imageArray) {
+             return new Response(JSON.stringify({ error: "Invalid image data" }), { headers: cors });
+        }
 
-        return new Response(JSON.stringify({ error: "Flux 2 Failed", debug: response }), {
-            headers: { ...cors, "Content-Type": "application/json" }
-        });
+        const inputArgs = {
+            prompt: activePrompt,
+            image: imageArray,
+            num_steps: 20, // Standard step count
+            guidance: 7.5
+        };
+        
+        // If mask exists (inpainting), include it
+        if (payload.mask) {
+            const maskArray = base64ToArray(payload.mask);
+            if (maskArray) inputArgs.mask = maskArray;
+        }
 
-    } catch (e) {
-        return new Response(JSON.stringify({ error: "Flux 2 API Error", message: e.message }), {
-            headers: { ...cors, "Content-Type": "application/json" }
-        });
+        try {
+            const response = await runAi(
+                env,
+                MODEL_IMAGE_EDIT, 
+                inputArgs
+            );
+
+            // Universal Handler for Image Response
+            let base64Image = null;
+            if (response instanceof ReadableStream) {
+                 return new Response(response, { headers: { ...cors, "Content-Type": "image/png" } });
+            }
+
+            if (response && response.image) base64Image = response.image;
+            else if (response && response.result && response.result.image) base64Image = response.result.image;
+
+            if (base64Image) {
+                const binaryString = atob(base64Image);
+                const len = binaryString.length;
+                const bytes = new Uint8Array(len);
+                for (let i = 0; i < len; i++) bytes[i] = binaryString.charCodeAt(i);
+                
+                return new Response(bytes.buffer, {
+                    headers: { ...cors, "Content-Type": "image/png" }
+                });
+            }
+
+            return new Response(JSON.stringify({ error: "Edit Failed - Unknown Format", debug: response }), {
+                headers: { ...cors, "Content-Type": "application/json" }
+            });
+
+        } catch (e) {
+            return new Response(JSON.stringify({ error: "Image Edit Error", message: e.message }), {
+                headers: { ...cors, "Content-Type": "application/json" }
+            });
+        }
     }
-}
+
     //////////////////////
     // IMAGE GENERATION (FIXED & STABILIZED)
     //////////////////////
@@ -574,7 +615,7 @@ if (base64Image) {
         
         const optimizerRes = await runAi(
            env, 
-           "@cf/mistralai/mistral-small-3.1-24b-instruct",
+           MODEL_STD_CHAT,
            {
              messages: [
                { role: "system", content: promptOptimizerSys },
@@ -610,7 +651,7 @@ if (base64Image) {
       try {
         const response = await runAi(
           env,
-          "@cf/leonardo/lucid-origin",
+          MODEL_IMAGE_GEN,
           {
             prompt: enhancedPrompt,
             width: width,   
@@ -696,7 +737,7 @@ if (base64Image) {
     // USING MISTRAL (Text Logic)
     const aiRes = await runAi(
       env,
-      "@cf/mistralai/mistral-small-3.1-24b-instruct",
+      MODEL_STD_CHAT,
       {
         messages,
         max_tokens: 4096,
