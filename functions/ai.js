@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.46)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.47)
  * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN + FLUX EDIT + ASR
- * UPDATE: Fixed 120OSS Streaming (Added Fallback & Token Parsing)
+ * UPDATE: Stream Fallback Switched to Mistral (True Streaming)
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.46";
+const VERSION = "9.9.47";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -453,19 +453,20 @@ export async function onRequest(context) {
                     // Try Streaming First
                     aiResponse = await env.SPY_AI.run(ACTIVE_MODEL, aiPayload);
                 } catch (streamErr) {
-                    console.error("Stream failed, falling back to static:", streamErr);
-                    // Fallback: If 'stream: true' is rejected (5006), retry without it
+                    console.error("Stream failed, falling back to Mistral:", streamErr);
+                    
+                    // Fallback: If GPT-OSS fails streaming, switch to Mistral for TRUE STREAMING
                     if (isGptOss) {
-                        const staticPayload = { ...aiPayload };
-                        delete staticPayload.stream; // Remove stream flag
-                        
-                        // Fetch full response safely
-                        const staticRes = await env.SPY_AI.run(ACTIVE_MODEL, staticPayload);
-                        
-                        // Convert to simulated stream object for the reader below
-                        aiResponse = { isStatic: true, text: extractText(staticRes) };
+                        const mistralPayload = {
+                            messages: currentMessages,
+                            max_tokens: 8192,
+                            temperature: 0.7,
+                            stream: true
+                        };
+                        // Run Mistral Stream
+                        aiResponse = await env.SPY_AI.run(MODEL_PRO_CHAT, mistralPayload);
                     } else {
-                        throw streamErr; // Re-throw if it's not our specific fix case
+                        throw streamErr;
                     }
                 }
 
