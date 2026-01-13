@@ -623,8 +623,7 @@ export async function onRequest(context) {
     // IMAGE EDITING (FLUX 2 DEV -> SD 1.5 FIX)
     //////////////////////
     // FIXED: base64ToUint8Array moved to UTILS, removed invalid 'onst' definition here.
-
-    if (mode === "image_edit") {
+if (mode === "image_edit") {
     // 1. Validate image
     if (!payload.image) {
         return new Response(
@@ -647,40 +646,37 @@ export async function onRequest(context) {
         editPrompt += `\n\n${searchContext}`;
     }
 
-    // 3. Model selection
-    // IMPORTANT:
-    // Flux 2 Dev on Cloudflare = TEXT → IMAGE ONLY
-    // IMG → IMG MUST use SD 1.5
-    let editModel = "@cf/black-forest-labs/flux-2-dev";
+    // 3. SDXL model (supports img2img via JSON)
+    const editModel = "@cf/stabilityai/stable-diffusion-xl-base-1.0";
 
-    // 4. Build multipart payload (CRITICAL FIX)
-    const multipartPayload = {
+    // 4. Build input (JSON, NOT multipart)
+    const inputArgs = {
         prompt: editPrompt,
-        image: new Blob([imageArray], { type: "image/png" })
+        image: [...imageArray],      // Uint8Array → number[]
+        strength: payload.strength ?? 0.35, // lower = preserve structure
+        guidance: 7.5,
+        num_steps: 20
     };
 
-    // 5. Masked inpainting (optional)
+    // Optional: inpainting mask (SDXL supports mask too)
     if (payload.mask) {
         const maskArray = base64ToUint8Array(payload.mask);
         if (maskArray) {
-            editModel = "@cf/black-forest-labs/flux-2-dev";
-            multipartPayload.mask = new Blob([maskArray], { type: "image/png" });
+            inputArgs.mask = [...maskArray];
         }
     }
 
     try {
-        const response = await env.SPY_AI.run(editModel, {
-            multipart: multipartPayload
-        });
+        const response = await runAi(env, editModel, inputArgs);
 
-        // 6. Streamed image response (Cloudflare standard)
+        // 5. SDXL returns ReadableStream (PNG/JPEG)
         if (response instanceof ReadableStream) {
             return new Response(response, {
                 headers: { ...cors, "Content-Type": "image/png" }
             });
         }
 
-        // 7. Base64 fallback (rare)
+        // Fallback (rare)
         const base64Image = response?.image || response?.result?.image;
         if (base64Image) {
             const finalImage = base64ToUint8Array(base64Image);
