@@ -3195,44 +3195,52 @@ const SpiderAIApp = ({
             }
             // IMAGE EDIT
             else if (mode === "image_edit" && imageCopy) {
-                const base64Image = await new Promise((resolve, reject) => {
-                    const reader = new FileReader();
-                    reader.onload = () => {
-                        try {
-                            const b = reader.result.split(",")[1];
-                            resolve(b);
-                        } catch (e) {
-                            reject(e);
-                        }
-                    };
-                    reader.onerror = (err) => reject(err);
-                    reader.readAsDataURL(imageCopy);
-                });
+    // Show a temporary "Processing" message in chat
+    const processingMessage = {
+        role: 'assistant',
+        content: 'Refining your image with FLUX.2 [dev]...',
+        type: 'text',
+        ts: Date.now(),
+    };
+    setChatHistory(prev => [...prev, processingMessage]);
 
-                const apiUrl = '/api/generate/text';
-                const apiPayload = {
-                    prompt: message || "Edit this image",
-                    mode: "image_edit",
-                    image: base64Image,
-                    strength: 0.7,
-                    user_preference_id: getPersistentUserId(),
-                    firebase_token: currentUser?.firebaseToken || '',
-                    stream: false
-                };
-                
-                console.log('Sending image edit request');
-                
-                const result = await callFastAPI(apiUrl, apiPayload, mode);
+    const base64Image = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(",")[1]);
+        reader.onerror = (err) => reject(err);
+        reader.readAsDataURL(imageCopy);
+    });
 
-                const assistantMessage = {
-                    role: 'assistant',
-                    content: '',
-                    type: 'image',
-                    base64_image: result?.base64_image,
-                    ts: Date.now()
-                };
-                setChatHistory(prev => [...prev, assistantMessage]);
-            }
+    const apiUrl = '/ai'; // Use the direct /ai worker endpoint
+    const apiPayload = {
+        prompt: message || "Edit this image",
+        mode: "image_edit",
+        image: base64Image, // The backend handles the conversion to Blob
+        user_preference_id: getPersistentUserId(),
+        firebase_token: currentUser?.firebaseToken || '',
+        stream: false
+    };
+    
+    try {
+        const result = await callFastAPI(apiUrl, apiPayload, mode);
+
+        if (result?.error) throw new Error(result.error);
+
+        const assistantMessage = {
+            role: 'assistant',
+            content: message ? `Edited image based on: "${message}"` : 'Image edited successfully.',
+            type: 'image',
+            base64_image: result?.base64_image,
+            ts: Date.now()
+        };
+        
+        // Remove the "Processing" message and add the real one
+        setChatHistory(prev => [...prev.filter(m => m.content !== processingMessage.content), assistantMessage]);
+    } catch (err) {
+        showModal("Edit Failed", err.message);
+        setChatHistory(prev => [...prev.filter(m => m.content !== processingMessage.content)]);
+    }
+}
             // IMAGE GENERATION
             else if (mode === "image_gen") {
                 const apiUrl = '/api/generate/text';
@@ -5011,6 +5019,7 @@ int main() {
         </>
     );
 }
+
 
 
 
