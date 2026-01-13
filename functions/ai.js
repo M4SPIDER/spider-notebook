@@ -624,6 +624,9 @@ export async function onRequest(context) {
     //////////////////////
     // FIXED: base64ToUint8Array moved to UTILS, removed invalid 'onst' definition here.
 
+        //////////////////////
+    // IMAGE EDITING - FIXED (Stable Diffusion 1.5)
+    //////////////////////
     if (mode === "image_edit") {
         // 1. Validation: Ensure image exists
         if (!payload.image) {
@@ -643,22 +646,29 @@ export async function onRequest(context) {
 
         // 2. Prepare Prompt and Search Context
         let editPrompt = activePrompt;
+        if (!editPrompt || editPrompt.trim() === "") {
+            editPrompt = "enhance and improve this image";
+        }
+        
+        // Add descriptive enhancements to the prompt
+        editPrompt = `${editPrompt}, high quality, detailed, professional photography`;
+        
         if (searchContext) {
             editPrompt += `\n\n[CONTEXT: ${searchContext}]`;
         }
 
-        // 3. Model Configuration
-        // CHANGE: Flux on Cloudflare is Text-to-Image ONLY.
-        // LM Arena uses full Python/GPU environment which supports Img2Img with Flux.
-        // On Cloudflare, we MUST use Stable Diffusion 1.5 for Image-to-Image editing.
+        // 3. Model Configuration - CRITICAL FIX
         let editModel = "@cf/runwayml/stable-diffusion-v1-5-img2img"; 
         let inputArgs = {
             prompt: editPrompt,
             image: [...imageArray], // Cloudflare AI expects array of numbers
-            num_steps: 20,
+            num_steps: 30, // Increased steps for better quality
             guidance: 7.5,
-            strength: 0.35 // LOWERED FROM 0.7 TO PRESERVE ORIGINAL IMAGE
+            strength: 0.8, // CRITICAL FIX: Increased from 0.35 to 0.8 for actual changes
+            seed: Math.floor(Math.random() * 1000000) // Add seed for variation
         };
+
+        console.log(`Image Edit Request: Prompt="${editPrompt.substring(0, 100)}...", Strength=${inputArgs.strength}, Steps=${inputArgs.num_steps}`);
 
         // 4. Inpainting Logic (Masked Editing)
         if (payload.mask) {
@@ -666,6 +676,9 @@ export async function onRequest(context) {
             const maskArray = base64ToUint8Array(payload.mask);
             if (maskArray) {
                 inputArgs.mask = [...maskArray];
+                // For inpainting, use lower strength for targeted edits
+                inputArgs.strength = 0.9;
+                console.log("Using inpainting mode with mask");
             }
         }
 
@@ -673,37 +686,68 @@ export async function onRequest(context) {
             const response = await runAi(env, editModel, inputArgs);
 
             // 5. Response Handling
-            // Case A: Response is a direct stream (standard for Cloudflare AI image models)
+            let base64Image = null;
+            
+            // Handle different response formats
             if (response instanceof ReadableStream) {
                 return new Response(response, { 
                     headers: { ...cors, "Content-Type": "image/png" } 
                 });
             }
-
-            // Case B: Response is a JSON object containing base64 (less common, but handled)
-            let base64Image = response?.image || response?.result?.image;
+            
+            // Try to extract image from various response formats
+            if (response && typeof response === 'object') {
+                if (response.image) {
+                    base64Image = response.image;
+                } else if (response.result && response.result.image) {
+                    base64Image = response.result.image;
+                } else if (response[0] && response[0].image) {
+                    base64Image = response[0].image;
+                } else if (response.body && response.body instanceof ReadableStream) {
+                    return new Response(response.body, { 
+                        headers: { ...cors, "Content-Type": "image/png" } 
+                    });
+                }
+            }
 
             if (base64Image) {
                 const finalImage = base64ToUint8Array(base64Image);
-                return new Response(finalImage, {
-                    headers: { ...cors, "Content-Type": "image/png" }
-                });
+                if (finalImage) {
+                    return new Response(finalImage, {
+                        headers: { 
+                            ...cors, 
+                            "Content-Type": "image/png",
+                            "X-Edit-Prompt": editPrompt.substring(0, 200),
+                            "X-Edit-Strength": inputArgs.strength.toString()
+                        }
+                    });
+                }
             }
 
-            // Case C: Fallback error if format is unrecognized
-            return new Response(JSON.stringify({ error: "Edit Failed - Unknown Format", debug: response }), {
+            // Debug logging for unknown format
+            console.log("Unknown response format:", typeof response, response);
+            return new Response(JSON.stringify({ 
+                error: "Image Edit Failed - Unknown Response Format",
+                hint: "Try increasing strength parameter or using a different edit prompt",
+                format: typeof response,
+                keys: response ? Object.keys(response) : 'no response'
+            }), {
                 status: 500,
                 headers: { ...cors, "Content-Type": "application/json" }
             });
 
         } catch (e) {
-            return new Response(JSON.stringify({ error: "Image Edit Error", message: e.message }), {
+            console.error("Image Edit Error:", e);
+            return new Response(JSON.stringify({ 
+                error: "Image Edit Error", 
+                message: e.message,
+                stack: e.stack
+            }), {
                 status: 500,
                 headers: { ...cors, "Content-Type": "application/json" }
             });
         }
     }
-    
     //////////////////////
     // IMAGE GENERATION (FIXED & STABILIZED)
     //////////////////////
