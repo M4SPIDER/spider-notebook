@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.50)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.51)
  * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN + FLUX EDIT + ASR
- * UPDATE: Enforced Mistral 24B for ALL Streaming (GPT-OSS Skipped)
+ * UPDATE: Added Strict Rule - #/### Only Inside Code Blocks
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.50";
+const VERSION = "9.9.51";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -185,7 +185,8 @@ const SPIDER_SYSTEM_PROMPT =
 "\nCODE BLOCK RULE:\n" +
 "- Always use markdown code blocks for code 💻.\n" +
 "- Format: ```language\\ncode here\\n```.\n" +
-"- NEVER use single backticks for multi-line code.\n";
+"- NEVER use single backticks for multi-line code.\n" +
+"- HEADER RESTRICTION: Use #, ##, ### ONLY INSIDE OF CODE BLOCKS (as comments etc). Do NOT use them for headers in the main response text.\n";
 
 //////////////////////////////
 // KV MEMORY
