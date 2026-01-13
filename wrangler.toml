@@ -10,7 +10,8 @@ models = [
   "@cf/mistralai/mistral-small-3.1-24b-instruct",
   "@cf/openai/gpt-oss-120b",
   "@cf/leonardo/lucid-origin",
-  "@cf/black-forest-labs/flux-2-dev" 
+  "@cf/black-forest-labs/flux-2-dev".
+  "@cf/openai/whisper-large-v3-turbo"
 ]
 
 [[kv_namespaces]]
