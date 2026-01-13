@@ -4276,19 +4276,23 @@ headers: {
 }
 
         // ---------------- TEXT RESPONSE ----------------
-        const rawText = await res.text();
+     const rawText = await res.text();
 
-        if (!rawText || rawText.trim() === "") {
-            return { error: "Empty response from Spider AI." };
-        }
+if (!rawText || rawText.trim() === "") {
+    return { error: "Empty response from Spider AI." };
+}
 
-        // Spider AI 2.0 returns plain text for non-streaming requests
-        return {
-            text: rawText,
-            raw: rawText
-        };
-
-    } catch (err) {
+try {
+    // Attempt to parse as JSON first (This catches the image base64 object)
+    const json = JSON.parse(rawText);
+    return json; 
+} catch (e) {
+    // If not JSON, return as plain text
+    return {
+        text: rawText,
+        raw: rawText
+    };
+} catch (err) {
         // Return error object instead of throwing to avoid breaking the UI flow
         return { error: err.message };
 }
@@ -5018,6 +5022,7 @@ int main() {
         </>
     );
 }
+
 
 
 
