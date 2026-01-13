@@ -10,7 +10,7 @@ models = [
   "@cf/mistralai/mistral-small-3.1-24b-instruct",
   "@cf/openai/gpt-oss-120b",
   "@cf/leonardo/lucid-origin",
-  "@cf/black-forest-labs/flux-2-dev",
+  "@cf/leonardo/phoenix-1.0",
   "@cf/openai/whisper-large-v3-turbo"
 ]
 
