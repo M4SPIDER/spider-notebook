@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.31)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.29)
  * FEATURES: MISTRAL + LUCID ORIGIN (STABILITY FIXES)
- * UPDATE: Default to Snippets (Full Code only on Request)
+ * UPDATE: Forced Auto-Loop for File Analysis & Fixes
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.31";
+const VERSION = "9.9.29";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -149,7 +149,7 @@ const SPIDER_SYSTEM_PROMPT =
 "6. TONE: Friendly, casual, and helpful like a close friend 😎🤝.\n" +
 "\nCODING STANDARDS:\n" +
 "- ACCURACY: Verify logic, syntax, and imports before writing code. Ensure no missing brackets or semicolons.\n" +
-"- COMPLETENESS: NEVER write full code unless the user explicitly asks for 'full code', 'complete', or 'rewrite'. Default to concise snippets.\n" +
+"- COMPLETENESS: Write full, runnable code. Do not leave placeholders like '// ... rest of code' unless the file is massive.\n" +
 "- CONSISTENCY: When updating code, only modify the necessary parts. Keep the rest of the original code exactly the same to prevent breaking changes.\n" +
 "- BEST PRACTICES: Use modern conventions (e.g., ES6+ for JS, React Hooks, functional components).\n" +
 "- EXPLANATION: If code is complex, briefly explain the key logic.\n" +
@@ -305,8 +305,8 @@ export async function onRequest(context) {
     // STREAM MODE (TRUE STREAMING + AUTO CONTINUE)
     //////////////////////
     // CRITICAL FIX: Explicitly exclude image_gen mode here.
-    // ALSO FIX: Force "analyze_file" AND "chat" into streaming mode so they get the Auto-Continue Loop.
-    if ((mode === "stream" || mode === "analyze_file" || mode === "chat" || stream === true) && mode !== "image_gen") {
+    // ALSO FIX: Force "analyze_file" into streaming mode so it gets the Auto-Continue Loop.
+    if ((mode === "stream" || mode === "analyze_file" || stream === true) && mode !== "image_gen") {
       const encoder = new TextEncoder();
       
       // FIX: Use existing stream_id if available to append to same UI bubble
