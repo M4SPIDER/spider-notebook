@@ -1347,7 +1347,6 @@ const SpiderNotebookApp = ({
     );
 };
 
-
 const SpiderAIApp = ({ 
     currentUser, 
     showModal, 
@@ -2726,37 +2725,6 @@ const SpiderAIApp = ({
         event.target.value = null;
     };
 
-    // ---------- AI Mode Selector Component ----------
-    const AIModeSelector = useMemo(() => {
-        return React.memo(({ selectedMode, onSelectMode }) => {
-            const modes = [
-                { id: 'chat', name: 'Chat', icon: '💬', desc: 'Standard AI Chat' },
-                { id: 'reasoning', name: 'Reasoning', icon: '🧠', desc: 'Step-by-step Reasoning' },
-                { id: 'pro', name: 'Spider Pro', icon: '🚀', desc: 'Experimental 120B Model' }
-            ];
-            
-            return (
-                <div className="flex items-center space-x-1 bg-[var(--spider-light)] rounded-lg p-1">
-                    {modes.map((mode) => (
-                        <button
-                            key={mode.id}
-                            onClick={() => onSelectMode(mode.id)}
-                            className={`flex items-center space-x-2 px-3 py-2 rounded-md text-sm transition-colors ${
-                                selectedMode === mode.id
-                                    ? 'bg-[var(--spider-neon-blue)] text-black font-semibold'
-                                    : 'text-white hover:bg-[var(--spider-med)]'
-                            }`}
-                            title={mode.desc}
-                        >
-                            <span>{mode.icon}</span>
-                            <span className="hidden sm:inline">{mode.name}</span>
-                        </button>
-                    ))}
-                </div>
-            );
-        });
-    }, []);
-
     // ---------- Enhanced PlusMenu with AI Modes ----------
     const PlusMenu = useMemo(() => {
         return React.memo(({ setActiveAIMode: _setActiveAIMode, fileInputRef, imageInputRef }) => {
@@ -2780,6 +2748,11 @@ const SpiderAIApp = ({
                     document.removeEventListener('touchstart', handleClickOutside);
                 };
             }, [open]);
+
+            const handleAIModeChange = (mode) => {
+                setSelectedAIMode(mode);
+                setOpen(false);
+            };
 
             const onUploadFile = (e) => {
                 e.stopPropagation();
@@ -2806,6 +2779,15 @@ const SpiderAIApp = ({
                 setOpen(!open);
             };
 
+            const getModeIcon = (mode) => {
+                switch(mode) {
+                    case 'chat': return '💬';
+                    case 'reasoning': return '🧠';
+                    case 'pro': return '🚀';
+                    default: return '💬';
+                }
+            };
+
             return (
                 <div className="relative" ref={menuRef}>
                     <button 
@@ -2819,7 +2801,44 @@ const SpiderAIApp = ({
                     {open && (
                         <div className="absolute bottom-12 right-0 bg-[var(--spider-dark)] border border-[var(--spider-light)] rounded-md shadow-lg w-48 p-2 z-50">
                             <div className="text-xs text-[var(--spider-text-dim)] px-3 py-2 border-b border-[var(--spider-light)] mb-2">
-                                AI Tools
+                                AI Mode
+                            </div>
+                            <button 
+                                onClick={() => handleAIModeChange('chat')} 
+                                className={`w-full text-left px-3 py-2 rounded-md text-sm flex items-center touch-manipulation active:scale-95 transition-colors ${
+                                    selectedAIMode === 'chat' 
+                                        ? 'bg-[var(--spider-light)] text-white' 
+                                        : 'hover:bg-[var(--spider-light)]'
+                                }`}
+                            >
+                                <span className="mr-2">{getModeIcon('chat')}</span> 
+                                <span>Chat Mode</span>
+                            </button>
+                            <button 
+                                onClick={() => handleAIModeChange('reasoning')} 
+                                className={`w-full text-left px-3 py-2 rounded-md text-sm flex items-center touch-manipulation active:scale-95 transition-colors ${
+                                    selectedAIMode === 'reasoning' 
+                                        ? 'bg-[var(--spider-light)] text-white' 
+                                        : 'hover:bg-[var(--spider-light)]'
+                                }`}
+                            >
+                                <span className="mr-2">{getModeIcon('reasoning')}</span> 
+                                <span>Reasoning</span>
+                            </button>
+                            <button 
+                                onClick={() => handleAIModeChange('pro')} 
+                                className={`w-full text-left px-3 py-2 rounded-md text-sm flex items-center touch-manipulation active:scale-95 transition-colors ${
+                                    selectedAIMode === 'pro' 
+                                        ? 'bg-[var(--spider-light)] text-white' 
+                                        : 'hover:bg-[var(--spider-light)]'
+                                }`}
+                            >
+                                <span className="mr-2">{getModeIcon('pro')}</span> 
+                                <span>Spider AI Pro</span>
+                            </button>
+                            
+                            <div className="text-xs text-[var(--spider-text-dim)] px-3 py-2 border-t border-[var(--spider-light)] mt-2 mb-2">
+                                Tools
                             </div>
                             <button 
                                 onClick={onUploadFile} 
@@ -2844,7 +2863,7 @@ const SpiderAIApp = ({
                 </div>
             );
         });
-    }, []);
+    }, [selectedAIMode]);
 
     // ---------- Voice Recording Button ----------
     const VoiceButton = useMemo(() => {
@@ -3970,17 +3989,14 @@ const SpiderAIApp = ({
                                                     deleteChat(chat.id);
                                                 }
                                             }}
-                                            className="ml-2 text-red-400 hover:text-red-300 p-2 active:scale-95 flex-shrink-0"
+                                            className="ml-2 text-red-400 hover:text-red-300 opacity-0 group-hover:opacity-100 transition-opacity p-2 active:scale-95"
                                             title="Delete chat"
                                             disabled={isDeleting}
-                                            aria-label="Delete chat"
                                         >
                                             {isDeleting ? (
                                                 <div className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin"></div>
                                             ) : (
-                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
-                                                </svg>
+                                                '×'
                                             )}
                                         </button>
                                     </div>
@@ -4055,39 +4071,23 @@ const SpiderAIApp = ({
                             <div className="space-y-1">
                                 {recentChats.length > 0 ? (
                                     recentChats.map((chat) => (
-                                        <div key={chat.id} className="flex items-center group">
-                                            <button 
-                                                onClick={() => {
-                                                    loadChatById(chat.id);
-                                                    setSidebarOpen(false);
-                                                }} 
-                                                className={`flex-grow text-left px-3 py-3 text-sm rounded-lg hover:bg-[var(--spider-light)] truncate transition-colors ${
-                                                    activeChatId === chat.id 
-                                                        ? 'bg-[var(--spider-light)] text-white font-medium' 
-                                                        : 'text-[var(--spider-text)] hover:text-white'
-                                                }`}
-                                            >
-                                                <div className="truncate">{chat.title}</div>
-                                                <div className="text-xs text-[var(--spider-text-dim)] mt-1">
-                                                    {new Date(chat.timestamp).toLocaleDateString()}
-                                                </div>
-                                            </button>
-                                            <button
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    if (window.confirm('Delete this chat?')) {
-                                                        deleteChat(chat.id);
-                                                    }
-                                                }}
-                                                className="ml-2 text-red-400 hover:text-red-300 p-2 flex-shrink-0"
-                                                title="Delete chat"
-                                                aria-label="Delete chat"
-                                            >
-                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
-                                                </svg>
-                                            </button>
-                                        </div>
+                                        <button 
+                                            key={chat.id}
+                                            onClick={() => {
+                                                loadChatById(chat.id);
+                                                setSidebarOpen(false);
+                                            }} 
+                                            className={`w-full text-left px-3 py-3 text-sm rounded-lg hover:bg-[var(--spider-light)] truncate transition-colors ${
+                                                activeChatId === chat.id 
+                                                    ? 'bg-[var(--spider-light)] text-white font-medium' 
+                                                    : 'text-[var(--spider-text)] hover:text-white'
+                                            }`}
+                                        >
+                                            <div className="truncate">{chat.title}</div>
+                                            <div className="text-xs text-[var(--spider-text-dim)] mt-1">
+                                                {new Date(chat.timestamp).toLocaleDateString()}
+                                            </div>
+                                        </button>
                                     ))
                                 ) : (
                                     <div className="text-center py-6 text-[var(--spider-text-dim)] text-sm">
@@ -4226,14 +4226,13 @@ const SpiderAIApp = ({
                 }`}>
                     <div className="max-w-5xl mx-auto">
                         {!isMobile && (
-                            <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-3 space-y-2 sm:space-y-0">
-                                <AIModeSelector 
-                                    selectedMode={selectedAIMode}
-                                    onSelectMode={setSelectedAIMode}
-                                />
-                                
-                                <div className="flex items-center space-x-3">
-                                    <span className="text-sm text-[var(--spider-neon-blue)] font-semibold truncate">
+                            <div className="flex justify-between items-center mb-3">
+                                <div className="flex items-center space-x-2">
+                                    <span className="text-sm text-[var(--spider-neon-blue)] font-semibold flex items-center">
+                                        <span className="mr-2">
+                                            {selectedAIMode === 'pro' ? '🚀' : 
+                                             selectedAIMode === 'reasoning' ? '🧠' : '💬'}
+                                        </span>
                                         {getModeText()}
                                         {isFullCodeMode && (
                                             <span className="ml-2 text-xs px-2 py-0.5 bg-[var(--spider-neon-blue)] text-black rounded-full">
@@ -4241,19 +4240,19 @@ const SpiderAIApp = ({
                                             </span>
                                         )}
                                     </span>
-                                    {activeAIMode === 'image_gen' && (
-                                        <select 
-                                            value={aspectRatio} 
-                                            onChange={(e) => setAspectRatio(e.target.value)} 
-                                            className="bg-[var(--spider-light)] text-[var(--spider-text)] px-3 py-1.5 rounded-lg text-sm focus:outline-none"
-                                        >
-                                            <option value="1:1">1:1 Square</option>
-                                            <option value="16:9">16:9 Landscape</option>
-                                            <option value="9:16">9:16 Portrait</option>
-                                            <option value="4:3">4:3 Standard</option>
-                                        </select>
-                                    )}
                                 </div>
+                                {activeAIMode === 'image_gen' && (
+                                    <select 
+                                        value={aspectRatio} 
+                                        onChange={(e) => setAspectRatio(e.target.value)} 
+                                        className="bg-[var(--spider-light)] text-[var(--spider-text)] px-3 py-1.5 rounded-lg text-sm focus:outline-none"
+                                    >
+                                        <option value="1:1">1:1 Square</option>
+                                        <option value="16:9">16:9 Landscape</option>
+                                        <option value="9:16">9:16 Portrait</option>
+                                        <option value="4:3">4:3 Standard</option>
+                                    </select>
+                                )}
                             </div>
                         )}
 
@@ -4292,7 +4291,7 @@ const SpiderAIApp = ({
                                         isFullCodeMode ? "Describe your complete project..." :
                                         uploadedImage ? "Describe how to edit this image..." : 
                                         uploadedFile ? `Analyze "${uploadedFile.name}"...` : 
-                                        "Message Spider AI... (Try: 'solve x² + 2x - 3 = 0' or 'write full code for a todo app')"
+                                        `Message Spider AI ${selectedAIMode === 'pro' ? 'Pro' : selectedAIMode === 'reasoning' ? '(Reasoning)' : ''}... (Try: 'solve x² + 2x - 3 = 0' or 'write full code for a todo app')`
                                     } 
                                     className="w-full bg-transparent text-white focus:outline-none resize-none text-sm sm:text-base max-h-32 overflow-y-auto"
                                     value={message} 
@@ -4307,16 +4306,6 @@ const SpiderAIApp = ({
                                     disabled={isLoading}
                                 />
                             </div>
-
-                            {/* Mobile AI Mode Selector */}
-                            {isMobile && (
-                                <div className="flex space-x-1 mb-1">
-                                    <AIModeSelector 
-                                        selectedMode={selectedAIMode}
-                                        onSelectMode={setSelectedAIMode}
-                                    />
-                                </div>
-                            )}
 
                             <VoiceButton 
                                 isRecording={isRecording}
@@ -5426,27 +5415,3 @@ int main() {
         </>
     );
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
