@@ -625,83 +625,83 @@ export async function onRequest(context) {
     // FIXED: base64ToUint8Array moved to UTILS, removed invalid 'onst' definition here.
 
     if (mode === "image_edit") {
-        // 1. Validation: Ensure image exists
-        if (!payload.image) {
-            return new Response(JSON.stringify({ error: "No image provided for editing" }), { 
-                status: 400, 
-                headers: { ...cors, "Content-Type": "application/json" } 
-            });
-        }
+    // 1. Validate image
+    if (!payload.image) {
+        return new Response(
+            JSON.stringify({ error: "No image provided for editing" }),
+            { status: 400, headers: { ...cors, "Content-Type": "application/json" } }
+        );
+    }
 
-        const imageArray = base64ToUint8Array(payload.image);
-        if (!imageArray) {
-            return new Response(JSON.stringify({ error: "Invalid image data" }), { 
-                status: 400, 
-                headers: { ...cors, "Content-Type": "application/json" } 
-            });
-        }
+    const imageArray = base64ToUint8Array(payload.image);
+    if (!imageArray) {
+        return new Response(
+            JSON.stringify({ error: "Invalid image data" }),
+            { status: 400, headers: { ...cors, "Content-Type": "application/json" } }
+        );
+    }
 
-        // 2. Prepare Prompt and Search Context
-        let editPrompt = activePrompt;
-        if (searchContext) {
-            editPrompt += `\n\n[CONTEXT: ${searchContext}]`;
-        }
+    // 2. Prompt
+    let editPrompt = activePrompt;
+    if (searchContext) {
+        editPrompt += `\n\n${searchContext}`;
+    }
 
-        // 3. Model Configuration
-        // CHANGE: Flux on Cloudflare is Text-to-Image ONLY.
-        // LM Arena uses full Python/GPU environment which supports Img2Img with Flux.
-        // On Cloudflare, we MUST use Stable Diffusion 1.5 for Image-to-Image editing.
-        let editModel = "@cf/black-forest-labs/flux-2-dev"; 
-        let inputArgs = {
-            prompt: editPrompt,
-            image: [...imageArray], // Cloudflare AI expects array of numbers
-           // LOWERED FROM 0.7 TO PRESERVE ORIGINAL IMAGE
-        };
+    // 3. Model selection
+    // IMPORTANT:
+    // Flux 2 Dev on Cloudflare = TEXT → IMAGE ONLY
+    // IMG → IMG MUST use SD 1.5
+    let editModel = "@cf/black-forest-labs/flux-2-dev";
 
-        // 4. Inpainting Logic (Masked Editing)
-        if (payload.mask) {
-            editModel = "@cf/runwayml/stable-diffusion-v1-5-inpainting";
-            const maskArray = base64ToUint8Array(payload.mask);
-            if (maskArray) {
-                inputArgs.mask = [...maskArray];
-            }
-        }
+    // 4. Build multipart payload (CRITICAL FIX)
+    const multipartPayload = {
+        prompt: editPrompt,
+        image: new Blob([imageArray], { type: "image/png" })
+    };
 
-        try {
-            const response = await runAi(env, editModel, inputArgs);
-
-            // 5. Response Handling
-            // Case A: Response is a direct stream (standard for Cloudflare AI image models)
-            if (response instanceof ReadableStream) {
-                return new Response(response, { 
-                    headers: { ...cors, "Content-Type": "image/png" } 
-                });
-            }
-
-            // Case B: Response is a JSON object containing base64 (less common, but handled)
-            let base64Image = response?.image || response?.result?.image;
-
-            if (base64Image) {
-                const finalImage = base64ToUint8Array(base64Image);
-                return new Response(finalImage, {
-                    headers: { ...cors, "Content-Type": "image/png" }
-                });
-            }
-
-            // Case C: Fallback error if format is unrecognized
-            return new Response(JSON.stringify({ error: "Edit Failed - Unknown Format", debug: response }), {
-                status: 500,
-                headers: { ...cors, "Content-Type": "application/json" }
-            });
-
-        } catch (e) {
-            return new Response(JSON.stringify({ error: "Image Edit Error", message: e.message }), {
-                status: 500,
-                headers: { ...cors, "Content-Type": "application/json" }
-            });
+    // 5. Masked inpainting (optional)
+    if (payload.mask) {
+        const maskArray = base64ToUint8Array(payload.mask);
+        if (maskArray) {
+            editModel = "@cf/black-forest-labs/flux-2-dev";
+            multipartPayload.mask = new Blob([maskArray], { type: "image/png" });
         }
     }
-    
+
+    try {
+        const response = await env.SPY_AI.run(editModel, {
+            multipart: multipartPayload
+        });
+
+        // 6. Streamed image response (Cloudflare standard)
+        if (response instanceof ReadableStream) {
+            return new Response(response, {
+                headers: { ...cors, "Content-Type": "image/png" }
+            });
+        }
+
+        // 7. Base64 fallback (rare)
+        const base64Image = response?.image || response?.result?.image;
+        if (base64Image) {
+            const finalImage = base64ToUint8Array(base64Image);
+            return new Response(finalImage, {
+                headers: { ...cors, "Content-Type": "image/png" }
+            });
+        }
+
+        return new Response(
+            JSON.stringify({ error: "Edit Failed - Unknown Format", debug: response }),
+            { status: 500, headers: { ...cors, "Content-Type": "application/json" } }
+        );
+
+    } catch (e) {
+        return new Response(
+            JSON.stringify({ error: "Image Edit Error", message: e.message }),
+            { status: 500, headers: { ...cors, "Content-Type": "application/json" } }
+        );
+    }
+}
+
     //////////////////////
     // IMAGE GENERATION (FIXED & STABILIZED)
     //////////////////////
