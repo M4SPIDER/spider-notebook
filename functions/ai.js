@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.63)
- * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + FLUX 1 DEV + SD1.5 EDIT + GOOGLE EDIT
- * UPDATE: Added Google Gemini (Nano Banana) API Support for Image Editing
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.65)
+ * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN + GOOGLE EDIT (ONLY)
+ * UPDATE: Restored Lucid Origin + Removed SD Fallback + Gemini 2.5 Flash Preview
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.63";
+const VERSION = "9.9.65";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -25,10 +25,14 @@ const AI_MAX_OUTPUT_LINES = 300;
 // SWAPPED: Standard is now GPT-OSS 120B, Pro is Mistral 24B
 const MODEL_STD_CHAT = "@cf/openai/gpt-oss-120b"; 
 const MODEL_PRO_CHAT = "@cf/mistralai/mistral-small-3.1-24b-instruct"; 
-// UPDATED: Switched to FLUX 1 DEV for Generation (Best available on CF)
-const MODEL_IMAGE_GEN = "@cf/black-forest-labs/flux-1-dev";
-// GOOGLE MODEL (Nano Banana / Flash) - Requires GEMINI_API_KEY
-const MODEL_GOOGLE_EDIT = "gemini-2.5-flash-image"; 
+
+// RESTORED: Lucid Origin as requested
+const MODEL_IMAGE_GEN = "@cf/leonardo/lucid-origin";
+
+// GOOGLE MODEL (Nano Banana / Flash Preview) - Requires GEMINI_API_KEY
+// UPDATE: Exact model name as requested
+const MODEL_GOOGLE_EDIT = "gemini-2.5-flash-image-preview"; 
+
 const MODEL_ASR = "@cf/openai/whisper-large-v3-turbo";
 
 //////////////////////////////
@@ -169,7 +173,8 @@ async function runGoogleEdit(apiKey, prompt, imageBase64) {
     });
 
     if (!response.ok) {
-        throw new Error(`Google API Error: ${response.status} ${response.statusText}`);
+        const errText = await response.text();
+        throw new Error(`Google API Error (${response.status}): ${errText}`);
     }
 
     const data = await response.json();
@@ -178,8 +183,10 @@ async function runGoogleEdit(apiKey, prompt, imageBase64) {
     const candidates = data.candidates || [];
     if (candidates.length > 0 && candidates[0].content && candidates[0].content.parts) {
         for (const part of candidates[0].content.parts) {
-             if (part.inline_data && part.inline_data.data) {
-                 return part.inline_data.data; // Return Base64
+             // FIXED: Handle camelCase 'inlineData' (common in new Gemini versions)
+             const inlineData = part.inlineData || part.inline_data;
+             if (inlineData && inlineData.data) {
+                 return inlineData.data; // Return Base64
              }
         }
     }
@@ -669,7 +676,7 @@ export async function onRequest(context) {
     }
 
     //////////////////////
-    // IMAGE EDITING (MULTI-BACKEND: GOOGLE & SD1.5)
+    // IMAGE EDITING (GOOGLE GEMINI ONLY - NO FALLBACK)
     //////////////////////
     if (mode === "image_edit") {
         // 1. Validation: Ensure image exists
@@ -682,6 +689,7 @@ export async function onRequest(context) {
 
         // 2. Prepare Prompt
         let editPrompt = activePrompt;
+        // Optional: Can remove this quality injection if Gemini is sensitive to it, but keeping for now as safe default.
         if (!editPrompt.toLowerCase().includes("quality")) {
              editPrompt = "masterpiece, best quality, " + editPrompt;
         }
@@ -689,86 +697,34 @@ export async function onRequest(context) {
             editPrompt += `\n\n[CONTEXT: ${searchContext}]`;
         }
 
-        // ==================================================
-        // PATH A: GOOGLE GEMINI (NANO BANANA)
-        // ==================================================
-        if (env.GEMINI_API_KEY) {
-            try {
-                // Use original base64 string directly
-                const googleImage = await runGoogleEdit(env.GEMINI_API_KEY, editPrompt, payload.image);
-                
-                if (googleImage) {
-                    const finalImage = base64ToUint8Array(googleImage);
-                    return new Response(finalImage, {
-                        headers: { ...cors, "Content-Type": "image/png" }
-                    });
-                }
-                // If Google returns null (e.g. text only), fallback silently to SD 1.5 below
-            } catch (googleErr) {
-                console.error("Google Edit Failed, Falling back:", googleErr);
-                // Continue to Path B
-            }
-        }
-
-        // ==================================================
-        // PATH B: CLOUDFLARE SD 1.5 (FALLBACK / DEFAULT)
-        // ==================================================
-        const imageArray = base64ToUint8Array(payload.image);
-        if (!imageArray) {
-            return new Response(JSON.stringify({ error: "Invalid image data" }), { 
-                status: 400, 
+        // 3. Google Gemini (Path A Only)
+        // STRICT CHECK: Fail if API key is missing
+        if (!env.GEMINI_API_KEY) {
+             return new Response(JSON.stringify({ error: "Configuration Error: GEMINI_API_KEY is missing. Please add it to environmental variables to use Image Editing." }), { 
+                status: 500, 
                 headers: { ...cors, "Content-Type": "application/json" } 
             });
         }
 
-        // Model Configuration
-        let editModel = "@cf/runwayml/stable-diffusion-v1-5-img2img"; 
-        let inputArgs = {
-            prompt: editPrompt,
-            image: [...imageArray], 
-            num_steps: 20,
-            guidance: 8.5, // Strong guidance for powers
-            strength: 0.65, // Balanced strength for edits
-            negative_prompt: "low quality, bad quality, blurry, distorted, deformed, ugly, bad anatomy, extra limbs, dull"
-        };
-
-        // Inpainting Logic
-        if (payload.mask) {
-            editModel = "@cf/runwayml/stable-diffusion-v1-5-inpainting";
-            const maskArray = base64ToUint8Array(payload.mask);
-            if (maskArray) {
-                inputArgs.mask = [...maskArray];
-            }
-        }
-
         try {
-            const response = await runAi(env, editModel, inputArgs);
-
-            // Handle Response
-            if (response instanceof ReadableStream) {
-                return new Response(response, { 
-                    headers: { ...cors, "Content-Type": "image/png" } 
-                });
-            }
-
-            let base64Image = response?.image || response?.result?.image;
-
-            if (base64Image) {
-                const finalImage = base64ToUint8Array(base64Image);
+            // Use original base64 string directly
+            const googleImage = await runGoogleEdit(env.GEMINI_API_KEY, editPrompt, payload.image);
+            
+            if (googleImage) {
+                const finalImage = base64ToUint8Array(googleImage);
                 return new Response(finalImage, {
                     headers: { ...cors, "Content-Type": "image/png" }
                 });
+            } else {
+                 return new Response(JSON.stringify({ error: "Google Edit Failed: No image returned in response." }), { 
+                    status: 500, 
+                    headers: { ...cors, "Content-Type": "application/json" } 
+                });
             }
-
-            return new Response(JSON.stringify({ error: "Edit Failed - Unknown Format", debug: response }), {
-                status: 500,
-                headers: { ...cors, "Content-Type": "application/json" }
-            });
-
-        } catch (e) {
-            return new Response(JSON.stringify({ error: "Image Edit Error", message: e.message }), {
-                status: 500,
-                headers: { ...cors, "Content-Type": "application/json" }
+        } catch (googleErr) {
+            return new Response(JSON.stringify({ error: "Google Edit API Error", message: googleErr.message }), { 
+                status: 500, 
+                headers: { ...cors, "Content-Type": "application/json" } 
             });
         }
     }
