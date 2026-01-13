@@ -4252,74 +4252,67 @@ export default function App() {
 // 🔥 UPDATED: Spider AI Cloudflare Integration
 // 🔥 SPIDER AI — Cloudflare GPT-120B + SDXL Integration (FINAL VERSION)
 const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat", options = {}) => {
-    
-    // ==========================================================
-    // 🔥 THE REAL FIX: Pass options.signal and return raw 'res' for streams
-    // ==========================================================
-    
-    let fetchOptions = {
-        method: "POST",
-headers: {
-            "Content-Type": "application/json"
-        },
-        // Stringify the entire payload (includes file_content, images, etc.)
-        body: JSON.stringify(payload),
-        // Allows the frontend to cancel the request via handleStopGeneration
-        signal: options.signal 
-    };
-
-    try {
-        // Use the new fetchOptions, sending to the /ai worker endpoint
-        const res = await fetch("/ai", fetchOptions);
-
-        // ---------------- STREAMING HANDLER (NEW) ----------------
-        // If the frontend explicitly passed { stream: true } in the options,
-        // we return the raw Response object so res.body.getReader() works.
-        if (options.stream) {
-            return res; 
-        }
-
-        const contentType = res.headers.get("content-type") || "";
-
-        // ---------------- IMAGE RESPONSE (PNG) ----------------
-        if (contentType.includes("image/")) {
-            const blob = await res.blob();
-
-            const base64 = await new Promise((resolve) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result.split(",")[1]);
-                reader.readAsDataURL(blob);
-            });
-
-            return {
-                text: payload.prompt || "",
-                base64_image: base64,
-                model_used: "SDXL"
-            };
-}
-
-        // ---------------- TEXT RESPONSE ----------------
-     const rawText = await res.text();
-
-if (!rawText || rawText.trim() === "") {
-    return { error: "Empty response from Spider AI." };
-}
-
-try {
-    // Attempt to parse as JSON first (This catches the image base64 object)
-    const json = JSON.parse(rawText);
-    return json; 
-} catch (e) {
-    // If not JSON, return as plain text
-    return {
-        text: rawText,
-        raw: rawText
+    let fetchOptions = {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload),
+        signal: options.signal 
     };
-} catch (err) {
-        // Return error object instead of throwing to avoid breaking the UI flow
-        return { error: err.message };
-}
-}, []);      
+
+    try {
+        const res = await fetch("/ai", fetchOptions);
+
+        // 1. STREAMING HANDLER
+        if (options.stream) {
+            return res; 
+        }
+
+        const contentType = res.headers.get("content-type") || "";
+
+        // 2. IMAGE RESPONSE (Direct Blob)
+        if (contentType.includes("image/")) {
+            const blob = await res.blob();
+            const base64 = await new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result.split(",")[1]);
+                reader.readAsDataURL(blob);
+            });
+
+            return {
+                text: payload.prompt || "",
+                base64_image: base64,
+                model_used: "SDXL"
+            };
+        }
+
+        // 3. TEXT / JSON RESPONSE
+        const rawText = await res.text();
+
+        if (!rawText || rawText.trim() === "") {
+            return { error: "Empty response from Spider AI." };
+        }
+
+        try {
+            // Attempt to parse as JSON first (handles Flux 2 Dev base64 objects)
+            const json = JSON.parse(rawText);
+            return json; 
+        } catch (e) {
+            // If it's not JSON, it's a standard string response
+            return {
+                text: rawText,
+                raw: rawText
+            };
+        }
+
+    } catch (err) {
+        // This catches network errors or fetch failures
+        console.error("Fetch Error:", err);
+        return { error: err.message };
+    }
+}, []);
+  
     // --- WebSocket Handlers (NEW) ---
     // Helper function to append plain text to terminal output
     const appendToTerminal = (text, type = 'stdout') => {
@@ -5045,6 +5038,7 @@ int main() {
         </>
     );
 }
+
 
 
 
