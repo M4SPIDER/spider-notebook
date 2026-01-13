@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.57)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.58)
  * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN + FLUX EDIT + ASR
- * UPDATE: Fixed Syntax (onst), Optimized Auto-Continue (No KV Pollution)
+ * UPDATE: Fixed Image Edit (Switched Flux -> SD1.5 Img2Img due to CF API Limits)
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.57";
+const VERSION = "9.9.58";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -108,7 +108,7 @@ async function runTavilySearch(env, query) {
   if (!env.TAVILY_API_KEY) return null;
 
   try {
-    const response = await fetch("[https://api.tavily.com/search](https://api.tavily.com/search)", {
+    const response = await fetch("https://api.tavily.com/search", {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
@@ -648,11 +648,13 @@ export async function onRequest(context) {
         }
 
         // 3. Model Configuration
-        // Default to Flux for Img2Img (requires 'strength' to preserve original structure)
-        let editModel = "@cf/black-forest-labs/flux-1-dev"; 
+        // CHANGE: Flux on Cloudflare is Text-to-Image ONLY.
+        // LM Arena uses full Python/GPU environment which supports Img2Img with Flux.
+        // On Cloudflare, we MUST use Stable Diffusion 1.5 for Image-to-Image editing.
+        let editModel = "@cf/runwayml/stable-diffusion-v1-5-img2img"; 
         let inputArgs = {
             prompt: editPrompt,
-            image: [...imageArray], // Cloudflare AI often expects an array of numbers
+            image: [...imageArray], // Cloudflare AI expects array of numbers
             num_steps: 20,
             guidance: 7.5,
             strength: 0.7 
