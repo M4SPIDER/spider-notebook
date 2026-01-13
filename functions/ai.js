@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.37)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.39)
  * FEATURES: MISTRAL + LUCID ORIGIN + FLUX EDIT + ASR + PRO MODE
- * UPDATE: Fixed ASR Schema Error (5006) for Whisper Turbo
+ * UPDATE: Reverted Pro Mode to use @cf/openai/gpt-oss-120b (User Verified)
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.37";
+const VERSION = "9.9.39";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -23,7 +23,7 @@ const AI_MAX_OUTPUT_LINES = 300;
 
 // MODELS
 const MODEL_STD_CHAT = "@cf/mistralai/mistral-small-3.1-24b-instruct";
-const MODEL_PRO_CHAT = "@cf/openai/gpt-oss-120b"; // User requested specific model
+const MODEL_PRO_CHAT = "@cf/openai/gpt-oss-120b"; // Restored user's specific model
 const MODEL_IMAGE_GEN = "@cf/leonardo/lucid-origin";
 const MODEL_IMAGE_EDIT = "@cf/black-forest-labs/flux-2-dev";
 const MODEL_ASR = "@cf/openai/whisper-large-v3-turbo";
