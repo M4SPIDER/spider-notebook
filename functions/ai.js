@@ -606,78 +606,96 @@ export async function onRequest(context) {
     //////////////////////
     // IMAGE EDITING (FLUX 2 DEV -> SD 1.5 FIX)
     //////////////////////
-    if (mode === "image_edit") {
-        if (!payload.image) {
-            return new Response(JSON.stringify({ error: "No image provided for editing" }), { headers: cors });
+onst base64ToUint8Array = (base64) => {
+    try {
+        const binaryString = atob(base64.split(',').pop()); // Handle potential data-url prefix
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
         }
+        return bytes;
+    } catch (e) {
+        return null;
+    }
+};
 
-        const imageArray = base64ToArray(payload.image);
-        if (!imageArray) {
-             return new Response(JSON.stringify({ error: "Invalid image data" }), { headers: cors });
-        }
+if (mode === "image_edit") {
+    // 1. Validation: Ensure image exists
+    if (!payload.image) {
+        return new Response(JSON.stringify({ error: "No image provided for editing" }), { 
+            status: 400, 
+            headers: { ...cors, "Content-Type": "application/json" } 
+        });
+    }
 
-        let editPrompt = activePrompt;
-        // APPEND SEARCH CONTEXT IF AVAILABLE (Rare for edits, but useful if user asks "Make it look like the new 2025 car")
-        if (searchContext) {
-            editPrompt += `\n\n[CONTEXT: ${searchContext}]`;
-        }
+    const imageArray = base64ToUint8Array(payload.image);
+    if (!imageArray) {
+        return new Response(JSON.stringify({ error: "Invalid image data" }), { 
+            status: 400, 
+            headers: { ...cors, "Content-Type": "application/json" } 
+        });
+    }
 
-        // SWITCH: If mask exists, use Inpainting. If no mask, use Img2Img.
-        // Flux does not support this, so we use Stable Diffusion v1.5 which is robust for editing.
-        let editModel = "@cf/black-forest-labs/flux-2-dev";
-        const inputArgs = {
-            prompt: editPrompt,
-            image: imageArray,
-            num_steps: 20, // Standard step count
-            guidance: 7.5,
-            strength: 0.7 // CRITICAL: strength required for img2img to not just hallucinate a new image
-        };
-        
-        // If mask exists (inpainting), switch model and include mask
-        if (payload.mask) {
-            editModel = "@cf/runwayml/stable-diffusion-v1-5-inpainting";
-            const maskArray = base64ToArray(payload.mask);
-            if (maskArray) inputArgs.mask = maskArray;
-        }
+    // 2. Prepare Prompt and Search Context
+    let editPrompt = activePrompt;
+    if (searchContext) {
+        editPrompt += `\n\n[CONTEXT: ${searchContext}]`;
+    }
 
-        try {
-            const response = await runAi(
-                env,
-                editModel, 
-                inputArgs
-            );
+    // 3. Model Configuration
+    // Default to Flux for Img2Img (requires 'strength' to preserve original structure)
+    let editModel = "@cf/black-forest-labs/flux-1-dev"; 
+    let inputArgs = {
+        prompt: editPrompt,
+        image: [...imageArray], // Cloudflare AI often expects an array of numbers
+        num_steps: 20,
+        guidance: 7.5,
+        strength: 0.7 
+    };
 
-            // Universal Handler for Image Response
-            let base64Image = null;
-            if (response instanceof ReadableStream) {
-                 return new Response(response, { headers: { ...cors, "Content-Type": "image/png" } });
-            }
-
-            if (response && response.image) base64Image = response.image;
-            else if (response && response.result && response.result.image) base64Image = response.result.image;
-
-            if (base64Image) {
-                const binaryString = atob(base64Image);
-                const len = binaryString.length;
-                const bytes = new Uint8Array(len);
-                for (let i = 0; i < len; i++) bytes[i] = binaryString.charCodeAt(i);
-                
-                return new Response(bytes.buffer, {
-                    headers: { ...cors, "Content-Type": "image/png" }
-                });
-            }
-
-            return new Response(JSON.stringify({ error: "Edit Failed - Unknown Format", debug: response }), {
-                headers: { ...cors, "Content-Type": "application/json" }
-            });
-
-        } catch (e) {
-            return new Response(JSON.stringify({ error: "Image Edit Error", message: e.message }), {
-                headers: { ...cors, "Content-Type": "application/json" }
-            });
+    // 4. Inpainting Logic (Masked Editing)
+    if (payload.mask) {
+        editModel = "@cf/runwayml/stable-diffusion-v1-5-inpainting";
+        const maskArray = base64ToUint8Array(payload.mask);
+        if (maskArray) {
+            inputArgs.mask = [...maskArray];
         }
     }
 
+    try {
+        const response = await runAi(env, editModel, inputArgs);
+
+        // 5. Response Handling
+        // Case A: Response is a direct stream (standard for Cloudflare AI image models)
+        if (response instanceof ReadableStream) {
+            return new Response(response, { 
+                headers: { ...cors, "Content-Type": "image/png" } 
+            });
+        }
+
+        // Case B: Response is a JSON object containing base64 (less common, but handled)
+        let base64Image = response?.image || response?.result?.image;
+
+        if (base64Image) {
+            const finalImage = base64ToUint8Array(base64Image);
+            return new Response(finalImage, {
+                headers: { ...cors, "Content-Type": "image/png" }
+            });
+        }
+
+        // Case C: Fallback error if format is unrecognized
+        return new Response(JSON.stringify({ error: "Edit Failed - Unknown Format", debug: response }), {
+            status: 500,
+            headers: { ...cors, "Content-Type": "application/json" }
+        });
+
+    } catch (e) {
+        return new Response(JSON.stringify({ error: "Image Edit Error", message: e.message }), {
+            status: 500,
+            headers: { ...cors, "Content-Type": "application/json" }
+        });
+    }
+}
     //////////////////////
     // IMAGE GENERATION (FIXED & STABILIZED)
     //////////////////////
