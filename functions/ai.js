@@ -655,9 +655,7 @@ export async function onRequest(context) {
         let inputArgs = {
             prompt: editPrompt,
             image: [...imageArray], // Cloudflare AI expects array of numbers
-            num_steps: 20,
-            guidance: 7.5,
-            strength: 0.35 // LOWERED FROM 0.7 TO PRESERVE ORIGINAL IMAGE
+           // LOWERED FROM 0.7 TO PRESERVE ORIGINAL IMAGE
         };
 
         // 4. Inpainting Logic (Masked Editing)
