@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.44)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.45)
  * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN + FLUX EDIT + ASR
- * UPDATE: Swapped Mistral 24B with GPT-OSS 120B as Standard Model
+ * UPDATE: Fixed GPT-OSS 120B Payload Schema (Input/Instructions)
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.44";
+const VERSION = "9.9.45";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -424,20 +424,24 @@ export async function onRequest(context) {
                 // --- SMART MODEL HANDLING ---
                 let aiResponse;
                 
-                // CRITICAL FIX: GPT-OSS models require 'prompt' string. Mistral requires 'messages' array.
-                // We now check strictly if the ACTIVE_MODEL contains "gpt-oss".
+                // CRITICAL FIX: GPT-OSS models require 'input' schema (Not messages/prompt).
+                // Mistral requires 'messages' array.
                 const isGptOss = ACTIVE_MODEL.includes("gpt-oss");
                 
                 const aiPayload = isGptOss
                   ? {
-                      // FIX: Use standard 'prompt' string for GPT-OSS models
-                      // This resolves the 8001 Invalid Input error by removing the array structure
-                      prompt: currentMessages.map(m => {
+                      // FIX: Use 'instructions' + 'input' schema for GPT-OSS 120B
+                      // Resolves 5006 Error (required properties: input)
+                      instructions: currentMessages.find(m => m.role === 'system')?.content || "",
+                      input: currentMessages
+                        .filter(m => m.role !== 'system')
+                        .map(m => {
                           const role = m.role === 'user' ? 'User' : 'Assistant';
                           return `${role}: ${m.content}`;
-                      }).join("\n\n") + "\n\nAssistant:",
+                        })
+                        .join("\n\n") + "\n\nAssistant:",
                       max_tokens: 4096,
-                      temperature: 0.7,
+                      // temperature: 0.7, // Often rigid schema rejects extra params
                       stream: true
                     }
                   : {
@@ -668,10 +672,9 @@ export async function onRequest(context) {
            env, 
            MODEL_STD_CHAT,
            {
-             messages: [
-               { role: "system", content: promptOptimizerSys },
-               { role: "user", content: activePrompt }
-             ],
+             // Use new Schema for GPT-OSS optimizer calls too
+             instructions: promptOptimizerSys,
+             input: `User Request: ${activePrompt}\n\nOptimized Prompt:`,
              max_tokens: 300
            }
         );
@@ -786,14 +789,31 @@ export async function onRequest(context) {
     ];
 
     // USING MISTRAL (Text Logic)
+    // FIX: Apply same schema check for normal chat
+    const isGptOss = MODEL_STD_CHAT.includes("gpt-oss");
+    
+    const aiPayload = isGptOss
+      ? {
+          instructions: finalSystemPrompt,
+          input: messages
+             .filter(m => m.role !== 'system')
+             .map(m => {
+                const role = m.role === 'user' ? 'User' : 'Assistant';
+                return `${role}: ${m.content}`;
+             })
+             .join("\n\n") + "\n\nAssistant:",
+          max_tokens: 4096
+      }
+      : {
+          messages,
+          max_tokens: 4096,
+          temperature: 0.7
+      };
+
     const aiRes = await runAi(
       env,
       MODEL_STD_CHAT,
-      {
-        messages,
-        max_tokens: 4096,
-        temperature: 0.7
-      }
+      aiPayload
     );
 
     const output = cleanAiResponse(extractText(aiRes));
