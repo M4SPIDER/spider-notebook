@@ -2540,11 +2540,12 @@ const SpiderAIApp = ({
             };
 
             const onUploadImage = (e) => {
-                e.stopPropagation();
-                setOpen(false);
-                if (typeof _setActiveAIMode === 'function') _setActiveAIMode('image_edit');
-                setTimeout(() => imageInputRef.current?.click(), 50);
-            };
+    e.stopPropagation();
+    setOpen(false);
+    setActiveAIMode('image_edit'); // Sets the mode
+    setUploadedFile(null); // Clear previous files
+    setTimeout(() => imageInputRef.current?.click(), 50);
+};
 
             const onGenImage = (e) => {
                 e.stopPropagation();
@@ -5019,6 +5020,7 @@ int main() {
         </>
     );
 }
+
 
 
 
