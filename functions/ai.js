@@ -623,68 +623,87 @@ export async function onRequest(context) {
     // IMAGE EDITING (FLUX 2 DEV -> SD 1.5 FIX)
     //////////////////////
     // FIXED: base64ToUint8Array moved to UTILS, removed invalid 'onst' definition here.
-if (mode === "image_edit") {
-    if (!payload.image) {
-        return new Response(
-            JSON.stringify({ error: "No image provided for editing" }),
-            { status: 400, headers: { ...cors, "Content-Type": "application/json" } }
-        );
-    }
 
-    let editPrompt = activePrompt;
-    if (searchContext) {
-        editPrompt += `\n\n${searchContext}`;
-    }
-
-    const editModel = "@cf/stabilityai/stable-diffusion-xl-base-1.0";
-
-    const inputArgs = {
-        prompt: editPrompt,
-        image_b64: payload.image.includes(",")
-            ? payload.image.split(",").pop()
-            : payload.image,
-        strength: payload.strength ?? 0.35,
-        guidance: 7.5,
-        num_steps: 20
-    };
-
-    // Optional mask (SDXL supports it)
-    if (payload.mask) {
-        inputArgs.mask = payload.mask.includes(",")
-            ? payload.mask.split(",").pop()
-            : payload.mask;
-    }
-
-    try {
-        const response = await runAi(env, editModel, inputArgs);
-
-        if (response instanceof ReadableStream) {
-            return new Response(response, {
-                headers: { ...cors, "Content-Type": "image/png" }
+    if (mode === "image_edit") {
+        // 1. Validation: Ensure image exists
+        if (!payload.image) {
+            return new Response(JSON.stringify({ error: "No image provided for editing" }), { 
+                status: 400, 
+                headers: { ...cors, "Content-Type": "application/json" } 
             });
         }
 
-        const base64Image = response?.image || response?.result?.image;
-        if (base64Image) {
-            const finalImage = base64ToUint8Array(base64Image);
-            return new Response(finalImage, {
-                headers: { ...cors, "Content-Type": "image/png" }
+        const imageArray = base64ToUint8Array(payload.image);
+        if (!imageArray) {
+            return new Response(JSON.stringify({ error: "Invalid image data" }), { 
+                status: 400, 
+                headers: { ...cors, "Content-Type": "application/json" } 
             });
         }
 
-        return new Response(
-            JSON.stringify({ error: "Edit Failed - Unknown Format", debug: response }),
-            { status: 500, headers: { ...cors, "Content-Type": "application/json" } }
-        );
+        // 2. Prepare Prompt and Search Context
+        let editPrompt = activePrompt;
+        if (searchContext) {
+            editPrompt += `\n\n[CONTEXT: ${searchContext}]`;
+        }
 
-    } catch (e) {
-        return new Response(
-            JSON.stringify({ error: "Image Edit Error", message: e.message }),
-            { status: 500, headers: { ...cors, "Content-Type": "application/json" } }
-        );
+        // 3. Model Configuration
+        // CHANGE: Flux on Cloudflare is Text-to-Image ONLY.
+        // LM Arena uses full Python/GPU environment which supports Img2Img with Flux.
+        // On Cloudflare, we MUST use Stable Diffusion 1.5 for Image-to-Image editing.
+        let editModel = "@cf/runwayml/stable-diffusion-v1-5-img2img"; 
+        let inputArgs = {
+            prompt: editPrompt,
+            image: [...imageArray], // Cloudflare AI expects array of numbers
+            num_steps: 20,
+            guidance: 7.5,
+            strength: 0.35 // LOWERED FROM 0.7 TO PRESERVE ORIGINAL IMAGE
+        };
+
+        // 4. Inpainting Logic (Masked Editing)
+        if (payload.mask) {
+            editModel = "@cf/runwayml/stable-diffusion-v1-5-inpainting";
+            const maskArray = base64ToUint8Array(payload.mask);
+            if (maskArray) {
+                inputArgs.mask = [...maskArray];
+            }
+        }
+
+        try {
+            const response = await runAi(env, editModel, inputArgs);
+
+            // 5. Response Handling
+            // Case A: Response is a direct stream (standard for Cloudflare AI image models)
+            if (response instanceof ReadableStream) {
+                return new Response(response, { 
+                    headers: { ...cors, "Content-Type": "image/png" } 
+                });
+            }
+
+            // Case B: Response is a JSON object containing base64 (less common, but handled)
+            let base64Image = response?.image || response?.result?.image;
+
+            if (base64Image) {
+                const finalImage = base64ToUint8Array(base64Image);
+                return new Response(finalImage, {
+                    headers: { ...cors, "Content-Type": "image/png" }
+                });
+            }
+
+            // Case C: Fallback error if format is unrecognized
+            return new Response(JSON.stringify({ error: "Edit Failed - Unknown Format", debug: response }), {
+                status: 500,
+                headers: { ...cors, "Content-Type": "application/json" }
+            });
+
+        } catch (e) {
+            return new Response(JSON.stringify({ error: "Image Edit Error", message: e.message }), {
+                status: 500,
+                headers: { ...cors, "Content-Type": "application/json" }
+            });
+        }
     }
-}
-
+    
     //////////////////////
     // IMAGE GENERATION (FIXED & STABILIZED)
     //////////////////////
