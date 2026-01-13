@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.66)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.67)
  * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN + GOOGLE EDIT (ONLY)
- * UPDATE: Exact Model Name Fix (gemini-2.5-flash-image)
+ * UPDATE: Added Safety Filters Bypass + Text Error Debugging for Google Edit
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.66";
+const VERSION = "9.9.67";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -155,7 +155,7 @@ async function runGoogleEdit(apiKey, prompt, imageBase64) {
     const payload = {
         contents: [{
             parts: [
-                { text: "Instructions: Edit this image based on the following request. Maintain the main subject structure but apply the changes. Request: " + prompt },
+                { text: prompt }, // Direct prompt
                 { 
                     inline_data: { 
                         mime_type: "image/png", 
@@ -163,7 +163,14 @@ async function runGoogleEdit(apiKey, prompt, imageBase64) {
                     } 
                 }
             ]
-        }]
+        }],
+        // CRITICAL: Disable safety settings to allow "powers", "fire", etc.
+        safetySettings: [
+            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+        ]
     };
 
     const response = await fetch(url, {
@@ -182,16 +189,26 @@ async function runGoogleEdit(apiKey, prompt, imageBase64) {
     // Check if Gemini returned an image (Inline Data)
     const candidates = data.candidates || [];
     if (candidates.length > 0 && candidates[0].content && candidates[0].content.parts) {
+        let textResponse = "";
+        
         for (const part of candidates[0].content.parts) {
              // FIXED: Handle camelCase 'inlineData' (common in new Gemini versions)
              const inlineData = part.inlineData || part.inline_data;
              if (inlineData && inlineData.data) {
-                 return inlineData.data; // Return Base64
+                 return { type: 'image', data: inlineData.data }; // Return Base64
              }
+             if (part.text) {
+                 textResponse += part.text;
+             }
+        }
+        
+        // If we found text but no image, return the text to explain WHY (e.g. "I cannot edit this...")
+        if (textResponse) {
+             return { type: 'text', data: textResponse };
         }
     }
     
-    return null; // No image found in response
+    return null; // Nothing found
 }
 
 //////////////////////////////
@@ -708,15 +725,21 @@ export async function onRequest(context) {
 
         try {
             // Use original base64 string directly
-            const googleImage = await runGoogleEdit(env.GEMINI_API_KEY, editPrompt, payload.image);
+            const result = await runGoogleEdit(env.GEMINI_API_KEY, editPrompt, payload.image);
             
-            if (googleImage) {
-                const finalImage = base64ToUint8Array(googleImage);
+            if (result && result.type === 'image') {
+                const finalImage = base64ToUint8Array(result.data);
                 return new Response(finalImage, {
                     headers: { ...cors, "Content-Type": "image/png" }
                 });
+            } else if (result && result.type === 'text') {
+                 // CRITICAL: Return the Model's Text Explanation as the Error Message
+                 return new Response(JSON.stringify({ error: `Google Refused Edit: ${result.data}` }), { 
+                    status: 500, 
+                    headers: { ...cors, "Content-Type": "application/json" } 
+                });
             } else {
-                 return new Response(JSON.stringify({ error: "Google Edit Failed: No image returned in response." }), { 
+                 return new Response(JSON.stringify({ error: "Google Edit Failed: No image or text returned in response." }), { 
                     status: 500, 
                     headers: { ...cors, "Content-Type": "application/json" } 
                 });
