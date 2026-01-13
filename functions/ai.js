@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.43)
- * FEATURES: MISTRAL + LUCID ORIGIN + FLUX EDIT + ASR + PRO MODE
- * UPDATE: Fixed Error 8001 - Pro Mode now uses 'prompt' string
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.44)
+ * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN + FLUX EDIT + ASR
+ * UPDATE: Swapped Mistral 24B with GPT-OSS 120B as Standard Model
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,19 +11,20 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.43";
+const VERSION = "9.9.44";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
 const AI_MEMORY_USER_KEY_PREFIX = "spider_ai_mem:";
 const AI_RETRY_LIMIT = 2;
 const AI_RETRY_DELAY_BASE = 1500;
-// OPTIMIZED: 300 lines is the "Sweet Spot" for Mistral 24B accuracy
+// OPTIMIZED: 300 lines is the safety limit for loop generation
 const AI_MAX_OUTPUT_LINES = 300; 
 
 // MODELS
-const MODEL_STD_CHAT = "@cf/mistralai/mistral-small-3.1-24b-instruct";
-const MODEL_PRO_CHAT = "@cf/openai/gpt-oss-120b"; // User Verified Model
+// SWAPPED: Standard is now GPT-OSS 120B, Pro is Mistral 24B
+const MODEL_STD_CHAT = "@cf/openai/gpt-oss-120b"; 
+const MODEL_PRO_CHAT = "@cf/mistralai/mistral-small-3.1-24b-instruct"; 
 const MODEL_IMAGE_GEN = "@cf/leonardo/lucid-origin";
 const MODEL_IMAGE_EDIT = "@cf/black-forest-labs/flux-2-dev";
 const MODEL_ASR = "@cf/openai/whisper-large-v3-turbo";
@@ -420,13 +421,16 @@ export async function onRequest(context) {
                     ...memory.map(m => ({ role: m.role, content: m.content }))
                 ];
 
-                // --- SMART PRO MODE HANDLING ---
+                // --- SMART MODEL HANDLING ---
                 let aiResponse;
                 
-                const isProModel = ACTIVE_MODEL === MODEL_PRO_CHAT;
-                const aiPayload = isProModel
+                // CRITICAL FIX: GPT-OSS models require 'prompt' string. Mistral requires 'messages' array.
+                // We now check strictly if the ACTIVE_MODEL contains "gpt-oss".
+                const isGptOss = ACTIVE_MODEL.includes("gpt-oss");
+                
+                const aiPayload = isGptOss
                   ? {
-                      // FIX: Use standard 'prompt' string for text completion models
+                      // FIX: Use standard 'prompt' string for GPT-OSS models
                       // This resolves the 8001 Invalid Input error by removing the array structure
                       prompt: currentMessages.map(m => {
                           const role = m.role === 'user' ? 'User' : 'Assistant';
@@ -437,7 +441,7 @@ export async function onRequest(context) {
                       stream: true
                     }
                   : {
-                      // ✅ MISTRAL WORKS WITH THIS
+                      // ✅ MISTRAL WORKS WITH THIS (Standard Array)
                       messages: currentMessages,
                       max_tokens: 8192,
                       temperature: 0.7,
