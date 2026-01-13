@@ -28,7 +28,7 @@ const MODEL_PRO_CHAT = "@cf/mistralai/mistral-small-3.1-24b-instruct";
 // UPDATED: Switched to FLUX 1 DEV for Generation (Best available on CF)
 const MODEL_IMAGE_GEN = "@cf/black-forest-labs/flux-1-dev";
 // GOOGLE MODEL (Nano Banana / Flash) - Requires GEMINI_API_KEY
-const MODEL_GOOGLE_EDIT = "gemini-2.5-flash-imag"; 
+const MODEL_GOOGLE_EDIT = "gemini-2.5-flash-image"; 
 const MODEL_ASR = "@cf/openai/whisper-large-v3-turbo";
 
 //////////////////////////////
