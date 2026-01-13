@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.47)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.48)
  * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN + FLUX EDIT + ASR
- * UPDATE: Stream Fallback Switched to Mistral (True Streaming)
+ * UPDATE: Routed Reasoning/File Analysis to Mistral (Pro) for Reliability
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.47";
+const VERSION = "9.9.48";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -385,8 +385,11 @@ export async function onRequest(context) {
     ) {
       const encoder = new TextEncoder();
       
-      // Select Model: Pro vs Standard (Updated logic to match frontend "pro")
-      const ACTIVE_MODEL = (mode === "pro_chat" || mode === "pro") ? MODEL_PRO_CHAT : MODEL_STD_CHAT;
+      // Select Model: Pro vs Standard
+      // FIX: Reasoning and File Analysis should use the PRO model (Mistral) for better logic/context
+      const ACTIVE_MODEL = (mode === "pro_chat" || mode === "pro" || mode === "reasoning" || mode === "analyze_file") 
+        ? MODEL_PRO_CHAT 
+        : MODEL_STD_CHAT;
 
       // FIX: Use existing stream_id if available to append to same UI bubble
       const activeStreamId = stream_id || crypto.randomUUID();
