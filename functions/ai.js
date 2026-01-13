@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.39)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.40)
  * FEATURES: MISTRAL + LUCID ORIGIN + FLUX EDIT + ASR + PRO MODE
- * UPDATE: Reverted Pro Mode to use @cf/openai/gpt-oss-120b (User Verified)
+ * UPDATE: Fixed Pro Mode Streaming (Added Fallback for Non-Streaming Models)
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.39";
+const VERSION = "9.9.40";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -23,7 +23,7 @@ const AI_MAX_OUTPUT_LINES = 300;
 
 // MODELS
 const MODEL_STD_CHAT = "@cf/mistralai/mistral-small-3.1-24b-instruct";
-const MODEL_PRO_CHAT = "@cf/openai/gpt-oss-120b"; // Restored user's specific model
+const MODEL_PRO_CHAT = "@cf/openai/gpt-oss-120b"; // User Verified Model
 const MODEL_IMAGE_GEN = "@cf/leonardo/lucid-origin";
 const MODEL_IMAGE_EDIT = "@cf/black-forest-labs/flux-2-dev";
 const MODEL_ASR = "@cf/openai/whisper-large-v3-turbo";
@@ -349,9 +349,7 @@ export async function onRequest(context) {
         }
 
         try {
-            // FIXED: Removed 'language' param as it causes schema validation errors (5006)
-            // with the @cf/openai/whisper-large-v3-turbo model.
-            // This model auto-detects language efficiently.
+            // REMOVED 'language' param for Whisper Turbo to prevent 5006 Error
             const inputArgs = {
                 audio: audioArray
             };
@@ -422,19 +420,59 @@ export async function onRequest(context) {
                     ...memory.map(m => ({ role: m.role, content: m.content }))
                 ];
 
-                // Run AI (Optimized for Speed: Max tokens set high, but we control via lines)
-                // Note: PRO MODE (mode === 'pro' or 'pro_chat') ALWAYS STREAMS HERE due to if-condition
-                const aiStream = await env.SPY_AI.run(
-                  ACTIVE_MODEL,
-                  {
-                    messages: currentMessages,
-                    max_tokens: 8192,
-                    temperature: 0.7,
-                    stream: true
-                  }
-                );
+                // --- SMART PRO MODE HANDLING ---
+                let aiResponse;
+                try {
+                    // Try streaming first
+                    aiResponse = await env.SPY_AI.run(
+                        ACTIVE_MODEL,
+                        {
+                            messages: currentMessages,
+                            max_tokens: 8192,
+                            temperature: 0.7,
+                            stream: true
+                        }
+                    );
+                } catch (streamErr) {
+                    // If streaming fails (e.g. model doesn't support it), try non-streaming fallback
+                    console.warn(`Streaming failed for ${ACTIVE_MODEL}, falling back to non-streaming`, streamErr);
+                    const staticResponse = await env.SPY_AI.run(
+                        ACTIVE_MODEL,
+                        {
+                            messages: currentMessages,
+                            max_tokens: 8192,
+                            temperature: 0.7
+                        }
+                    );
+                    // Convert static response to pseudo-stream format
+                    aiResponse = {
+                        isStatic: true,
+                        text: extractText(staticResponse)
+                    };
+                }
 
-                const reader = aiStream.getReader();
+                let reader;
+                // If it's a real stream
+                if (aiResponse instanceof ReadableStream) {
+                    reader = aiResponse.getReader();
+                } 
+                // If it's our static fallback or valid object but not a stream
+                else if (aiResponse.isStatic || (aiResponse && !aiResponse.body)) {
+                    const fullText = aiResponse.isStatic ? aiResponse.text : extractText(aiResponse);
+                    // Create a simulated reader for the loop below
+                    const simulatedStream = new ReadableStream({
+                        start(c) {
+                            c.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ response: fullText })}\n\n`));
+                            c.enqueue(new TextEncoder().encode("data: [DONE]\n\n"));
+                            c.close();
+                        }
+                    });
+                    reader = simulatedStream.getReader();
+                } else {
+                    // It is likely a ReadableStream property on the object (some models return { body: ... })
+                    reader = (aiResponse.body || aiResponse).getReader();
+                }
+
                 const decoder = new TextDecoder();
                 let buffer = ""; // RESTORED BUFFER FOR SMOOTHNESS
                 let loopBuffer = ""; 
