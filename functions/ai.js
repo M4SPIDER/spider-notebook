@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.34)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.35)
  * FEATURES: MISTRAL + LUCID ORIGIN + FLUX EDIT + ASR + PRO MODE
- * UPDATE: Fixed Frontend/Backend Mode Mismatch ("pro" vs "pro_chat")
+ * UPDATE: Improved ASR (Added Language Support)
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.34";
+const VERSION = "9.9.36";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -26,7 +26,7 @@ const MODEL_STD_CHAT = "@cf/mistralai/mistral-small-3.1-24b-instruct";
 const MODEL_PRO_CHAT = "@cf/openai/gpt-oss-120b"; // User requested specific model
 const MODEL_IMAGE_GEN = "@cf/leonardo/lucid-origin";
 const MODEL_IMAGE_EDIT = "@cf/black-forest-labs/flux-2-dev";
-const MODEL_ASR = "@cf/openai/whisper";
+const MODEL_ASR = "@cf/openai/whisper-large-v3-turbo";
 
 //////////////////////////////
 // UTILS
@@ -349,9 +349,13 @@ export async function onRequest(context) {
         }
 
         try {
-            const response = await runAi(env, MODEL_ASR, {
-                audio: audioArray
-            });
+            // FIXED: Pass language param if available to improve accuracy
+            const inputArgs = {
+                audio: audioArray,
+                language: payload.language || 'en'
+            };
+
+            const response = await runAi(env, MODEL_ASR, inputArgs);
             
             const text = extractText(response);
             return new Response(JSON.stringify({ text: text }), { 
