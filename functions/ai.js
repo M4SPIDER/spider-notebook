@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.65)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.66)
  * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN + GOOGLE EDIT (ONLY)
- * UPDATE: Restored Lucid Origin + Removed SD Fallback + Gemini 2.5 Flash Preview
+ * UPDATE: Exact Model Name Fix (gemini-2.5-flash-image)
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.65";
+const VERSION = "9.9.66";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -29,9 +29,9 @@ const MODEL_PRO_CHAT = "@cf/mistralai/mistral-small-3.1-24b-instruct";
 // RESTORED: Lucid Origin as requested
 const MODEL_IMAGE_GEN = "@cf/leonardo/lucid-origin";
 
-// GOOGLE MODEL (Nano Banana / Flash Preview) - Requires GEMINI_API_KEY
+// GOOGLE MODEL (Nano Banana) - Requires GEMINI_API_KEY
 // UPDATE: Exact model name as requested
-const MODEL_GOOGLE_EDIT = "gemini-2.5-flash-image-preview"; 
+const MODEL_GOOGLE_EDIT = "gemini-2.5-flash-image"; 
 
 const MODEL_ASR = "@cf/openai/whisper-large-v3-turbo";
 
