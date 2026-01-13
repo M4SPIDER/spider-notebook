@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.42)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.43)
  * FEATURES: MISTRAL + LUCID ORIGIN + FLUX EDIT + ASR + PRO MODE
- * UPDATE: Adjusted Pro Mode Input to Plain Text format
+ * UPDATE: Fixed Error 8001 - Pro Mode now uses 'prompt' string
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.42";
+const VERSION = "9.9.43";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -426,15 +426,13 @@ export async function onRequest(context) {
                 const isProModel = ACTIVE_MODEL === MODEL_PRO_CHAT;
                 const aiPayload = isProModel
                   ? {
-                      // ✅ GPT-OSS-120B NEEDS PLAIN INPUT
-                      requests: [
-                        {
-                          input: currentMessages
-                            .map(m => `${m.role.toUpperCase()}: ${m.content}`)
-                            .join("\n")
-                        }
-                      ],
-                      max_tokens: 8192,
+                      // FIX: Use standard 'prompt' string for text completion models
+                      // This resolves the 8001 Invalid Input error by removing the array structure
+                      prompt: currentMessages.map(m => {
+                          const role = m.role === 'user' ? 'User' : 'Assistant';
+                          return `${role}: ${m.content}`;
+                      }).join("\n\n") + "\n\nAssistant:",
+                      max_tokens: 4096,
                       temperature: 0.7,
                       stream: true
                     }
