@@ -651,7 +651,7 @@ export async function onRequest(context) {
         // CHANGE: Flux on Cloudflare is Text-to-Image ONLY.
         // LM Arena uses full Python/GPU environment which supports Img2Img with Flux.
         // On Cloudflare, we MUST use Stable Diffusion 1.5 for Image-to-Image editing.
-        let editModel = "@cf/leonardo/phoenix-1.0"; 
+        let editModel = "@cf/black-forest-labs/flux-2-dev"; 
         let inputArgs = {
             prompt: editPrompt,
             image: [...imageArray], // Cloudflare AI expects array of numbers
