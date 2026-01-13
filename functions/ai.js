@@ -528,15 +528,15 @@ export async function onRequest(context) {
 
         // Flux.2 usually returns an object with the image
         if (response && response.image) base64Image = response.image;
-
-        if (base64Image) {
-            return new Response(JSON.stringify({ 
-                base64_image: base64Image,
-                finish_reason: "stop"
-            }), {
-                headers: { ...cors, "Content-Type": "application/json" }
-            });
-        }
+if (base64Image) {
+    return new Response(JSON.stringify({ 
+        base64_image: base64Image,
+        finish_reason: "stop"
+    }), {
+        // FORCE JSON header so frontend knows how to parse it
+        headers: { ...cors, "Content-Type": "application/json" }
+    });
+}
 
         return new Response(JSON.stringify({ error: "Flux 2 Failed", debug: response }), {
             headers: { ...cors, "Content-Type": "application/json" }
