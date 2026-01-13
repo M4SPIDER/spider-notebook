@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.53)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.55)
  * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN + FLUX EDIT + ASR
- * UPDATE: Enforced 'Spider LLM' Identity (Anti-Hallucination)
+ * UPDATE: Strict Formatting Rule - No ** or # in Main Text
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.53";
+const VERSION = "9.9.55";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -26,7 +26,7 @@ const AI_MAX_OUTPUT_LINES = 300;
 const MODEL_STD_CHAT = "@cf/openai/gpt-oss-120b"; 
 const MODEL_PRO_CHAT = "@cf/mistralai/mistral-small-3.1-24b-instruct"; 
 const MODEL_IMAGE_GEN = "@cf/leonardo/lucid-origin";
-const MODEL_IMAGE_EDIT = "@cf/black-forest-labs/flux-2-dev";
+// NOTE: Image Edit model is now selected dynamically (SD v1.5) inside the handler
 const MODEL_ASR = "@cf/openai/whisper-large-v3-turbo";
 
 //////////////////////////////
@@ -188,7 +188,7 @@ const SPIDER_SYSTEM_PROMPT =
 "- Always use markdown code blocks for code 💻.\n" +
 "- Format: ```language\\ncode here\\n```.\n" +
 "- NEVER use single backticks for multi-line code.\n" +
-"- HEADER RESTRICTION: Use #, ##, ### ONLY INSIDE OF CODE BLOCKS (as comments etc). Do NOT use them for headers in the main response text.\n";
+"- FORMATTING RESTRICTION: Do NOT use **bold** or # headers in the chat text. ONLY use ** and # inside code blocks. Your chat text must be plain.\n";
 
 //////////////////////////////
 // KV MEMORY
@@ -603,7 +603,7 @@ export async function onRequest(context) {
     }
 
     //////////////////////
-    // IMAGE EDITING (FLUX 2 DEV)
+    // IMAGE EDITING (FLUX 2 DEV -> SD 1.5 FIX)
     //////////////////////
     if (mode === "image_edit") {
         if (!payload.image) {
@@ -621,15 +621,20 @@ export async function onRequest(context) {
             editPrompt += `\n\n[CONTEXT: ${searchContext}]`;
         }
 
+        // SWITCH: If mask exists, use Inpainting. If no mask, use Img2Img.
+        // Flux does not support this, so we use Stable Diffusion v1.5 which is robust for editing.
+        let editModel = "@cf/runwayml/stable-diffusion-v1-5-img2img";
         const inputArgs = {
             prompt: editPrompt,
             image: imageArray,
             num_steps: 20, // Standard step count
-            guidance: 7.5
+            guidance: 7.5,
+            strength: 0.7 // CRITICAL: strength required for img2img to not just hallucinate a new image
         };
         
-        // If mask exists (inpainting), include it
+        // If mask exists (inpainting), switch model and include mask
         if (payload.mask) {
+            editModel = "@cf/runwayml/stable-diffusion-v1-5-inpainting";
             const maskArray = base64ToArray(payload.mask);
             if (maskArray) inputArgs.mask = maskArray;
         }
@@ -637,7 +642,7 @@ export async function onRequest(context) {
         try {
             const response = await runAi(
                 env,
-                MODEL_IMAGE_EDIT, 
+                editModel, 
                 inputArgs
             );
 
