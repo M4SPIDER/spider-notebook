@@ -4627,43 +4627,71 @@ export default function App() {
 // 🔥 SPIDER AI — Cloudflare GPT-120B + SDXL Integration (FINAL VERSION)
 // 🔥 UPDATED: Spider AI Cloudflare Integration with Better Error Handling
 const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat", options = {}) => {
-    
+    // 1. PRE-FLIGHT SIZE CHECK (Crucial for long paragraphs and high-res mobile images)
+    // Cloudflare Workers typically have a 1MB incoming body limit for standard tier.
+    const bodyString = JSON.stringify(payload);
+    const bodySizeInBytes = new Blob([bodyString]).size;
+    const MAX_SAFE_SIZE = 1 * 1024 * 1024; // 1MB limit
+
+    if (bodySizeInBytes > MAX_SAFE_SIZE) {
+        console.error("Payload too large:", bodySizeInBytes);
+        return { 
+            error: true, 
+            message: "Payload too large! Please reduce the text length or use a smaller image.",
+            isSizeError: true 
+        };
+    }
+
     let fetchOptions = {
         method: "POST",
         headers: {
             "Content-Type": "application/json"
         },
-        body: JSON.stringify(payload),
+        body: bodyString,
         signal: options.signal 
     };
 
     try {
-        // Use the /ai worker endpoint
         const res = await fetch("/ai", fetchOptions);
 
-        // Check for HTTP errors
+        // 2. ENHANCED HTTP ERROR HANDLING
         if (!res.ok) {
-            const errorText = await res.text();
+            let errorMsg = `Server Error (${res.status})`;
+            
+            // Specifically catch 413 (Payload Too Large) from the server side
+            if (res.status === 413) {
+                errorMsg = "The server rejected the request because the data (paragraph/image) is too large.";
+            } else if (res.status === 404) {
+                errorMsg = "AI endpoint not found. Please check your connection.";
+            }
+
+            const errorText = await res.text().catch(() => "Unknown error");
             console.error(`HTTP ${res.status} Error:`, errorText);
+            
             return { 
-                error: `Server error: ${res.status}`, 
+                error: true, 
+                message: errorMsg,
                 details: errorText.substring(0, 200) 
             };
         }
 
         const contentType = res.headers.get("content-type") || "";
 
-        // Handle image responses
+        // 3. ROBUST IMAGE HANDLING (Android Compatible)
         if (contentType.includes("image/")) {
             const blob = await res.blob();
             if (blob.size === 0) {
-                return { error: "Image generation failed - empty response" };
+                return { error: true, message: "AI returned an empty image file." };
             }
 
             const base64 = await new Promise((resolve, reject) => {
                 const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result.split(",")[1]);
-                reader.onerror = reject;
+                reader.onloadend = () => {
+                    const result = reader.result;
+                    if (!result) return reject(new Error("Failed to read image blob"));
+                    resolve(result.split(",")[1]);
+                };
+                reader.onerror = () => reject(new Error("FileReader error during image processing"));
                 reader.readAsDataURL(blob);
             });
 
@@ -4674,30 +4702,31 @@ const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat", op
             };
         }
 
-        // Handle text/JSON responses
+        // 4. TEXT/JSON RESPONSES
         const rawText = await res.text();
 
         if (!rawText || rawText.trim() === "") {
-            return { error: "Empty response from Spider AI." };
+            return { error: true, message: "Empty response from Spider AI." };
         }
 
-        // Try to parse as JSON first
         try {
             const jsonData = JSON.parse(rawText);
+            // If the backend sent an error inside JSON
             if (jsonData.error) {
-                return { error: jsonData.error, details: jsonData.message };
+                return { error: true, message: jsonData.error, details: jsonData.message };
             }
             return jsonData;
         } catch {
-            // If not JSON, return as plain text
+            // If not JSON, return as plain text but wrap in expected object format
             return { text: rawText };
         }
 
     } catch (err) {
         console.error("API Call Failed:", err);
         return { 
-            error: err.name === "AbortError" ? "Request cancelled" : "Network error", 
-            message: err.message 
+            error: true, 
+            message: err.name === "AbortError" ? "Request cancelled by user." : "Network connection failed. Please try again.",
+            details: err.message 
         };
     }
 }, []);
@@ -5426,4 +5455,5 @@ int main() {
         </>
     );
 }
+
 
