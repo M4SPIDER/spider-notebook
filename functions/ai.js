@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.68)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.69)
  * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN + GOOGLE EDIT (SMART)
- * UPDATE: Added "Google-to-Google" Fallback (Flash Image -> Flash Exp) for Quota Fix
+ * UPDATE: Switched Backup to 'gemini-2.5-flash' (Quota Avail) + Restored SD Safety Net
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.68";
+const VERSION = "9.9.69";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -31,7 +31,8 @@ const MODEL_IMAGE_GEN = "@cf/leonardo/lucid-origin";
 
 // GOOGLE MODELS - Requires GEMINI_API_KEY
 const MODEL_GOOGLE_PRIMARY = "gemini-2.5-flash-image"; 
-const MODEL_GOOGLE_BACKUP = "gemini-2.0-flash-exp"; // Fallback for Quota issues
+// UPDATED: Use the general model which has 5 RPM quota in your dashboard
+const MODEL_GOOGLE_BACKUP = "gemini-2.5-flash"; 
 
 const MODEL_ASR = "@cf/openai/whisper-large-v3-turbo";
 
@@ -751,27 +752,70 @@ export async function onRequest(context) {
         } catch (primaryErr) {
             // CHECK FOR QUOTA / 429 ERRORS
             const errMsg = primaryErr.message || "";
-            const errBody = primaryErr.message && primaryErr.message.includes("{") ? primaryErr.message : "";
             
             // If error is 429 (Quota) or 503 (Overloaded), Try Backup
             if (errMsg.includes("429") || errMsg.includes("403") || errMsg.includes("Quota") || errMsg.includes("RESOURCE_EXHAUSTED")) {
                 console.warn("Primary Google Model Quota Exceeded. Switching to Backup...", errMsg);
                 
                 try {
-                    // ATTEMPT 2: BACKUP (Flash Exp)
+                    // ATTEMPT 2: BACKUP (Flash / Exp)
                     const backupResult = await runGoogleEdit(env.GEMINI_API_KEY, MODEL_GOOGLE_BACKUP, editPrompt, payload.image);
                     return processGoogleResult(backupResult);
                 } catch (backupErr) {
-                    // Both Failed
-                    return new Response(JSON.stringify({ 
-                        error: "Google Edit Failed (Quota Limit)", 
-                        message: "Quota exceeded on both Primary and Backup models. Please check Google AI Studio quotas.",
-                        details_primary: errMsg,
-                        details_backup: backupErr.message 
-                    }), { 
-                        status: 500, 
-                        headers: { ...cors, "Content-Type": "application/json" } 
-                    });
+                    
+                    // ==========================================
+                    // ULTIMATE FALLBACK: STABLE DIFFUSION (v1.5)
+                    // ==========================================
+                    // We reach here if Google Quota is 0 for BOTH models.
+                    // Instead of failing, we rely on Cloudflare SD 1.5 to provide result.
+                    console.warn("Google Backup Failed. Falling back to Stable Diffusion 1.5");
+
+                    const imageArray = base64ToUint8Array(payload.image);
+                    if (!imageArray) {
+                        return new Response(JSON.stringify({ error: "SD Fallback: Invalid image" }), { status: 400 });
+                    }
+
+                    let editModel = "@cf/runwayml/stable-diffusion-v1-5-img2img"; 
+                    let inputArgs = {
+                        prompt: editPrompt,
+                        image: [...imageArray], 
+                        num_steps: 20,
+                        guidance: 8.5,
+                        strength: 0.65, // Balanced strength to prevent "New Image" issue
+                        negative_prompt: "low quality, bad quality, blurry, distorted, deformed, ugly, bad anatomy, extra limbs"
+                    };
+
+                    if (payload.mask) {
+                        editModel = "@cf/runwayml/stable-diffusion-v1-5-inpainting";
+                        const maskArray = base64ToUint8Array(payload.mask);
+                        if (maskArray) inputArgs.mask = [...maskArray];
+                    }
+
+                    try {
+                        const sdResponse = await runAi(env, editModel, inputArgs);
+                        if (sdResponse instanceof ReadableStream) {
+                            return new Response(sdResponse, { headers: { ...cors, "Content-Type": "image/png" } });
+                        }
+                        
+                        let sdBase64 = sdResponse?.image || sdResponse?.result?.image;
+                        if (sdBase64) {
+                            const finalImage = base64ToUint8Array(sdBase64);
+                            return new Response(finalImage, { headers: { ...cors, "Content-Type": "image/png" } });
+                        }
+                        // If SD fails too, then return original Google error
+                        throw new Error("SD Returned no image");
+
+                    } catch (sdErr) {
+                        return new Response(JSON.stringify({ 
+                            error: "All Edit Methods Failed", 
+                            google_primary: errMsg,
+                            google_backup: backupErr.message,
+                            sd_fallback: sdErr.message 
+                        }), { 
+                            status: 500, 
+                            headers: { ...cors, "Content-Type": "application/json" } 
+                        });
+                    }
                 }
             }
 
