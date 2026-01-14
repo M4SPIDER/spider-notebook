@@ -25,7 +25,7 @@ const MODEL_STD_CHAT = "@cf/openai/gpt-oss-120b";
 const MODEL_PRO_CHAT = "@cf/mistralai/mistral-small-3.1-24b-instruct"; 
 
 // UPGRADED: Switched to FLUX 1 DEV as requested (Better adherence/Quality)
-const MODEL_IMAGE_GEN = "@cf/black-forest-labs/flux-1-dev";
+const MODEL_IMAGE_GEN = "@cf/black-forest-labs/flux-2-dev";
 
 const MODEL_ASR = "@cf/openai/whisper-large-v3-turbo";
 
