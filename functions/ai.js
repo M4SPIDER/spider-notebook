@@ -1,6 +1,6 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.62)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.63)
  * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN (GEN) + FLUX (EDIT) + ASR + IMG MEMORY
  * Author: M4 Spider
  * =========================================================
@@ -10,7 +10,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.62";
+const VERSION = "9.9.63";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -29,7 +29,7 @@ const MODEL_ASR = "@cf/openai/whisper-large-v3-turbo";
 // FIX: Renamed to avoid duplicates and support both models as requested
 const MODEL_GEN_LUCID = "@cf/leonardo/lucid-origin";
 // SPEED FIX: Switched to 'flux-1-schnell' for faster editing
-const MODEL_EDIT_FLUX = "@cf/black-forest-labs/flux-2-dev"; 
+const MODEL_EDIT_FLUX = "@cf/black-forest-labs/flux-1-schnell"; 
 
 //////////////////////////////
 // UTILS
@@ -91,7 +91,7 @@ const base64ToUint8Array = (base64) => {
     }
 };
 
-// HELPER: Stream to Base64 (For saving stream responses to KV)
+// HELPER: Optimized Stream to Base64 (Prevents CPU Timeout)
 async function streamToBase64(stream) {
     const reader = stream.getReader();
     const chunks = [];
@@ -109,11 +109,13 @@ async function streamToBase64(stream) {
         offset += chunk.length;
     }
     
-    // Convert to Base64 manually to avoid stack overflow on large images
+    // OPTIMIZED: Process in chunks to avoid stack overflow or timeouts
     let binary = '';
     const len = result.byteLength;
-    for (let i = 0; i < len; i++) {
-        binary += String.fromCharCode(result[i]);
+    const CHUNK_SIZE = 32768; // 32KB safe chunk
+    for (let i = 0; i < len; i += CHUNK_SIZE) {
+        const chunk = result.subarray(i, Math.min(i + CHUNK_SIZE, len));
+        binary += String.fromCharCode.apply(null, chunk);
     }
     return btoa(binary);
 }
@@ -376,9 +378,6 @@ export async function onRequest(context) {
                 base64ImageInput = lastImageCheck;
             }
         } 
-        // OPTIONAL: Even if no image found, if intent is extremely clear (like "edit this"),
-        // we could force mode to avoid "chat" response. 
-        // For now, we rely on the history check to be safe.
     }
     // -----------------------------------------------------------------
 
@@ -676,7 +675,7 @@ export async function onRequest(context) {
                     // CRITICAL FIX: TEE THE STREAM TO SAVE HISTORY
                     const [stream1, stream2] = fluxResponse.tee();
                     
-                    // SAVE IN BACKGROUND
+                    // SAVE IN BACKGROUND (Optimized)
                     context.waitUntil(async function() {
                         try {
                             const base64 = await streamToBase64(stream2);
