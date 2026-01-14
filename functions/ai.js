@@ -28,7 +28,7 @@ const MODEL_ASR = "@cf/openai/whisper-large-v3-turbo";
 
 // FIX: Renamed to avoid duplicates and support both models as requested
 const MODEL_GEN_LUCID = "@cf/leonardo/lucid-origin";
-const MODEL_EDIT_FLUX = "@cf/black-forest-labs/flux-2-dev"; // Corrected to flux-1-dev for stability
+const MODEL_EDIT_FLUX = "@cf/black-forest-labs/flux-1-dev"; // Corrected to flux-1-dev for stability
 
 //////////////////////////////
 // UTILS
@@ -61,7 +61,9 @@ function extractText(resp) {
 // HELPER: Base64 to Array (Required for Image/Audio Input)
 const base64ToArray = (b64) => {
   try {
-    const binaryString = atob(b64);
+    // FIX: Android/Mobile often adds newlines/spaces in base64 strings
+    const cleanBase64 = (b64.includes(',') ? b64.split(',').pop() : b64).replace(/[\r\n\s]/g, '');
+    const binaryString = atob(cleanBase64);
     const len = binaryString.length;
     const bytes = new Array(len);
     for (let i = 0; i < len; i++) {
@@ -75,7 +77,8 @@ const base64ToArray = (b64) => {
 
 const base64ToUint8Array = (base64) => {
     try {
-        const cleanBase64 = base64.includes(',') ? base64.split(',').pop() : base64;
+        // FIX: Android/Mobile often adds newlines/spaces in base64 strings
+        const cleanBase64 = (base64.includes(',') ? base64.split(',').pop() : base64).replace(/[\r\n\s]/g, '');
         const binaryString = atob(cleanBase64);
         const bytes = new Uint8Array(binaryString.length);
         for (let i = 0; i < binaryString.length; i++) {
@@ -633,9 +636,14 @@ export async function onRequest(context) {
             // Construct FormData exactly like the Cloudflare Playground
             const form = new FormData();
             form.append('prompt', activePrompt || "enhance image");
-            form.append('input_image_0', imageBlob); // flux-1-dev expects input_image_0
+            
+            // ADDED: Robust inputs for Flux 1 Dev (supports both keys)
+            form.append('image', imageBlob, 'input.png'); // Standard key for most CF models
+            form.append('input_image_0', imageBlob); // Compatibility key
+            
             form.append('width', '1024');
             form.append('height', '1024');
+            form.append('strength', '0.7'); // Good default for editing
 
             // FIXED: Creating dummy request to generate a clean multipart stream
             const dummyReq = new Request('http://dummy', {
