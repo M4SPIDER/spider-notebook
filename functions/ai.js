@@ -709,6 +709,11 @@ export async function onRequest(context) {
 
         // 2. Prepare Prompt
         let editPrompt = activePrompt;
+        
+        // CRITICAL UPDATE: Enforce Reference Image Usage
+        // This ensures the model doesn't generate a random image but edits the provided one.
+        editPrompt = `Using the provided image as a reference, ${editPrompt}. Maintain the original image structure and composition.`;
+
         if (!editPrompt.toLowerCase().includes("quality")) {
              editPrompt = "masterpiece, best quality, " + editPrompt;
         }
@@ -784,8 +789,8 @@ export async function onRequest(context) {
             image: [...imageArray], 
             num_steps: 20,
             guidance: 8.5,
-            strength: 0.65, // Balanced strength to prevent "New Image" issue
-            negative_prompt: "low quality, bad quality, blurry, distorted, deformed, ugly, bad anatomy, extra limbs"
+            strength: 0.55, // REDUCED: Lower strength (was 0.65) to ensure it matches the original image better
+            negative_prompt: "low quality, bad quality, blurry, distorted, deformed, ugly, bad anatomy, extra limbs, completely different image"
         };
 
         if (payload.mask) {
