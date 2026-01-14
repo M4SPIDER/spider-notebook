@@ -30,7 +30,8 @@ const MODEL_PRO_CHAT = "@cf/mistralai/mistral-small-3.1-24b-instruct";
 const MODEL_IMAGE_GEN = "@cf/leonardo/lucid-origin";
 
 // GOOGLE MODELS - Requires GEMINI_API_KEY
-const MODEL_GOOGLE_PRIMARY = "gemini-2.5-flash-image"; 
+// UPDATED: Set Primary to gemini-2.5-flash as requested
+const MODEL_GOOGLE_PRIMARY = "gemini-2.5-flash"; 
 // UPDATED: Use the general model which has 5 RPM quota in your dashboard
 const MODEL_GOOGLE_BACKUP = "gemini-2.5-flash"; 
 
