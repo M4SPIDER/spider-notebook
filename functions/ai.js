@@ -1,7 +1,7 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.65)
- * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN (GEN) + SDXL LIGHTNING (EDIT) + ASR + IMG MEMORY
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.64)
+ * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN (GEN) + FLUX (EDIT) + ASR + IMG MEMORY
  * Author: M4 Spider
  * =========================================================
  */
@@ -10,7 +10,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.65";
+const VERSION = "9.9.64";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -28,8 +28,8 @@ const MODEL_ASR = "@cf/openai/whisper-large-v3-turbo";
 
 // FIX: Renamed to avoid duplicates and support both models as requested
 const MODEL_GEN_LUCID = "@cf/leonardo/lucid-origin";
-// SPEED FIX: Switched to 'stable-diffusion-xl-lightning' for reliable fast editing
-const MODEL_EDIT_FLUX = "@cf/bytedance/stable-diffusion-xl-lightning"; 
+// SPEED FIX: Switched to 'flux-1-schnell' for faster editing
+const MODEL_EDIT_FLUX = "@cf/black-forest-labs/flux-1-schnell"; 
 
 //////////////////////////////
 // UTILS
@@ -634,7 +634,7 @@ export async function onRequest(context) {
     }
 
     //////////////////////
-    // IMAGE EDITING (SDXL LIGHTNING)
+    // IMAGE EDITING (FLUX 1 SCHNELL)
     //////////////////////
     if (mode === "image_edit") {
             // FIX: If no image provided in payload, try to fetch last image from KV
@@ -649,8 +649,11 @@ export async function onRequest(context) {
 
             const form = new FormData();
             form.append('prompt', activePrompt); 
+            
             form.append('image', imageBlob, 'input.png'); 
-            //form.append('strength', '0.7'); // SDXL Lightning handles strength internally or via guidance, keeping prompt focus.
+            form.append('input_image_0', imageBlob); 
+            
+            form.append('strength', '0.7'); 
 
             const dummyReq = new Request('http://dummy', {
               method: 'POST',
@@ -662,6 +665,7 @@ export async function onRequest(context) {
                 await saveMemory(env, memKey, memory.slice(-AI_MEMORY_TRIM_TARGET));
 
                 // DIRECT CALL TO SPY_AI TO AVOID STREAM CONSUMPTION IN RETRY LOOPS
+                // (The runAi wrapper retries on failure, which disturbs the body stream)
                 const fluxResponse = await env.SPY_AI.run(MODEL_EDIT_FLUX, {
                     multipart: {
                         body: dummyReq.body, 
@@ -691,18 +695,18 @@ export async function onRequest(context) {
 
                 if (resultBase64) {
                     memory.push({ role: "assistant", content: "Image edited successfully! 🎨" });
-                    context.waitUntil(saveMemory(env, memKey, memory.slice(-AI_MEMORY_TRIM_TARGET));
+                    context.waitUntil(saveMemory(env, memKey, memory.slice(-AI_MEMORY_TRIM_TARGET)));
                     
                     // CRITICAL FIX: SAVE EDITED IMAGE TO KV FOR NEXT TURN
                     context.waitUntil(saveLastImage(env, imgMemKey, resultBase64));
 
                     return new Response(base64ToUint8Array(resultBase64), { headers: { ...cors, "Content-Type": "image/png" } });
                 }
-                throw new Error("Model returned no image data");
+                throw new Error("Flux returned no image data");
 
             } catch (fluxErr) {
                 return new Response(JSON.stringify({
-                    error: "Edit Failed",
+                    error: "Flux Edit Failed",
                     message: fluxErr.message
                 }), { status: 500, headers: cors });
             }
