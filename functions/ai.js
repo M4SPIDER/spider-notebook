@@ -29,7 +29,7 @@ const MODEL_ASR = "@cf/openai/whisper-large-v3-turbo";
 // FIX: Renamed to avoid duplicates and support both models as requested
 const MODEL_GEN_LUCID = "@cf/leonardo/lucid-origin";
 // SPEED FIX: Switched to 'flux-1-schnell' for faster editing
-const MODEL_EDIT_FLUX = "@cf/black-forest-labs/flux-1-schnell"; 
+const MODEL_EDIT_FLUX = "@cf/black-forest-labs/flux-2-dev"; 
 
 //////////////////////////////
 // UTILS
