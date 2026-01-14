@@ -1,6 +1,6 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.61)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.62)
  * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN (GEN) + FLUX (EDIT) + ASR + IMG MEMORY
  * Author: M4 Spider
  * =========================================================
@@ -10,7 +10,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.61";
+const VERSION = "9.9.62";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -29,7 +29,7 @@ const MODEL_ASR = "@cf/openai/whisper-large-v3-turbo";
 // FIX: Renamed to avoid duplicates and support both models as requested
 const MODEL_GEN_LUCID = "@cf/leonardo/lucid-origin";
 // SPEED FIX: Switched to 'flux-1-schnell' for faster editing
-const MODEL_EDIT_FLUX = "@cf/black-forest-labs/flux-2-dev"; 
+const MODEL_EDIT_FLUX = "@cf/black-forest-labs/flux-1-schnell"; 
 
 //////////////////////////////
 // UTILS
@@ -90,6 +90,33 @@ const base64ToUint8Array = (base64) => {
         return null;
     }
 };
+
+// HELPER: Stream to Base64 (For saving stream responses to KV)
+async function streamToBase64(stream) {
+    const reader = stream.getReader();
+    const chunks = [];
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+    }
+    // Concatenate chunks
+    const totalLength = chunks.reduce((acc, c) => acc + c.length, 0);
+    const result = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const chunk of chunks) {
+        result.set(chunk, offset);
+        offset += chunk.length;
+    }
+    
+    // Convert to Base64 manually to avoid stack overflow on large images
+    let binary = '';
+    const len = result.byteLength;
+    for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(result[i]);
+    }
+    return btoa(binary);
+}
 
 //////////////////////////////
 // TAVILY SEARCH INTEGRATION
@@ -332,22 +359,26 @@ export async function onRequest(context) {
     // AUTO-EDIT MODE DETECTOR (NEW)
     // -----------------------------------------------------------------
     // Automatically switch to edit mode if user asks to "add", "change", etc.
-    // AND we have a previous image in memory.
     const EDIT_TRIGGERS = [
         "change", "modify", "edit", "add", "remove", "replace", "make it", "turn it", "fix",
         "background", "color", "style", "look", "zoom", "pan", "insert", "delete"
     ];
     
+    // STRICT FIX: Check triggers regardless of 'chat' mode, to correct frontend 'chat' fallback
     if (mode === "chat" && EDIT_TRIGGERS.some(t => cleanPrompt.includes(t))) {
-        // Only switch if we actually have an image to edit
         const lastImageCheck = await getLastImage(env, imgMemKey);
+        
+        // IF we have an image history, AUTO-SWITCH.
         if (lastImageCheck) {
             mode = "image_edit";
             // Pre-fill to avoid double fetching
             if (!base64ImageInput) {
                 base64ImageInput = lastImageCheck;
             }
-        }
+        } 
+        // OPTIONAL: Even if no image found, if intent is extremely clear (like "edit this"),
+        // we could force mode to avoid "chat" response. 
+        // For now, we rely on the history check to be safe.
     }
     // -----------------------------------------------------------------
 
@@ -612,7 +643,7 @@ export async function onRequest(context) {
                 base64ImageInput = await getLastImage(env, imgMemKey);
             }
 
-            if (!base64ImageInput) return new Response("No image provided. Please upload an image or generate one first.", { status: 400, headers: cors });
+            if (!base64ImageInput) return new Response("No image provided for editing. Please upload or generate one first.", { status: 400, headers: cors });
 
             const imageBytes = base64ToUint8Array(base64ImageInput);
             const imageBlob = new Blob([imageBytes], { type: 'image/png' });
@@ -641,17 +672,25 @@ export async function onRequest(context) {
                     }
                 });
 
-                let resultBase64 = null;
-
                 if (fluxResponse instanceof ReadableStream) {
-                    // Note: If stream, we can't easily capture base64 for history without buffering.
-                    // But Flux-Schnell usually returns JSON.
-                     memory.push({ role: "assistant", content: "Image edited successfully! 🎨" });
-                     context.waitUntil(saveMemory(env, memKey, memory.slice(-AI_MEMORY_TRIM_TARGET)));
-                     return new Response(fluxResponse, { headers: { ...cors, "Content-Type": "image/png" } });
+                    // CRITICAL FIX: TEE THE STREAM TO SAVE HISTORY
+                    const [stream1, stream2] = fluxResponse.tee();
+                    
+                    // SAVE IN BACKGROUND
+                    context.waitUntil(async function() {
+                        try {
+                            const base64 = await streamToBase64(stream2);
+                            await saveLastImage(env, imgMemKey, base64);
+                            // Also update text memory
+                            memory.push({ role: "assistant", content: "Image edited successfully! 🎨" });
+                            await saveMemory(env, memKey, memory.slice(-AI_MEMORY_TRIM_TARGET));
+                        } catch(e) { console.error("Failed to save stream image", e); }
+                    }());
+
+                    return new Response(stream1, { headers: { ...cors, "Content-Type": "image/png" } });
                 }
 
-                resultBase64 = fluxResponse?.image || fluxResponse?.result?.image;
+                let resultBase64 = fluxResponse?.image || fluxResponse?.result?.image;
 
                 if (resultBase64) {
                     memory.push({ role: "assistant", content: "Image edited successfully! 🎨" });
@@ -710,18 +749,28 @@ export async function onRequest(context) {
           }
         );
 
-        let base64Image = null;
         const extraHeaders = {
             ...cors,
             "X-Ai-Expanded-Prompt": enhancedPrompt.substring(0, 500)
         };
 
         if (response instanceof ReadableStream) {
-          return new Response(response, {
+          // CRITICAL FIX: TEE THE STREAM TO SAVE HISTORY
+          const [stream1, stream2] = response.tee();
+          
+          context.waitUntil(async function() {
+              try {
+                  const base64 = await streamToBase64(stream2);
+                  await saveLastImage(env, imgMemKey, base64);
+              } catch(e) { console.error("Failed to save gen stream", e); }
+          }());
+
+          return new Response(stream1, {
             headers: { ...extraHeaders, "Content-Type": "image/png" }
           });
         }
 
+        let base64Image = null;
         if (response && response.image) {
           base64Image = response.image;
         } else if (response && response.result && response.result.image) {
