@@ -31,7 +31,7 @@ const MODEL_IMAGE_GEN = "@cf/leonardo/lucid-origin";
 
 // GOOGLE MODEL (Nano Banana) - Requires GEMINI_API_KEY
 // UPDATE: Exact model name as requested
-const MODEL_GOOGLE_EDIT = "gemini-2.5-flash-image"; 
+const MODEL_GOOGLE_EDIT = "gemini-2.5-flash-image-preview"; 
 
 const MODEL_ASR = "@cf/openai/whisper-large-v3-turbo";
 
