@@ -723,104 +723,96 @@ export async function onRequest(context) {
             });
         }
 
-        // --- HELPER TO PROCESS RESULT ---
-        const processGoogleResult = (result) => {
-            if (result && result.type === 'image') {
-                const finalImage = base64ToUint8Array(result.data);
-                return new Response(finalImage, {
-                    headers: { ...cors, "Content-Type": "image/png" }
-                });
-            } else if (result && result.type === 'text') {
-                 // Return the Model's Text Explanation as the Error Message
-                 return new Response(JSON.stringify({ error: `Google Refused Edit: ${result.data}` }), { 
-                    status: 500, 
-                    headers: { ...cors, "Content-Type": "application/json" } 
-                });
-            } else {
-                 return new Response(JSON.stringify({ error: "Google Edit Failed: No image or text returned in response." }), { 
-                    status: 500, 
-                    headers: { ...cors, "Content-Type": "application/json" } 
-                });
-            }
-        };
+        let googleResult = null;
+        let googleError = null;
 
+        // ATTEMPT 1: GOOGLE PRIMARY
         try {
-            // ATTEMPT 1: PRIMARY (Flash Image)
-            const result = await runGoogleEdit(env.GEMINI_API_KEY, MODEL_GOOGLE_PRIMARY, editPrompt, payload.image);
-            return processGoogleResult(result);
+             googleResult = await runGoogleEdit(env.GEMINI_API_KEY, MODEL_GOOGLE_PRIMARY, editPrompt, payload.image);
+             
+             if (googleResult && googleResult.type === 'image') {
+                 return new Response(base64ToUint8Array(googleResult.data), { headers: { ...cors, "Content-Type": "image/png" } });
+             }
+             
+             // If result is text, it means Google refused or hallucinated "Here is the image".
+             // We treat this as a FAILURE so we can fall back to SD.
+             if (googleResult?.type === 'text') {
+                 googleError = "Refusal/TextOnly: " + googleResult.data;
+             }
 
         } catch (primaryErr) {
-            // CHECK FOR QUOTA / 429 ERRORS
-            const errMsg = primaryErr.message || "";
-            
-            // If error is 429 (Quota) or 503 (Overloaded), Try Backup
-            if (errMsg.includes("429") || errMsg.includes("403") || errMsg.includes("Quota") || errMsg.includes("RESOURCE_EXHAUSTED")) {
-                console.warn("Primary Google Model Quota Exceeded. Switching to Backup...", errMsg);
-                
-                try {
-                    // ATTEMPT 2: BACKUP (Flash / Exp)
-                    const backupResult = await runGoogleEdit(env.GEMINI_API_KEY, MODEL_GOOGLE_BACKUP, editPrompt, payload.image);
-                    return processGoogleResult(backupResult);
-                } catch (backupErr) {
-                    
-                    // ==========================================
-                    // ULTIMATE FALLBACK: STABLE DIFFUSION (v1.5)
-                    // ==========================================
-                    // We reach here if Google Quota is 0 for BOTH models.
-                    // Instead of failing, we rely on Cloudflare SD 1.5 to provide result.
-                    console.warn("Google Backup Failed. Falling back to Stable Diffusion 1.5");
+             googleError = primaryErr.message || "";
+        }
 
-                    const imageArray = base64ToUint8Array(payload.image);
-                    if (!imageArray) {
-                        return new Response(JSON.stringify({ error: "SD Fallback: Invalid image" }), { status: 400 });
-                    }
+        // ATTEMPT 2: BACKUP (Flash / Exp) - Only if Quota Error or Server Error
+        // (If primary returned text/refusal, backup likely will too, so we skip unless it's a Quota issue)
+        const isQuotaError = googleError && (
+            googleError.includes("429") || 
+            googleError.includes("403") || 
+            googleError.includes("Quota") || 
+            googleError.includes("RESOURCE_EXHAUSTED")
+        );
 
-                    let editModel = "@cf/runwayml/stable-diffusion-v1-5-img2img"; 
-                    let inputArgs = {
-                        prompt: editPrompt,
-                        image: [...imageArray], 
-                        num_steps: 20,
-                        guidance: 8.5,
-                        strength: 0.65, // Balanced strength to prevent "New Image" issue
-                        negative_prompt: "low quality, bad quality, blurry, distorted, deformed, ugly, bad anatomy, extra limbs"
-                    };
-
-                    if (payload.mask) {
-                        editModel = "@cf/runwayml/stable-diffusion-v1-5-inpainting";
-                        const maskArray = base64ToUint8Array(payload.mask);
-                        if (maskArray) inputArgs.mask = [...maskArray];
-                    }
-
-                    try {
-                        const sdResponse = await runAi(env, editModel, inputArgs);
-                        if (sdResponse instanceof ReadableStream) {
-                            return new Response(sdResponse, { headers: { ...cors, "Content-Type": "image/png" } });
-                        }
-                        
-                        let sdBase64 = sdResponse?.image || sdResponse?.result?.image;
-                        if (sdBase64) {
-                            const finalImage = base64ToUint8Array(sdBase64);
-                            return new Response(finalImage, { headers: { ...cors, "Content-Type": "image/png" } });
-                        }
-                        // If SD fails too, then return original Google error
-                        throw new Error("SD Returned no image");
-
-                    } catch (sdErr) {
-                        return new Response(JSON.stringify({ 
-                            error: "All Edit Methods Failed", 
-                            google_primary: errMsg,
-                            google_backup: backupErr.message,
-                            sd_fallback: sdErr.message 
-                        }), { 
-                            status: 500, 
-                            headers: { ...cors, "Content-Type": "application/json" } 
-                        });
-                    }
+        if (isQuotaError) {
+             console.warn("Primary Google Model Quota Exceeded. Switching to Backup...", googleError);
+             try {
+                googleResult = await runGoogleEdit(env.GEMINI_API_KEY, MODEL_GOOGLE_BACKUP, editPrompt, payload.image);
+                if (googleResult && googleResult.type === 'image') {
+                    return new Response(base64ToUint8Array(googleResult.data), { headers: { ...cors, "Content-Type": "image/png" } });
                 }
-            }
+             } catch (backupErr) {
+                 // Backup failed too
+                 googleError += " | Backup Error: " + backupErr.message;
+             }
+        }
+        
+        // ==========================================
+        // ULTIMATE FALLBACK: STABLE DIFFUSION (v1.5)
+        // ==========================================
+        // We reach here if Google Quota is 0 OR if Google returned only text/refusal.
+        console.warn("Google Edit Failed/Skipped. Falling back to Stable Diffusion 1.5. Reason:", googleError);
 
-            // If it's a different error (e.g. invalid key), fail immediately
-            return new Response(JSON.stringify({ error: "Google Edit API Error", message: errMsg }), { 
+        const imageArray = base64ToUint8Array(payload.image);
+        if (!imageArray) {
+            return new Response(JSON.stringify({ error: "SD Fallback: Invalid image" }), { status: 400 });
+        }
+
+        let editModel = "@cf/runwayml/stable-diffusion-v1-5-img2img"; 
+        let inputArgs = {
+            prompt: editPrompt,
+            image: [...imageArray], 
+            num_steps: 20,
+            guidance: 8.5,
+            strength: 0.65, // Balanced strength to prevent "New Image" issue
+            negative_prompt: "low quality, bad quality, blurry, distorted, deformed, ugly, bad anatomy, extra limbs"
+        };
+
+        if (payload.mask) {
+            editModel = "@cf/runwayml/stable-diffusion-v1-5-inpainting";
+            const maskArray = base64ToUint8Array(payload.mask);
+            if (maskArray) inputArgs.mask = [...maskArray];
+        }
+
+        try {
+            const sdResponse = await runAi(env, editModel, inputArgs);
+            if (sdResponse instanceof ReadableStream) {
+                return new Response(sdResponse, { headers: { ...cors, "Content-Type": "image/png" } });
+            }
+            
+            let sdBase64 = sdResponse?.image || sdResponse?.result?.image;
+            if (sdBase64) {
+                const finalImage = base64ToUint8Array(sdBase64);
+                return new Response(finalImage, { headers: { ...cors, "Content-Type": "image/png" } });
+            }
+            // If SD fails too, then return original Google error
+            throw new Error("SD Returned no image");
+
+        } catch (sdErr) {
+            return new Response(JSON.stringify({ 
+                error: "All Edit Methods Failed", 
+                google_error: googleError,
+                sd_fallback_error: sdErr.message 
+            }), { 
                 status: 500, 
                 headers: { ...cors, "Content-Type": "application/json" } 
             });
