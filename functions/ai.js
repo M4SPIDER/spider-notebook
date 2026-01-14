@@ -641,8 +641,7 @@ export async function onRequest(context) {
             form.append('image', imageBlob, 'input.png'); // Standard key for most CF models
             form.append('input_image_0', imageBlob); // Compatibility key
             
-            form.append('width', '1024');
-            form.append('height', '1024');
+            // REMOVED: Width/Height to prevent distortion on mobile uploads
             form.append('strength', '0.7'); // Good default for editing
 
             // FIXED: Creating dummy request to generate a clean multipart stream
