@@ -1,7 +1,7 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.59)
- * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN (GEN) + FLUX (EDIT) + ASR
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.60)
+ * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN (GEN) + FLUX (EDIT) + ASR + IMG MEMORY
  * Author: M4 Spider
  * =========================================================
  */
@@ -10,7 +10,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.59";
+const VERSION = "9.9.60";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -29,7 +29,7 @@ const MODEL_ASR = "@cf/openai/whisper-large-v3-turbo";
 // FIX: Renamed to avoid duplicates and support both models as requested
 const MODEL_GEN_LUCID = "@cf/leonardo/lucid-origin";
 // SPEED FIX: Switched to 'flux-1-schnell' for faster editing
-const MODEL_EDIT_FLUX = "@cf/black-forest-labs/flux-2-dev"; 
+const MODEL_EDIT_FLUX = "@cf/black-forest-labs/flux-1-schnell"; 
 
 //////////////////////////////
 // UTILS
@@ -209,7 +209,7 @@ const SPIDER_SYSTEM_PROMPT =
 "- FORMATTING RESTRICTION: Do NOT use **bold** or # headers in the chat text. ONLY use ** and # inside code blocks. Your chat text must be plain.\n";
 
 //////////////////////////////
-// KV MEMORY
+// KV MEMORY & IMAGE PERSISTENCE
 //////////////////////////////
 async function getMemory(env, key) {
   try {
@@ -232,6 +232,23 @@ async function deleteMemory(env, key) {
   if (!env.CHAT_KV) return false;
   await env.CHAT_KV.delete(key);
   return true;
+}
+
+// NEW: IMAGE STORAGE FOR EDITING
+async function getLastImage(env, key) {
+  try {
+    return env.CHAT_KV ? await env.CHAT_KV.get(key) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function saveLastImage(env, key, base64) {
+  if (!env.CHAT_KV || !base64) return;
+  // Expire image memory in 24 hours to handle "edit more" sessions without bloating storage
+  await env.CHAT_KV.put(key, base64, {
+    expirationTtl: 86400 
+  });
 }
 
 //////////////////////////////
@@ -280,6 +297,7 @@ export async function onRequest(context) {
     } = payload;
 
     const memKey = AI_MEMORY_USER_KEY_PREFIX + user_preference_id;
+    const imgMemKey = memKey + "_img"; // DEDICATED KEY FOR LAST IMAGE
 
     // Handle Continue requests
     let activePrompt = prompt;
@@ -294,8 +312,6 @@ export async function onRequest(context) {
     // -----------------------------------------------------------------
     // FORCE FILE MODE (CRITICAL FIX)
     // -----------------------------------------------------------------
-    // Priority: If file_content is present, strictly enforce analyze_file mode.
-    // This prevents falling back to normal chat or triggering unrelated modes.
     if (file_content && typeof file_content === "string" && file_content.trim().length > 0) {
         mode = "analyze_file";
     }
@@ -308,8 +324,6 @@ export async function onRequest(context) {
       "generate a picture", "create a picture", "imagine this", "draw this"
     ];
 
-    // If user is in chat mode (AND not analyzing a file) but asks for an image, FORCE image_gen mode.
-    // Check ensures we don't override analyze_file if a file was just uploaded.
     if (mode === "chat" && IMAGE_TRIGGERS.some(t => cleanPrompt.includes(t))) {
        mode = "image_gen";
     }
@@ -326,7 +340,6 @@ export async function onRequest(context) {
     // -----------------------------------------------------------------
     // GLOBAL SEARCH TRIGGER (UNIVERSAL FOR ALL MODES)
     // -----------------------------------------------------------------
-    // FIX: Removed 'mode === chat' restriction. Now works for Pro, Reason, Image, File, etc.
     let searchContext = "";
     if (shouldTriggerSearch(cleanPrompt)) {
        const searchRes = await runTavilySearch(env, activePrompt);
@@ -347,6 +360,7 @@ export async function onRequest(context) {
         cleanPrompt === "delete all"
     ) {
       const success = await deleteMemory(env, memKey);
+      await deleteMemory(env, imgMemKey); // Also clear image cache
       const msg = success ? "Memory wiped successfully 🧹" : "No KV found or empty.";
 
       if (cleanPrompt === "delete all") {
@@ -373,18 +387,12 @@ export async function onRequest(context) {
         }
 
         try {
-            // REMOVED 'language' param for Whisper Turbo to prevent 5006 Error
-            const inputArgs = {
-                audio: audioArray
-            };
-
+            const inputArgs = { audio: audioArray };
             const response = await runAi(env, MODEL_ASR, inputArgs);
-
             const text = extractText(response);
             return new Response(JSON.stringify({ text: text }), {
                 headers: { ...cors, "Content-Type": "application/json" }
             });
-
         } catch (e) {
             return new Response(JSON.stringify({ error: "ASR Failed", message: e.message }), {
                  headers: { ...cors, "Content-Type": "application/json" }
@@ -395,79 +403,53 @@ export async function onRequest(context) {
     //////////////////////
     // STREAM MODE (CHAT + PRO MODE + FILE ANALYZER + REASONING)
     //////////////////////
-    // CRITICAL: Forces analyze_file, pro_chat/pro, and reasoning to always use this block
     if (
         (mode === "stream" ||
          mode === "pro_chat" ||
-         mode === "pro" ||    // Matched frontend
-         mode === "reasoning" ||    // Matched frontend
+         mode === "pro" ||    
+         mode === "reasoning" ||   
          stream === true) &&
         mode !== "image_gen" &&
         mode !== "image_edit"
     ) {
       const encoder = new TextEncoder();
-
-      // CRITICAL UPDATE: Enforce Mistral 24B for ALL streaming.
-      // GPT-OSS 120B does not support streaming effectively.
       const ACTIVE_MODEL = MODEL_PRO_CHAT;
-
-      // FIX: Use existing stream_id if available to append to same UI bubble
       const activeStreamId = stream_id || crypto.randomUUID();
 
       const streamResp = new ReadableStream({
         async start(controller) {
           try {
             let currentLoop = 0;
-            // UPDATE: 30 loops (30 * 300 = 9000 lines capacity)
             const MAX_LOOPS = 30;
             let isFullyDone = false;
-
-            // ACCUMULATOR: Tracks the FULL response across loops to consolidate KV later
             let fullResponseText = "";
 
-            // 1. Initial Prompt Setup
             let currentPrompt = activePrompt;
             if (mode === "analyze_file" && file_content && !isContinue) {
               currentPrompt = `FILE: ${filename || "unknown"}\nCONTENT:\n${file_content}\n\nREQUEST:\n${activePrompt}`;
             }
             if (searchContext) {
-              // UPDATE: Explicitly forbid formatting in Search Context
               currentPrompt += `\n\n${searchContext}\n[INSTRUCTION: Use the above search results to answer the user request. You have up-to-date knowledge. REMEMBER: DO NOT use **bold** or # headers.]`;
             }
 
-            // Push initial user message to temp Memory (this ensures first loop works)
-            // But we will NOT save this immediate push to KV until end.
             memory.push({ role: "user", content: currentPrompt, ts: Date.now() });
 
-            // 2. Loop until done or limit hit
             while (currentLoop < MAX_LOOPS && !isFullyDone) {
                 currentLoop++;
-
-                // Build messages from memory
-                // LOGIC: Use Base Memory + User Prompt + (If Looping) Consolidated Partial Response
                 const currentMessages = [
                     { role: "system", content: finalSystemPrompt },
                     ...memory.map(m => ({ role: m.role, content: m.content }))
                 ];
 
-                // --- CONTEXT INJECTION FOR CONTINUATION ---
-                // If we are in Loop 2+, we manually inject the consolidated partial response.
-                // This allows the AI to see the full code it has written so far, preventing duplication.
                 if (fullResponseText.length > 0) {
-                      // 1. Inject the code written so far as an Assistant message
                       currentMessages.push({ role: "assistant", content: fullResponseText });
-
-                      // 2. Inject a STRICT continuation prompt to prevent "breaking old code"
                       currentMessages.push({
                           role: "user",
                           content: "You stopped mid-stream. IMMEDIATELY CONTINUE the code from the very last character. DO NOT repeat the last line. DO NOT rewrite the code block start ` ``` ` or ` ```javascript ` if you are inside one. Just output the next characters."
                       });
                 }
 
-                // --- SMART MODEL HANDLING ---
                 let aiResponse;
-
-                // Construct Payload (Optimized for Mistral)
                 const aiPayload = {
                       messages: currentMessages,
                       max_tokens: 4096,
@@ -475,24 +457,15 @@ export async function onRequest(context) {
                       stream: true
                 };
 
-                // --- EXECUTE WITH ROBUST FALLBACK ---
                 try {
-                    // ATTEMPT 1: Primary Stream Request (Mistral)
                     aiResponse = await env.SPY_AI.run(ACTIVE_MODEL, aiPayload);
                 } catch (streamErr) {
-                    console.error("Stream failed, attempting fallbacks:", streamErr);
-
-                    // FALLBACK STRATEGY
                     try {
-                        // ATTEMPT 2: Try Same Model in STATIC Mode (Remove stream flag)
                         const staticPayload = { ...aiPayload };
                         delete staticPayload.stream;
-
                         aiResponse = await env.SPY_AI.run(ACTIVE_MODEL, staticPayload);
                         aiResponse = { isStatic: true, text: extractText(aiResponse) };
-
                     } catch (fallbackErr) {
-                          // ATTEMPT 3: Ultimate Fallback -> GPT-OSS 120B (Static)
                           const fallbackModel = MODEL_STD_CHAT;
                           const fallbackPayload = {
                              instructions: finalSystemPrompt,
@@ -502,7 +475,6 @@ export async function onRequest(context) {
                                   .join("\n\n") + "\n\nAssistant:",
                              max_tokens: 4096
                           };
-
                           const finalRes = await env.SPY_AI.run(fallbackModel, fallbackPayload);
                           aiResponse = { isStatic: true, text: extractText(finalRes) };
                     }
@@ -531,7 +503,6 @@ export async function onRequest(context) {
                 let loopLineCount = 0;
                 let streamEndedNaturally = true;
 
-                // Inner Reader Loop
                 while (true) {
                   const { done, value } = await reader.read();
                   if (done) break;
@@ -541,7 +512,6 @@ export async function onRequest(context) {
                   const lines = buffer.split("\n");
                   buffer = lines.pop();
 
-                  // Process chunk lines
                   for (const line of lines) {
                     const trimmed = line.trim();
                     if (trimmed.startsWith("data:")) {
@@ -553,18 +523,15 @@ export async function onRequest(context) {
                         const textChunk = json.response || json.token || json.text;
 
                         if (textChunk) {
-                          // Stream to user immediately
                           controller.enqueue(
                             encoder.encode(`data: ${JSON.stringify({ text: textChunk, stream_id: activeStreamId })}\n\n`)
                           );
 
                           loopBuffer += textChunk;
-
                           for (let i = 0; i < textChunk.length; i++) {
                               if (textChunk[i] === '\n') loopLineCount++;
                           }
 
-                          // TRIGGER AUTO-CONTINUE
                           if (loopLineCount >= AI_MAX_OUTPUT_LINES) {
                               streamEndedNaturally = false;
                               break;
@@ -573,32 +540,22 @@ export async function onRequest(context) {
                       } catch(e) {}
                     }
                   }
-
                   if (!streamEndedNaturally) {
-                     await reader.cancel();
-                     break;
+                      await reader.cancel();
+                      break;
                   }
                 }
 
-                // Add this loop's output to the consolidated buffer
                 fullResponseText += loopBuffer;
-
                 if (streamEndedNaturally) {
                     isFullyDone = true;
                 }
-                // Else: Loop continues. We do NOT push to memory here.
-                // We rely on 'fullResponseText' injection in the next loop iteration.
             } // End While
 
-            // --- FINAL SAVE (OPTIMIZED) ---
-            // Only push ONE consolidated entry to KV, avoiding "context limitation"
-            // and keeping history clean.
             memory.push({ role: "assistant", content: cleanAiResponse(fullResponseText), ts: Date.now() });
-
             const memoryToSave = memory.slice(-AI_MEMORY_TRIM_TARGET);
             context.waitUntil(saveMemory(env, memKey, memoryToSave));
 
-            // ALWAYS send DONE signal
             controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
             controller.close();
 
@@ -627,58 +584,60 @@ export async function onRequest(context) {
     //////////////////////
     // IMAGE EDITING (FLUX 1 SCHNELL)
     //////////////////////
-    // FIXED: base64ToUint8Array moved to UTILS, removed invalid 'onst' definition here.
     if (mode === "image_edit") {
-            if (!base64ImageInput) return new Response("No image provided", { status: 400, headers: cors });
+            // FIX: If no image provided in payload, try to fetch last image from KV
+            if (!base64ImageInput) {
+                base64ImageInput = await getLastImage(env, imgMemKey);
+            }
+
+            if (!base64ImageInput) return new Response("No image provided. Please upload an image or generate one first.", { status: 400, headers: cors });
 
             const imageBytes = base64ToUint8Array(base64ImageInput);
             const imageBlob = new Blob([imageBytes], { type: 'image/png' });
 
-            // Construct FormData exactly like the Cloudflare Playground
             const form = new FormData();
-            // RAW: Using activePrompt directly without fallbacks or extras
             form.append('prompt', activePrompt); 
             
-            // ADDED: Robust inputs for Flux 1 Dev (supports both keys)
-            form.append('image', imageBlob, 'input.png'); // Standard key for most CF models
-            form.append('input_image_0', imageBlob); // Compatibility key
+            form.append('image', imageBlob, 'input.png'); 
+            form.append('input_image_0', imageBlob); 
             
-            // REMOVED: Width/Height to prevent distortion on mobile uploads
-            form.append('strength', '0.7'); // Good default for editing
+            form.append('strength', '0.7'); 
 
-            // FIXED: Creating dummy request to generate a clean multipart stream
             const dummyReq = new Request('http://dummy', {
               method: 'POST',
               body: form
             });
 
             try {
-                // 1. PUSH REQUEST TO MEMORY FIRST
                 memory.push({ role: "user", content: `[Image Edit Request]: ${activePrompt}` });
-                
-                // 2. SAVE MEMORY IMMEDIATELY (Persist "Old Image" request before slow generation)
-                // This ensures the history remains even if the AI times out or is slow.
                 await saveMemory(env, memKey, memory.slice(-AI_MEMORY_TRIM_TARGET));
 
-                // CRITICAL: Passing 'multipart' object fixes 5006 error
-                // USE FLUX MODEL FOR EDITING
                 const fluxResponse = await runAi(env, MODEL_EDIT_FLUX, {
                     multipart: {
-                        body: dummyReq.body, // The runtime handles this stream correctly
+                        body: dummyReq.body, 
                         contentType: dummyReq.headers.get('content-type') || 'multipart/form-data'
                     }
                 });
 
+                let resultBase64 = null;
+
                 if (fluxResponse instanceof ReadableStream) {
-                    memory.push({ role: "assistant", content: "Image edited successfully! 🎨" });
-                    context.waitUntil(saveMemory(env, memKey, memory.slice(-AI_MEMORY_TRIM_TARGET)));
-                    return new Response(fluxResponse, { headers: { ...cors, "Content-Type": "image/png" } });
+                    // Note: If stream, we can't easily capture base64 for history without buffering.
+                    // But Flux-Schnell usually returns JSON.
+                     memory.push({ role: "assistant", content: "Image edited successfully! 🎨" });
+                     context.waitUntil(saveMemory(env, memKey, memory.slice(-AI_MEMORY_TRIM_TARGET)));
+                     return new Response(fluxResponse, { headers: { ...cors, "Content-Type": "image/png" } });
                 }
 
-                let resultBase64 = fluxResponse?.image || fluxResponse?.result?.image;
+                resultBase64 = fluxResponse?.image || fluxResponse?.result?.image;
+
                 if (resultBase64) {
                     memory.push({ role: "assistant", content: "Image edited successfully! 🎨" });
                     context.waitUntil(saveMemory(env, memKey, memory.slice(-AI_MEMORY_TRIM_TARGET)));
+                    
+                    // CRITICAL FIX: SAVE EDITED IMAGE TO KV FOR NEXT TURN
+                    context.waitUntil(saveLastImage(env, imgMemKey, resultBase64));
+
                     return new Response(base64ToUint8Array(resultBase64), { headers: { ...cors, "Content-Type": "image/png" } });
                 }
                 throw new Error("Flux returned no image data");
@@ -686,8 +645,7 @@ export async function onRequest(context) {
             } catch (fluxErr) {
                 return new Response(JSON.stringify({
                     error: "Flux Edit Failed",
-                    message: fluxErr.message,
-                    details: "Failed to process multipart stream for Flux 1 Schnell"
+                    message: fluxErr.message
                 }), { status: 500, headers: cors });
             }
         }
@@ -697,7 +655,6 @@ export async function onRequest(context) {
     // IMAGE GENERATION (LUCID ORIGIN)
     //////////////////////
     if (mode === "image_gen") {
-      // 1. Calculate Standard Width/Height
       let width = 1024;
       let height = 1024;
 
@@ -707,13 +664,10 @@ export async function onRequest(context) {
       else if (aspect_ratio === "3:4")  { width = 864; height = 1152; }
       else { width = 1024; height = 1024; }
 
-      // 2. RAW PROMPT MODE (Optimizer Removed)
       let enhancedPrompt = activePrompt;
 
-      // 3. SAVE TO MEMORY
       try {
         memory.push({ role: "user", content: activePrompt, ts: Date.now() });
-        // FIXED: CLEAN MEMORY LOG
         memory.push({
            role: "assistant",
            content: `Generating image: "${enhancedPrompt}"`,
@@ -723,7 +677,6 @@ export async function onRequest(context) {
         context.waitUntil(saveMemory(env, memKey, memoryToSave));
       } catch (memErr) {}
 
-      // 4. CALL AI (USE LUCID ORIGIN FOR GENERATION)
       try {
         const response = await runAi(
           env,
@@ -732,11 +685,9 @@ export async function onRequest(context) {
             prompt: enhancedPrompt,
             width: width,
             height: height
-            // num_steps: removed to prevent API errors
           }
         );
 
-        // 5. UNIVERSAL HANDLER
         let base64Image = null;
         const extraHeaders = {
             ...cors,
@@ -749,7 +700,6 @@ export async function onRequest(context) {
           });
         }
 
-        // Handle various JSON formats
         if (response && response.image) {
           base64Image = response.image;
         } else if (response && response.result && response.result.image) {
@@ -760,6 +710,9 @@ export async function onRequest(context) {
 
         if (base64Image) {
           try {
+            // CRITICAL FIX: SAVE GENERATED IMAGE TO KV FOR NEXT TURN
+            context.waitUntil(saveLastImage(env, imgMemKey, base64Image));
+
             const binaryString = atob(base64Image);
             const len = binaryString.length;
             const bytes = new Uint8Array(len);
@@ -774,7 +727,6 @@ export async function onRequest(context) {
           }
         }
 
-        // If we get here, the AI returned a success code but no image data we recognize
         return new Response(JSON.stringify({
           error: "Image Generation Failed - Unknown Format",
           debug_response: response
@@ -783,7 +735,6 @@ export async function onRequest(context) {
         });
 
       } catch (genError) {
-        // Return JSON error so frontend doesn't just show broken image
         return new Response(JSON.stringify({
           error: "Image API Error",
           message: genError.message
@@ -799,7 +750,6 @@ export async function onRequest(context) {
 
     let finalUserPrompt = activePrompt;
     if (searchContext) {
-      // UPDATE: Explicitly forbid formatting in Search Context
       finalUserPrompt += `\n\n${searchContext}\n[INSTRUCTION: Use the above search results to answer the user request. You have up-to-date knowledge. REMEMBER: DO NOT use **bold** or # headers.]`;
     }
 
@@ -811,8 +761,6 @@ export async function onRequest(context) {
       ...memory.map(m => ({ role: m.role, content: m.content }))
     ];
 
-    // USING MISTRAL (Text Logic)
-    // FIX: Apply same schema check for normal chat
     const isGptOss = MODEL_STD_CHAT.includes("gpt-oss");
 
     const aiPayload = isGptOss
