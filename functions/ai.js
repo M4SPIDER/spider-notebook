@@ -2,7 +2,6 @@
  * =========================================================
  * SPIDER AI — FINAL STABLE BACKEND (v9.9.59)
  * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN + FLUX EDIT + ASR
- * UPDATE: Fixed Image Edit Strength (Lowered to 0.35 to preserve original image structure)
  * Author: M4 Spider
  * =========================================================
  */
