@@ -28,7 +28,8 @@ const MODEL_ASR = "@cf/openai/whisper-large-v3-turbo";
 
 // FIX: Renamed to avoid duplicates and support both models as requested
 const MODEL_GEN_LUCID = "@cf/leonardo/lucid-origin";
-const MODEL_EDIT_FLUX = "@cf/black-forest-labs/flux-2-dev"; // Corrected to flux-1-dev for stability
+// SPEED FIX: Switched to 'flux-1-schnell' for faster editing
+const MODEL_EDIT_FLUX = "@cf/black-forest-labs/flux-2-dev"; 
 
 //////////////////////////////
 // UTILS
@@ -624,7 +625,7 @@ export async function onRequest(context) {
     }
 
     //////////////////////
-    // IMAGE EDITING (FLUX 1/2 DEV)
+    // IMAGE EDITING (FLUX 1 SCHNELL)
     //////////////////////
     // FIXED: base64ToUint8Array moved to UTILS, removed invalid 'onst' definition here.
     if (mode === "image_edit") {
@@ -635,7 +636,8 @@ export async function onRequest(context) {
 
             // Construct FormData exactly like the Cloudflare Playground
             const form = new FormData();
-            form.append('prompt', activePrompt || "enhance image");
+            // RAW: Using activePrompt directly without fallbacks or extras
+            form.append('prompt', activePrompt); 
             
             // ADDED: Robust inputs for Flux 1 Dev (supports both keys)
             form.append('image', imageBlob, 'input.png'); // Standard key for most CF models
@@ -651,7 +653,12 @@ export async function onRequest(context) {
             });
 
             try {
+                // 1. PUSH REQUEST TO MEMORY FIRST
                 memory.push({ role: "user", content: `[Image Edit Request]: ${activePrompt}` });
+                
+                // 2. SAVE MEMORY IMMEDIATELY (Persist "Old Image" request before slow generation)
+                // This ensures the history remains even if the AI times out or is slow.
+                await saveMemory(env, memKey, memory.slice(-AI_MEMORY_TRIM_TARGET));
 
                 // CRITICAL: Passing 'multipart' object fixes 5006 error
                 // USE FLUX MODEL FOR EDITING
@@ -680,7 +687,7 @@ export async function onRequest(context) {
                 return new Response(JSON.stringify({
                     error: "Flux Edit Failed",
                     message: fluxErr.message,
-                    details: "Failed to process multipart stream for Flux 1 Dev"
+                    details: "Failed to process multipart stream for Flux 1 Schnell"
                 }), { status: 500, headers: cors });
             }
         }
@@ -700,42 +707,8 @@ export async function onRequest(context) {
       else if (aspect_ratio === "3:4")  { width = 864; height = 1152; }
       else { width = 1024; height = 1024; }
 
-      // 2. PROMPT OPTIMIZER (Non-blocking attempt)
-      let enhancedPrompt = `${activePrompt}, ultra detailed, cinematic lighting`;
-
-      try {
-        const promptOptimizerSys =
-          "You are an expert Image Prompt Engineer. " +
-          "Your goal: Take the user's idea and add lighting/style details to make it look professional. " +
-          "CRITICAL: Keep the MAIN SUBJECT exactly as the user described. " +
-          "REPLY WITH THE PROMPT ONLY. No talk.";
-
-        let optimizerInput = `User Request: ${activePrompt}\n\nOptimized Prompt:`;
-
-        // APPEND SEARCH CONTEXT TO OPTIMIZER (CRITICAL FOR "New iPhone" requests)
-        if (searchContext) {
-            optimizerInput = `CONTEXT: ${searchContext}\n\nUser Request: ${activePrompt}\n\nOptimized Prompt (Incorporate visual details from context):`;
-        }
-
-        const optimizerRes = await runAi(
-           env,
-           MODEL_STD_CHAT,
-           {
-             // Use new Schema for GPT-OSS optimizer calls too
-             instructions: promptOptimizerSys,
-             input: optimizerInput,
-             max_tokens: 300
-           }
-        );
-
-        const optimizedText = extractText(optimizerRes);
-        if (optimizedText && optimizedText.length > 5) {
-            enhancedPrompt = cleanAiResponse(optimizedText);
-        }
-      } catch (optError) {
-        // Silently fail optimizer and use default prompt if it crashes
-        console.error("Optimizer Warning:", optError);
-      }
+      // 2. RAW PROMPT MODE (Optimizer Removed)
+      let enhancedPrompt = activePrompt;
 
       // 3. SAVE TO MEMORY
       try {
