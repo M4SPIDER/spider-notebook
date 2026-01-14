@@ -1,6 +1,6 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.60)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.61)
  * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN (GEN) + FLUX (EDIT) + ASR + IMG MEMORY
  * Author: M4 Spider
  * =========================================================
@@ -10,7 +10,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.60";
+const VERSION = "9.9.61";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -29,7 +29,7 @@ const MODEL_ASR = "@cf/openai/whisper-large-v3-turbo";
 // FIX: Renamed to avoid duplicates and support both models as requested
 const MODEL_GEN_LUCID = "@cf/leonardo/lucid-origin";
 // SPEED FIX: Switched to 'flux-1-schnell' for faster editing
-const MODEL_EDIT_FLUX = "@cf/black-forest-labs/flux-2-dev"; 
+const MODEL_EDIT_FLUX = "@cf/black-forest-labs/flux-1-schnell"; 
 
 //////////////////////////////
 // UTILS
@@ -326,6 +326,28 @@ export async function onRequest(context) {
 
     if (mode === "chat" && IMAGE_TRIGGERS.some(t => cleanPrompt.includes(t))) {
        mode = "image_gen";
+    }
+
+    // -----------------------------------------------------------------
+    // AUTO-EDIT MODE DETECTOR (NEW)
+    // -----------------------------------------------------------------
+    // Automatically switch to edit mode if user asks to "add", "change", etc.
+    // AND we have a previous image in memory.
+    const EDIT_TRIGGERS = [
+        "change", "modify", "edit", "add", "remove", "replace", "make it", "turn it", "fix",
+        "background", "color", "style", "look", "zoom", "pan", "insert", "delete"
+    ];
+    
+    if (mode === "chat" && EDIT_TRIGGERS.some(t => cleanPrompt.includes(t))) {
+        // Only switch if we actually have an image to edit
+        const lastImageCheck = await getLastImage(env, imgMemKey);
+        if (lastImageCheck) {
+            mode = "image_edit";
+            // Pre-fill to avoid double fetching
+            if (!base64ImageInput) {
+                base64ImageInput = lastImageCheck;
+            }
+        }
     }
     // -----------------------------------------------------------------
 
