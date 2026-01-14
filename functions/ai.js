@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.76)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.77)
  * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + FLUX 1/2 DEV (GEN/EDIT)
- * FIX: Enforce Multipart/FormData Stream for Flux 5006 Error
+ * FIX: Resolved 'Disturbed Stream' error & Added Image Memory
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.76";
+const VERSION = "9.9.77";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -207,31 +207,36 @@ export async function onRequest(context) {
         // Construct FormData exactly like the playground example
         const form = new FormData();
         form.append('prompt', activePrompt || "enhance image");
-        form.append('input_image_0', imageBlob); // Flux uses input_image_0 for img2img
+        form.append('input_image_0', imageBlob);
         form.append('width', '1024');
         form.append('height', '1024');
 
-        // Create a dummy request to generate a multipart stream
+        // FIXED: Do not consume 'dummyReq.body' manually.
         const dummyReq = new Request('http://dummy', {
           method: 'POST',
           body: form
         });
 
         try {
-            // Passing the 'multipart' object fixes the 5006 error
+            memory.push({ role: "user", content: `[Image Edit Request]: ${activePrompt}` });
+            
             const fluxResponse = await runAi(env, MODEL_IMAGE_GEN, {
                 multipart: {
-                    body: dummyReq.body,
+                    body: dummyReq.body, // The Worker runtime handles streaming this correctly
                     contentType: dummyReq.headers.get('content-type') || 'multipart/form-data'
                 }
             });
 
             if (fluxResponse instanceof ReadableStream) {
+                memory.push({ role: "assistant", content: "I've edited the image for you! 🎨" });
+                context.waitUntil(saveMemory(env, memKey, memory.slice(-AI_MEMORY_TRIM_TARGET)));
                 return new Response(fluxResponse, { headers: { ...cors, "Content-Type": "image/png" } });
             }
 
             let resultBase64 = fluxResponse?.image || fluxResponse?.result?.image;
             if (resultBase64) {
+                memory.push({ role: "assistant", content: "I've edited the image for you! 🎨" });
+                context.waitUntil(saveMemory(env, memKey, memory.slice(-AI_MEMORY_TRIM_TARGET)));
                 return new Response(base64ToUint8Array(resultBase64), { headers: { ...cors, "Content-Type": "image/png" } });
             }
             throw new Error("Flux returned no image data");
@@ -248,10 +253,14 @@ export async function onRequest(context) {
     // IMAGE GENERATION (NORMAL TEXT-TO-IMAGE)
     if (mode === "image_gen") {
       try {
+        memory.push({ role: "user", content: `[Image Gen Request]: ${activePrompt}` });
         const response = await runAi(env, MODEL_IMAGE_GEN, {
             prompt: activePrompt + ", cinematic, ultra detailed",
             num_steps: 24,
         });
+
+        memory.push({ role: "assistant", content: "Here is the image I imagined! 🌟" });
+        context.waitUntil(saveMemory(env, memKey, memory.slice(-AI_MEMORY_TRIM_TARGET)));
 
         if (response instanceof ReadableStream) {
           return new Response(response, { headers: { ...cors, "Content-Type": "image/png" } });
