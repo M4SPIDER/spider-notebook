@@ -66,7 +66,7 @@ const MODEL_GEN_LUCID = "@cf/leonardo/lucid-origin";
 
 // 5. Image Editing (Dual Model Setup for Safety/Reliability)
 // Primary: Highest Quality, but stricter safety filters
-const MODEL_EDIT_HQ = "@cf/black-forest-labs/flux-1-dev"; 
+const MODEL_EDIT_HQ = "@cf/black-forest-labs/flux-2-dev"; 
 // Fallback: Faster, slightly lower detail, but often allows more prompts
 const MODEL_EDIT_FAST = "@cf/black-forest-labs/flux-1-schnell"; 
 
