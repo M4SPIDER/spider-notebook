@@ -4727,81 +4727,127 @@ export default function App() {
 // 🔥 UPDATED: Spider AI Cloudflare Integration
 // 🔥 SPIDER AI — Cloudflare GPT-120B + SDXL Integration (FINAL VERSION)
 // 🔥 UPDATED: Spider AI Cloudflare Integration with Better Error Handling
+ Conversation with Gemini
+
 const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat", options = {}) => {
+
     
+
+    // ==========================================================
+
+    // 🔥 THE REAL FIX: Pass options.signal and return raw 'res' for streams
+
+    // ==========================================================
+
+    
+
     let fetchOptions = {
+
         method: "POST",
-        headers: {
+
+headers: {
+
             "Content-Type": "application/json"
+
         },
+
+        // Stringify the entire payload (includes file_content, images, etc.)
+
         body: JSON.stringify(payload),
+
+        // Allows the frontend to cancel the request via handleStopGeneration
+
         signal: options.signal 
+
     };
 
+
     try {
-        // Use the /ai worker endpoint
+
+        // Use the new fetchOptions, sending to the /ai worker endpoint
+
         const res = await fetch("/ai", fetchOptions);
 
-        // Check for HTTP errors
-        if (!res.ok) {
-            const errorText = await res.text();
-            console.error(`HTTP ${res.status} Error:`, errorText);
-            return { 
-                error: `Server error: ${res.status}`, 
-                details: errorText.substring(0, 200) 
-            };
+
+        // ---------------- STREAMING HANDLER (NEW) ----------------
+
+        // If the frontend explicitly passed { stream: true } in the options,
+
+        // we return the raw Response object so res.body.getReader() works.
+
+        if (options.stream) {
+
+            return res; 
+
         }
+
 
         const contentType = res.headers.get("content-type") || "";
 
-        // Handle image responses
-        if (contentType.includes("image/")) {
-            const blob = await res.blob();
-            if (blob.size === 0) {
-                return { error: "Image generation failed - empty response" };
-            }
 
-            const base64 = await new Promise((resolve, reject) => {
+        // ---------------- IMAGE RESPONSE (PNG) ----------------
+
+        if (contentType.includes("image/")) {
+
+            const blob = await res.blob();
+
+
+            const base64 = await new Promise((resolve) => {
+
                 const reader = new FileReader();
+
                 reader.onloadend = () => resolve(reader.result.split(",")[1]);
-                reader.onerror = reject;
+
                 reader.readAsDataURL(blob);
+
             });
 
-            return {
-                text: payload.prompt || "",
-                base64_image: base64,
-                model_used: "SDXL/Lucid"
-            };
-        }
 
-        // Handle text/JSON responses
+            return {
+
+                text: payload.prompt || "",
+
+                base64_image: base64,
+
+                model_used: "SDXL"
+
+            };
+
+}
+
+
+        // ---------------- TEXT RESPONSE ----------------
+
         const rawText = await res.text();
 
+
         if (!rawText || rawText.trim() === "") {
+
             return { error: "Empty response from Spider AI." };
+
         }
 
-        // Try to parse as JSON first
-        try {
-            const jsonData = JSON.parse(rawText);
-            if (jsonData.error) {
-                return { error: jsonData.error, details: jsonData.message };
-            }
-            return jsonData;
-        } catch {
-            // If not JSON, return as plain text
-            return { text: rawText };
-        }
+
+        // Spider AI 2.0 returns plain text for non-streaming requests
+
+        return {
+
+            text: rawText,
+
+            raw: rawText
+
+        };
+
 
     } catch (err) {
-        console.error("API Call Failed:", err);
-        return { 
-            error: err.name === "AbortError" ? "Request cancelled" : "Network error", 
-            message: err.message 
-        };
-    }
-}, []);
+
+        // Return error object instead of throwing to avoid breaking the UI flow
+
+        return { error: err.message };
+
+}
+
+}, []); 
   // --- WebSocket Handlers (NEW) ---
     // Helper function to append plain text to terminal output
     const appendToTerminal = (text, type = 'stdout') => {
@@ -5527,4 +5573,5 @@ int main() {
         </>
     );
 }
+
 
