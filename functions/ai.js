@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.67)
- * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN + GOOGLE EDIT (ONLY)
- * UPDATE: Added Safety Filters Bypass + Text Error Debugging for Google Edit
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.68)
+ * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN + GOOGLE EDIT (SMART)
+ * UPDATE: Added "Google-to-Google" Fallback (Flash Image -> Flash Exp) for Quota Fix
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.67";
+const VERSION = "9.9.68";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -29,9 +29,9 @@ const MODEL_PRO_CHAT = "@cf/mistralai/mistral-small-3.1-24b-instruct";
 // RESTORED: Lucid Origin as requested
 const MODEL_IMAGE_GEN = "@cf/leonardo/lucid-origin";
 
-// GOOGLE MODEL (Nano Banana) - Requires GEMINI_API_KEY
-// UPDATE: Exact model name as requested
-const MODEL_GOOGLE_EDIT = "gemini-2.5-flash-image-preview"; 
+// GOOGLE MODELS - Requires GEMINI_API_KEY
+const MODEL_GOOGLE_PRIMARY = "gemini-2.5-flash-image"; 
+const MODEL_GOOGLE_BACKUP = "gemini-2.0-flash-exp"; // Fallback for Quota issues
 
 const MODEL_ASR = "@cf/openai/whisper-large-v3-turbo";
 
@@ -146,8 +146,8 @@ async function runTavilySearch(env, query) {
 //////////////////////////////
 // GOOGLE GEMINI API CALLER
 //////////////////////////////
-async function runGoogleEdit(apiKey, prompt, imageBase64) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_GOOGLE_EDIT}:generateContent?key=${apiKey}`;
+async function runGoogleEdit(apiKey, model, prompt, imageBase64) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
     
     // Clean base64 just in case
     const cleanBase64 = imageBase64.includes(',') ? imageBase64.split(',').pop() : imageBase64;
@@ -181,7 +181,8 @@ async function runGoogleEdit(apiKey, prompt, imageBase64) {
 
     if (!response.ok) {
         const errText = await response.text();
-        throw new Error(`Google API Error (${response.status}): ${errText}`);
+        // Return structured error info
+        throw new Error(JSON.stringify({ status: response.status, body: errText }));
     }
 
     const data = await response.json();
@@ -693,7 +694,7 @@ export async function onRequest(context) {
     }
 
     //////////////////////
-    // IMAGE EDITING (GOOGLE GEMINI ONLY - NO FALLBACK)
+    // IMAGE EDITING (GOOGLE GEMINI SMART FALLBACK)
     //////////////////////
     if (mode === "image_edit") {
         // 1. Validation: Ensure image exists
@@ -706,7 +707,6 @@ export async function onRequest(context) {
 
         // 2. Prepare Prompt
         let editPrompt = activePrompt;
-        // Optional: Can remove this quality injection if Gemini is sensitive to it, but keeping for now as safe default.
         if (!editPrompt.toLowerCase().includes("quality")) {
              editPrompt = "masterpiece, best quality, " + editPrompt;
         }
@@ -714,8 +714,7 @@ export async function onRequest(context) {
             editPrompt += `\n\n[CONTEXT: ${searchContext}]`;
         }
 
-        // 3. Google Gemini (Path A Only)
-        // STRICT CHECK: Fail if API key is missing
+        // 3. Google Gemini
         if (!env.GEMINI_API_KEY) {
              return new Response(JSON.stringify({ error: "Configuration Error: GEMINI_API_KEY is missing. Please add it to environmental variables to use Image Editing." }), { 
                 status: 500, 
@@ -723,17 +722,15 @@ export async function onRequest(context) {
             });
         }
 
-        try {
-            // Use original base64 string directly
-            const result = await runGoogleEdit(env.GEMINI_API_KEY, editPrompt, payload.image);
-            
+        // --- HELPER TO PROCESS RESULT ---
+        const processGoogleResult = (result) => {
             if (result && result.type === 'image') {
                 const finalImage = base64ToUint8Array(result.data);
                 return new Response(finalImage, {
                     headers: { ...cors, "Content-Type": "image/png" }
                 });
             } else if (result && result.type === 'text') {
-                 // CRITICAL: Return the Model's Text Explanation as the Error Message
+                 // Return the Model's Text Explanation as the Error Message
                  return new Response(JSON.stringify({ error: `Google Refused Edit: ${result.data}` }), { 
                     status: 500, 
                     headers: { ...cors, "Content-Type": "application/json" } 
@@ -744,8 +741,42 @@ export async function onRequest(context) {
                     headers: { ...cors, "Content-Type": "application/json" } 
                 });
             }
-        } catch (googleErr) {
-            return new Response(JSON.stringify({ error: "Google Edit API Error", message: googleErr.message }), { 
+        };
+
+        try {
+            // ATTEMPT 1: PRIMARY (Flash Image)
+            const result = await runGoogleEdit(env.GEMINI_API_KEY, MODEL_GOOGLE_PRIMARY, editPrompt, payload.image);
+            return processGoogleResult(result);
+
+        } catch (primaryErr) {
+            // CHECK FOR QUOTA / 429 ERRORS
+            const errMsg = primaryErr.message || "";
+            const errBody = primaryErr.message && primaryErr.message.includes("{") ? primaryErr.message : "";
+            
+            // If error is 429 (Quota) or 503 (Overloaded), Try Backup
+            if (errMsg.includes("429") || errMsg.includes("403") || errMsg.includes("Quota") || errMsg.includes("RESOURCE_EXHAUSTED")) {
+                console.warn("Primary Google Model Quota Exceeded. Switching to Backup...", errMsg);
+                
+                try {
+                    // ATTEMPT 2: BACKUP (Flash Exp)
+                    const backupResult = await runGoogleEdit(env.GEMINI_API_KEY, MODEL_GOOGLE_BACKUP, editPrompt, payload.image);
+                    return processGoogleResult(backupResult);
+                } catch (backupErr) {
+                    // Both Failed
+                    return new Response(JSON.stringify({ 
+                        error: "Google Edit Failed (Quota Limit)", 
+                        message: "Quota exceeded on both Primary and Backup models. Please check Google AI Studio quotas.",
+                        details_primary: errMsg,
+                        details_backup: backupErr.message 
+                    }), { 
+                        status: 500, 
+                        headers: { ...cors, "Content-Type": "application/json" } 
+                    });
+                }
+            }
+
+            // If it's a different error (e.g. invalid key), fail immediately
+            return new Response(JSON.stringify({ error: "Google Edit API Error", message: errMsg }), { 
                 status: 500, 
                 headers: { ...cors, "Content-Type": "application/json" } 
             });
