@@ -1,7 +1,7 @@
 /**
  * =========================================================
  * SPIDER AI — FINAL STABLE BACKEND (v9.9.59)
- * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN + FLUX EDIT + ASR
+ * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN (GEN) + FLUX (EDIT) + ASR
  * Author: M4 Spider
  * =========================================================
  */
@@ -24,10 +24,11 @@ const AI_MAX_OUTPUT_LINES = 300;
 // SWAPPED: Standard is now GPT-OSS 120B, Pro is Mistral 24B
 const MODEL_STD_CHAT = "@cf/openai/gpt-oss-120b";
 const MODEL_PRO_CHAT = "@cf/mistralai/mistral-small-3.1-24b-instruct";
-const MODEL_IMAGE_GEN = "@cf/leonardo/lucid-origin";
-// NOTE: Image Edit model is now selected dynamically (SD v1.5) inside the handler
 const MODEL_ASR = "@cf/openai/whisper-large-v3-turbo";
-const MODEL_IMAGE_GEN = "@cf/black-forest-labs/flux-2-dev";
+
+// FIX: Renamed to avoid duplicates and support both models as requested
+const MODEL_GEN_LUCID = "@cf/leonardo/lucid-origin";
+const MODEL_EDIT_FLUX = "@cf/black-forest-labs/flux-1-dev"; // Corrected to flux-1-dev for stability
 
 //////////////////////////////
 // UTILS
@@ -52,13 +53,12 @@ function extractText(resp) {
     resp?.output?.[1]?.content?.[0]?.text ||
     resp?.response ||
     resp?.result ||
-    resp?.text ||	// Added for Whisper
+    resp?.text ||    // Added for Whisper
     ""
   );
 }
 
 // HELPER: Base64 to Array (Required for Image/Audio Input)
-// MOVED HERE from inside handler to fix scope/syntax errors
 const base64ToArray = (b64) => {
   try {
     const binaryString = atob(b64);
@@ -271,7 +271,8 @@ export async function onRequest(context) {
       stream = false,
       file_content,
       filename,
-      stream_id
+      stream_id,
+      image: base64ImageInput // CRITICAL: Extract image for editing
     } = payload;
 
     const memKey = AI_MEMORY_USER_KEY_PREFIX + user_preference_id;
@@ -394,8 +395,8 @@ export async function onRequest(context) {
     if (
         (mode === "stream" ||
          mode === "pro_chat" ||
-         mode === "pro" ||	// Matched frontend
-         mode === "reasoning" ||	// Matched frontend
+         mode === "pro" ||    // Matched frontend
+         mode === "reasoning" ||    // Matched frontend
          stream === true) &&
         mode !== "image_gen" &&
         mode !== "image_edit"
@@ -449,14 +450,14 @@ export async function onRequest(context) {
                 // If we are in Loop 2+, we manually inject the consolidated partial response.
                 // This allows the AI to see the full code it has written so far, preventing duplication.
                 if (fullResponseText.length > 0) {
-                     // 1. Inject the code written so far as an Assistant message
-                     currentMessages.push({ role: "assistant", content: fullResponseText });
+                      // 1. Inject the code written so far as an Assistant message
+                      currentMessages.push({ role: "assistant", content: fullResponseText });
 
-                     // 2. Inject a STRICT continuation prompt to prevent "breaking old code"
-                     currentMessages.push({
-                         role: "user",
-                         content: "You stopped mid-stream. IMMEDIATELY CONTINUE the code from the very last character. DO NOT repeat the last line. DO NOT rewrite the code block start ` ``` ` or ` ```javascript ` if you are inside one. Just output the next characters."
-                     });
+                      // 2. Inject a STRICT continuation prompt to prevent "breaking old code"
+                      currentMessages.push({
+                          role: "user",
+                          content: "You stopped mid-stream. IMMEDIATELY CONTINUE the code from the very last character. DO NOT repeat the last line. DO NOT rewrite the code block start ` ``` ` or ` ```javascript ` if you are inside one. Just output the next characters."
+                      });
                 }
 
                 // --- SMART MODEL HANDLING ---
@@ -487,19 +488,19 @@ export async function onRequest(context) {
                         aiResponse = { isStatic: true, text: extractText(aiResponse) };
 
                     } catch (fallbackErr) {
-                         // ATTEMPT 3: Ultimate Fallback -> GPT-OSS 120B (Static)
-                         const fallbackModel = MODEL_STD_CHAT;
-                         const fallbackPayload = {
+                          // ATTEMPT 3: Ultimate Fallback -> GPT-OSS 120B (Static)
+                          const fallbackModel = MODEL_STD_CHAT;
+                          const fallbackPayload = {
                              instructions: finalSystemPrompt,
                              input: currentMessages
-                                 .filter(m => m.role !== 'system')
-                                 .map(m => `${m.role === 'user'?'User':'Assistant'}: ${m.content}`)
-                                 .join("\n\n") + "\n\nAssistant:",
+                                  .filter(m => m.role !== 'system')
+                                  .map(m => `${m.role === 'user'?'User':'Assistant'}: ${m.content}`)
+                                  .join("\n\n") + "\n\nAssistant:",
                              max_tokens: 4096
-                         };
+                          };
 
-                         const finalRes = await env.SPY_AI.run(fallbackModel, fallbackPayload);
-                         aiResponse = { isStatic: true, text: extractText(finalRes) };
+                          const finalRes = await env.SPY_AI.run(fallbackModel, fallbackPayload);
+                          aiResponse = { isStatic: true, text: extractText(finalRes) };
                     }
                 }
 
@@ -620,7 +621,7 @@ export async function onRequest(context) {
     }
 
     //////////////////////
-    // IMAGE EDITING (FLUX 2 DEV -> SD 1.5 FIX)
+    // IMAGE EDITING (FLUX 1/2 DEV)
     //////////////////////
     // FIXED: base64ToUint8Array moved to UTILS, removed invalid 'onst' definition here.
     if (mode === "image_edit") {
@@ -646,7 +647,8 @@ export async function onRequest(context) {
                 memory.push({ role: "user", content: `[Image Edit Request]: ${activePrompt}` });
 
                 // CRITICAL: Passing 'multipart' object fixes 5006 error
-                const fluxResponse = await runAi(env, MODEL_IMAGE_GEN, {
+                // USE FLUX MODEL FOR EDITING
+                const fluxResponse = await runAi(env, MODEL_EDIT_FLUX, {
                     multipart: {
                         body: dummyReq.body, // The runtime handles this stream correctly
                         contentType: dummyReq.headers.get('content-type') || 'multipart/form-data'
@@ -678,7 +680,7 @@ export async function onRequest(context) {
 
 
     //////////////////////
-    // IMAGE GENERATION (FIXED & STABILIZED)
+    // IMAGE GENERATION (LUCID ORIGIN)
     //////////////////////
     if (mode === "image_gen") {
       // 1. Calculate Standard Width/Height
@@ -741,11 +743,11 @@ export async function onRequest(context) {
         context.waitUntil(saveMemory(env, memKey, memoryToSave));
       } catch (memErr) {}
 
-      // 4. CALL AI (SAFE MODE - NO OPTIONAL PARAMS)
+      // 4. CALL AI (USE LUCID ORIGIN FOR GENERATION)
       try {
         const response = await runAi(
           env,
-          MODEL_IMAGE_GEN,
+          MODEL_GEN_LUCID,
           {
             prompt: enhancedPrompt,
             width: width,
@@ -837,12 +839,12 @@ export async function onRequest(context) {
       ? {
           instructions: finalSystemPrompt,
           input: messages
-             .filter(m => m.role !== 'system')
-             .map(m => {
+              .filter(m => m.role !== 'system')
+              .map(m => {
                 const role = m.role === 'user' ? 'User' : 'Assistant';
                 return `${role}: ${m.content}`;
-             })
-             .join("\n\n") + "\n\nAssistant:",
+              })
+              .join("\n\n") + "\n\nAssistant:",
           max_tokens: 4096
       }
       : {
