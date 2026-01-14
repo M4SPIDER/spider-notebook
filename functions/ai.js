@@ -1,6 +1,6 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.63)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.64)
  * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN (GEN) + FLUX (EDIT) + ASR + IMG MEMORY
  * Author: M4 Spider
  * =========================================================
@@ -10,7 +10,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.63";
+const VERSION = "9.9.64";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -29,7 +29,7 @@ const MODEL_ASR = "@cf/openai/whisper-large-v3-turbo";
 // FIX: Renamed to avoid duplicates and support both models as requested
 const MODEL_GEN_LUCID = "@cf/leonardo/lucid-origin";
 // SPEED FIX: Switched to 'flux-1-schnell' for faster editing
-const MODEL_EDIT_FLUX = "@cf/black-forest-labs/flux-2-dev"; 
+const MODEL_EDIT_FLUX = "@cf/black-forest-labs/flux-1-schnell"; 
 
 //////////////////////////////
 // UTILS
@@ -664,7 +664,9 @@ export async function onRequest(context) {
                 memory.push({ role: "user", content: `[Image Edit Request]: ${activePrompt}` });
                 await saveMemory(env, memKey, memory.slice(-AI_MEMORY_TRIM_TARGET));
 
-                const fluxResponse = await runAi(env, MODEL_EDIT_FLUX, {
+                // DIRECT CALL TO SPY_AI TO AVOID STREAM CONSUMPTION IN RETRY LOOPS
+                // (The runAi wrapper retries on failure, which disturbs the body stream)
+                const fluxResponse = await env.SPY_AI.run(MODEL_EDIT_FLUX, {
                     multipart: {
                         body: dummyReq.body, 
                         contentType: dummyReq.headers.get('content-type') || 'multipart/form-data'
