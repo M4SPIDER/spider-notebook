@@ -25,7 +25,7 @@ const MODEL_STD_CHAT = "@cf/openai/gpt-oss-120b";
 const MODEL_PRO_CHAT = "@cf/mistralai/mistral-small-3.1-24b-instruct";
 const MODEL_ASR = "@cf/openai/whisper-large-v3-turbo";
 const MODEL_GEN_LUCID = "@cf/leonardo/lucid-origin";
-const MODEL_EDIT_FLUX = "@cf/black-forest-labs/flux-1-schnell"; // FIX: Switched to Schnell
+const MODEL_EDIT_FLUX = "@cf/black-forest-labs/flux-2-dev"; // FIX: Switched to Schnell
 
 //////////////////////////////
 // UTILS
