@@ -153,7 +153,7 @@ async function runTavilySearch(env, query) {
   if (!env.TAVILY_API_KEY) return null;
 
   try {
-    const response = await fetch("[https://api.tavily.com/search](https://api.tavily.com/search)", {
+    const response = await fetch("https://api.tavily.com/search", {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
@@ -593,7 +593,7 @@ export async function onRequest(context) {
                           // FIX 2: Sanitize stream chunk (Prevents Markdown in UI)
                           const safeChunk = textChunk
                               .replace(/^\s{0,3}#{1,6}\s+/gm, "")
-                              .replace(/\*\*(.*?)\*\*/g, "$1");
+                              .replace(/\*\*/g, ""); // Aggressively remove bold markers to fix split-token issues
 
                           controller.enqueue(
                             encoder.encode(`data: ${JSON.stringify({ text: safeChunk, stream_id: activeStreamId })}\n\n`)
