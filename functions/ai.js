@@ -1,6 +1,6 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.62)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.64)
  * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN (GEN) + FLUX (EDIT) + ASR + IMG MEMORY
  * Author: M4 Spider
  * =========================================================
@@ -10,15 +10,15 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.62";
+const VERSION = "9.9.64";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
 const AI_MEMORY_USER_KEY_PREFIX = "spider_ai_mem:";
 const AI_RETRY_LIMIT = 2;
 const AI_RETRY_DELAY_BASE = 1500;
-// OPTIMIZED: 300 lines is the safety limit for loop generation
-const AI_MAX_OUTPUT_LINES = 300;
+// OPTIMIZED: Increased to 1000 to prevent "half-baked" code in Pro mode
+const AI_MAX_OUTPUT_LINES = 1000;
 
 // MODELS
 // SWAPPED: Standard is now GPT-OSS 120B, Pro is Mistral 24B
@@ -340,11 +340,12 @@ export async function onRequest(context) {
     const memKey = AI_MEMORY_USER_KEY_PREFIX + user_preference_id;
     const imgMemKey = memKey + "_img"; // DEDICATED KEY FOR LAST IMAGE
 
-    // Handle Continue requests
+    // Handle Continue requests (FIX: Enhanced detection for manual buttons)
     let activePrompt = prompt;
     let isContinue = false; // TRACK CONTINUATION
-    if (!activePrompt && stream_id) {
-        activePrompt = "The previous code/text was incomplete. Please CONTINUE generating EXACTLY from where you left off. Do not restart. Just output the remaining part.";
+    // FIX: Broader check for continue/more actions
+    if ((!activePrompt || activePrompt.trim().toLowerCase() === "continue" || activePrompt.trim().toLowerCase() === "more") && stream_id) {
+        activePrompt = "The previous code/text was incomplete. Please CONTINUE generating EXACTLY from where you left off. Do not restart. Do not add introductory text. Just output the remaining code/text.";
         isContinue = true;
     }
 
@@ -362,11 +363,27 @@ export async function onRequest(context) {
     // -----------------------------------------------------------------
     const IMAGE_TRIGGERS = [
       "generate image", "create image", "make an image", "draw a",
-      "generate a picture", "create a picture", "imagine this", "draw this"
+      "generate a picture", "create a picture", "imagine this", "draw this",
+      "create a image", "generate an image", "make a picture", "create an image" // FIX: Added variations
     ];
 
     if (mode === "chat" && IMAGE_TRIGGERS.some(t => cleanPrompt.includes(t))) {
        mode = "image_gen";
+    }
+
+    // -----------------------------------------------------------------
+    // AUTO-CODE / STREAM MODE DETECTOR (NEW)
+    // -----------------------------------------------------------------
+    // If user asks for code, force Mistral/Pro mode for better coding performance
+    const CODE_TRIGGERS = [
+        "write code", "code for", "function", "debug", "script", "html", "css", 
+        "javascript", "python", "java", "react", "fix this code", "algorithm",
+        "write a program", "compile", "error", "exception"
+    ];
+    
+    // Switch to pro_chat (Stream) if code detected, even if originally "chat"
+    if (mode === "chat" && CODE_TRIGGERS.some(t => cleanPrompt.includes(t))) {
+        mode = "pro_chat";
     }
 
     // -----------------------------------------------------------------
@@ -512,7 +529,7 @@ export async function onRequest(context) {
                       currentMessages.push({ role: "assistant", content: fullResponseText });
                       currentMessages.push({
                           role: "user",
-                          content: "You stopped mid-stream. IMMEDIATELY CONTINUE the code from the very last character. DO NOT repeat the last line. DO NOT rewrite the code block start ` ``` ` or ` ```javascript ` if you are inside one. Just output the next characters."
+                          content: "You stopped mid-stream. IMMEDIATELY CONTINUE the code/text from the very last character. DO NOT repeat the last line. DO NOT use markdown code block starts if continuing inside one. Just output the remaining characters."
                       });
                 }
 
@@ -590,10 +607,12 @@ export async function onRequest(context) {
                         const textChunk = json.response || json.token || json.text;
 
                         if (textChunk) {
-                          // FIX 2: Sanitize stream chunk (Prevents Markdown in UI)
+                          // FIX 2: AGGRESSIVE SANITIZER for Stream (Prevents UI Breaking)
+                          // Removes ** and # completely to stop partial markdown matches from breaking UI
                           const safeChunk = textChunk
-                              .replace(/^\s{0,3}#{1,6}\s+/gm, "")
-                              .replace(/\*\*/g, ""); // Aggressively remove bold markers to fix split-token issues
+                              .replace(/^\s{0,3}#{1,6}\s+/gm, "") // headers at start of line
+                              .replace(/\*\*/g, "") // bold markers
+                              .replace(/#/g, ""); // stray hashes
 
                           controller.enqueue(
                             encoder.encode(`data: ${JSON.stringify({ text: safeChunk, stream_id: activeStreamId })}\n\n`)
