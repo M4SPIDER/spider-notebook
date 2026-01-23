@@ -3382,10 +3382,32 @@ const detectCodeLike = (text) =>
   text.includes("```") ||
   /^\s*(const|let|var|function|class|import|export|#include|def|public|private)\b/m.test(text);
 
-const detectStrongImageIntent = (text) =>
-  /^(create|generate|make|draw|design)\s+(an?|the)?\s*(image|picture|portrait|illustration|photo|artwork)/i.test(
-    text.trim()
+const detectStrongImageIntent = (text) => {
+  const t = text.toLowerCase();
+  return (
+    (t.includes("image") || t.includes("picture") || t.includes("photo")) &&
+    (t.includes("create") || t.includes("generate") || t.includes("draw") || t.includes("make"))
   );
+};
+
+const isImageQuestion = (text) => {
+  const t = text.trim().toLowerCase();
+  return t.endsWith("?") && detectStrongImageIntent(t);
+};
+
+const isUserImageConfirmation = (text) => {
+  const t = text.trim().toLowerCase();
+  return [
+    "yes generate the image ",
+    "yes generate it",
+    "go ahead generate the image ",
+    "ok generate image",
+    "okay generate image "
+  ].includes(t);
+};
+
+  const pendingIntentRef = useRef(null);
+// values: null | "IMAGE"
 
   const handleSendMessage = async () => {
   if (!message.trim() && !uploadedFile && !uploadedImage) return;
@@ -3394,35 +3416,59 @@ const detectStrongImageIntent = (text) =>
   const controller = new AbortController();
   setAbortController(controller);
 
-  console.log("Sending message:", {
-    persistentId: getPersistentUserId(),
-    length: rawMessage.length,
-    aiMode: selectedAIMode
-  });
-
   /* =====================================================
-     1️⃣ EARLY INTENT DETECTION (LOCK FIRST)
+     1️⃣ RESET & BASIC FLAGS
   ===================================================== */
+
+  setIsLoading(true);
 
   const isCodeLike = detectCodeLike(rawMessage);
   const isFullCodeRequest = detectFullCodeRequest(rawMessage);
-  const hasImageIntent = detectStrongImageIntent(rawMessage);
 
   let mode = activeAIMode || selectedAIMode;
   let forceStream = false;
 
+  /* =====================================================
+     2️⃣ INTENT STATE MACHINE (CRITICAL FIX)
+  ===================================================== */
+
+  // CODE ALWAYS WINS – clears any pending image intent
   if (isCodeLike || isFullCodeRequest) {
     mode = "chat";
     forceStream = true;
-  } else if (hasImageIntent && !uploadedImage) {
-    mode = "image_gen";
+    pendingIntentRef.current = null;
   }
 
+  // IMAGE QUESTION (DO NOT GENERATE)
+  else if (isImageQuestion(rawMessage)) {
+    pendingIntentRef.current = "IMAGE";
+    mode = "chat";
+  }
+
+  // IMAGE CONFIRMATION (ONLY if pending IMAGE intent)
+  else if (
+    pendingIntentRef.current === "IMAGE" &&
+    isUserImageConfirmation(rawMessage)
+  ) {
+    mode = "image_gen";
+    pendingIntentRef.current = null;
+  }
+
+  // DIRECT IMAGE COMMAND (NOT A QUESTION)
+  else if (
+    detectStrongImageIntent(rawMessage) &&
+    !isImageQuestion(rawMessage)
+  ) {
+    mode = "image_gen";
+    pendingIntentRef.current = null;
+  }
+
+  // FILE / IMAGE UPLOAD OVERRIDES
   if (uploadedFile) mode = "analyze_file";
   if (uploadedImage) mode = "image_edit";
 
   /* =====================================================
-     2️⃣ PROMPT HANDLING (NO CODE DAMAGE)
+     3️⃣ PROMPT HANDLING
   ===================================================== */
 
   let processedMessage = rawMessage;
@@ -3430,40 +3476,7 @@ const detectStrongImageIntent = (text) =>
   if (!isCodeLike && processedMessage.length > 8000) {
     processedMessage =
       processedMessage.slice(0, 8000) +
-      "\n\n[⚠️ Prompt truncated – split for better results]";
-  }
-
-  /* =====================================================
-     3️⃣ IMAGE EDIT CONTINUATION
-  ===================================================== */
-
-  const isLikelyEditContinuation = () => {
-    const lower = processedMessage.toLowerCase();
-    const keywords = [
-      "edit the image",
-      "change the background",
-      "modify the image",
-      "adjust the size",
-      "fix the ratio",
-      "add the person",
-      "remove the object",
-      "replace the image"
-    ];
-
-    const prev = chatHistory.slice(-3);
-
-    const hadImage = prev.some(
-      (m) =>
-        m.type === "image" ||
-        m.base64_image ||
-        (m.role === "assistant" && m.content?.includes("image"))
-    );
-
-    return hadImage && keywords.some((k) => lower.includes(k));
-  };
-
-  if (mode !== "image_gen" && isLikelyEditContinuation() && !uploadedImage) {
-    mode = "image_edit";
+      "\n\n[Prompt truncated – split for better results]";
   }
 
   /* =====================================================
@@ -3476,9 +3489,7 @@ const detectStrongImageIntent = (text) =>
       role: "user",
       content: processedMessage,
       type: mode,
-      ts: Date.now(),
-      aiMode: selectedAIMode,
-      isFullCodeRequest
+      ts: Date.now()
     }
   ]);
 
@@ -3497,75 +3508,29 @@ const detectStrongImageIntent = (text) =>
     processedMessage.length > 1000 ||
     detectMathRequest(processedMessage);
 
-  if (shouldStream) {
+  if (shouldStream && mode !== "image_gen") {
     setIsStreaming(true);
     setStreamingMessage({
       role: "assistant",
       content: "",
       type: "text",
-      ts: Date.now(),
-      isStreaming: true
+      isStreaming: true,
+      ts: Date.now()
     });
   }
 
-  setIsLoading(true);
+  /* =====================================================
+     6️⃣ EXECUTION
+  ===================================================== */
 
   try {
-    /* =====================================================
-       6️⃣ FILE ANALYSIS
-    ===================================================== */
-
-    if (mode === "analyze_file" && uploadedFile) {
-      let fileContent;
-
-      if (
-        uploadedFile.type.startsWith("text/") ||
-        /\.(txt|js|py|html|css|md)$/i.test(uploadedFile.name)
-      ) {
-        fileContent = await uploadedFile.text();
-      } else {
-        fileContent = await new Promise((res, rej) => {
-          const r = new FileReader();
-          r.onload = () => res(r.result.split(",")[1]);
-          r.onerror = rej;
-          r.readAsDataURL(uploadedFile);
-        });
-      }
-
-      if (fileContent.length > 1_000_000) {
-        fileContent = fileContent.slice(0, 1_000_000) + "\n[file truncated]";
-      }
-
-      const response = await callFastAPI(
-        "/api/generate/text",
-        {
-          prompt: processedMessage || `Analyze ${uploadedFile.name}`,
-          mode: "analyze_file",
-          filename: uploadedFile.name,
-          file_content: fileContent,
-          stream: true,
-          ai_mode: selectedAIMode,
-          user_preference_id: getPersistentUserId()
-        },
-        mode,
-        { stream: true, signal: controller.signal, timeout: 60000 }
-      );
-
-      await handleStreamResponse(response);
-    }
-
-    /* =====================================================
-       7️⃣ IMAGE GENERATION
-    ===================================================== */
-
-    else if (mode === "image_gen") {
+    /* ---------- IMAGE GENERATION ---------- */
+    if (mode === "image_gen") {
       const result = await callFastAPI(
         "/api/generate/text",
         {
           prompt: rawMessage,
           mode: "image_gen",
-          aspect_ratio: aspectRatio,
-          ai_mode: selectedAIMode,
           stream: false,
           max_tokens: 400
         },
@@ -3573,80 +3538,37 @@ const detectStrongImageIntent = (text) =>
         { timeout: 45000 }
       );
 
-      if (!result?.base64_image) {
-        throw new Error("No image data in response");
+      // SAFE HANDLING (NO MORE ERROR LOOP)
+      if (result?.base64_image) {
+        setChatHistory((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            type: "image",
+            base64_image: result.base64_image,
+            ts: Date.now()
+          }
+        ]);
+        return;
       }
 
-      setChatHistory((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          type: "image",
-          base64_image: result.base64_image,
-          ts: Date.now(),
-          is_generated: true
-        }
-      ]);
+      if (result?.text) {
+        setChatHistory((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            type: "text",
+            content: result.text,
+            ts: Date.now()
+          }
+        ]);
+        return;
+      }
 
-      localStorage.setItem("last_edited_image", result.base64_image);
-      return;
+      throw new Error("Image generation failed");
     }
 
-    /* =====================================================
-       8️⃣ IMAGE EDIT
-    ===================================================== */
-
-    else if (mode === "image_edit") {
-      let base64Image = null;
-
-      if (uploadedImage) {
-        base64Image = await new Promise((res, rej) => {
-          const r = new FileReader();
-          r.onload = () => res(r.result.split(",")[1]);
-          r.onerror = rej;
-          r.readAsDataURL(uploadedImage);
-        });
-      }
-
-      const result = await callFastAPI(
-        "/api/generate/text",
-        {
-          prompt: processedMessage,
-          mode: "image_edit",
-          image: base64Image,
-          strength: 0.7,
-          ai_mode: selectedAIMode,
-          stream: false,
-          is_edit_continuation: !uploadedImage && isLikelyEditContinuation(),
-          max_tokens: 800
-        },
-        mode,
-        { timeout: 45000 }
-      );
-
-      if (!result?.base64_image) {
-        throw new Error("No image data in response");
-      }
-
-      setChatHistory((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          type: "image",
-          base64_image: result.base64_image,
-          ts: Date.now(),
-          is_edited: true
-        }
-      ]);
-
-      localStorage.setItem("last_edited_image", result.base64_image);
-      return;
-    }
-
-    /* =====================================================
-       9️⃣ CHAT / CODE / REASONING (STREAMED)
-    ===================================================== */
-
+    /* ---------- STREAMING CHAT / CODE ---------- */
     if (shouldStream) {
       const response = await callFastAPI(
         "/api/generate/text",
@@ -3654,13 +3576,10 @@ const detectStrongImageIntent = (text) =>
           prompt: processedMessage,
           mode,
           stream: true,
-          ai_mode: selectedAIMode,
-          full_code_mode: isFullCodeRequest,
-          user_preference_id: getPersistentUserId(),
-          firebase_token: currentUser?.firebaseToken || ""
+          ai_mode: selectedAIMode
         },
         mode,
-        { stream: true, signal: controller.signal, timeout: 90000 }
+        { signal: controller.signal, stream: true, timeout: 90000 }
       );
 
       await handleStreamResponse(response);
@@ -3672,18 +3591,19 @@ const detectStrongImageIntent = (text) =>
             role: "assistant",
             content: accumulatedTokensRef.current,
             type: "text",
-            ts: Date.now(),
-            aiMode: selectedAIMode
+            ts: Date.now()
           }
         ]);
       }
-    } else {
+    }
+
+    /* ---------- NORMAL CHAT ---------- */
+    else {
       const result = await callFastAPI(
         "/api/generate/text",
         {
           prompt: processedMessage,
           mode,
-          ai_mode: selectedAIMode,
           stream: false,
           max_tokens: 1500
         },
@@ -3702,16 +3622,14 @@ const detectStrongImageIntent = (text) =>
       ]);
     }
   } catch (err) {
-    console.error("API ERROR:", err);
-
     setChatHistory((prev) => [
       ...prev,
       {
         role: "assistant",
         content: err.message || "Something went wrong",
         type: "text",
-        ts: Date.now(),
-        isError: true
+        isError: true,
+        ts: Date.now()
       }
     ]);
   } finally {
@@ -3724,7 +3642,6 @@ const detectStrongImageIntent = (text) =>
     accumulatedTokensRef.current = "";
   }
 };
-
   // ---------- Download Project ----------
     const downloadProjectAsZip = useCallback(async () => {
         if (generatedFiles.length === 0) {
@@ -5371,6 +5288,7 @@ int main() {
         </>
     );
 }
+
 
 
 
