@@ -3384,12 +3384,12 @@ const handleSendMessage = async () => {
     console.log('Sending message:', {
         persistentId: getPersistentUserId(),
         currentUser: currentUser,
-        messageLength: message.length, // Track length
+        messageLength: message.length,
         aiMode: selectedAIMode
     });
 
     // VALIDATE AND TRIM LARGE PROMPTS
-    const MAX_PROMPT_LENGTH = 4000; // Adjust based on your API limits
+    const MAX_PROMPT_LENGTH = 4000;
     const processedMessage = message.length > MAX_PROMPT_LENGTH 
         ? message.substring(0, MAX_PROMPT_LENGTH) + "...[truncated due to length]"
         : message;
@@ -3408,9 +3408,46 @@ const handleSendMessage = async () => {
     const imageCopy = uploadedImage;
     let mode = activeAIMode || selectedAIMode;
 
-    // Auto-detect image generation
-    if (!fileCopy && !imageCopy && detectImageGeneration(processedMessage)) {
+    // Check for explicit image generation request - FULL SENTENCE ONLY
+    const hasExplicitImageRequest = () => {
+        const lowerMsg = processedMessage.toLowerCase();
+        // Only FULL sentence image requests
+        const fullImageRequests = [
+            'create an image',
+            'generate an image',
+            'make a picture'
+        ];
+        
+        return fullImageRequests.some(fullRequest => 
+            lowerMsg.includes(fullRequest)
+        );
+    };
+
+    // Check for edit mode - SIMPLIFIED
+    const hasExplicitEditRequest = () => {
+        const lowerMsg = processedMessage.toLowerCase();
+        const editKeywords = ['edit the image ', 'change the background', 'fix the ratio'];
+        
+        // Check for previous image in chat
+        const previousMessages = chatHistory.slice(-3);
+        const hasPreviousImage = previousMessages.some(msg => 
+            msg.type === 'image' || 
+            msg.base64_image
+        );
+        
+        // Simple edit check - only if previous image exists
+        return hasPreviousImage && editKeywords.some(keyword => 
+            lowerMsg.includes(keyword)
+        );
+    };
+
+    // Auto-detect image generation ONLY for full sentence requests
+    if (!fileCopy && !imageCopy && hasExplicitImageRequest()) {
         mode = 'image_gen';
+        console.log("Explicit image generation request detected");
+    } else {
+        // Keep current mode if not image request
+        mode = selectedAIMode;
     }
 
     // Auto-detect full code requests
@@ -3418,31 +3455,33 @@ const handleSendMessage = async () => {
     if (isFullCodeRequest && !fileCopy && !imageCopy) {
         setIsFullCodeMode(true);
         setProjectMetadata(extractProjectMetadata(processedMessage));
+        // FULL CODE MODE MUST BE STREAMING
+        mode = "chat"; // Use chat mode with streaming
+        console.log("Full code request detected - forcing streaming mode");
     }
 
-    // Check if this is likely an edit continuation
-    const isLikelyEditContinuation = () => {
-        const lowerMsg = processedMessage.toLowerCase();
-        const editKeywords = ['edit', 'change', 'modify', 'adjust', 'fix', 'add', 'remove', 'replace'];
-        const previousMessages = chatHistory.slice(-3);
-        
-        const hadImage = previousMessages.some(msg => 
-            msg.type === 'image' || 
-            msg.base64_image ||
-            (msg.role === 'assistant' && msg.content?.includes('image'))
-        );
-        
-        return hadImage && editKeywords.some(keyword => lowerMsg.includes(keyword));
-    };
-
-    // Override based on file/image uploads
-    if (fileCopy) mode = "analyze_file";
-    if (imageCopy) mode = "image_edit";
-    
-    // Force edit mode for edit continuations
-    if (isLikelyEditContinuation() && !imageCopy) {
+    // Force edit mode ONLY when user explicitly edits AND has an image
+    let forceEditMode = false;
+    if (hasExplicitEditRequest() && imageCopy) {
+        forceEditMode = true;
         mode = "image_edit";
-        console.log("Forcing edit mode for continuation request");
+        console.log("Explicit edit request with image detected");
+    }
+
+    // Clear priority order
+    if (fileCopy) {
+        mode = "analyze_file";
+    } else if (imageCopy || forceEditMode) {
+        mode = "image_edit";
+    } else if (mode === 'image_gen' && !hasExplicitImageRequest()) {
+        // Reset to chat if not explicitly image request
+        mode = "chat";
+    }
+
+    // REMOVE EDIT MODE FROM CHAT - Only use chat for non-image, non-edit requests
+    if (mode === "chat" && hasExplicitEditRequest()) {
+        mode = "chat"; // Keep as chat even if edit words are used
+        console.log("Edit keywords in chat mode - ignoring edit mode");
     }
 
     const userMessage = {
@@ -3468,29 +3507,25 @@ const handleSendMessage = async () => {
     fileContentBufferRef.current = '';
     continueStreamIdRef.current = null;
 
-    // DECISION: When to use streaming vs normal API
+    // DECISION: When to use streaming
     const shouldStream = 
-        isFullCodeRequest ||
-        detectLargeCodeRequest(processedMessage) ||
+        isFullCodeRequest || // ALWAYS STREAM FULL CODE
         mode === "analyze_file" ||
-        processedMessage.length > 1000 || // Stream long prompts
-        processedMessage.toLowerCase().includes('stream') ||
-        processedMessage.toLowerCase().includes('step by step') ||
-        detectMathRequest(processedMessage) ||
+        processedMessage.length > 1000 ||
         selectedAIMode === 'reasoning' ||
-        selectedAIMode === 'pro';
+        selectedAIMode === 'pro' ||
+        detectLargeCodeRequest(processedMessage);
 
     console.log('Streaming decision:', {
         shouldStream,
         isFullCodeRequest,
         mode,
         selectedAIMode,
-        messageLength: processedMessage.length,
-        isEditContinuation: isLikelyEditContinuation()
+        messageLength: processedMessage.length
     });
 
     try {
-        // FILE ANALYSIS
+        // FILE ANALYSIS - Use streaming
         if (mode === "analyze_file" && fileCopy) {
             let fileContent;
             
@@ -3518,8 +3553,8 @@ const handleSendMessage = async () => {
                 });
             }
 
-            // HANDLE LARGE FILES
-            if (fileContent.length > 1000000) { // 1MB limit
+            // Handle large files
+            if (fileContent.length > 1000000) {
                 console.warn('Large file detected, truncating analysis');
                 fileContent = fileContent.substring(0, 1000000) + "...[file truncated]";
             }
@@ -3533,11 +3568,11 @@ const handleSendMessage = async () => {
                 file_type: fileCopy.type,
                 user_preference_id: getPersistentUserId(),
                 firebase_token: currentUser?.firebaseToken || '',
-                stream: true,
+                stream: true, // ALWAYS STREAM FOR FILES
                 ai_mode: selectedAIMode
             };
             
-            console.log('Sending file analysis request');
+            console.log('Sending file analysis request with streaming');
             
             setIsStreaming(true);
             const initialStreamMessage = {
@@ -3552,7 +3587,7 @@ const handleSendMessage = async () => {
             const response = await callFastAPI(apiUrl, apiPayload, mode, {
                 signal: controller.signal,
                 stream: true,
-                timeout: 60000 // 60 seconds for large files
+                timeout: 60000
             });
 
             if (!response.ok) {
@@ -3572,8 +3607,8 @@ const handleSendMessage = async () => {
                 setChatHistory(prev => [...prev, assistantMessage]);
             }
         }
-        // IMAGE EDIT
-        else if (mode === "image_edit") {
+        // IMAGE EDIT - Only when image is uploaded
+        else if (mode === "image_edit" && imageCopy) {
             console.log('Processing image edit request...');
             
             let base64Image = null;
@@ -3605,12 +3640,12 @@ const handleSendMessage = async () => {
                     reader.readAsDataURL(imageCopy);
                 });
                 
-                console.log('Uploaded image processed, size:', base64Image?.length);
+                console.log('Uploaded image processed');
             }
 
-            // TRUNCATE LONG IMAGE PROMPTS
+            // Truncate long image prompts
             const imagePrompt = processedMessage.length > 1000 
-                ? processedMessage.substring(0, 1000) + "...[prompt truncated for image editing]"
+                ? processedMessage.substring(0, 1000) + "...[prompt truncated]"
                 : processedMessage;
 
             const apiUrl = '/api/generate/text';
@@ -3622,20 +3657,15 @@ const handleSendMessage = async () => {
                 user_preference_id: getPersistentUserId(),
                 firebase_token: currentUser?.firebaseToken || '',
                 stream: false,
-                ai_mode: selectedAIMode,
-                is_edit_continuation: !imageCopy && isLikelyEditContinuation(),
-                max_tokens: 800 // Limit tokens for image prompts
+                ai_mode: selectedAIMode
             };
             
-            console.log('Sending image edit request:', {
-                hasImage: !!base64Image,
-                promptLength: imagePrompt.length
-            });
+            console.log('Sending image edit request');
             
             try {
                 const result = await callFastAPI(apiUrl, apiPayload, mode, {
                     signal: controller.signal,
-                    timeout: 45000 // 45 seconds for image generation
+                    timeout: 45000
                 });
 
                 console.log('Image edit response received');
@@ -3643,25 +3673,12 @@ const handleSendMessage = async () => {
                 if (result?.base64_image) {
                     const assistantMessage = {
                         role: 'assistant',
-                        content: imagePrompt.includes('edit') ? `Edited: ${imagePrompt}` : '',
-                        type: 'image',
-                        base64_image: result.base64_image,
-                        ts: Date.now(),
-                        is_edited: true
-                    };
-                    setChatHistory(prev => [...prev, assistantMessage]);
-                    localStorage.setItem('last_edited_image', result.base64_image);
-                } else if (result?.image) {
-                    const assistantMessage = {
-                        role: 'assistant',
                         content: '',
                         type: 'image',
-                        base64_image: result.image,
-                        ts: Date.now(),
-                        is_edited: true
+                        base64_image: result.base64_image,
+                        ts: Date.now()
                     };
                     setChatHistory(prev => [...prev, assistantMessage]);
-                    localStorage.setItem('last_edited_image', result.image);
                 } else {
                     throw new Error('No image data in response');
                 }
@@ -3670,11 +3687,11 @@ const handleSendMessage = async () => {
                 throw apiError;
             }
         }
-        // IMAGE GENERATION
+        // IMAGE GENERATION - Only for explicit full sentence requests
         else if (mode === "image_gen") {
-            // TRUNCATE LONG IMAGE PROMPTS
+            // Truncate long prompts
             const imageGenPrompt = processedMessage.length > 1000 
-                ? processedMessage.substring(0, 1000) + "...[prompt truncated for image generation]"
+                ? processedMessage.substring(0, 1000) + "...[prompt truncated]"
                 : processedMessage;
 
             const apiUrl = '/api/generate/text';
@@ -3685,13 +3702,10 @@ const handleSendMessage = async () => {
                 user_preference_id: getPersistentUserId(),
                 firebase_token: currentUser?.firebaseToken || '',
                 stream: false,
-                ai_mode: selectedAIMode,
-                max_tokens: 400 // Limit for image generation
+                ai_mode: selectedAIMode
             };
             
-            console.log('Sending image generation request', {
-                promptLength: imageGenPrompt.length
-            });
+            console.log('Sending image generation request');
             
             const result = await callFastAPI(apiUrl, apiPayload, mode, {
                 timeout: 45000
@@ -3705,16 +3719,14 @@ const handleSendMessage = async () => {
                     content: '',
                     type: 'image',
                     base64_image: result.base64_image,
-                    ts: Date.now(),
-                    is_generated: true
+                    ts: Date.now()
                 };
                 setChatHistory(prev => [...prev, assistantMessage]);
-                localStorage.setItem('last_edited_image', result.base64_image);
             } else {
                 throw new Error('No image data received');
             }
         }
-        // FULL CODE MODE
+        // FULL CODE MODE - MUST USE STREAMING
         else if (isFullCodeRequest) {
             const apiUrl = '/api/generate/text';
             const apiPayload = { 
@@ -3722,19 +3734,18 @@ const handleSendMessage = async () => {
                 mode: "chat",
                 user_preference_id: getPersistentUserId(),
                 firebase_token: currentUser?.firebaseToken || '',
-                stream: true,
+                stream: true, // ALWAYS STREAM
                 full_code_mode: true,
                 project_type: projectMetadata.type,
-                ai_mode: selectedAIMode,
-                max_tokens: 4000 // Limit for code generation
+                ai_mode: selectedAIMode
             };
             
-            console.log('Sending full-code request with streaming');
+            console.log('Sending full-code request with FORCED streaming');
             
             setIsStreaming(true);
             const initialStreamMessage = {
                 role: 'assistant',
-                content: `Generating complete project: ${projectMetadata.name}...`,
+                content: `Generating project...`,
                 type: 'text',
                 ts: Date.now(),
                 isStreaming: true
@@ -3744,7 +3755,7 @@ const handleSendMessage = async () => {
             const response = await callFastAPI(apiUrl, apiPayload, mode, {
                 signal: controller.signal,
                 stream: true,
-                timeout: 90000 // 90 seconds for full code
+                timeout: 90000
             });
 
             if (!response.ok) {
@@ -3760,89 +3771,22 @@ const handleSendMessage = async () => {
                     content: accumulatedTokensRef.current,
                     type: 'text',
                     ts: Date.now(),
-                    isFullCode: true,
-                    files: generatedFiles.length > 0 ? generatedFiles : undefined
-                };
-                setChatHistory(prev => [...prev, assistantMessage]);
-                
-                if (generatedFiles.length > 0) {
-                    setTimeout(() => {
-                        setIsProjectView(true);
-                        showModal("Project Generated", 
-                            `Successfully generated ${generatedFiles.length} files.`
-                        );
-                    }, 500);
-                }
-            }
-        }
-        // AI MODES: REASONING & PRO
-        else if (selectedAIMode === 'reasoning' || selectedAIMode === 'pro') {
-            // LIMIT REASONING PROMPTS
-            const reasoningPrompt = processedMessage.length > 3000 
-                ? processedMessage.substring(0, 3000) + "...[prompt truncated for reasoning]"
-                : processedMessage;
-
-            const apiUrl = '/api/generate/text';
-            const apiPayload = { 
-                prompt: reasoningPrompt, 
-                mode: selectedAIMode,
-                user_preference_id: getPersistentUserId(),
-                firebase_token: currentUser?.firebaseToken || '',
-                stream: true,
-                ai_mode: selectedAIMode,
-                max_tokens: 2000 // Limit reasoning output
-            };
-            
-            console.log(`Sending ${selectedAIMode} request with streaming`);
-            
-            setIsStreaming(true);
-            const initialStreamMessage = {
-                role: 'assistant',
-                content: selectedAIMode === 'pro' 
-                    ? '🤖 Spider AI Pro is thinking...' 
-                    : '🧠 Reasoning step by step...',
-                type: 'text',
-                ts: Date.now(),
-                isStreaming: true
-            };
-            setStreamingMessage(initialStreamMessage);
-            
-            const response = await callFastAPI(apiUrl, apiPayload, mode, {
-                signal: controller.signal,
-                stream: true,
-                timeout: 60000
-            });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`HTTP ${response.status}: ${errorText}`);
-            }
-
-            await handleStreamResponse(response);
-
-            if (accumulatedTokensRef.current) {
-                const assistantMessage = {
-                    role: 'assistant',
-                    content: accumulatedTokensRef.current,
-                    type: 'text',
-                    ts: Date.now(),
-                    aiMode: selectedAIMode
+                    isFullCode: true
                 };
                 setChatHistory(prev => [...prev, assistantMessage]);
             }
         }
-        // NORMAL CHAT
+        // NORMAL CHAT - Use streaming for long prompts
         else {
             if (shouldStream) {
                 const apiUrl = '/api/generate/text';
                 const apiPayload = { 
                     prompt: processedMessage, 
-                    mode,
+                    mode: "chat",
                     user_preference_id: getPersistentUserId(),
                     firebase_token: currentUser?.firebaseToken || '',
                     stream: true,
-                    ai_mode: selectedAIMode,
-                    max_tokens: processedMessage.length > 2000 ? 2000 : undefined
+                    ai_mode: selectedAIMode
                 };
                 
                 console.log('Using streaming for this request');
@@ -3883,15 +3827,14 @@ const handleSendMessage = async () => {
                 const apiUrl = '/api/generate/text';
                 const apiPayload = { 
                     prompt: processedMessage, 
-                    mode,
+                    mode: "chat",
                     user_preference_id: getPersistentUserId(),
                     firebase_token: currentUser?.firebaseToken || '',
                     stream: false,
-                    ai_mode: selectedAIMode,
-                    max_tokens: 1500 // Limit for non-streaming responses
+                    ai_mode: selectedAIMode
                 };
                 
-                console.log('Using normal API call for regular chat');
+                console.log('Using normal API call');
                 
                 const result = await callFastAPI(apiUrl, apiPayload, mode, {
                     signal: controller.signal,
@@ -3902,17 +3845,13 @@ const handleSendMessage = async () => {
                 console.log('Received normal response');
 
                 if (result?.text) {
-                    // Use fast typing animation for better UX
-                    typeText(result.text, () => {
-                        const assistantMessage = {
-                            role: 'assistant',
-                            content: result.text,
-                            type: 'text',
-                            ts: Date.now()
-                        };
-                        setChatHistory(prev => [...prev, assistantMessage]);
-                        setStreamingMessage(null);
-                    });
+                    const assistantMessage = {
+                        role: 'assistant',
+                        content: result.text,
+                        type: 'text',
+                        ts: Date.now()
+                    };
+                    setChatHistory(prev => [...prev, assistantMessage]);
                 } else {
                     const assistantMessage = {
                         role: 'assistant',
@@ -3927,20 +3866,18 @@ const handleSendMessage = async () => {
     } catch (error) {
         console.error('API ERROR:', error);
         
-        // Handle specific error types
         let errorMessage = 'Something went wrong. Please try again.';
         
         if (error.name === 'AbortError') {
             errorMessage = 'Request was cancelled.';
-            console.log('Request aborted by user');
         } else if (error.message.includes('timeout')) {
-            errorMessage = 'Request timed out. The prompt might be too long. Please try a shorter version.';
+            errorMessage = 'Request timed out. Please try a shorter version.';
         } else if (error.message.includes('413')) {
-            errorMessage = 'Request too large. Please shorten your prompt or try splitting it into smaller parts.';
+            errorMessage = 'Request too large. Please shorten your prompt.';
         } else if (error.message.includes('429')) {
-            errorMessage = 'Too many requests. Please wait a moment and try again.';
+            errorMessage = 'Too many requests. Please wait and try again.';
         } else if (error.message.includes('500')) {
-            errorMessage = 'Server error. Please try again in a few moments.';
+            errorMessage = 'Server error. Please try again.';
         } else {
             errorMessage = `Error: ${error.message || 'Unknown error'}`;
         }
@@ -3953,15 +3890,6 @@ const handleSendMessage = async () => {
             isError: true
         };
         setChatHistory(prev => [...prev, assistantError]);
-        
-        // Show notification for large prompts
-        if (message.length > 3000) {
-            showNotification(
-                "Large Prompt Detected", 
-                "Your prompt was quite long. For better results, try breaking it into smaller parts.",
-                "warning"
-            );
-        }
     } finally {
         // Clean up
         setAbortController(null);
@@ -3970,13 +3898,11 @@ const handleSendMessage = async () => {
         setIsLoading(false);
         setIsStreaming(false);
         setStreamingMessage(null);
-        
-        // Clear streaming content
         setStreamedContent('');
         accumulatedTokensRef.current = '';
     }
 };
-    // ---------- Download Project ----------
+  // ---------- Download Project ----------
     const downloadProjectAsZip = useCallback(async () => {
         if (generatedFiles.length === 0) {
             showModal("No Files", "No generated files to download.");
@@ -5622,6 +5548,7 @@ int main() {
         </>
     );
 }
+
 
 
 
