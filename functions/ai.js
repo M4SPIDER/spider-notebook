@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v10.0.2)
- * RESTORED: Telugu, ASR, Loop Logic
- * NEW: Strict Mode, Flux Fixes, Clarity
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.62)
+ * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN (GEN) + FLUX (EDIT) + ASR + IMG MEMORY
+ * Author: M4 Spider
  * =========================================================
  */
 
@@ -10,7 +10,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "10.0.2";
+const VERSION = "9.9.62";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -21,22 +21,45 @@ const AI_RETRY_DELAY_BASE = 1500;
 const AI_MAX_OUTPUT_LINES = 300;
 
 // MODELS
+// SWAPPED: Standard is now GPT-OSS 120B, Pro is Mistral 24B
 const MODEL_STD_CHAT = "@cf/openai/gpt-oss-120b";
 const MODEL_PRO_CHAT = "@cf/mistralai/mistral-small-3.1-24b-instruct";
 const MODEL_ASR = "@cf/openai/whisper-large-v3-turbo";
+
+// FIX: Renamed to avoid duplicates and support both models as requested
 const MODEL_GEN_LUCID = "@cf/leonardo/lucid-origin";
-const MODEL_EDIT_FLUX = "@cf/black-forest-labs/flux-1-schnell"; // FIX: Switched to Schnell
+// SPEED FIX: Switched to 'flux-1-schnell' for faster editing
+const MODEL_EDIT_FLUX = "@cf/black-forest-labs/flux-2-dev"; 
 
 //////////////////////////////
 // UTILS
 //////////////////////////////
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-// FIXED: Less aggressive cleaner. Preserves **bold** and # headers.
+// FIX 1: Robust Markdown Cleaner (Protects Code Blocks)
 function cleanAiResponse(text) {
   if (!text) return "";
-  return text
-    .replace(/#\*[\s\S]*?\*#/g, "") // Remove custom internal tags only
+
+  let out = text;
+
+  // Remove ONLY markdown outside code blocks
+  const parts = out.split(/```/);
+  for (let i = 0; i < parts.length; i += 2) {
+    parts[i] = parts[i]
+      // headers
+      .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+      // bold / italic
+      .replace(/\*\*(.*?)\*\*/g, "$1")
+      .replace(/\*(.*?)\*/g, "$1")
+      // underline style
+      .replace(/__(.*?)__/g, "$1")
+      .replace(/_(.*?)_/g, "$1");
+  }
+
+  out = parts.join("```");
+
+  return out
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
@@ -50,9 +73,10 @@ function extractText(resp) {
   );
 }
 
-// HELPER: Base64 to Array
+// HELPER: Base64 to Array (Required for Image/Audio Input)
 const base64ToArray = (b64) => {
   try {
+    // FIX: Android/Mobile often adds newlines/spaces in base64 strings
     const cleanBase64 = (b64.includes(',') ? b64.split(',').pop() : b64).replace(/[\r\n\s]/g, '');
     const binaryString = atob(cleanBase64);
     const len = binaryString.length;
@@ -68,6 +92,7 @@ const base64ToArray = (b64) => {
 
 const base64ToUint8Array = (base64) => {
     try {
+        // FIX: Android/Mobile often adds newlines/spaces in base64 strings
         const cleanBase64 = (base64.includes(',') ? base64.split(',').pop() : base64).replace(/[\r\n\s]/g, '');
         const binaryString = atob(cleanBase64);
         const bytes = new Uint8Array(binaryString.length);
@@ -80,7 +105,7 @@ const base64ToUint8Array = (base64) => {
     }
 };
 
-// HELPER: Stream to Base64
+// HELPER: Stream to Base64 (For saving stream responses to KV)
 async function streamToBase64(stream) {
     const reader = stream.getReader();
     const chunks = [];
@@ -89,6 +114,7 @@ async function streamToBase64(stream) {
         if (done) break;
         chunks.push(value);
     }
+    // Concatenate chunks
     const totalLength = chunks.reduce((acc, c) => acc + c.length, 0);
     const result = new Uint8Array(totalLength);
     let offset = 0;
@@ -97,6 +123,7 @@ async function streamToBase64(stream) {
         offset += chunk.length;
     }
     
+    // Convert to Base64 manually to avoid stack overflow on large images
     let binary = '';
     const len = result.byteLength;
     for (let i = 0; i < len; i++) {
@@ -126,7 +153,7 @@ async function runTavilySearch(env, query) {
   if (!env.TAVILY_API_KEY) return null;
 
   try {
-    const response = await fetch("https://api.tavily.com/search", {
+    const response = await fetch("[https://api.tavily.com/search](https://api.tavily.com/search)", {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
@@ -151,12 +178,13 @@ async function runTavilySearch(env, query) {
 
     return `\n[REAL-TIME SEARCH RESULTS FROM WEB]:\n${snippets}\n\n`;
   } catch (e) {
+    console.error("Tavily Search Error:", e);
     return null;
   }
 }
 
 //////////////////////////////
-// LANGUAGE DETECTION (TELUGU) - RESTORED
+// LANGUAGE DETECTION (TELUGU)
 //////////////////////////////
 const TELUGU_TRIGGER_WORDS = [
   "ra","mama","bro","anna","bhai","macha","bossu","babu","nanna","ayya",
@@ -175,6 +203,7 @@ function buildTeluguRegex(words) {
   const pattern = sorted.map(w => w.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&")).join("|");
   return new RegExp(pattern, "iu");
 }
+// Fixed Regex initialization
 const TELUGU_TRIGGER_REGEX = buildTeluguRegex(TELUGU_TRIGGER_WORDS);
 
 function shouldTriggerTelugu(message) {
@@ -218,7 +247,7 @@ const SPIDER_SYSTEM_PROMPT =
 "- Always use markdown code blocks for code 💻.\n" +
 "- Format: ```language\\ncode here\\n```.\n" +
 "- NEVER use single backticks for multi-line code.\n" +
-"- FORMATTING NOTE: You CAN use **bold** and # headers for text clarity.\n";
+"- FORMATTING RESTRICTION: Do NOT use **bold** or # headers in the chat text. ONLY use ** and # inside code blocks. Your chat text must be plain.\n";
 
 //////////////////////////////
 // KV MEMORY & IMAGE PERSISTENCE
@@ -257,6 +286,7 @@ async function getLastImage(env, key) {
 
 async function saveLastImage(env, key, base64) {
   if (!env.CHAT_KV || !base64) return;
+  // Expire image memory in 24 hours to handle "edit more" sessions without bloating storage
   await env.CHAT_KV.put(key, base64, {
     expirationTtl: 86400 
   });
@@ -304,15 +334,15 @@ export async function onRequest(context) {
       file_content,
       filename,
       stream_id,
-      image: base64ImageInput 
+      image: base64ImageInput // CRITICAL: Extract image for editing
     } = payload;
 
     const memKey = AI_MEMORY_USER_KEY_PREFIX + user_preference_id;
-    const imgMemKey = memKey + "_img"; 
+    const imgMemKey = memKey + "_img"; // DEDICATED KEY FOR LAST IMAGE
 
     // Handle Continue requests
     let activePrompt = prompt;
-    let isContinue = false; 
+    let isContinue = false; // TRACK CONTINUATION
     if (!activePrompt && stream_id) {
         activePrompt = "The previous code/text was incomplete. Please CONTINUE generating EXACTLY from where you left off. Do not restart. Just output the remaining part.";
         isContinue = true;
@@ -321,46 +351,50 @@ export async function onRequest(context) {
     const cleanPrompt = (activePrompt || "").trim().toLowerCase();
 
     // -----------------------------------------------------------------
-    // FORCE FILE MODE
+    // FORCE FILE MODE (CRITICAL FIX)
     // -----------------------------------------------------------------
     if (file_content && typeof file_content === "string" && file_content.trim().length > 0) {
         mode = "analyze_file";
     }
 
     // -----------------------------------------------------------------
-    // STRICT MODE DETECTION (Fixing "Faltu" Switching)
+    // AUTO-IMAGE MODE DETECTOR
     // -----------------------------------------------------------------
-    
-    // 1. Image Generation Triggers
-    const IMG_GEN_TRIGGERS = [
-        "generate image", "create image", "make an image", "draw a", 
-        "generate a picture", "create a picture", "imagine this", "draw this"
+    const IMAGE_TRIGGERS = [
+      "generate image", "create image", "make an image", "draw a",
+      "generate a picture", "create a picture", "imagine this", "draw this"
     ];
 
-    // 2. Image Edit Triggers (VERY STRICT)
-    const IMG_EDIT_TRIGGERS = [
-        "edit image", "edit this image", "modify image", "modify picture",
-        "changebackground", "replacebackground", "removebackground",
-        "change the color of", "make it look like", "change style of image"
-    ];
-
-    if (mode === "chat" && IMG_GEN_TRIGGERS.some(t => cleanPrompt.includes(t))) {
+    if (mode === "chat" && IMAGE_TRIGGERS.some(t => cleanPrompt.includes(t))) {
        mode = "image_gen";
     }
-    else if (mode === "chat" && IMG_EDIT_TRIGGERS.some(t => cleanPrompt.includes(t))) {
-       // Only switch if we have an image to edit!
-       const lastImg = await getLastImage(env, imgMemKey);
-       if (base64ImageInput || lastImg) {
-           mode = "image_edit";
-           if (!base64ImageInput) base64ImageInput = lastImg;
-       } else {
-           mode = "chat"; // Stay in chat to explain
-           activePrompt += " [SYSTEM NOTE: User asked to edit an image, but no image was found in history. Explain that they need to upload or generate one first.]";
-       }
-    } else if (mode === "chat" && base64ImageInput) {
-       // Implicit edit: User uploaded an image and typed something
-       mode = "image_edit";
+
+    // -----------------------------------------------------------------
+    // AUTO-EDIT MODE DETECTOR (NEW)
+    // -----------------------------------------------------------------
+    // Automatically switch to edit mode if user asks to "add", "change", etc.
+    const EDIT_TRIGGERS = [
+        "change", "modify", "edit", "add", "remove", "replace", "make it", "turn it", "fix",
+        "background", "color", "style", "look", "zoom", "pan", "insert", "delete"
+    ];
+    
+    // STRICT FIX: Check triggers regardless of 'chat' mode, to correct frontend 'chat' fallback
+    if (mode === "chat" && EDIT_TRIGGERS.some(t => cleanPrompt.includes(t))) {
+        const lastImageCheck = await getLastImage(env, imgMemKey);
+        
+        // IF we have an image history, AUTO-SWITCH.
+        if (lastImageCheck) {
+            mode = "image_edit";
+            // Pre-fill to avoid double fetching
+            if (!base64ImageInput) {
+                base64ImageInput = lastImageCheck;
+            }
+        } 
+        // OPTIONAL: Even if no image found, if intent is extremely clear (like "edit this"),
+        // we could force mode to avoid "chat" response. 
+        // For now, we rely on the history check to be safe.
     }
+    // -----------------------------------------------------------------
 
     // -- Language Detection --
     const isTelugu = shouldTriggerTelugu(cleanPrompt);
@@ -384,16 +418,16 @@ export async function onRequest(context) {
     // Fetch memory
     let memory = await getMemory(env, memKey);
 
-    // //////////////////////
+    //////////////////////
     // DELETE MEMORY MODE
-    // //////////////////////
+    //////////////////////
     if (
         mode === "delete_memory" ||
         mode === "delete_all" ||
         cleanPrompt === "delete all"
     ) {
       const success = await deleteMemory(env, memKey);
-      await deleteMemory(env, imgMemKey); 
+      await deleteMemory(env, imgMemKey); // Also clear image cache
       const msg = success ? "Memory wiped successfully 🧹" : "No KV found or empty.";
 
       if (cleanPrompt === "delete all") {
@@ -406,9 +440,9 @@ export async function onRequest(context) {
       );
     }
 
-    // //////////////////////
-    // ASR / TRANSCRIBE MODE (RESTORED)
-    // //////////////////////
+    //////////////////////
+    // ASR / TRANSCRIBE MODE (NEW)
+    //////////////////////
     if (mode === "transcribe") {
         if (!payload.audio) {
             return new Response(JSON.stringify({ error: "No audio data provided" }), { headers: cors });
@@ -433,14 +467,13 @@ export async function onRequest(context) {
         }
     }
 
-    // //////////////////////
+    //////////////////////
     // STREAM MODE (CHAT + PRO MODE + FILE ANALYZER + REASONING)
-    // //////////////////////
-    // RESTORED THE "LOOP" LOGIC FOR LONG CODE GENERATION
+    //////////////////////
     if (
         (mode === "stream" ||
          mode === "pro_chat" ||
-         mode === "pro" ||     
+         mode === "pro" ||    
          mode === "reasoning" ||   
          stream === true) &&
         mode !== "image_gen" &&
@@ -463,7 +496,7 @@ export async function onRequest(context) {
               currentPrompt = `FILE: ${filename || "unknown"}\nCONTENT:\n${file_content}\n\nREQUEST:\n${activePrompt}`;
             }
             if (searchContext) {
-              currentPrompt += `\n\n${searchContext}\n[INSTRUCTION: Use the above search results to answer the user request. You have up-to-date knowledge.]`;
+              currentPrompt += `\n\n${searchContext}\n[INSTRUCTION: Use the above search results to answer the user request. You have up-to-date knowledge. REMEMBER: DO NOT use **bold** or # headers.]`;
             }
 
             memory.push({ role: "user", content: currentPrompt, ts: Date.now() });
@@ -494,8 +527,7 @@ export async function onRequest(context) {
                 try {
                     aiResponse = await env.SPY_AI.run(ACTIVE_MODEL, aiPayload);
                 } catch (streamErr) {
-                     // Fallback Logic
-                     try {
+                    try {
                         const staticPayload = { ...aiPayload };
                         delete staticPayload.stream;
                         aiResponse = await env.SPY_AI.run(ACTIVE_MODEL, staticPayload);
@@ -504,7 +536,10 @@ export async function onRequest(context) {
                           const fallbackModel = MODEL_STD_CHAT;
                           const fallbackPayload = {
                              instructions: finalSystemPrompt,
-                             input: currentMessages.map(m => `${m.role === 'user'?'User':'Assistant'}: ${m.content}`).join("\n\n") + "\n\nAssistant:",
+                             input: currentMessages
+                                  .filter(m => m.role !== 'system')
+                                  .map(m => `${m.role === 'user'?'User':'Assistant'}: ${m.content}`)
+                                  .join("\n\n") + "\n\nAssistant:",
                              max_tokens: 4096
                           };
                           const finalRes = await env.SPY_AI.run(fallbackModel, fallbackPayload);
@@ -555,8 +590,13 @@ export async function onRequest(context) {
                         const textChunk = json.response || json.token || json.text;
 
                         if (textChunk) {
+                          // FIX 2: Sanitize stream chunk (Prevents Markdown in UI)
+                          const safeChunk = textChunk
+                              .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+                              .replace(/\*\*(.*?)\*\*/g, "$1");
+
                           controller.enqueue(
-                            encoder.encode(`data: ${JSON.stringify({ text: textChunk, stream_id: activeStreamId })}\n\n`)
+                            encoder.encode(`data: ${JSON.stringify({ text: safeChunk, stream_id: activeStreamId })}\n\n`)
                           );
 
                           loopBuffer += textChunk;
@@ -584,7 +624,6 @@ export async function onRequest(context) {
                 }
             } // End While
 
-            // FIXED: Use cleanAiResponse but maintain bold/headers
             memory.push({ role: "assistant", content: cleanAiResponse(fullResponseText), ts: Date.now() });
             const memoryToSave = memory.slice(-AI_MEMORY_TRIM_TARGET);
             context.waitUntil(saveMemory(env, memKey, memoryToSave));
@@ -614,66 +653,69 @@ export async function onRequest(context) {
       });
     }
 
-    // //////////////////////
-    // IMAGE EDITING (FLUX 1 SCHNELL) - NEW ROBUST LOGIC
-    // //////////////////////
+    //////////////////////
+    // IMAGE EDITING (FLUX 1 SCHNELL)
+    //////////////////////
     if (mode === "image_edit") {
             // FIX: If no image provided in payload, try to fetch last image from KV
             if (!base64ImageInput) {
                 base64ImageInput = await getLastImage(env, imgMemKey);
             }
 
-            if (!base64ImageInput) {
-                // FALLBACK: If we still have no image, return a JSON error instead of crashing
-                return new Response(JSON.stringify({ 
-                    error: "No Image Found", 
-                    message: "Please upload or generate an image before trying to edit." 
-                }), { status: 400, headers: { ...cors, "Content-Type": "application/json" } });
-            }
+            if (!base64ImageInput) return new Response("No image provided for editing. Please upload or generate one first.", { status: 400, headers: cors });
 
             const imageBytes = base64ToUint8Array(base64ImageInput);
-            if (!imageBytes) return new Response(JSON.stringify({ error: "Invalid Image Data" }), { status: 400, headers: cors });
+            const imageBlob = new Blob([imageBytes], { type: 'image/png' });
 
-            // FIX: Truncate large prompts
-            const safePrompt = activePrompt.substring(0, 1000);
+            const form = new FormData();
+            form.append('prompt', activePrompt); 
+            
+            form.append('image', imageBlob, 'input.png'); 
+            form.append('input_image_0', imageBlob); 
+            
+            form.append('strength', '0.7'); 
+
+            const dummyReq = new Request('http://dummy', {
+              method: 'POST',
+              body: form
+            });
 
             try {
-                memory.push({ role: "user", content: `[Image Edit Request]: ${safePrompt}` });
+                memory.push({ role: "user", content: `[Image Edit Request]: ${activePrompt}` });
                 await saveMemory(env, memKey, memory.slice(-AI_MEMORY_TRIM_TARGET));
 
-                const inputs = {
-                    prompt: safePrompt,
-                    image: [...imageBytes],
-                    num_steps: 20,
-                    strength: 0.7,
-                    guidance: 7.5
-                };
-
-                const fluxResponse = await runAi(env, MODEL_EDIT_FLUX, inputs);
+                const fluxResponse = await runAi(env, MODEL_EDIT_FLUX, {
+                    multipart: {
+                        body: dummyReq.body, 
+                        contentType: dummyReq.headers.get('content-type') || 'multipart/form-data'
+                    }
+                });
 
                 if (fluxResponse instanceof ReadableStream) {
+                    // CRITICAL FIX: TEE THE STREAM TO SAVE HISTORY
                     const [stream1, stream2] = fluxResponse.tee();
+                    
+                    // SAVE IN BACKGROUND
                     context.waitUntil(async function() {
                         try {
                             const base64 = await streamToBase64(stream2);
                             await saveLastImage(env, imgMemKey, base64);
+                            // Also update text memory
                             memory.push({ role: "assistant", content: "Image edited successfully! 🎨" });
                             await saveMemory(env, memKey, memory.slice(-AI_MEMORY_TRIM_TARGET));
-                        } catch(e) {}
+                        } catch(e) { console.error("Failed to save stream image", e); }
                     }());
 
                     return new Response(stream1, { headers: { ...cors, "Content-Type": "image/png" } });
                 }
 
-                // Handle Static Response (Fixing "No image data" error)
                 let resultBase64 = fluxResponse?.image || fluxResponse?.result?.image;
-                if (!resultBase64 && fluxResponse instanceof ArrayBuffer) {
-                    resultBase64 = btoa(String.fromCharCode(...new Uint8Array(fluxResponse)));
-                }
 
                 if (resultBase64) {
                     memory.push({ role: "assistant", content: "Image edited successfully! 🎨" });
                     context.waitUntil(saveMemory(env, memKey, memory.slice(-AI_MEMORY_TRIM_TARGET)));
+                    
+                    // CRITICAL FIX: SAVE EDITED IMAGE TO KV FOR NEXT TURN
                     context.waitUntil(saveLastImage(env, imgMemKey, resultBase64));
 
                     return new Response(base64ToUint8Array(resultBase64), { headers: { ...cors, "Content-Type": "image/png" } });
@@ -684,14 +726,14 @@ export async function onRequest(context) {
                 return new Response(JSON.stringify({
                     error: "Flux Edit Failed",
                     message: fluxErr.message
-                }), { status: 500, headers: { ...cors, "Content-Type": "application/json" } });
+                }), { status: 500, headers: cors });
             }
         }
 
 
-    // //////////////////////
+    //////////////////////
     // IMAGE GENERATION (LUCID ORIGIN)
-    // //////////////////////
+    //////////////////////
     if (mode === "image_gen") {
       let width = 1024;
       let height = 1024;
@@ -702,8 +744,7 @@ export async function onRequest(context) {
       else if (aspect_ratio === "3:4")  { width = 864; height = 1152; }
       else { width = 1024; height = 1024; }
 
-      // FIX: Truncate large prompts
-      let enhancedPrompt = activePrompt.substring(0, 1000);
+      let enhancedPrompt = activePrompt;
 
       try {
         memory.push({ role: "user", content: activePrompt, ts: Date.now() });
@@ -733,12 +774,14 @@ export async function onRequest(context) {
         };
 
         if (response instanceof ReadableStream) {
+          // CRITICAL FIX: TEE THE STREAM TO SAVE HISTORY
           const [stream1, stream2] = response.tee();
+          
           context.waitUntil(async function() {
               try {
                   const base64 = await streamToBase64(stream2);
                   await saveLastImage(env, imgMemKey, base64);
-              } catch(e) {}
+              } catch(e) { console.error("Failed to save gen stream", e); }
           }());
 
           return new Response(stream1, {
@@ -757,7 +800,9 @@ export async function onRequest(context) {
 
         if (base64Image) {
           try {
+            // CRITICAL FIX: SAVE GENERATED IMAGE TO KV FOR NEXT TURN
             context.waitUntil(saveLastImage(env, imgMemKey, base64Image));
+
             const binaryString = atob(base64Image);
             const len = binaryString.length;
             const bytes = new Uint8Array(len);
@@ -789,13 +834,13 @@ export async function onRequest(context) {
       }
     }
 
-    // //////////////////////
+    //////////////////////
     // NORMAL CHAT
-    // //////////////////////
+    //////////////////////
 
     let finalUserPrompt = activePrompt;
     if (searchContext) {
-      finalUserPrompt += `\n\n${searchContext}\n[INSTRUCTION: Use the above search results to answer the user request. You have up-to-date knowledge.]`;
+      finalUserPrompt += `\n\n${searchContext}\n[INSTRUCTION: Use the above search results to answer the user request. You have up-to-date knowledge. REMEMBER: DO NOT use **bold** or # headers.]`;
     }
 
     memory.push({ role: "user", content: finalUserPrompt, ts: Date.now() });
