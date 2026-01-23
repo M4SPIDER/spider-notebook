@@ -3408,240 +3408,330 @@ const isUserImageConfirmation = (text) => {
 
   const pendingIntentRef = useRef(null);
 // values: null | "IMAGE"
+const handleStreamResponse = async (response, setChatHistory, accumulatedTokensRef) => {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let done = false;
+
+  while (!done) {
+    const { value, done: doneReading } = await reader.read();
+    done = doneReading;
+    
+    if (value) {
+      const chunkValue = decoder.decode(value, { stream: true });
+      // Append new chunk to our reference
+      accumulatedTokensRef.current += chunkValue;
+
+      // Update the UI by modifying the LAST message in history
+      setChatHistory((prevHistory) => {
+        const newHistory = [...prevHistory];
+        const lastIndex = newHistory.length - 1;
+        if (lastIndex >= 0) {
+           newHistory[lastIndex] = {
+             ...newHistory[lastIndex],
+             content: accumulatedTokensRef.current,
+             // Keep isStreaming true while data is flowing
+             isStreaming: true, 
+           };
+        }
+        return newHistory;
+      });
+    }
+  }
+  
+  // Stream finished cleanly. 
+  // Final update to set isStreaming: false on the last message.
+   setChatHistory((prevHistory) => {
+      const newHistory = [...prevHistory];
+      const lastIndex = newHistory.length - 1;
+      if (lastIndex >= 0) {
+         newHistory[lastIndex] = {
+           ...newHistory[lastIndex],
+           // Ensure content is finalized (sometimes a final chunk comes after done)
+           content: accumulatedTokensRef.current,
+           isStreaming: false, 
+         };
+      }
+      return newHistory;
+    });
+};
 
   const handleSendMessage = async () => {
-  if (!message.trim() && !uploadedFile && !uploadedImage) return;
+    // Basic validation
+    if (!message.trim() && !uploadedFile && !uploadedImage) return;
 
-  const rawMessage = message;
-  const controller = new AbortController();
-  setAbortController(controller);
+    const rawMessage = message;
+    // Clear input immediately for better UX
+    setMessage(""); 
 
-  /* =====================================================
-     1️⃣ RESET & BASIC FLAGS
-  ===================================================== */
+    const controller = new AbortController();
+    setAbortController(controller);
 
-  setIsLoading(true);
+    /* =====================================================
+       1️⃣ RESET & BASIC FLAGS
+    ===================================================== */
+    setIsLoading(true);
+    // We don't need setIsStreaming(true) here anymore, the message state handles it.
+    accumulatedTokensRef.current = ""; // IMPORTANT: Reset accumulator
 
-  const isCodeLike = detectCodeLike(rawMessage);
-  const isFullCodeRequest = detectFullCodeRequest(rawMessage);
+    const isCodeLike = detectCodeLike(rawMessage);
+    const isFullCodeRequest = detectFullCodeRequest(rawMessage);
 
-  let mode = activeAIMode || selectedAIMode;
-  let forceStream = false;
+    let mode = activeAIMode || selectedAIMode || "chat"; // ensure default
+    let forceStream = false;
 
-  /* =====================================================
-     2️⃣ INTENT STATE MACHINE (CRITICAL FIX)
-  ===================================================== */
+    /* =====================================================
+       2️⃣ INTENT STATE MACHINE
+    ===================================================== */
 
-  // CODE ALWAYS WINS – clears any pending image intent
-  if (isCodeLike || isFullCodeRequest) {
-    mode = "chat";
-    forceStream = true;
-    pendingIntentRef.current = null;
-  }
-
-  // IMAGE QUESTION (DO NOT GENERATE)
-  else if (isImageQuestion(rawMessage)) {
-    pendingIntentRef.current = "IMAGE";
-    mode = "chat";
-  }
-
-  // IMAGE CONFIRMATION (ONLY if pending IMAGE intent)
-  else if (
-    pendingIntentRef.current === "IMAGE" &&
-    isUserImageConfirmation(rawMessage)
-  ) {
-    mode = "image_gen";
-    pendingIntentRef.current = null;
-  }
-
-  // DIRECT IMAGE COMMAND (NOT A QUESTION)
-  else if (
-    detectStrongImageIntent(rawMessage) &&
-    !isImageQuestion(rawMessage)
-  ) {
-    mode = "image_gen";
-    pendingIntentRef.current = null;
-  }
-
-  // FILE / IMAGE UPLOAD OVERRIDES
-  if (uploadedFile) mode = "analyze_file";
-  if (uploadedImage) mode = "image_edit";
-
-  /* =====================================================
-     3️⃣ PROMPT HANDLING
-  ===================================================== */
-
-  let processedMessage = rawMessage;
-
-  if (!isCodeLike && processedMessage.length > 8000) {
-    processedMessage =
-      processedMessage.slice(0, 8000) +
-      "\n\n[Prompt truncated – split for better results]";
-  }
-
-  /* =====================================================
-     4️⃣ PUSH USER MESSAGE
-  ===================================================== */
-
-  setChatHistory((prev) => [
-    ...prev,
-    {
-      role: "user",
-      content: processedMessage,
-      type: mode,
-      ts: Date.now()
+    // CODE ALWAYS WINS – clears any pending image intent
+    if (isCodeLike || isFullCodeRequest) {
+      mode = "chat";
+      forceStream = true;
+      pendingIntentRef.current = null;
     }
-  ]);
-
-  setMessage("");
-
-  /* =====================================================
-     5️⃣ STREAM DECISION
-  ===================================================== */
-
-  const shouldStream =
-    forceStream ||
-    isFullCodeRequest ||
-    mode === "analyze_file" ||
-    selectedAIMode === "reasoning" ||
-    selectedAIMode === "pro" ||
-    processedMessage.length > 1000 ||
-    detectMathRequest(processedMessage);
-
-  if (shouldStream && mode !== "image_gen") {
-    setIsStreaming(true);
-    setStreamingMessage({
-      role: "assistant",
-      content: "",
-      type: "text",
-      isStreaming: true,
-      ts: Date.now()
-    });
-  }
-
-  /* =====================================================
-     6️⃣ EXECUTION
-  ===================================================== */
-
-  try {
-    /* ---------- IMAGE GENERATION ---------- */
-    if (mode === "image_gen") {
-      const result = await callFastAPI(
-        "/api/generate/text",
-        {
-          prompt: rawMessage,
-          mode: "image_gen",
-          stream: false,
-          max_tokens: 400
-        },
-        mode,
-        { timeout: 45000 }
-      );
-
-      // SAFE HANDLING (NO MORE ERROR LOOP)
-      if (result?.base64_image) {
-        setChatHistory((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            type: "image",
-            base64_image: result.base64_image,
-            ts: Date.now()
-          }
-        ]);
-        return;
-      }
-
-      if (result?.text) {
-        setChatHistory((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            type: "text",
-            content: result.text,
-            ts: Date.now()
-          }
-        ]);
-        return;
-      }
-
-      throw new Error("Image generation failed");
+    // IMAGE QUESTION (DO NOT GENERATE YET)
+    else if (isImageQuestion(rawMessage)) {
+      pendingIntentRef.current = "IMAGE";
+      mode = "chat";
+    }
+    // IMAGE CONFIRMATION (ONLY if pending IMAGE intent)
+    else if (
+      pendingIntentRef.current === "IMAGE" &&
+      isUserImageConfirmation(rawMessage)
+    ) {
+      mode = "image_gen";
+      pendingIntentRef.current = null;
+    }
+    // DIRECT IMAGE COMMAND (NOT A QUESTION)
+    else if (
+      detectStrongImageIntent(rawMessage) &&
+      !isImageQuestion(rawMessage)
+    ) {
+      mode = "image_gen";
+      pendingIntentRef.current = null;
     }
 
-    /* ---------- STREAMING CHAT / CODE ---------- */
-    if (shouldStream) {
-      const response = await callFastAPI(
-        "/api/generate/text",
-        {
-          prompt: processedMessage,
-          mode,
-          stream: true,
-          ai_mode: selectedAIMode
-        },
-        mode,
-        { signal: controller.signal, stream: true, timeout: 90000 }
-      );
-
-      await handleStreamResponse(response);
-
-      if (accumulatedTokensRef.current) {
-        setChatHistory((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: accumulatedTokensRef.current,
-            type: "text",
-            ts: Date.now()
-          }
-        ]);
-      }
+    // FILE / IMAGE UPLOAD OVERRIDES
+    if (uploadedFile) mode = "analyze_file";
+    // FIX: Ensure image_edit mode is correctly set
+    if (uploadedImage) {
+       mode = "image_edit";
+       pendingIntentRef.current = null;
     }
 
-    /* ---------- NORMAL CHAT ---------- */
-    else {
-      const result = await callFastAPI(
-        "/api/generate/text",
-        {
-          prompt: processedMessage,
-          mode,
-          stream: false,
-          max_tokens: 1500
-        },
-        mode,
-        { timeout: 30000 }
-      );
-
-      setChatHistory((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: result?.text || "",
-          type: "text",
-          ts: Date.now()
-        }
-      ]);
+    /* =====================================================
+       3️⃣ PROMPT HANDLING
+    ===================================================== */
+    let processedMessage = rawMessage;
+    if (!isCodeLike && processedMessage.length > 8000) {
+      processedMessage =
+        processedMessage.slice(0, 8000) +
+        "\n\n[Prompt truncated – split for better results]";
     }
-  } catch (err) {
+
+    /* =====================================================
+       4️⃣ PUSH USER MESSAGE TO HISTORY
+    ===================================================== */
     setChatHistory((prev) => [
       ...prev,
       {
-        role: "assistant",
-        content: err.message || "Something went wrong",
-        type: "text",
-        isError: true,
-        ts: Date.now()
-      }
+        role: "user",
+        content: processedMessage,
+        type: mode,
+        ts: Date.now(),
+        // Optional: attach the image/file preview to the user bubble
+        uploadedImage: uploadedImage || null, 
+      },
     ]);
-  } finally {
-    setAbortController(null);
-    setUploadedFile(null);
-    setUploadedImage(null);
-    setIsLoading(false);
-    setIsStreaming(false);
-    setStreamingMessage(null);
-    accumulatedTokensRef.current = "";
-  }
-};
+
+    /* =====================================================
+       5️⃣ STREAM DECISION
+    ===================================================== */
+    // Don't stream generation or edits, they usually return a single blob/url
+    const isGenerationMode = mode === "image_gen" || mode === "image_edit";
+
+    const shouldStream =
+      !isGenerationMode && // Only stream text modes
+      (forceStream ||
+      isFullCodeRequest ||
+      mode === "analyze_file" ||
+      selectedAIMode === "reasoning" ||
+      selectedAIMode === "pro" ||
+      processedMessage.length > 600 || // Lowered threshold slightly
+      detectMathRequest(processedMessage));
+
+
+    /* =====================================================
+       6️⃣ EXECUTION
+    ===================================================== */
+    try {
+      /* ---------- IMAGE GENERATION ---------- */
+      if (mode === "image_gen") {
+        const result = await callFastAPI(
+          "/api/generate/image", // Adjusted endpoint name for clarity
+          {
+            prompt: rawMessage,
+            mode: "image_gen",
+            stream: false,
+            max_tokens: 400, // Might not be needed for image gen endpoints
+          },
+          mode,
+          { timeout: 60000 } // Warning: Image gen can be slow
+        );
+
+        if (result?.base64_image || result?.image_url) {
+          setChatHistory((prev) => [
+            ...prev,
+            {
+              role: "assistant",
+              type: "image",
+              // Handle whatever your backend sends back
+              base64_image: result.base64_image,
+              image_url: result.image_url, 
+              ts: Date.now(),
+            },
+          ]);
+        } else if (result?.text) {
+          // Fallback if the model decided to talk instead of draw
+           setChatHistory((prev) => [
+            ...prev,
+            { role: "assistant", type: "text", content: result.text, ts: Date.now() },
+          ]);
+        } else {
+          throw new Error("Image generation returned no valid data.");
+        }
+      }
+
+      /* ---------- FIX: IMAGE EDITING ---------- */
+      // This block was missing in your original code
+      else if (mode === "image_edit") {
+        if (!uploadedImage) throw new Error("Image edit mode triggered without an image.");
+
+        const result = await callFastAPI(
+          "/api/edit/image", // hypothetical endpoint
+          {
+            prompt: rawMessage,
+            // Send the image data (ensure your backend expects this format)
+            image_data: uploadedImage, 
+            mode: "image_edit",
+            stream: false,
+          },
+          mode,
+          { timeout: 60000 }
+        );
+
+         if (result?.base64_image || result?.image_url) {
+          setChatHistory((prev) => [
+            ...prev,
+            {
+              role: "assistant",
+              type: "image",
+              base64_image: result.base64_image,
+              image_url: result.image_url,
+              ts: Date.now(),
+            },
+          ]);
+        } else {
+           throw new Error("Image editing failed.");
+        }
+      }
+
+      /* ---------- STREAMING CHAT / CODE (THE FIX) ---------- */
+      else if (shouldStream) {
+        // 1. PUSH PLACEHOLDER BUBBLE IMMEDIATELY
+        setChatHistory((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: "...", // Temporary placeholder showing it's starting
+            type: "text",
+            isStreaming: true, // Important flag for UI styling
+            ts: Date.now(),
+            id: Date.now() + "_streaming", // helpful for react keys
+          },
+        ]);
+
+        const response = await callFastAPI(
+          "/api/generate/text",
+          {
+            prompt: processedMessage,
+            mode,
+            stream: true,
+            ai_mode: selectedAIMode,
+            // Add file content if analyzing
+            file_content: uploadedFile ? uploadedFile.content : null,
+          },
+          mode,
+          { signal: controller.signal, stream: true, timeout: 120000 }
+        );
+        
+        // 2. HAND OFF TO THE NEW ROBUST STREAM HANDLER
+        // We pass setChatHistory so it can update state directly
+        await handleStreamResponse(response, setChatHistory, accumulatedTokensRef);
+
+        // Note: We do NOT push a new message here anymore. 
+        // handleStreamResponse handles the final state update.
+      }
+
+      /* ---------- NORMAL TEXT CHAT (NO STREAM) ---------- */
+      else {
+        const result = await callFastAPI(
+          "/api/generate/text",
+          {
+            prompt: processedMessage,
+            mode,
+            stream: false,
+            max_tokens: 1500,
+             // Add file content if needed (though usually analyze_file streams)
+            file_content: uploadedFile ? uploadedFile.content : null,
+          },
+          mode,
+          { timeout: 30000 }
+        );
+
+        setChatHistory((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: result?.text || "No response received.",
+            type: "text",
+            ts: Date.now(),
+          },
+        ]);
+      }
+
+    } catch (err) {
+      if (err.name === 'AbortError') {
+         console.log('Request aborted');
+         // Optionally update the streaming message to say "Aborted"
+      } else {
+          console.error("Error during execution:", err);
+          setChatHistory((prev) => [
+            ...prev,
+            {
+              role: "assistant",
+              content: err.message || "Sorry, something went wrong processing your request.",
+              type: "text",
+              isError: true,
+              ts: Date.now(),
+            },
+          ]);
+      }
+    } finally {
+      /* =====================================================
+       7️⃣ CLEANUP
+    ===================================================== */
+      setAbortController(null);
+      setUploadedFile(null);
+      setUploadedImage(null);
+      setIsLoading(false);
+      // setIsStreaming(false); // No longer needed as global state
+      // setStreamingMessage(null); // No longer needed
+      accumulatedTokensRef.current = "";
+    }
+  };
+
   // ---------- Download Project ----------
     const downloadProjectAsZip = useCallback(async () => {
         if (generatedFiles.length === 0) {
@@ -5288,6 +5378,7 @@ int main() {
         </>
     );
 }
+
 
 
 
