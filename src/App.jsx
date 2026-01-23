@@ -3389,7 +3389,17 @@ const handleSendMessage = async () => {
     });
 
     // VALIDATE AND TRIM LARGE PROMPTS
-  const processedMessage = message;
+    const MAX_PROMPT_LENGTH = 4000; // Adjust based on your API limits
+    const processedMessage = message.length > MAX_PROMPT_LENGTH 
+        ? message.substring(0, MAX_PROMPT_LENGTH) + "...[truncated due to length]"
+        : message;
+    
+    console.log('Message processed:', {
+        originalLength: message.length,
+        processedLength: processedMessage.length,
+        wasTruncated: message.length > MAX_PROMPT_LENGTH
+    });
+
     setIsLoading(true);
     const controller = new AbortController();
     setAbortController(controller);
@@ -5612,6 +5622,7 @@ int main() {
         </>
     );
 }
+
 
 
 
