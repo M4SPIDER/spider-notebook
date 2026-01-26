@@ -4240,11 +4240,12 @@ const handleSendMessage = async () => {
                         ))}
                         
                         {/* Streaming Message */}
-                        {(streamingMessage || {isStreaming && (
+                       {/* Streaming Message */}
+{isStreaming && (
     <div className="flex justify-start mb-4 px-2">
         <div className="bg-[var(--spider-med)] text-white p-4 rounded-2xl max-w-[95%] shadow-md border border-[var(--spider-light)]">
             <pre className="whitespace-pre-wrap font-sans text-sm break-words leading-relaxed">
-                {streamedContent || 'Generating...'}
+                {streamedContent || 'AI is thinking...'}
             </pre>
             <div className="flex items-center justify-between mt-3">
                 <div className="flex items-center space-x-2">
@@ -4254,7 +4255,7 @@ const handleSendMessage = async () => {
                         <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
                     </div>
                     <span className="text-xs text-[var(--spider-text-dim)]">
-                        {isStreaming ? 'AI is generating...' : 'AI is typing...'}
+                        {streamedContent ? 'AI is typing...' : 'AI is thinking...'}
                     </span>
                 </div>
                 <button 
@@ -4266,28 +4267,26 @@ const handleSendMessage = async () => {
             </div>
         </div>
     </div>
-)}                      
-                        {/* Continue Button */}
-                        {showContinueButton && !isLoading && (
-                            <div className="flex justify-start mb-4 px-2">
-                                <div className="bg-[var(--spider-dark)] p-3 rounded-lg border border-[var(--spider-light)]">
-                                    <div className="flex items-center space-x-3">
-                                        <div className="text-sm text-[var(--spider-text-dim)]">
-                                            {isFullCodeMode 
-                                                ? 'Project generation seems incomplete. Continue?' 
-                                                : 'Response seems incomplete. Continue generation?'}
-                                        </div>
-                                        <button 
-                                            onClick={handleContinueGeneration}
-                                            className="bg-[var(--spider-neon-blue)] text-black text-xs font-semibold px-4 py-2 rounded-lg hover:opacity-90 transition"
-                                        >
-                                            Continue
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                        
+)}
+
+{/* Continue Button */}
+{showContinueButton && !isLoading && !isStreaming && (
+    <div className="flex justify-start mb-4 px-2">
+        <div className="bg-[var(--spider-dark)] p-3 rounded-lg border border-[var(--spider-light)]">
+            <div className="flex items-center space-x-3">
+                <div className="text-sm text-[var(--spider-text-dim)]">
+                    Response seems incomplete. Continue generation?
+                </div>
+                <button 
+                    onClick={handleContinueGeneration}
+                    className="bg-[var(--spider-neon-blue)] text-black text-xs font-semibold px-4 py-2 rounded-lg hover:opacity-90 transition"
+                >
+                    Continue
+                </button>
+            </div>
+        </div>
+    </div>
+)} 
                         <div ref={chatEndRef} />
                     </div>
                 )}
@@ -5558,6 +5557,7 @@ int main() {
         </>
     );
 }
+
 
 
 
