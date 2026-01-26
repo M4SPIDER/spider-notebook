@@ -2413,11 +2413,9 @@ const handleStreamResponse = useCallback(async (response, isContinue = false) =>
             if (done) {
                 // Handle incomplete code blocks
                 if (inCodeBlock) {
-                    codeBlockBuffer += '```
-';
+                    codeBlockBuffer += '```\n';
                 }
 
-                // Check if response was truncated
                 const currentContent = isContinue
                     ? (streamedContent + accumulatedTokensRef.current)
                     : accumulatedTokensRef.current;
@@ -2428,11 +2426,9 @@ const handleStreamResponse = useCallback(async (response, isContinue = false) =>
                 break;
             }
 
-            // Decode the chunk
             const chunk = decoder.decode(value, { stream: true });
             buffer += chunk;
 
-            // Process lines
             const lines = buffer.split('\n');
             buffer = lines.pop() || '';
 
@@ -2441,7 +2437,6 @@ const handleStreamResponse = useCallback(async (response, isContinue = false) =>
                     const data = line.slice(6);
 
                     if (data === '[DONE]') {
-                        // Streaming complete
                         console.log(`Stream completed. Tokens: ${tokenCount}, Time: ${Date.now() - startTime}ms`);
                         break;
                     }
@@ -2453,78 +2448,51 @@ const handleStreamResponse = useCallback(async (response, isContinue = false) =>
                             tokenCount++;
                             let textToAdd = parsed.text;
 
-                            // Handle code block continuation
+                            // Restore previous unfinished block
                             if (isContinue && codeBlockBuffer) {
                                 textToAdd = codeBlockBuffer + textToAdd;
                                 codeBlockBuffer = '';
                             }
 
-                            // Track code blocks for continuation
-                            if (textToAdd.includes('```
-')) {
-                                const parts = textToAdd.split('```
-');
+                            // Detect code blocks
+                            if (textToAdd.includes('```')) {
+                                const parts = textToAdd.split('```');
+
                                 for (let i = 0; i < parts.length; i++) {
                                     if (i === 0 && !inCodeBlock) {
-                                        // Regular text before code block
                                         accumulatedTokensRef.current += parts[i];
                                         continue;
                                     }
 
                                     if (i % 2 === 1) {
-                                        // Code block delimiter
                                         if (!inCodeBlock) {
-                                            // Starting a code block
                                             inCodeBlock = true;
                                             currentLanguage = parts[i].trim() || '';
-                                            accumulatedTokensRef.current += '```
-' + currentLanguage + '\n';
+                                            accumulatedTokensRef.current += '```\n' + currentLanguage + '\n';
                                         } else {
-                                            // Ending a code block
                                             inCodeBlock = false;
                                             currentLanguage = '';
-                                            accumulatedTokensRef.current += '```
-\n';
+                                            accumulatedTokensRef.current += '```\n';
                                         }
                                     } else {
-                                        // Code block content or text between code blocks
                                         accumulatedTokensRef.current += parts[i];
                                     }
                                 }
                             } else {
-                                if (inCodeBlock) {
-                                    // Inside code block
-                                    accumulatedTokensRef.current += textToAdd;
-                                } else {
-                                    // Regular text
-                                    accumulatedTokensRef.current += textToAdd;
-                                }
+                                accumulatedTokensRef.current += textToAdd;
                             }
 
-                            // Update streaming content
-                            if (isContinue) {
-                                setStreamedContent(prev => prev + textToAdd);
-                            } else {
-                                setStreamedContent(prev => prev + textToAdd);
-                            }
+                            setStreamedContent(prev => prev + textToAdd);
 
-                            // In full code mode, parse files as they arrive
                             if (isFullCodeMode) {
                                 fileContentBufferRef.current += textToAdd;
-                                // Try to parse files from buffer periodically
+
                                 if (tokenCount % 20 === 0) {
                                     const files = parseCodeForFiles(fileContentBufferRef.current);
                                     if (files.length > 0) {
                                         setGeneratedFiles(files);
                                     }
                                 }
-                            }
-
-                            // Store incomplete code block for continuation
-                            if (inCodeBlock && accumulatedTokensRef.current.endsWith('```
-')) {
-                                // Actually complete code block
-                                inCodeBlock = false;
                             }
                         }
 
@@ -2544,7 +2512,6 @@ const handleStreamResponse = useCallback(async (response, isContinue = false) =>
                 }
             }
 
-            // Speed up typing for first chunks
             if (isFirstChunk && accumulatedTokensRef.current.length > 50) {
                 isFirstChunk = false;
             }
@@ -2557,7 +2524,6 @@ const handleStreamResponse = useCallback(async (response, isContinue = false) =>
     } finally {
         reader.releaseLock();
 
-        // Parse final files if in full code mode
         if (isFullCodeMode && fileContentBufferRef.current) {
             const files = parseCodeForFiles(fileContentBufferRef.current);
             if (files.length > 0) {
@@ -2569,15 +2535,13 @@ const handleStreamResponse = useCallback(async (response, isContinue = false) =>
             }
         }
 
-        // Add incomplete code block to buffer for next continuation
+        // Save unfinished code block
         if (inCodeBlock) {
-            codeBlockBuffer = '```
-' + (currentLanguage ? currentLanguage + '\n' : '');
+            codeBlockBuffer = '```\n' + (currentLanguage ? currentLanguage + '\n' : '');
         }
     }
 }, [isFullCodeMode, parseCodeForFiles, streamedContent]);
-
-// ---------- Fixed Continue Generation ----------
+  // ---------- Fixed Continue Generation ----------
 const handleContinueGeneration = useCallback(async () => {
     if (!lastStreamId) return;
 
@@ -2606,10 +2570,8 @@ const handleContinueGeneration = useCallback(async () => {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
 
-        // Clear previous content for clean continuation
         accumulatedTokensRef.current = '';
 
-        // Show streaming UI with continuation indicator
         setStreamingMessage({
             role: 'assistant',
             content: '',
@@ -2621,16 +2583,17 @@ const handleContinueGeneration = useCallback(async () => {
 
         await handleStreamResponse(response, true);
 
-        // Add continued content to chat history
         if (accumulatedTokensRef.current) {
-            const assistantMessage = {
-                role: 'assistant',
-                content: accumulatedTokensRef.current,
-                type: 'text',
-                ts: Date.now(),
-                isContinued: true
-            };
-            setChatHistory(prev => [...prev, assistantMessage]);
+            setChatHistory(prev => [
+                ...prev,
+                {
+                    role: 'assistant',
+                    content: accumulatedTokensRef.current,
+                    type: 'text',
+                    ts: Date.now(),
+                    isContinued: true
+                }
+            ]);
         }
 
     } catch (error) {
@@ -2646,6 +2609,7 @@ const handleContinueGeneration = useCallback(async () => {
         setStreamingMessage(null);
     }
 }, [lastStreamId, getPersistentUserId, currentUser, callFastAPI, handleStreamResponse, showModal]);
+
   // ---------- Stop Generation ----------
     const handleStopGeneration = useCallback(() => {
         if (abortController) {
@@ -5627,4 +5591,5 @@ int main() {
         </>
     );
 }
+
 
