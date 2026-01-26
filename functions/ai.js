@@ -342,36 +342,15 @@ export async function onRequest(context) {
 
     // Handle Continue requests (FIX: Enhanced detection for manual buttons)
 let activePrompt = prompt;
-let isContinue = false;
+    let isContinue = false; // TRACK CONTINUATION
+    // FIX: Broader check for continue/more actions
+    if ((!activePrompt || activePrompt.trim().toLowerCase() === "continue" || activePrompt.trim().toLowerCase() === "more") && stream_id) {
+        activePrompt = "The previous code/text was incomplete. Please CONTINUE generating EXACTLY from where you left off. Do not restart. Do not add introductory text. Just output the remaining code/text.";
+        isContinue = true;
+    }
 
-// 1. Get the content of the very last message from the AI (You need to implement this helper)
-// Example: const lastAiResponse = chatHistory[chatHistory.length - 1].content;
-const lastAiResponse = getLastAiResponseText(); 
-
-// 2. Check logic
-if ((!activePrompt || activePrompt.trim().toLowerCase() === "continue" || activePrompt.trim().toLowerCase() === "more") && stream_id) {
-    isContinue = true;
-    
-    // 3. Check for unclosed code blocks
-    // We count the occurrences of triple backticks. If it's an ODD number, the block is still open.
-    const backtickCount = (lastAiResponse.match(/```/g) || []).length;
-    const isInsideCodeBlock = backtickCount % 2 !== 0;
-
-    activePrompt = "The previous code/text was incomplete. Please CONTINUE generating EXACTLY from where you left off. Do not restart. Do not add introductory text.";
-
-    if (isInsideCodeBlock) {
-        // Try to detect the language (optional, but helpful)
-        // This looks for the last ```lang pattern
-        const lastBlockMatch = lastAiResponse.match(/```(\w+)/g);
-        const lastLang = lastBlockMatch ? lastBlockMatch[lastBlockMatch.length - 1].replace('```', '') : '';
-        
-        activePrompt += `\n\nIMPORTANT: The previous output ended inside a code block. You MUST start this response with \`\`\`${lastLang} to correctly format the continuation.`;
-    } else {
-        activePrompt += " Just output the remaining code/text.";
-    }
-}
-
-const cleanPrompt = (activePrompt || "").trim().toLowerCase();
+    const cleanPrompt = (activePrompt || "").trim().toLowerCase();
+ when using this its forgeting that its need to add code bloock again perfectly when pressing contiune code block breaking
     // -----------------------------------------------------------------
     // FORCE FILE MODE (CRITICAL FIX)
     // -----------------------------------------------------------------
