@@ -2389,181 +2389,179 @@ const SpiderAIApp = ({
     }, []);
 
 // ---------- Fixed Streaming Handler with Code Block Continuation ----------
-// ---------- Fixed Streaming Handler (Seamless Merging) ----------
-    const handleStreamResponse = useCallback(async (response, isContinue = false, initialContent = '') => {
-        if (!response.body) return;
+// ---------- Fixed Streaming Handler (Seamless Merging) ---------
+const handleStreamResponse = useCallback(async (response, isContinue = false, initialContent = '') => {
+    if (!response.body) return;
 
-        const reader = response.body.getReader();
-        streamReaderRef.current = reader;
-        
-        const decoder = new TextDecoder();
-        let buffer = '';
-        let tokenCount = 0;
-        
-        // Initialize with existing content if continuing
-        accumulatedTokensRef.current = initialContent;
-        
-        // Update UI immediately with existing content
-        setStreamedContent(initialContent);
+    const reader = response.body.getReader();
+    streamReaderRef.current = reader;
+    
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let tokenCount = 0;
+    
+    // Initialize with existing content if continuing
+    accumulatedTokensRef.current = initialContent;
+    
+    // Update UI immediately with existing content
+    setStreamedContent(initialContent);
 
-        try {
-            while (true) {
-                const { done, value } = await reader.read();
+    try {
+        while (true) {
+            const { done, value } = await reader.read();
+            
+            if (done) {
+                // Check if response ends abruptly (not ending in punctuation or code block)
+                const content = accumulatedTokensRef.current.trim();
+                const lastChar = content.slice(-1);
+                const isCodeBlockOpen = (content.match(/```/g) || []).length % 2 !== 0;
                 
-                if (done) {
-                    // Check if response ends abruptly (not ending in punctuation or code block)
-                    const content = accumulatedTokensRef.current.trim();
-                    const lastChar = content.slice(-1);
-                    const isCodeBlockOpen = (content.match(/```/g) || []).length % 2 !== 0;
-                    
-                    // Show continue button if code block is open or doesn't end in sentence terminator
-                    if (content.length > 0 && (isCodeBlockOpen || !['.', '!', '?', '}', '`'].includes(lastChar))) {
-                        setShowContinueButton(true);
-                    }
-                    break;
+                // Show continue button if code block is open or doesn't end in sentence terminator
+                if (content.length > 0 && (isCodeBlockOpen || !['.', '!', '?', '}', '`'].includes(lastChar))) {
+                    setShowContinueButton(true);
                 }
                 
-                const chunk = decoder.decode(value, { stream: true });
-                buffer += chunk;
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';
-                
-                for (const line of lines) {
-                    if (line.startsWith('data: ')) {
-                        const data = line.slice(6);
-                        if (data === '[DONE]') break;
-                        
-                        try {
-                            const parsed = JSON.parse(data);
-                            if (parsed.text) {
-                                tokenCount++;
-                                const textToAdd = parsed.text;
-                                
-                                // Append to the MASTER Ref
-                                accumulatedTokensRef.current += textToAdd;
-                                
-                                // Update State for UI
-                                setStreamedContent(accumulatedTokensRef.current);
-                                
-                                // Handle Full Code Parsing
-                                if (isFullCodeMode) {
-                                    fileContentBufferRef.current += textToAdd;
-                                    if (tokenCount % 20 === 0) {
-                                        const files = parseCodeForFiles(fileContentBufferRef.current);
-                                        if (files.length > 0) setGeneratedFiles(files);
-                                    }
+                // IMPORTANT: When streaming completes, add the message to history
+                if (accumulatedTokensRef.current) {
+                    const assistantMessage = {
+                        role: 'assistant',
+                        content: accumulatedTokensRef.current,
+                        type: 'text',
+                        ts: Date.now(),
+                        isContinued: isContinue
+                    };
+                    
+                    // Add to history if we're in a normal streaming state
+                    if (isStreaming) {
+                        setChatHistory(prev => [...prev, assistantMessage]);
+                    }
+                }
+                break;
+            }
+            
+            const chunk = decoder.decode(value, { stream: true });
+            buffer += chunk;
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+            
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    const data = line.slice(6);
+                    if (data === '[DONE]') break;
+                    
+                    try {
+                        const parsed = JSON.parse(data);
+                        if (parsed.text) {
+                            tokenCount++;
+                            const textToAdd = parsed.text;
+                            
+                            // Append to the MASTER Ref
+                            accumulatedTokensRef.current += textToAdd;
+                            
+                            // Update State for UI
+                            setStreamedContent(accumulatedTokensRef.current);
+                            
+                            // Update streaming message if exists
+                            setStreamingMessage(prev => prev ? {
+                                ...prev,
+                                content: accumulatedTokensRef.current
+                            } : null);
+                            
+                            // Handle Full Code Parsing
+                            if (isFullCodeMode) {
+                                fileContentBufferRef.current += textToAdd;
+                                if (tokenCount % 20 === 0) {
+                                    const files = parseCodeForFiles(fileContentBufferRef.current);
+                                    if (files.length > 0) setGeneratedFiles(files);
                                 }
                             }
-                            if (parsed.stream_id) {
-                                setLastStreamId(parsed.stream_id);
-                                continueStreamIdRef.current = parsed.stream_id;
-                            }
-                        } catch (e) { console.warn(e); }
-                    }
+                        }
+                        if (parsed.stream_id) {
+                            setLastStreamId(parsed.stream_id);
+                            continueStreamIdRef.current = parsed.stream_id;
+                        }
+                    } catch (e) { console.warn(e); }
                 }
             }
-        } catch (error) {
-            if (error.name !== 'AbortError') throw error;
-        } finally {
-            reader.releaseLock();
-            if (isFullCodeMode && fileContentBufferRef.current) {
-                const files = parseCodeForFiles(fileContentBufferRef.current);
-                if (files.length > 0) setGeneratedFiles(files);
-            }
         }
-    }, [isFullCodeMode, parseCodeForFiles]);
-  // ---------- Fixed Continue Generation (DeepSeek Style) ----------
-    const handleContinueGeneration = useCallback(async () => {
-        if (!lastStreamId) return;
-        
-        setIsLoading(true);
-        setIsStreaming(true);
-        setShowContinueButton(false);
-        
-        // 1. Get the last AI message
-        const lastMsgIndex = chatHistory.length - 1;
-        const lastMsg = chatHistory[lastMsgIndex];
-        
-        // 2. Capture its content as the "Base"
-        const previousContent = lastMsg.role === 'assistant' ? lastMsg.content : '';
-        
-        // 3. Temporarily remove the last static message from history
-        //    because we are about to re-render it as a "streaming" message
-        if (lastMsg.role === 'assistant') {
-            setChatHistory(prev => prev.slice(0, -1));
+    } catch (error) {
+        if (error.name !== 'AbortError') {
+            console.error('Stream error:', error);
+            throw error;
         }
+    } finally {
+        reader.releaseLock();
+        streamReaderRef.current = null;
+        
+        if (isFullCodeMode && fileContentBufferRef.current) {
+            const files = parseCodeForFiles(fileContentBufferRef.current);
+            if (files.length > 0) setGeneratedFiles(files);
+        }
+    }
+}, [isFullCodeMode, parseCodeForFiles, isStreaming]);
 
-        // 4. Set the Streaming UI to start with the OLD content
-        setStreamingMessage({
-            role: 'assistant',
-            content: previousContent, // Start with old content
-            type: 'text',
-            ts: Date.now(),
-            isStreaming: true,
-            isContinue: true
-        });
+// ---------- Fixed Continue Generation ----------
+const handleContinueGeneration = useCallback(async () => {
+    if (!lastStreamId) return;
+    
+    setIsLoading(true);
+    setIsStreaming(true);
+    setShowContinueButton(false);
+    
+    // 1. Get the last AI message
+    const lastMsgIndex = chatHistory.length - 1;
+    const lastMsg = chatHistory[lastMsgIndex];
+    
+    // 2. Capture its content as the "Base"
+    const previousContent = lastMsg.role === 'assistant' ? lastMsg.content : '';
+    
+    // 3. Temporarily remove the last static message from history
+    //    because we are about to re-render it as a "streaming" message
+    if (lastMsg.role === 'assistant') {
+        setChatHistory(prev => prev.slice(0, -1));
+    }
 
-        const apiUrl = '/api/generate/continue';
-        const apiPayload = {
-            stream_id: continueStreamIdRef.current || lastStreamId,
-            user_preference_id: getPersistentUserId(),
-            firebase_token: currentUser?.firebaseToken || '',
+    // 4. Set the Streaming UI to start with the OLD content
+    setStreamingMessage({
+        role: 'assistant',
+        content: previousContent, // Start with old content
+        type: 'text',
+        ts: Date.now(),
+        isStreaming: true,
+        isContinue: true
+    });
+
+    const apiUrl = '/api/generate/continue';
+    const apiPayload = {
+        stream_id: continueStreamIdRef.current || lastStreamId,
+        user_preference_id: getPersistentUserId(),
+        firebase_token: currentUser?.firebaseToken || '',
+        stream: true
+    };
+    
+    try {
+        const controller = new AbortController();
+        setAbortController(controller);
+        
+        const response = await callFastAPI(apiUrl, apiPayload, 'chat', {
+            signal: controller.signal,
             stream: true
-        };
+        });
         
-        try {
-            const controller = new AbortController();
-            setAbortController(controller);
-            
-            const response = await callFastAPI(apiUrl, apiPayload, 'chat', {
-                signal: controller.signal,
-                stream: true
-            });
-            
-            if (!response.ok) throw new Error(response.statusText);
-            
-            // 5. Pass previousContent to the handler to append to it
-            await handleStreamResponse(response, true, previousContent);
-            
-            // 6. Once done, add the FULL combined message back to history
-            if (accumulatedTokensRef.current) {
-                const assistantMessage = {
-                    role: 'assistant',
-                    content: accumulatedTokensRef.current, // This now has Old + New
-                    type: 'text',
-                    ts: Date.now(),
-                    isContinued: true
-                };
-                setChatHistory(prev => [...prev, assistantMessage]);
-            }
-            
-        } catch (error) {
-            console.error('Continue error:', error);
-            // If error, put the old message back
-            setChatHistory(prev => [...prev, lastMsg]);
-        } finally {
-            setIsLoading(false);
-            setIsStreaming(false);
-            setStreamingMessage(null);
-        }
-    }, [lastStreamId, chatHistory, getPersistentUserId, currentUser, callFastAPI, handleStreamResponse]);
-  
-  // ---------- Stop Generation ----------
-    const handleStopGeneration = useCallback(() => {
-        if (abortController) {
-            abortController.abort();
-            setAbortController(null);
-        }
-        if (streamReaderRef.current) {
-            streamReaderRef.current.cancel();
-            streamReaderRef.current = null;
-        }
+        if (!response.ok) throw new Error(response.statusText);
         
-        setIsLoading(false);
-        setIsStreaming(false);
+        // 5. Pass previousContent to the handler to append to it
+        await handleStreamResponse(response, true, previousContent);
         
-        // Save whatever we've streamed so far
-        if (accumulatedTokensRef.current) {
+        // The message is now added in handleStreamResponse when done
+        // No need to add it here again
+        
+    } catch (error) {
+        console.error('Continue error:', error);
+        
+        // On error, restore the original message or save partial progress
+        if (accumulatedTokensRef.current && accumulatedTokensRef.current !== previousContent) {
+            // We have some new content, save it as partial
             const assistantMessage = {
                 role: 'assistant',
                 content: accumulatedTokensRef.current,
@@ -2572,13 +2570,73 @@ const SpiderAIApp = ({
                 isPartial: true
             };
             setChatHistory(prev => [...prev, assistantMessage]);
+        } else {
+            // No new content, restore original message
+            setChatHistory(prev => [...prev, lastMsg]);
+        }
+    } finally {
+        setIsLoading(false);
+        setIsStreaming(false);
+        setStreamingMessage(null);
+    }
+}, [lastStreamId, chatHistory, getPersistentUserId, currentUser, callFastAPI, handleStreamResponse]);
+
+// ---------- Stop Generation ----------
+const handleStopGeneration = useCallback(() => {
+    if (abortController) {
+        abortController.abort();
+        setAbortController(null);
+    }
+    if (streamReaderRef.current) {
+        streamReaderRef.current.cancel();
+        streamReaderRef.current = null;
+    }
+    
+    setIsLoading(false);
+    setIsStreaming(false);
+    
+    // Save whatever we've streamed so far
+    if (accumulatedTokensRef.current) {
+        const assistantMessage = {
+            role: 'assistant',
+            content: accumulatedTokensRef.current,
+            type: 'text',
+            ts: Date.now(),
+            isPartial: true
+        };
+        setChatHistory(prev => [...prev, assistantMessage]);
+        accumulatedTokensRef.current = '';
+        setStreamedContent('');
+    }
+    
+    setStreamingMessage(null);
+}, [abortController]);
+
+// Add this useEffect to handle cleanup and finalization
+useEffect(() => {
+    // When streaming stops naturally (not via stop button)
+    if (!isStreaming && !isLoading && streamingMessage === null) {
+        // Check if we have accumulated content that hasn't been saved yet
+        if (accumulatedTokensRef.current && accumulatedTokensRef.current.trim()) {
+            const lastMessage = chatHistory[chatHistory.length - 1];
+            
+            // Only add if the last message is not the same content
+            if (!lastMessage || lastMessage.content !== accumulatedTokensRef.current) {
+                const assistantMessage = {
+                    role: 'assistant',
+                    content: accumulatedTokensRef.current,
+                    type: 'text',
+                    ts: Date.now(),
+                    isContinued: false
+                };
+                setChatHistory(prev => [...prev, assistantMessage]);
+            }
+            
             accumulatedTokensRef.current = '';
             setStreamedContent('');
         }
-        
-        setStreamingMessage(null);
-    }, [abortController]);
-
+    }
+}, [isStreaming, isLoading, streamingMessage, chatHistory]);
     // ---------- Auto-detect Image Generation ----------
     const detectImageGeneration = (prompt) => {
         const lowerPrompt = prompt.toLowerCase();
@@ -5542,6 +5600,7 @@ int main() {
         </>
     );
 }
+
 
 
 
