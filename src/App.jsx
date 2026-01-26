@@ -2391,7 +2391,7 @@ const SpiderAIApp = ({
 // ---------- Fixed Streaming Handler with Code Block Continuation ----------
 const handleStreamResponse = useCallback(async (response, isContinue = false) => {
     if (!response.body) {
-        throw new Error('ReadableStream not supported in this browser');
+        throw new Error('ReadableStream not supported');
     }
 
     const reader = response.body.getReader();
@@ -2399,8 +2399,6 @@ const handleStreamResponse = useCallback(async (response, isContinue = false) =>
 
     const decoder = new TextDecoder();
     let buffer = '';
-    let isFirstChunk = true;
-    let startTime = Date.now();
     let tokenCount = 0;
     let codeBlockBuffer = '';
     let inCodeBlock = false;
@@ -2411,17 +2409,8 @@ const handleStreamResponse = useCallback(async (response, isContinue = false) =>
             const { done, value } = await reader.read();
 
             if (done) {
-                // Handle incomplete code blocks
                 if (inCodeBlock) {
                     codeBlockBuffer += '```\n';
-                }
-
-                const currentContent = isContinue
-                    ? (streamedContent + accumulatedTokensRef.current)
-                    : accumulatedTokensRef.current;
-
-                if (currentContent.length > 0 && !currentContent.trim().endsWith('.')) {
-                    setShowContinueButton(true);
                 }
                 break;
             }
@@ -2433,115 +2422,82 @@ const handleStreamResponse = useCallback(async (response, isContinue = false) =>
             buffer = lines.pop() || '';
 
             for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                    const data = line.slice(6);
+                if (!line.startsWith('data: ')) continue;
 
-                    if (data === '[DONE]') {
-                        console.log(`Stream completed. Tokens: ${tokenCount}, Time: ${Date.now() - startTime}ms`);
-                        break;
-                    }
+                const data = line.slice(6);
+                if (data === '[DONE]') break;
 
-                    try {
-                        const parsed = JSON.parse(data);
+                try {
+                    const parsed = JSON.parse(data);
 
-                        if (parsed.text) {
-                            tokenCount++;
-                            let textToAdd = parsed.text;
+                    if (parsed.text) {
+                        tokenCount++;
+                        let text = parsed.text;
 
-                            // Restore previous unfinished block
-                            if (isContinue && codeBlockBuffer) {
-                                textToAdd = codeBlockBuffer + textToAdd;
-                                codeBlockBuffer = '';
-                            }
+                        // Restore unfinished block
+                        if (isContinue && codeBlockBuffer) {
+                            text = codeBlockBuffer + text;
+                            codeBlockBuffer = '';
+                        }
 
-                            // Detect code blocks
-                            if (textToAdd.includes('```')) {
-                                const parts = textToAdd.split('```');
+                        if (text.includes('```')) {
+                            const parts = text.split('```');
 
-                                for (let i = 0; i < parts.length; i++) {
-                                    if (i === 0 && !inCodeBlock) {
-                                        accumulatedTokensRef.current += parts[i];
-                                        continue;
-                                    }
-
-                                    if (i % 2 === 1) {
-                                        if (!inCodeBlock) {
-                                            inCodeBlock = true;
-                                            currentLanguage = parts[i].trim() || '';
-                                            accumulatedTokensRef.current += '```\n' + currentLanguage + '\n';
-                                        } else {
-                                            inCodeBlock = false;
-                                            currentLanguage = '';
-                                            accumulatedTokensRef.current += '```\n';
-                                        }
+                            for (let i = 0; i < parts.length; i++) {
+                                if (i % 2 === 0) {
+                                    accumulatedTokensRef.current += parts[i];
+                                } else {
+                                    if (!inCodeBlock) {
+                                        inCodeBlock = true;
+                                        currentLanguage = parts[i].trim();
+                                        accumulatedTokensRef.current +=
+                                            '```\n' + currentLanguage + '\n';
                                     } else {
-                                        accumulatedTokensRef.current += parts[i];
-                                    }
-                                }
-                            } else {
-                                accumulatedTokensRef.current += textToAdd;
-                            }
-
-                            setStreamedContent(prev => prev + textToAdd);
-
-                            if (isFullCodeMode) {
-                                fileContentBufferRef.current += textToAdd;
-
-                                if (tokenCount % 20 === 0) {
-                                    const files = parseCodeForFiles(fileContentBufferRef.current);
-                                    if (files.length > 0) {
-                                        setGeneratedFiles(files);
+                                        inCodeBlock = false;
+                                        currentLanguage = '';
+                                        accumulatedTokensRef.current += '```\n';
                                     }
                                 }
                             }
+                        } else {
+                            accumulatedTokensRef.current += text;
                         }
 
-                        if (parsed.stream_id) {
-                            setLastStreamId(parsed.stream_id);
-                            continueStreamIdRef.current = parsed.stream_id;
-                        }
+                        setStreamedContent(prev => prev + text);
 
-                        if (parsed.is_full_code) {
-                            setIsFullCodeMode(true);
-                            setShowContinueButton(true);
+                        if (isFullCodeMode) {
+                            fileContentBufferRef.current += text;
                         }
-
-                    } catch (e) {
-                        console.warn('Failed to parse SSE data:', e);
                     }
+
+                    if (parsed.stream_id) {
+                        setLastStreamId(parsed.stream_id);
+                        continueStreamIdRef.current = parsed.stream_id;
+                    }
+
+                    if (parsed.is_full_code) {
+                        setIsFullCodeMode(true);
+                        setShowContinueButton(true);
+                    }
+
+                } catch (e) {
+                    console.warn("Bad SSE chunk", e);
                 }
             }
-
-            if (isFirstChunk && accumulatedTokensRef.current.length > 50) {
-                isFirstChunk = false;
-            }
         }
-    } catch (error) {
-        console.error('Stream reading error:', error);
-        if (error.name !== 'AbortError') {
-            throw error;
+    } catch (err) {
+        if (err.name !== 'AbortError') {
+            console.error(err);
         }
     } finally {
         reader.releaseLock();
 
-        if (isFullCodeMode && fileContentBufferRef.current) {
-            const files = parseCodeForFiles(fileContentBufferRef.current);
-            if (files.length > 0) {
-                setGeneratedFiles(files);
-                setProjectMetadata(prev => ({
-                    ...prev,
-                    totalFiles: files.length
-                }));
-            }
-        }
-
-        // Save unfinished code block
         if (inCodeBlock) {
-            codeBlockBuffer = '```\n' + (currentLanguage ? currentLanguage + '\n' : '');
+            codeBlockBuffer =
+                '```\n' + (currentLanguage ? currentLanguage + '\n' : '');
         }
     }
-}, [isFullCodeMode, parseCodeForFiles, streamedContent]);
-  // ---------- Fixed Continue Generation ----------
+}, [isFullCodeMode, streamedContent]);
 const handleContinueGeneration = useCallback(async () => {
     if (!lastStreamId) return;
 
@@ -2549,8 +2505,7 @@ const handleContinueGeneration = useCallback(async () => {
     setIsStreaming(true);
     setShowContinueButton(false);
 
-    const apiUrl = '/api/generate/continue';
-    const apiPayload = {
+    const payload = {
         stream_id: continueStreamIdRef.current || lastStreamId,
         user_preference_id: getPersistentUserId(),
         firebase_token: currentUser?.firebaseToken || '',
@@ -2561,54 +2516,59 @@ const handleContinueGeneration = useCallback(async () => {
         const controller = new AbortController();
         setAbortController(controller);
 
-        const response = await callFastAPI(apiUrl, apiPayload, 'chat', {
-            signal: controller.signal,
-            stream: true
-        });
+        const response = await callFastAPI(
+            "/api/generate/continue",
+            payload,
+            "chat",
+            { signal: controller.signal, stream: true }
+        );
 
         if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            throw new Error("Continue failed");
         }
 
-        accumulatedTokensRef.current = '';
-
-        setStreamingMessage({
-            role: 'assistant',
-            content: '',
-            type: 'text',
-            ts: Date.now(),
-            isStreaming: true,
-            isContinue: true
-        });
+        accumulatedTokensRef.current = "";
 
         await handleStreamResponse(response, true);
 
+        // 🔥 APPEND TO LAST ASSISTANT MESSAGE
         if (accumulatedTokensRef.current) {
-            setChatHistory(prev => [
-                ...prev,
-                {
-                    role: 'assistant',
-                    content: accumulatedTokensRef.current,
-                    type: 'text',
-                    ts: Date.now(),
-                    isContinued: true
+            setChatHistory(prev => {
+                const updated = [...prev];
+
+                for (let i = updated.length - 1; i >= 0; i--) {
+                    if (updated[i].role === "assistant") {
+                        updated[i] = {
+                            ...updated[i],
+                            content:
+                                updated[i].content +
+                                accumulatedTokensRef.current
+                        };
+                        break;
+                    }
                 }
-            ]);
+
+                return updated;
+            });
         }
 
-    } catch (error) {
-        if (error.name === 'AbortError') {
-            console.log('Stream aborted by user');
-        } else {
-            console.error('Continue generation error:', error);
-            showModal("Generation Error", `Failed to continue: ${error.message}`);
+    } catch (err) {
+        if (err.name !== "AbortError") {
+            console.error(err);
+            showModal("Error", err.message);
         }
     } finally {
         setIsLoading(false);
         setIsStreaming(false);
-        setStreamingMessage(null);
     }
-}, [lastStreamId, getPersistentUserId, currentUser, callFastAPI, handleStreamResponse, showModal]);
+}, [
+    lastStreamId,
+    getPersistentUserId,
+    currentUser,
+    callFastAPI,
+    handleStreamResponse,
+    showModal
+]);
 
   // ---------- Stop Generation ----------
     const handleStopGeneration = useCallback(() => {
@@ -5591,5 +5551,6 @@ int main() {
         </>
     );
 }
+
 
 
