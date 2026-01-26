@@ -3394,35 +3394,40 @@ const handleSendMessage = async () => {
     console.log('Sending message:', {
         persistentId: getPersistentUserId(),
         currentUser: currentUser,
-        messageLength: message.length, // Track length
+        messageLength: message.length,
         aiMode: selectedAIMode
     });
 
-    // VALIDATE AND TRIM LARGE PROMPTS
-    const MAX_PROMPT_LENGTH = 4000; // Adjust based on your API limits
-    const processedMessage = message.length > MAX_PROMPT_LENGTH 
-        ? message.substring(0, MAX_PROMPT_LENGTH) + "...[truncated due to length]"
-        : message;
-    
+    // ============================
+    // NO FRONTEND TRUNCATION
+    // ============================
+    const processedMessage = message;
+
     console.log('Message processed:', {
         originalLength: message.length,
         processedLength: processedMessage.length,
-        wasTruncated: message.length > MAX_PROMPT_LENGTH
+        wasTruncated: false
     });
 
+    // ============================
+    // UI STATE
+    // ============================
     setIsLoading(true);
+
     const controller = new AbortController();
     setAbortController(controller);
 
     const fileCopy = uploadedFile;
     const imageCopy = uploadedImage;
+
     let mode = activeAIMode || selectedAIMode;
 
-    // Auto-detect image generation
+    // ============================
+    // AUTO IMAGE DETECTION
+    // ============================
     if (!fileCopy && !imageCopy && detectImageGeneration(processedMessage)) {
         mode = 'image_gen';
     }
-
     // Auto-detect full code requests
     const isFullCodeRequest = detectFullCodeRequest(processedMessage);
     if (isFullCodeRequest && !fileCopy && !imageCopy) {
@@ -5632,6 +5637,7 @@ int main() {
         </>
     );
 }
+
 
 
 
