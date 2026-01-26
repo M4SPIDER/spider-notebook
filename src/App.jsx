@@ -2389,187 +2389,165 @@ const SpiderAIApp = ({
     }, []);
 
 // ---------- Fixed Streaming Handler with Code Block Continuation ----------
-const handleStreamResponse = useCallback(async (response, isContinue = false) => {
-    if (!response.body) {
-        throw new Error('ReadableStream not supported');
-    }
+// ---------- Fixed Streaming Handler (Seamless Merging) ----------
+    const handleStreamResponse = useCallback(async (response, isContinue = false, initialContent = '') => {
+        if (!response.body) return;
 
-    const reader = response.body.getReader();
-    streamReaderRef.current = reader;
+        const reader = response.body.getReader();
+        streamReaderRef.current = reader;
+        
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let tokenCount = 0;
+        
+        // Initialize with existing content if continuing
+        accumulatedTokensRef.current = initialContent;
+        
+        // Update UI immediately with existing content
+        setStreamedContent(initialContent);
 
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let tokenCount = 0;
-    let codeBlockBuffer = '';
-    let inCodeBlock = false;
-    let currentLanguage = '';
-
-    try {
-        while (true) {
-            const { done, value } = await reader.read();
-
-            if (done) {
-                if (inCodeBlock) {
-                    codeBlockBuffer += '```\n';
+        try {
+            while (true) {
+                const { done, value } = await reader.read();
+                
+                if (done) {
+                    // Check if response ends abruptly (not ending in punctuation or code block)
+                    const content = accumulatedTokensRef.current.trim();
+                    const lastChar = content.slice(-1);
+                    const isCodeBlockOpen = (content.match(/```/g) || []).length % 2 !== 0;
+                    
+                    // Show continue button if code block is open or doesn't end in sentence terminator
+                    if (content.length > 0 && (isCodeBlockOpen || !['.', '!', '?', '}', '`'].includes(lastChar))) {
+                        setShowContinueButton(true);
+                    }
+                    break;
                 }
-                break;
-            }
-
-            const chunk = decoder.decode(value, { stream: true });
-            buffer += chunk;
-
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || '';
-
-            for (const line of lines) {
-                if (!line.startsWith('data: ')) continue;
-
-                const data = line.slice(6);
-                if (data === '[DONE]') break;
-
-                try {
-                    const parsed = JSON.parse(data);
-
-                    if (parsed.text) {
-                        tokenCount++;
-                        let text = parsed.text;
-
-                        // Restore unfinished block
-                        if (isContinue && codeBlockBuffer) {
-                            text = codeBlockBuffer + text;
-                            codeBlockBuffer = '';
-                        }
-
-                        if (text.includes('```')) {
-                            const parts = text.split('```');
-
-                            for (let i = 0; i < parts.length; i++) {
-                                if (i % 2 === 0) {
-                                    accumulatedTokensRef.current += parts[i];
-                                } else {
-                                    if (!inCodeBlock) {
-                                        inCodeBlock = true;
-                                        currentLanguage = parts[i].trim();
-                                        accumulatedTokensRef.current +=
-                                            '```\n' + currentLanguage + '\n';
-                                    } else {
-                                        inCodeBlock = false;
-                                        currentLanguage = '';
-                                        accumulatedTokensRef.current += '```\n';
+                
+                const chunk = decoder.decode(value, { stream: true });
+                buffer += chunk;
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+                
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        const data = line.slice(6);
+                        if (data === '[DONE]') break;
+                        
+                        try {
+                            const parsed = JSON.parse(data);
+                            if (parsed.text) {
+                                tokenCount++;
+                                const textToAdd = parsed.text;
+                                
+                                // Append to the MASTER Ref
+                                accumulatedTokensRef.current += textToAdd;
+                                
+                                // Update State for UI
+                                setStreamedContent(accumulatedTokensRef.current);
+                                
+                                // Handle Full Code Parsing
+                                if (isFullCodeMode) {
+                                    fileContentBufferRef.current += textToAdd;
+                                    if (tokenCount % 20 === 0) {
+                                        const files = parseCodeForFiles(fileContentBufferRef.current);
+                                        if (files.length > 0) setGeneratedFiles(files);
                                     }
                                 }
                             }
-                        } else {
-                            accumulatedTokensRef.current += text;
-                        }
-
-                        setStreamedContent(prev => prev + text);
-
-                        if (isFullCodeMode) {
-                            fileContentBufferRef.current += text;
-                        }
+                            if (parsed.stream_id) {
+                                setLastStreamId(parsed.stream_id);
+                                continueStreamIdRef.current = parsed.stream_id;
+                            }
+                        } catch (e) { console.warn(e); }
                     }
-
-                    if (parsed.stream_id) {
-                        setLastStreamId(parsed.stream_id);
-                        continueStreamIdRef.current = parsed.stream_id;
-                    }
-
-                    if (parsed.is_full_code) {
-                        setIsFullCodeMode(true);
-                        setShowContinueButton(true);
-                    }
-
-                } catch (e) {
-                    console.warn("Bad SSE chunk", e);
                 }
             }
+        } catch (error) {
+            if (error.name !== 'AbortError') throw error;
+        } finally {
+            reader.releaseLock();
+            if (isFullCodeMode && fileContentBufferRef.current) {
+                const files = parseCodeForFiles(fileContentBufferRef.current);
+                if (files.length > 0) setGeneratedFiles(files);
+            }
         }
-    } catch (err) {
-        if (err.name !== 'AbortError') {
-            console.error(err);
-        }
-    } finally {
-        reader.releaseLock();
-
-        if (inCodeBlock) {
-            codeBlockBuffer =
-                '```\n' + (currentLanguage ? currentLanguage + '\n' : '');
-        }
-    }
-}, [isFullCodeMode, streamedContent]);
-const handleContinueGeneration = useCallback(async () => {
-    if (!lastStreamId) return;
-
-    setIsLoading(true);
-    setIsStreaming(true);
-    setShowContinueButton(false);
-
-    const payload = {
-        stream_id: continueStreamIdRef.current || lastStreamId,
-        user_preference_id: getPersistentUserId(),
-        firebase_token: currentUser?.firebaseToken || '',
-        stream: true
-    };
-
-    try {
-        const controller = new AbortController();
-        setAbortController(controller);
-
-        const response = await callFastAPI(
-            "/api/generate/continue",
-            payload,
-            "chat",
-            { signal: controller.signal, stream: true }
-        );
-
-        if (!response.ok) {
-            throw new Error("Continue failed");
+    }, [isFullCodeMode, parseCodeForFiles]);
+  // ---------- Fixed Continue Generation (DeepSeek Style) ----------
+    const handleContinueGeneration = useCallback(async () => {
+        if (!lastStreamId) return;
+        
+        setIsLoading(true);
+        setIsStreaming(true);
+        setShowContinueButton(false);
+        
+        // 1. Get the last AI message
+        const lastMsgIndex = chatHistory.length - 1;
+        const lastMsg = chatHistory[lastMsgIndex];
+        
+        // 2. Capture its content as the "Base"
+        const previousContent = lastMsg.role === 'assistant' ? lastMsg.content : '';
+        
+        // 3. Temporarily remove the last static message from history
+        //    because we are about to re-render it as a "streaming" message
+        if (lastMsg.role === 'assistant') {
+            setChatHistory(prev => prev.slice(0, -1));
         }
 
-        accumulatedTokensRef.current = "";
+        // 4. Set the Streaming UI to start with the OLD content
+        setStreamingMessage({
+            role: 'assistant',
+            content: previousContent, // Start with old content
+            type: 'text',
+            ts: Date.now(),
+            isStreaming: true,
+            isContinue: true
+        });
 
-        await handleStreamResponse(response, true);
-
-        // 🔥 APPEND TO LAST ASSISTANT MESSAGE
-        if (accumulatedTokensRef.current) {
-            setChatHistory(prev => {
-                const updated = [...prev];
-
-                for (let i = updated.length - 1; i >= 0; i--) {
-                    if (updated[i].role === "assistant") {
-                        updated[i] = {
-                            ...updated[i],
-                            content:
-                                updated[i].content +
-                                accumulatedTokensRef.current
-                        };
-                        break;
-                    }
-                }
-
-                return updated;
+        const apiUrl = '/api/generate/continue';
+        const apiPayload = {
+            stream_id: continueStreamIdRef.current || lastStreamId,
+            user_preference_id: getPersistentUserId(),
+            firebase_token: currentUser?.firebaseToken || '',
+            stream: true
+        };
+        
+        try {
+            const controller = new AbortController();
+            setAbortController(controller);
+            
+            const response = await callFastAPI(apiUrl, apiPayload, 'chat', {
+                signal: controller.signal,
+                stream: true
             });
+            
+            if (!response.ok) throw new Error(response.statusText);
+            
+            // 5. Pass previousContent to the handler to append to it
+            await handleStreamResponse(response, true, previousContent);
+            
+            // 6. Once done, add the FULL combined message back to history
+            if (accumulatedTokensRef.current) {
+                const assistantMessage = {
+                    role: 'assistant',
+                    content: accumulatedTokensRef.current, // This now has Old + New
+                    type: 'text',
+                    ts: Date.now(),
+                    isContinued: true
+                };
+                setChatHistory(prev => [...prev, assistantMessage]);
+            }
+            
+        } catch (error) {
+            console.error('Continue error:', error);
+            // If error, put the old message back
+            setChatHistory(prev => [...prev, lastMsg]);
+        } finally {
+            setIsLoading(false);
+            setIsStreaming(false);
+            setStreamingMessage(null);
         }
-
-    } catch (err) {
-        if (err.name !== "AbortError") {
-            console.error(err);
-            showModal("Error", err.message);
-        }
-    } finally {
-        setIsLoading(false);
-        setIsStreaming(false);
-    }
-}, [
-    lastStreamId,
-    getPersistentUserId,
-    currentUser,
-    callFastAPI,
-    handleStreamResponse,
-    showModal
-]);
-
+    }, [lastStreamId, chatHistory, getPersistentUserId, currentUser, callFastAPI, handleStreamResponse]);
+  
   // ---------- Stop Generation ----------
     const handleStopGeneration = useCallback(() => {
         if (abortController) {
@@ -2616,23 +2594,36 @@ const handleContinueGeneration = useCallback(async () => {
     };
 
     // ---------- File / Image Upload Handlers ----------
+// ---------- Universal File Handler ----------
     const handleFileUpload = (event) => {
         const file = event?.target?.files?.[0];
-        if (!file) {
-            if (event) event.target.value = null;
-            return;
+        if (!file) return;
+
+        // Check if it is an image
+        if (file.type.startsWith('image/')) {
+             setUploadedImage(file);
+             setUploadedFile(null); // Clear text file if any
+             setMessage("Analyze this image: ");
+             
+             // If active mode isn't already compatible, suggest image mode
+             if (selectedAIMode !== 'pro' && selectedAIMode !== 'reasoning') {
+                 // You might want to switch to a vision-capable mode here
+                 // setSelectedAIMode('chat'); 
+             }
+        } else {
+            // It's a document/code
+            if (file.size > 1024 * 1024 * 10) {
+                showModal("File Error", "File size exceeds 10MB limit.");
+                event.target.value = null;
+                return;
+            }
+            setUploadedFile(file);
+            setUploadedImage(null); // Clear image if any
+            setMessage(`Analyze the contents of ${file.name}.`);
         }
-        if (file.size > 1024 * 1024 * 10) {
-            showModal("File Error", "File size exceeds 10MB limit.");
-            event.target.value = null;
-            return;
-        }
-        setUploadedFile(file);
-        setUploadedImage(null);
-        setMessage(`Analyze the contents of ${file.name}.`);
         event.target.value = null;
     };
-
+  
     const handleImageUpload = (event) => {
         const file = event?.target?.files?.[0];
         if (!file) {
@@ -5551,6 +5542,7 @@ int main() {
         </>
     );
 }
+
 
 
 
