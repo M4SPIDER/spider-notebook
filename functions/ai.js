@@ -245,7 +245,7 @@ const SPIDER_SYSTEM_PROMPT =
 "- NEVER omit release timing.\n" +
 "\nCODE BLOCK RULE:\n" +
 "- Always use markdown code blocks for code 💻.\n" +
-"- Format: ```language\\ncode here\\n```.\n" +
+"- Format: ```\\ncode here\\n```.\n" +
 "- NEVER use single backticks for multi-line code.\n" +
 "- FORMATTING RESTRICTION: Do NOT use **bold** or # headers in the chat text. ONLY use ** and # inside code blocks. Your chat text must be plain.\n";
 
@@ -345,7 +345,7 @@ let activePrompt = prompt;
     let isContinue = false; // TRACK CONTINUATION
     // FIX: Broader check for continue/more actions
     if ((!activePrompt || activePrompt.trim().toLowerCase() === "continue" || activePrompt.trim().toLowerCase() === "more") && stream_id) {
-        activePrompt = "The previous code/text was incomplete. Please CONTINUE generating EXACTLY from where you left off. Do not restart. Do not add introductory text. Just output the remaining code/text.";
+        activePrompt = "The previous code/text was incomplete. Please CONTINUE generating EXACTLY from where you left off. Do not restart. Do not add introductory text. Just output the remaining code/text in just new code blocks only .";
         isContinue = true;
     }
 
