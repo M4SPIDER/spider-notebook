@@ -2388,259 +2388,265 @@ const SpiderAIApp = ({
         typeNextWord();
     }, []);
 
-    // ---------- Fixed Streaming Handler with Code Block Continuation ----------
-    const handleStreamResponse = useCallback(async (response, isContinue = false) => {
-        if (!response.body) {
-            throw new Error('ReadableStream not supported in this browser');
-        }
+// ---------- Fixed Streaming Handler with Code Block Continuation ----------
+const handleStreamResponse = useCallback(async (response, isContinue = false) => {
+    if (!response.body) {
+        throw new Error('ReadableStream not supported in this browser');
+    }
 
-        const reader = response.body.getReader();
-        streamReaderRef.current = reader;
-        
-        const decoder = new TextDecoder();
-        let buffer = '';
-        let isFirstChunk = true;
-        let startTime = Date.now();
-        let tokenCount = 0;
-        let codeBlockBuffer = '';
-        let inCodeBlock = false;
-        let currentLanguage = '';
+    const reader = response.body.getReader();
+    streamReaderRef.current = reader;
 
-        try {
-            while (true) {
-                const { done, value } = await reader.read();
-                
-                if (done) {
-                    // Handle incomplete code blocks
-                    if (inCodeBlock) {
-                        codeBlockBuffer += '```';
-                    }
-                    
-                    // Check if response was truncated
-                    const currentContent = isContinue 
-                        ? (streamedContent + accumulatedTokensRef.current)
-                        : accumulatedTokensRef.current;
-                    
-                    if (currentContent.length > 0 && !currentContent.trim().endsWith('.')) {
-                        setShowContinueButton(true);
-                    }
-                    break;
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let isFirstChunk = true;
+    let startTime = Date.now();
+    let tokenCount = 0;
+    let codeBlockBuffer = '';
+    let inCodeBlock = false;
+    let currentLanguage = '';
+
+    try {
+        while (true) {
+            const { done, value } = await reader.read();
+
+            if (done) {
+                // Handle incomplete code blocks
+                if (inCodeBlock) {
+                    codeBlockBuffer += '```
+';
                 }
-                
-                // Decode the chunk
-                const chunk = decoder.decode(value, { stream: true });
-                buffer += chunk;
-                
-                // Process lines
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';
-                
-                for (const line of lines) {
-                    if (line.startsWith('data: ')) {
-                        const data = line.slice(6);
-                        
-                        if (data === '[DONE]') {
-                            // Streaming complete
-                            console.log(`Stream completed. Tokens: ${tokenCount}, Time: ${Date.now() - startTime}ms`);
-                            break;
-                        }
-                        
-                        try {
-                            const parsed = JSON.parse(data);
-                            
-                            if (parsed.text) {
-                                tokenCount++;
-                                let textToAdd = parsed.text;
-                                
-                                // Handle code block continuation
-                                if (isContinue && codeBlockBuffer) {
-                                    textToAdd = codeBlockBuffer + textToAdd;
-                                    codeBlockBuffer = '';
-                                }
-                                
-                                // Track code blocks for continuation
-                                if (textToAdd.includes('```')) {
-                                    const parts = textToAdd.split('```');
-                                    for (let i = 0; i < parts.length; i++) {
-                                        if (i === 0 && !inCodeBlock) {
-                                            // Regular text before code block
-                                            accumulatedTokensRef.current += parts[i];
-                                            continue;
-                                        }
-                                        
-                                        if (i % 2 === 1) {
-                                            // Code block delimiter
-                                            if (!inCodeBlock) {
-                                                // Starting a code block
-                                                inCodeBlock = true;
-                                                currentLanguage = parts[i].trim() || '';
-                                                accumulatedTokensRef.current += '```' + currentLanguage + '\n';
-                                            } else {
-                                                // Ending a code block
-                                                inCodeBlock = false;
-                                                currentLanguage = '';
-                                                accumulatedTokensRef.current += '```\n';
-                                            }
+
+                // Check if response was truncated
+                const currentContent = isContinue
+                    ? (streamedContent + accumulatedTokensRef.current)
+                    : accumulatedTokensRef.current;
+
+                if (currentContent.length > 0 && !currentContent.trim().endsWith('.')) {
+                    setShowContinueButton(true);
+                }
+                break;
+            }
+
+            // Decode the chunk
+            const chunk = decoder.decode(value, { stream: true });
+            buffer += chunk;
+
+            // Process lines
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    const data = line.slice(6);
+
+                    if (data === '[DONE]') {
+                        // Streaming complete
+                        console.log(`Stream completed. Tokens: ${tokenCount}, Time: ${Date.now() - startTime}ms`);
+                        break;
+                    }
+
+                    try {
+                        const parsed = JSON.parse(data);
+
+                        if (parsed.text) {
+                            tokenCount++;
+                            let textToAdd = parsed.text;
+
+                            // Handle code block continuation
+                            if (isContinue && codeBlockBuffer) {
+                                textToAdd = codeBlockBuffer + textToAdd;
+                                codeBlockBuffer = '';
+                            }
+
+                            // Track code blocks for continuation
+                            if (textToAdd.includes('```
+')) {
+                                const parts = textToAdd.split('```
+');
+                                for (let i = 0; i < parts.length; i++) {
+                                    if (i === 0 && !inCodeBlock) {
+                                        // Regular text before code block
+                                        accumulatedTokensRef.current += parts[i];
+                                        continue;
+                                    }
+
+                                    if (i % 2 === 1) {
+                                        // Code block delimiter
+                                        if (!inCodeBlock) {
+                                            // Starting a code block
+                                            inCodeBlock = true;
+                                            currentLanguage = parts[i].trim() || '';
+                                            accumulatedTokensRef.current += '```
+' + currentLanguage + '\n';
                                         } else {
-                                            // Code block content or text between code blocks
-                                            accumulatedTokensRef.current += parts[i];
+                                            // Ending a code block
+                                            inCodeBlock = false;
+                                            currentLanguage = '';
+                                            accumulatedTokensRef.current += '```
+\n';
                                         }
-                                    }
-                                } else {
-                                    if (inCodeBlock) {
-                                        // Inside code block
-                                        accumulatedTokensRef.current += textToAdd;
                                     } else {
-                                        // Regular text
-                                        accumulatedTokensRef.current += textToAdd;
+                                        // Code block content or text between code blocks
+                                        accumulatedTokensRef.current += parts[i];
                                     }
                                 }
-                                
-                                // Update streaming content
-                                if (isContinue) {
-                                    setStreamedContent(prev => prev + textToAdd);
+                            } else {
+                                if (inCodeBlock) {
+                                    // Inside code block
+                                    accumulatedTokensRef.current += textToAdd;
                                 } else {
-                                    setStreamedContent(prev => prev + textToAdd);
+                                    // Regular text
+                                    accumulatedTokensRef.current += textToAdd;
                                 }
-                                
-                                // In full code mode, parse files as they arrive
-                                if (isFullCodeMode) {
-                                    fileContentBufferRef.current += textToAdd;
-                                    // Try to parse files from buffer periodically
-                                    if (tokenCount % 20 === 0) {
-                                        const files = parseCodeForFiles(fileContentBufferRef.current);
-                                        if (files.length > 0) {
-                                            setGeneratedFiles(files);
-                                        }
+                            }
+
+                            // Update streaming content
+                            if (isContinue) {
+                                setStreamedContent(prev => prev + textToAdd);
+                            } else {
+                                setStreamedContent(prev => prev + textToAdd);
+                            }
+
+                            // In full code mode, parse files as they arrive
+                            if (isFullCodeMode) {
+                                fileContentBufferRef.current += textToAdd;
+                                // Try to parse files from buffer periodically
+                                if (tokenCount % 20 === 0) {
+                                    const files = parseCodeForFiles(fileContentBufferRef.current);
+                                    if (files.length > 0) {
+                                        setGeneratedFiles(files);
                                     }
                                 }
-                                
-                                // Store incomplete code block for continuation
-                                if (inCodeBlock && accumulatedTokensRef.current.endsWith('```')) {
-                                    // Actually complete code block
-                                    inCodeBlock = false;
-                                }
                             }
-                            
-                            if (parsed.stream_id) {
-                                setLastStreamId(parsed.stream_id);
-                                continueStreamIdRef.current = parsed.stream_id;
+
+                            // Store incomplete code block for continuation
+                            if (inCodeBlock && accumulatedTokensRef.current.endsWith('```
+')) {
+                                // Actually complete code block
+                                inCodeBlock = false;
                             }
-                            
-                            if (parsed.is_full_code) {
-                                setIsFullCodeMode(true);
-                                setShowContinueButton(true);
-                            }
-                            
-                        } catch (e) {
-                            console.warn('Failed to parse SSE data:', e);
                         }
+
+                        if (parsed.stream_id) {
+                            setLastStreamId(parsed.stream_id);
+                            continueStreamIdRef.current = parsed.stream_id;
+                        }
+
+                        if (parsed.is_full_code) {
+                            setIsFullCodeMode(true);
+                            setShowContinueButton(true);
+                        }
+
+                    } catch (e) {
+                        console.warn('Failed to parse SSE data:', e);
                     }
                 }
-                
-                // Speed up typing for first chunks
-                if (isFirstChunk && accumulatedTokensRef.current.length > 50) {
-                    isFirstChunk = false;
-                }
             }
-        } catch (error) {
-            console.error('Stream reading error:', error);
-            if (error.name !== 'AbortError') {
-                throw error;
-            }
-        } finally {
-            reader.releaseLock();
-            
-            // Parse final files if in full code mode
-            if (isFullCodeMode && fileContentBufferRef.current) {
-                const files = parseCodeForFiles(fileContentBufferRef.current);
-                if (files.length > 0) {
-                    setGeneratedFiles(files);
-                    setProjectMetadata(prev => ({
-                        ...prev,
-                        totalFiles: files.length
-                    }));
-                }
-            }
-            
-            // Add incomplete code block to buffer for next continuation
-            if (inCodeBlock) {
-                codeBlockBuffer = '```' + (currentLanguage ? currentLanguage + '\n' : '');
+
+            // Speed up typing for first chunks
+            if (isFirstChunk && accumulatedTokensRef.current.length > 50) {
+                isFirstChunk = false;
             }
         }
-    }, [isFullCodeMode, parseCodeForFiles, streamedContent]);
+    } catch (error) {
+        console.error('Stream reading error:', error);
+        if (error.name !== 'AbortError') {
+            throw error;
+        }
+    } finally {
+        reader.releaseLock();
 
-    // ---------- Fixed Continue Generation ----------
-    const handleContinueGeneration = useCallback(async () => {
-        if (!lastStreamId) return;
-        
-        setIsLoading(true);
-        setIsStreaming(true);
-        setShowContinueButton(false);
-        
-        const apiUrl = '/api/generate/continue';
-        const apiPayload = {
-            stream_id: continueStreamIdRef.current || lastStreamId,
-            user_preference_id: getPersistentUserId(),
-            firebase_token: currentUser?.firebaseToken || '',
-            stream: true
-        };
-        
-        try {
-            const controller = new AbortController();
-            setAbortController(controller);
-            
-            const response = await callFastAPI(apiUrl, apiPayload, 'chat', {
-                signal: controller.signal,
-                stream: true
-            });
-            
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        // Parse final files if in full code mode
+        if (isFullCodeMode && fileContentBufferRef.current) {
+            const files = parseCodeForFiles(fileContentBufferRef.current);
+            if (files.length > 0) {
+                setGeneratedFiles(files);
+                setProjectMetadata(prev => ({
+                    ...prev,
+                    totalFiles: files.length
+                }));
             }
-            
-            // Clear previous content for clean continuation
-            accumulatedTokensRef.current = '';
-            
-            // Show streaming UI with continuation indicator
-            setStreamingMessage({
+        }
+
+        // Add incomplete code block to buffer for next continuation
+        if (inCodeBlock) {
+            codeBlockBuffer = '```
+' + (currentLanguage ? currentLanguage + '\n' : '');
+        }
+    }
+}, [isFullCodeMode, parseCodeForFiles, streamedContent]);
+
+// ---------- Fixed Continue Generation ----------
+const handleContinueGeneration = useCallback(async () => {
+    if (!lastStreamId) return;
+
+    setIsLoading(true);
+    setIsStreaming(true);
+    setShowContinueButton(false);
+
+    const apiUrl = '/api/generate/continue';
+    const apiPayload = {
+        stream_id: continueStreamIdRef.current || lastStreamId,
+        user_preference_id: getPersistentUserId(),
+        firebase_token: currentUser?.firebaseToken || '',
+        stream: true
+    };
+
+    try {
+        const controller = new AbortController();
+        setAbortController(controller);
+
+        const response = await callFastAPI(apiUrl, apiPayload, 'chat', {
+            signal: controller.signal,
+            stream: true
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        // Clear previous content for clean continuation
+        accumulatedTokensRef.current = '';
+
+        // Show streaming UI with continuation indicator
+        setStreamingMessage({
+            role: 'assistant',
+            content: '',
+            type: 'text',
+            ts: Date.now(),
+            isStreaming: true,
+            isContinue: true
+        });
+
+        await handleStreamResponse(response, true);
+
+        // Add continued content to chat history
+        if (accumulatedTokensRef.current) {
+            const assistantMessage = {
                 role: 'assistant',
-                content: '',
+                content: accumulatedTokensRef.current,
                 type: 'text',
                 ts: Date.now(),
-                isStreaming: true,
-                isContinue: true
-            });
-            
-            await handleStreamResponse(response, true);
-            
-            // Add continued content to chat history
-            if (accumulatedTokensRef.current) {
-                const assistantMessage = {
-                    role: 'assistant',
-                    content: accumulatedTokensRef.current,
-                    type: 'text',
-                    ts: Date.now(),
-                    isContinued: true
-                };
-                setChatHistory(prev => [...prev, assistantMessage]);
-            }
-            
-        } catch (error) {
-            if (error.name === 'AbortError') {
-                console.log('Stream aborted by user');
-            } else {
-                console.error('Continue generation error:', error);
-                showModal("Generation Error", `Failed to continue: ${error.message}`);
-            }
-        } finally {
-            setIsLoading(false);
-            setIsStreaming(false);
-            setStreamingMessage(null);
+                isContinued: true
+            };
+            setChatHistory(prev => [...prev, assistantMessage]);
         }
-    }, [lastStreamId, getPersistentUserId, currentUser, callFastAPI, handleStreamResponse, showModal]);
 
-    // ---------- Stop Generation ----------
+    } catch (error) {
+        if (error.name === 'AbortError') {
+            console.log('Stream aborted by user');
+        } else {
+            console.error('Continue generation error:', error);
+            showModal("Generation Error", `Failed to continue: ${error.message}`);
+        }
+    } finally {
+        setIsLoading(false);
+        setIsStreaming(false);
+        setStreamingMessage(null);
+    }
+}, [lastStreamId, getPersistentUserId, currentUser, callFastAPI, handleStreamResponse, showModal]);
+  // ---------- Stop Generation ----------
     const handleStopGeneration = useCallback(() => {
         if (abortController) {
             abortController.abort();
@@ -5621,3 +5627,4 @@ int main() {
         </>
     );
 }
+
