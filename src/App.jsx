@@ -3387,8 +3387,18 @@ useEffect(() => {
     };
 
     // ---------- Enhanced Send Message with AI Modes ----------
-      // VALIDATE AND TRIM LARGE PROMPTS
-    const MAX_PROMPT_LENGTH = 4000000000; // Adjust based on your API limits
+  const handleSendMessage = async () => {
+    if (!message.trim() && !uploadedFile && !uploadedImage) return;
+
+    console.log('Sending message:', {
+        persistentId: getPersistentUserId(),
+        currentUser: currentUser,
+        messageLength: message.length, // Track length
+        aiMode: selectedAIMode
+    });
+
+    // VALIDATE AND TRIM LARGE PROMPTS
+    const MAX_PROMPT_LENGTH = 40000000000; // Adjust based on your API limits
     const processedMessage = message.length > MAX_PROMPT_LENGTH 
         ? message.substring(0, MAX_PROMPT_LENGTH) + "...[truncated due to length]"
         : message;
@@ -3399,26 +3409,18 @@ useEffect(() => {
         wasTruncated: message.length > MAX_PROMPT_LENGTH
     });
 
-
-
-
     setIsLoading(true);
-
     const controller = new AbortController();
     setAbortController(controller);
 
     const fileCopy = uploadedFile;
     const imageCopy = uploadedImage;
-
     let mode = activeAIMode || selectedAIMode;
 
     // Auto-detect image generation
-
-
     if (!fileCopy && !imageCopy && detectImageGeneration(processedMessage)) {
         mode = 'image_gen';
     }
-
     // Auto-detect full code requests
     const isFullCodeRequest = detectFullCodeRequest(processedMessage);
     if (isFullCodeRequest && !fileCopy && !imageCopy) {
@@ -5628,6 +5630,7 @@ int main() {
         </>
     );
 }
+
 
 
 
