@@ -2389,7 +2389,6 @@ const SpiderAIApp = ({
     }, []);
 
 // ---------- Fixed Streaming Handler with Code Block Continuation ----------
-// ---------- Fixed Streaming Handler (Seamless Merging) ---------
 const handleStreamResponse = useCallback(async (response, isContinue = false, initialContent = '') => {
     if (!response.body) return;
 
@@ -2398,44 +2397,24 @@ const handleStreamResponse = useCallback(async (response, isContinue = false, in
     
     const decoder = new TextDecoder();
     let buffer = '';
-    let tokenCount = 0;
     
-    // Initialize with existing content if continuing
-    accumulatedTokensRef.current = initialContent;
+    // Clear previous streaming state
+    if (!isContinue) {
+        accumulatedTokensRef.current = '';
+    } else {
+        // For continue, start with existing content
+        accumulatedTokensRef.current = initialContent;
+    }
     
-    // Update UI immediately with existing content
-    setStreamedContent(initialContent);
+    // Update UI to show streaming
+    setIsStreaming(true);
 
     try {
         while (true) {
             const { done, value } = await reader.read();
             
             if (done) {
-                // Check if response ends abruptly (not ending in punctuation or code block)
-                const content = accumulatedTokensRef.current.trim();
-                const lastChar = content.slice(-1);
-                const isCodeBlockOpen = (content.match(/```/g) || []).length % 2 !== 0;
-                
-                // Show continue button if code block is open or doesn't end in sentence terminator
-                if (content.length > 0 && (isCodeBlockOpen || !['.', '!', '?', '}', '`'].includes(lastChar))) {
-                    setShowContinueButton(true);
-                }
-                
-                // IMPORTANT: When streaming completes, add the message to history
-                if (accumulatedTokensRef.current) {
-                    const assistantMessage = {
-                        role: 'assistant',
-                        content: accumulatedTokensRef.current,
-                        type: 'text',
-                        ts: Date.now(),
-                        isContinued: isContinue
-                    };
-                    
-                    // Add to history if we're in a normal streaming state
-                    if (isStreaming) {
-                        setChatHistory(prev => [...prev, assistantMessage]);
-                    }
-                }
+                // Streaming completed naturally
                 break;
             }
             
@@ -2452,94 +2431,125 @@ const handleStreamResponse = useCallback(async (response, isContinue = false, in
                     try {
                         const parsed = JSON.parse(data);
                         if (parsed.text) {
-                            tokenCount++;
-                            const textToAdd = parsed.text;
+                            // Append to accumulated content
+                            accumulatedTokensRef.current += parsed.text;
                             
-                            // Append to the MASTER Ref
-                            accumulatedTokensRef.current += textToAdd;
-                            
-                            // Update State for UI
+                            // Update streaming content in UI
                             setStreamedContent(accumulatedTokensRef.current);
-                            
-                            // Update streaming message if exists
-                            setStreamingMessage(prev => prev ? {
-                                ...prev,
-                                content: accumulatedTokensRef.current
-                            } : null);
-                            
-                            // Handle Full Code Parsing
-                            if (isFullCodeMode) {
-                                fileContentBufferRef.current += textToAdd;
-                                if (tokenCount % 20 === 0) {
-                                    const files = parseCodeForFiles(fileContentBufferRef.current);
-                                    if (files.length > 0) setGeneratedFiles(files);
-                                }
-                            }
                         }
                         if (parsed.stream_id) {
                             setLastStreamId(parsed.stream_id);
-                            continueStreamIdRef.current = parsed.stream_id;
                         }
-                    } catch (e) { console.warn(e); }
+                    } catch (e) { 
+                        // Ignore parse errors
+                    }
                 }
             }
         }
+        
+        // Streaming completed successfully
+        // Auto-check if we should show continue button
+        checkForContinueButton();
+        
     } catch (error) {
         if (error.name !== 'AbortError') {
             console.error('Stream error:', error);
-            throw error;
         }
     } finally {
         reader.releaseLock();
         streamReaderRef.current = null;
         
-        if (isFullCodeMode && fileContentBufferRef.current) {
-            const files = parseCodeForFiles(fileContentBufferRef.current);
-            if (files.length > 0) setGeneratedFiles(files);
-        }
+        // IMPORTANT: Finalize the message
+        finalizeStreamedMessage();
     }
-}, [isFullCodeMode, parseCodeForFiles, isStreaming]);
+}, []);
 
-// ---------- Fixed Continue Generation ----------
+// ---------- Helper: Finalize Message ----------
+const finalizeStreamedMessage = useCallback(() => {
+    if (!accumulatedTokensRef.current || accumulatedTokensRef.current.trim() === '') return;
+    
+    const assistantMessage = {
+        role: 'assistant',
+        content: accumulatedTokensRef.current,
+        type: 'text',
+        ts: Date.now()
+    };
+    
+    // Check if this is updating an existing message or adding a new one
+    setChatHistory(prev => {
+        const lastMessage = prev[prev.length - 1];
+        
+        // If last message is from assistant and we're streaming, update it
+        if (isStreaming && lastMessage && lastMessage.role === 'assistant') {
+            const updatedHistory = [...prev];
+            updatedHistory[updatedHistory.length - 1] = {
+                ...lastMessage,
+                content: accumulatedTokensRef.current,
+                ts: Date.now()
+            };
+            return updatedHistory;
+        }
+        
+        // Otherwise, add as new message
+        return [...prev, assistantMessage];
+    });
+    
+    // Clear streaming state
+    setStreamedContent('');
+    accumulatedTokensRef.current = '';
+    setIsStreaming(false);
+}, [isStreaming]);
+
+// ---------- Check for Continue Button ----------
+const checkForContinueButton = useCallback(() => {
+    if (!accumulatedTokensRef.current) return;
+    
+    const content = accumulatedTokensRef.current.trim();
+    
+    // Check if content looks incomplete
+    const lastChar = content.slice(-1);
+    const hasUnclosedCodeBlock = (content.match(/```/g) || []).length % 2 !== 0;
+    const hasUnclosedList = content.split('\n').some(line => 
+        /^\s*[-*+]\s/.test(line) && !line.trim().endsWith('.')
+    );
+    
+    const shouldContinue = 
+        content.length > 0 && (
+            hasUnclosedCodeBlock || 
+            !['.', '!', '?', '`', '}', ']', ')'].includes(lastChar) ||
+            hasUnclosedList
+        );
+    
+    setShowContinueButton(shouldContinue);
+}, []);
+
+// ---------- Simple Continue Generation ----------
 const handleContinueGeneration = useCallback(async () => {
     if (!lastStreamId) return;
     
-    setIsLoading(true);
-    setIsStreaming(true);
+    console.log('Continuing generation from stream:', lastStreamId);
+    
+    // Don't change chat history - we'll append to existing content
+    const lastMessage = chatHistory[chatHistory.length - 1];
+    const previousContent = lastMessage.role === 'assistant' ? lastMessage.content : '';
+    
+    // Clear any previous streaming state
+    accumulatedTokensRef.current = previousContent;
+    setStreamedContent(previousContent);
     setShowContinueButton(false);
     
-    // 1. Get the last AI message
-    const lastMsgIndex = chatHistory.length - 1;
-    const lastMsg = chatHistory[lastMsgIndex];
-    
-    // 2. Capture its content as the "Base"
-    const previousContent = lastMsg.role === 'assistant' ? lastMsg.content : '';
-    
-    // 3. Temporarily remove the last static message from history
-    //    because we are about to re-render it as a "streaming" message
-    if (lastMsg.role === 'assistant') {
-        setChatHistory(prev => prev.slice(0, -1));
-    }
-
-    // 4. Set the Streaming UI to start with the OLD content
-    setStreamingMessage({
-        role: 'assistant',
-        content: previousContent, // Start with old content
-        type: 'text',
-        ts: Date.now(),
-        isStreaming: true,
-        isContinue: true
-    });
-
-    const apiUrl = '/api/generate/continue';
-    const apiPayload = {
-        stream_id: continueStreamIdRef.current || lastStreamId,
-        user_preference_id: getPersistentUserId(),
-        firebase_token: currentUser?.firebaseToken || '',
-        stream: true
-    };
+    setIsLoading(true);
+    setIsStreaming(true);
     
     try {
+        const apiUrl = '/api/generate/continue';
+        const apiPayload = {
+            stream_id: lastStreamId,
+            user_preference_id: getPersistentUserId(),
+            firebase_token: currentUser?.firebaseToken || '',
+            stream: true
+        };
+        
         const controller = new AbortController();
         setAbortController(controller);
         
@@ -2550,94 +2560,43 @@ const handleContinueGeneration = useCallback(async () => {
         
         if (!response.ok) throw new Error(response.statusText);
         
-        // 5. Pass previousContent to the handler to append to it
+        // Pass existing content to stream handler
         await handleStreamResponse(response, true, previousContent);
-        
-        // The message is now added in handleStreamResponse when done
-        // No need to add it here again
         
     } catch (error) {
         console.error('Continue error:', error);
-        
-        // On error, restore the original message or save partial progress
-        if (accumulatedTokensRef.current && accumulatedTokensRef.current !== previousContent) {
-            // We have some new content, save it as partial
-            const assistantMessage = {
-                role: 'assistant',
-                content: accumulatedTokensRef.current,
-                type: 'text',
-                ts: Date.now(),
-                isPartial: true
-            };
-            setChatHistory(prev => [...prev, assistantMessage]);
-        } else {
-            // No new content, restore original message
-            setChatHistory(prev => [...prev, lastMsg]);
+        // On error, keep whatever content we have
+        if (accumulatedTokensRef.current) {
+            finalizeStreamedMessage();
         }
     } finally {
         setIsLoading(false);
-        setIsStreaming(false);
-        setStreamingMessage(null);
     }
-}, [lastStreamId, chatHistory, getPersistentUserId, currentUser, callFastAPI, handleStreamResponse]);
+}, [lastStreamId, chatHistory, getPersistentUserId, currentUser, callFastAPI, handleStreamResponse, finalizeStreamedMessage]);
 
-// ---------- Stop Generation ----------
+// ---------- Simple Stop Generation ----------
 const handleStopGeneration = useCallback(() => {
     if (abortController) {
         abortController.abort();
         setAbortController(null);
     }
+    
     if (streamReaderRef.current) {
         streamReaderRef.current.cancel();
         streamReaderRef.current = null;
     }
     
+    // Save whatever we've accumulated so far
+    if (accumulatedTokensRef.current) {
+        finalizeStreamedMessage();
+    }
+    
     setIsLoading(false);
     setIsStreaming(false);
-    
-    // Save whatever we've streamed so far
-    if (accumulatedTokensRef.current) {
-        const assistantMessage = {
-            role: 'assistant',
-            content: accumulatedTokensRef.current,
-            type: 'text',
-            ts: Date.now(),
-            isPartial: true
-        };
-        setChatHistory(prev => [...prev, assistantMessage]);
-        accumulatedTokensRef.current = '';
-        setStreamedContent('');
-    }
-    
-    setStreamingMessage(null);
-}, [abortController]);
-
-// Add this useEffect to handle cleanup and finalization
-useEffect(() => {
-    // When streaming stops naturally (not via stop button)
-    if (!isStreaming && !isLoading && streamingMessage === null) {
-        // Check if we have accumulated content that hasn't been saved yet
-        if (accumulatedTokensRef.current && accumulatedTokensRef.current.trim()) {
-            const lastMessage = chatHistory[chatHistory.length - 1];
-            
-            // Only add if the last message is not the same content
-            if (!lastMessage || lastMessage.content !== accumulatedTokensRef.current) {
-                const assistantMessage = {
-                    role: 'assistant',
-                    content: accumulatedTokensRef.current,
-                    type: 'text',
-                    ts: Date.now(),
-                    isContinued: false
-                };
-                setChatHistory(prev => [...prev, assistantMessage]);
-            }
-            
-            accumulatedTokensRef.current = '';
-            setStreamedContent('');
-        }
-    }
-}, [isStreaming, isLoading, streamingMessage, chatHistory]);
-    // ---------- Auto-detect Image Generation ----------
+    setShowContinueButton(true);
+}, [abortController, finalizeStreamedMessage]);
+  
+  // ---------- Auto-detect Image Generation ----------
     const detectImageGeneration = (prompt) => {
         const lowerPrompt = prompt.toLowerCase();
         const imageTriggers = [
@@ -4281,34 +4240,33 @@ const handleSendMessage = async () => {
                         ))}
                         
                         {/* Streaming Message */}
-                        {(streamingMessage || isStreaming) && (
-                            <div className="flex justify-start mb-4 px-2">
-                                <div className="bg-[var(--spider-med)] text-white p-4 rounded-2xl max-w-[95%] shadow-md border border-[var(--spider-light)]">
-                                    <pre className="whitespace-pre-wrap font-sans text-sm break-words leading-relaxed">
-                                        {streamedContent || streamingMessage?.content || ''}
-                                    </pre>
-                                    <div className="flex items-center justify-between mt-3">
-                                        <div className="flex items-center space-x-2">
-                                            <div className="flex space-x-1">
-                                                <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce"></div>
-                                                <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                                                <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                                            </div>
-                                            <span className="text-xs text-[var(--spider-text-dim)]">
-                                                {isStreaming ? 'AI is generating...' : 'AI is typing...'}
-                                            </span>
-                                        </div>
-                                        <button 
-                                            onClick={handleStopGeneration}
-                                            className="bg-red-500 hover:bg-red-600 text-white text-xs px-3 py-1.5 rounded-lg transition-colors"
-                                        >
-                                            Stop
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                        
+                        {(streamingMessage || {isStreaming && (
+    <div className="flex justify-start mb-4 px-2">
+        <div className="bg-[var(--spider-med)] text-white p-4 rounded-2xl max-w-[95%] shadow-md border border-[var(--spider-light)]">
+            <pre className="whitespace-pre-wrap font-sans text-sm break-words leading-relaxed">
+                {streamedContent || 'Generating...'}
+            </pre>
+            <div className="flex items-center justify-between mt-3">
+                <div className="flex items-center space-x-2">
+                    <div className="flex space-x-1">
+                        <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce"></div>
+                        <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                        <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                    </div>
+                    <span className="text-xs text-[var(--spider-text-dim)]">
+                        {isStreaming ? 'AI is generating...' : 'AI is typing...'}
+                    </span>
+                </div>
+                <button 
+                    onClick={handleStopGeneration}
+                    className="bg-red-500 hover:bg-red-600 text-white text-xs px-3 py-1.5 rounded-lg transition-colors"
+                >
+                    Stop
+                </button>
+            </div>
+        </div>
+    </div>
+)}                      
                         {/* Continue Button */}
                         {showContinueButton && !isLoading && (
                             <div className="flex justify-start mb-4 px-2">
@@ -5600,6 +5558,7 @@ int main() {
         </>
     );
 }
+
 
 
 
