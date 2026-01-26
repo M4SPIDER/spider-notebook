@@ -1979,7 +1979,7 @@ const SpiderAIApp = ({
     const DB_VERSION = 1;
     const STORE_NAME = 'chats';
    
-  seEffect(() => {
+  useEffect(() => {
     const style = document.createElement("style");
     style.innerHTML = `
       pre span { display: inline !important; }
@@ -5649,5 +5649,6 @@ int main() {
         </>
     );
 }
+
 
 
