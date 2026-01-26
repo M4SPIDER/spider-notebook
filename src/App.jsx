@@ -3231,11 +3231,29 @@ const SpiderAIApp = ({
                                                     </svg>
                                                 </button>
                                             </div>
-                                            <pre className="overflow-x-auto p-4 m-0 text-sm" style={{ background: "#0f0f0f", lineHeight: "1.5", color: "white" }}>
-                                                <code className={`language-${block.language}`}>
-                                                    {block.content}
-                                                </code>
-                                            </pre>
+                                          <pre
+  className="overflow-x-auto p-4 m-0 text-sm"
+  style={{
+    background: "#0f0f0f",
+    lineHeight: "1.5",
+    color: "white",
+    whiteSpace: "pre",
+    wordBreak: "normal",
+    overflowWrap: "normal",
+    display: "block"
+  }}
+>
+  <code
+    className={`language-${block.language}`}
+    style={{
+      display: "block",
+      whiteSpace: "pre",
+      fontFamily: "Consolas, Monaco, monospace"
+    }}
+  >
+    {block.content}
+  </code>
+</pre>
                                         </div>
                                     );
                                 }
@@ -5621,3 +5639,4 @@ int main() {
         </>
     );
 }
+
