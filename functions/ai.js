@@ -350,7 +350,6 @@ let activePrompt = prompt;
     }
 
     const cleanPrompt = (activePrompt || "").trim().toLowerCase();
- when using this its forgeting that its need to add code bloock again perfectly when pressing contiune code block breaking
     // -----------------------------------------------------------------
     // FORCE FILE MODE (CRITICAL FIX)
     // -----------------------------------------------------------------
