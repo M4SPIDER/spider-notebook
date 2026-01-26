@@ -1368,6 +1368,10 @@ const SpiderAIApp = ({
     const [aspectRatio, setAspectRatio] = useState('1:1');
     const [isLoading, setIsLoading] = useState(false);
     const [abortController, setAbortController] = useState(null);
+    const [streamingMessage, setStreamingMessage] = useState(null);
+    const [isDeleting, setIsDeleting] = useState(false);
+    const [sidebarOpen, setSidebarOpen] = useState(false);
+    const [isMobile, setIsMobile] = useState(false);
     
     // ---------- Streaming State ----------
     const [isStreaming, setIsStreaming] = useState(false);
@@ -1375,14 +1379,27 @@ const SpiderAIApp = ({
     const [showContinueButton, setShowContinueButton] = useState(false);
     const [lastStreamId, setLastStreamId] = useState(null);
     
+    // ---------- Full Code Mode State ----------
+    const [isFullCodeMode, setIsFullCodeMode] = useState(false);
+    const [generatedFiles, setGeneratedFiles] = useState([]);
+    const [projectMetadata, setProjectMetadata] = useState({
+        name: '',
+        type: '',
+        description: '',
+        totalFiles: 0
+    });
+    const [activeFileIndex, setActiveFileIndex] = useState(0);
+    const [isProjectView, setIsProjectView] = useState(false);
+    
     // ---------- Voice Recording State ----------
     const [isRecording, setIsRecording] = useState(false);
     const [recordingTime, setRecordingTime] = useState(0);
     const [mediaRecorder, setMediaRecorder] = useState(null);
+    const [audioChunks, setAudioChunks] = useState([]);
     const [isTranscribing, setIsTranscribing] = useState(false);
     
     // ---------- AI Mode State ----------
-    const [selectedAIMode, setSelectedAIMode] = useState('chat');
+    const [selectedAIMode, setSelectedAIMode] = useState('chat'); // chat, reasoning, pro
 
     const fileInputRef = useRef(null);
     const imageInputRef = useRef(null);
@@ -1390,350 +1407,1917 @@ const SpiderAIApp = ({
     const textareaRef = useRef(null);
     const streamReaderRef = useRef(null);
     const accumulatedTokensRef = useRef('');
+    const fileContentBufferRef = useRef('');
     const recordingTimerRef = useRef(null);
     const continueStreamIdRef = useRef(null);
 
-    // ---------- SIMPLIFIED STREAMING HANDLER ----------
-    const handleStreamResponse = useCallback(async (response, isContinue = false, initialContent = '') => {
-        if (!response.body) return;
+    const getAppId = () => typeof __app_id !== 'undefined' ? __app_id : 'default-m4-app';
+    const LOCAL_STORAGE_KEY = `spider_chat_history_${getAppId()}_${(currentUser?.email || 'anon')}`;
+    
+    // ---------- Persistent User ID ----------
+    const getPersistentUserId = useCallback(() => {
+        const key = `spider_user_id_${getAppId()}`;
+        let userId = localStorage.getItem(key);
+        if (!userId) {
+            userId = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            localStorage.setItem(key, userId);
+        }
+        return userId;
+    }, [getAppId()]);
 
-        const reader = response.body.getReader();
-        streamReaderRef.current = reader;
+    // ---------- Full Code Detection Patterns ----------
+    const fullCodePatterns = useMemo(() => ({
+        strong: [
+            'write full code',
+            'give full code',
+            'provide full code',
+            'complete code',
+            'entire code',
+            'full implementation',
+            'complete implementation',
+            'entire application',
+            'complete project',
+            'entire project',
+            'full project',
+            'whole application',
+            'create a complete',
+            'build a complete',
+            'develop a complete',
+            'make a complete',
+            'generate a complete',
+            'with all files',
+            'with entire codebase',
+            'with complete source',
+            'including all dependencies',
+            'with package.json',
+            'with requirements.txt'
+        ],
         
-        const decoder = new TextDecoder();
-        let buffer = '';
+        medium: [
+            'full stack',
+            'complete app',
+            'entire app',
+            'full app',
+            'with frontend and backend',
+            'with database',
+            'with api',
+            'with all components',
+            'with all modules',
+            'with configuration',
+            'with setup',
+            'with installation',
+            'multi-file',
+            'multiple files',
+            'file structure',
+            'project structure',
+            'directory structure',
+            'folder structure'
+        ],
         
-        // Set initial content for continue
-        if (isContinue) {
-            accumulatedTokensRef.current = initialContent;
-            setStreamedContent(initialContent);
+        projectTypes: [
+            'todo app',
+            'calculator',
+            'weather app',
+            'chat application',
+            'e-commerce',
+            'blog platform',
+            'social media',
+            'dashboard',
+            'admin panel',
+            'portfolio website',
+            'rest api',
+            'crud application',
+            'fullstack',
+            'mern stack',
+            'mean stack',
+            'react app',
+            'vue app',
+            'angular app',
+            'node.js app',
+            'django app',
+            'flask app',
+            'mobile app',
+            'desktop app'
+        ]
+    }), []);
+
+    // ---------- Math Detection Patterns ----------
+    const mathPatterns = useMemo(() => ({
+        latexInline: [
+            /\$([^$]+?)\$/g,                         // $...$
+            /\$\\displaystyle\s*([^$]+?)\$/g,        // $\displaystyle ...$
+            /\\\(([^)]+?)\\\)/g,                     // \(...\)
+            /\\\[([\s\S]+?)\\\]/g,                   // \[...\]
+            /\\begin\{equation\}([\s\S]+?)\\end\{equation\}/g,
+            /\\begin\{align\}([\s\S]+?)\\end\{align\}/g,
+            /\\begin\{gather\}([\s\S]+?)\\end\{gather\}/g,
+            /\\boxed\{([^}]+?)\}/g                   // \boxed{...}
+        ],
+        
+        mathKeywords: [
+            'calculate',
+            'solve',
+            'equation',
+            'formula',
+            'theorem',
+            'derivative',
+            'integral',
+            'matrix',
+            'vector',
+            'function',
+            'limit',
+            'sum',
+            'product',
+            'sqrt',
+            'frac',
+            'sin',
+            'cos',
+            'tan',
+            'log',
+            'ln',
+            'exp',
+            'pi',
+            'theta',
+            'alpha',
+            'beta',
+            'gamma',
+            'delta',
+            'epsilon',
+            'sigma',
+            'omega',
+            'infty',
+            'rightarrow',
+            'leftarrow',
+            'Rightarrow',
+            'Leftarrow',
+            'approx',
+            'equiv',
+            'propto',
+            'partial',
+            'nabla',
+            'int',
+            'sum',
+            'prod',
+            'lim'
+        ]
+    }), []);
+
+    // ---------- Detect Full Code Request ----------
+    const detectFullCodeRequest = useCallback((text) => {
+        if (!text || typeof text !== 'string') return false;
+        
+        const lowerText = text.toLowerCase();
+        let score = 0;
+        
+        // Check strong patterns (2 points each)
+        fullCodePatterns.strong.forEach(pattern => {
+            if (lowerText.includes(pattern)) score += 2;
+        });
+        
+        // Check medium patterns (1 point each)
+        fullCodePatterns.medium.forEach(pattern => {
+            if (lowerText.includes(pattern)) score += 1;
+        });
+        
+        // Check for project type mentions
+        fullCodePatterns.projectTypes.forEach(type => {
+            if (lowerText.includes(type)) score += 1;
+        });
+        
+        // Check for explicit file requests
+        const fileExtensions = ['.js', '.jsx', '.ts', '.tsx', '.py', '.html', '.css', '.json', '.md', '.txt'];
+        fileExtensions.forEach(ext => {
+            if (lowerText.includes(ext)) score += 1;
+        });
+        
+        // Check for file count mentions
+        const fileCountMatch = lowerText.match(/(\d+)\s*(files|file)/);
+        if (fileCountMatch && parseInt(fileCountMatch[1]) > 1) {
+            score += 2;
+        }
+        
+        // Check for structure keywords
+        if (lowerText.includes('structure') || lowerText.includes('architecture')) {
+            score += 1;
+        }
+        
+        // Threshold for triggering full code mode
+        return score >= 3;
+    }, [fullCodePatterns]);
+
+    // ---------- Detect Math Request ----------
+    const detectMathRequest = useCallback((text) => {
+        if (!text) return false;
+        
+        const lowerText = text.toLowerCase();
+        
+        // Check for math keywords
+        const hasMathKeywords = mathPatterns.mathKeywords.some(keyword => 
+            lowerText.includes(keyword) || 
+            text.includes(`\\${keyword}`)
+        );
+        
+        // Check for LaTeX patterns
+        const hasLatex = mathPatterns.latexInline.some(pattern => pattern.test(text));
+        
+        // Check for common math phrases
+        const mathPhrases = [
+            'solve for',
+            'calculate',
+            'find the value',
+            'prove that',
+            'show that',
+            'derivative of',
+            'integral of',
+            'limit of',
+            'matrix',
+            'vector',
+            'equation'
+        ];
+        
+        const hasMathPhrases = mathPhrases.some(phrase => lowerText.includes(phrase));
+        
+        return hasMathKeywords || hasLatex || hasMathPhrases;
+    }, [mathPatterns]);
+
+    // ---------- Detect Large Code Request ----------
+    const detectLargeCodeRequest = useCallback((text) => {
+        if (!text) return false;
+        
+        const lowerText = text.toLowerCase();
+        
+        // Code-specific keywords that usually mean large responses
+        const codeKeywords = [
+            'write code for',
+            'create a function',
+            'build a program',
+            'develop an application',
+            'implement',
+            'algorithm for',
+            'data structure',
+            'database schema',
+            'api endpoint',
+            'complete script',
+            'entire program',
+            'source code'
+        ];
+        
+        // Check length - long questions usually mean long answers
+        const isLongQuestion = text.length > 100;
+        
+        // Check for code block indicators
+        const hasCodeIndicators = codeKeywords.some(keyword => lowerText.includes(keyword));
+        
+        // Check for multiple file mentions
+        const hasMultipleFiles = lowerText.match(/\d+\s*(?:files|file)/);
+        
+        return isLongQuestion && (hasCodeIndicators || hasMultipleFiles);
+    }, []);
+
+    // ---------- Decision: When to Use Streaming ----------
+    const shouldUseStreaming = useCallback((text, isFullCode, mode) => {
+        // Always stream for these cases:
+        if (isFullCode) return true;
+        if (mode === "analyze_file") return true;
+        if (detectLargeCodeRequest(text)) return true;
+        
+        // Check for streaming keywords in user request
+        const streamingKeywords = [
+            'stream',
+            'live',
+            'real-time',
+            'as you type',
+            'show step by step',
+            'show process',
+            'type it out'
+        ];
+        
+        const lowerText = text.toLowerCase();
+        const userRequestsStreaming = streamingKeywords.some(keyword => lowerText.includes(keyword));
+        
+        return userRequestsStreaming;
+    }, [detectLargeCodeRequest]);
+
+    // ---------- Extract Project Metadata ----------
+    const extractProjectMetadata = useCallback((text) => {
+        const lowerText = text.toLowerCase();
+        const metadata = {
+            name: 'Untitled Project',
+            type: 'web',
+            description: 'Generated by Spider AI',
+            totalFiles: 0,
+            techStack: [],
+            hasFrontend: false,
+            hasBackend: false,
+            hasDatabase: false
+        };
+        
+        // Detect project type
+        if (lowerText.includes('react') || lowerText.includes('frontend')) {
+            metadata.type = 'react';
+            metadata.techStack.push('React');
+            metadata.hasFrontend = true;
+        }
+        if (lowerText.includes('node') || lowerText.includes('backend') || lowerText.includes('api')) {
+            metadata.type = metadata.type === 'react' ? 'mern' : 'node';
+            metadata.techStack.push('Node.js');
+            metadata.hasBackend = true;
+        }
+        if (lowerText.includes('mongodb') || lowerText.includes('database')) {
+            metadata.techStack.push('MongoDB');
+            metadata.hasDatabase = true;
+        }
+        if (lowerText.includes('python') || lowerText.includes('django') || lowerText.includes('flask')) {
+            metadata.type = 'python';
+            metadata.techStack.push('Python');
+            metadata.hasBackend = true;
+        }
+        
+        // Try to extract project name
+        const nameMatch = lowerText.match(/(?:create|build|make|generate)\s+(?:a|an)?\s+([a-z\s]+?)(?:\s+(?:app|application|project|website|platform))/);
+        if (nameMatch) {
+            metadata.name = nameMatch[1].trim().replace(/\b\w/g, l => l.toUpperCase());
+        }
+        
+        return metadata;
+    }, []);
+
+    // ---------- Parse Generated Code for Files ----------
+    const parseCodeForFiles = useCallback((text) => {
+        if (!text) return [];
+        
+        const files = [];
+        const lines = text.split('\n');
+        let currentFile = null;
+        let currentContent = [];
+        
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            
+            // Detect file headers
+            const fileHeaderMatch = line.match(/^(?:File|Filename|File name|## |# |📁|📄)\s*[:：]?\s*(.+?\.(?:js|jsx|ts|tsx|py|html|css|json|md|txt|yml|yaml|xml|env))$/i);
+            const pathMatch = line.match(/^([a-zA-Z0-9_\-./]+\.(?:js|jsx|ts|tsx|py|html|css|json|md|txt|yml|yaml|xml|env))$/);
+            
+            if (fileHeaderMatch || pathMatch) {
+                // Save previous file if exists
+                if (currentFile && currentContent.length > 0) {
+                    files.push({
+                        ...currentFile,
+                        content: currentContent.join('\n').trim()
+                    });
+                }
+                
+                const fileName = (fileHeaderMatch?.[1] || pathMatch?.[1]).trim();
+                currentFile = {
+                    name: fileName,
+                    path: fileName.includes('/') ? fileName : `/${fileName}`,
+                    language: getLanguageFromExtension(fileName),
+                    size: 0,
+                    lastModified: Date.now()
+                };
+                currentContent = [];
+                continue;
+            }
+            
+            // Accumulate content
+            if (currentFile) {
+                currentContent.push(line);
+            }
+        }
+        
+        // Save last file
+        if (currentFile && currentContent.length > 0) {
+            files.push({
+                ...currentFile,
+                content: currentContent.join('\n').trim(),
+                size: currentContent.join('\n').length
+            });
+        }
+        
+        return files;
+    }, []);
+
+    const getLanguageFromExtension = (filename) => {
+        const ext = filename.split('.').pop().toLowerCase();
+        const map = {
+            'js': 'javascript', 'jsx': 'javascript', 'ts': 'typescript', 'tsx': 'typescript',
+            'py': 'python', 'html': 'html', 'css': 'css', 'scss': 'scss', 'json': 'json',
+            'md': 'markdown', 'txt': 'text', 'yml': 'yaml', 'yaml': 'yaml', 'xml': 'xml'
+        };
+        return map[ext] || 'text';
+    };
+
+    // ---------- LaTeX Math Processing ----------
+    const processMathContent = useCallback((text) => {
+        if (!text) return [];
+        
+        const blocks = [];
+        let currentText = '';
+        let i = 0;
+        
+        while (i < text.length) {
+            // Check for inline math: $...$
+            if (text[i] === '$' && i + 1 < text.length && text[i + 1] !== '$') {
+                // Flush previous text
+                if (currentText.trim()) {
+                    blocks.push({ type: "text", content: currentText });
+                    currentText = '';
+                }
+                
+                // Find closing $
+                let j = i + 1;
+                while (j < text.length && text[j] !== '$') j++;
+                
+                if (j < text.length) {
+                    const latex = text.substring(i + 1, j);
+                    try {
+                        const html = katex.renderToString(latex, {
+                            throwOnError: false,
+                            displayMode: false
+                        });
+                        blocks.push({ type: "math-inline", content: latex, html });
+                    } catch (error) {
+                        blocks.push({ type: "text", content: `$${latex}$` });
+                    }
+                    i = j + 1;
+                    continue;
+                }
+            }
+            
+            // Check for display math: $$...$$
+            if (text.substr(i, 2) === '$$' && i + 2 < text.length) {
+                // Flush previous text
+                if (currentText.trim()) {
+                    blocks.push({ type: "text", content: currentText });
+                    currentText = '';
+                }
+                
+                // Find closing $$
+                let j = i + 2;
+                while (j < text.length - 1 && text.substr(j, 2) !== '$$') j++;
+                
+                if (j < text.length - 1) {
+                    const latex = text.substring(i + 2, j);
+                    try {
+                        const html = katex.renderToString(latex, {
+                            throwOnError: false,
+                            displayMode: true
+                        });
+                        blocks.push({ type: "math-display", content: latex, html });
+                    } catch (error) {
+                        blocks.push({ type: "text", content: `$$${latex}$$` });
+                    }
+                    i = j + 2;
+                    continue;
+                }
+            }
+            
+            // Check for LaTeX brackets: \(...\)
+            if (text.substr(i, 2) === '\\(' && i + 2 < text.length) {
+                // Flush previous text
+                if (currentText.trim()) {
+                    blocks.push({ type: "text", content: currentText });
+                    currentText = '';
+                }
+                
+                // Find closing \)
+                let j = i + 2;
+                while (j < text.length - 1 && text.substr(j, 2) !== '\\)') j++;
+                
+                if (j < text.length - 1) {
+                    const latex = text.substring(i + 2, j);
+                    try {
+                        const html = katex.renderToString(latex, {
+                            throwOnError: false,
+                            displayMode: false
+                        });
+                        blocks.push({ type: "math-inline", content: latex, html });
+                    } catch (error) {
+                        blocks.push({ type: "text", content: `\\(${latex}\\)` });
+                    }
+                    i = j + 2;
+                    continue;
+                }
+            }
+            
+            // Check for LaTeX brackets: \[...\]
+            if (text.substr(i, 2) === '\\[' && i + 2 < text.length) {
+                // Flush previous text
+                if (currentText.trim()) {
+                    blocks.push({ type: "text", content: currentText });
+                    currentText = '';
+                }
+                
+                // Find closing \]
+                let j = i + 2;
+                while (j < text.length - 1 && text.substr(j, 2) !== '\\]') j++;
+                
+                if (j < text.length - 1) {
+                    const latex = text.substring(i + 2, j);
+                    try {
+                        const html = katex.renderToString(latex, {
+                            throwOnError: false,
+                            displayMode: true
+                        });
+                        blocks.push({ type: "math-display", content: latex, html });
+                    } catch (error) {
+                        blocks.push({ type: "text", content: `\\[${latex}\\]` });
+                    }
+                    i = j + 2;
+                    continue;
+                }
+            }
+            
+            // Check for \boxed{...}
+            if (text.substr(i, 7) === '\\boxed{' && i + 7 < text.length) {
+                // Flush previous text
+                if (currentText.trim()) {
+                    blocks.push({ type: "text", content: currentText });
+                    currentText = '';
+                }
+                
+                // Find closing }
+                let j = i + 7;
+                let braceCount = 1;
+                while (j < text.length && braceCount > 0) {
+                    if (text[j] === '{') braceCount++;
+                    if (text[j] === '}') braceCount--;
+                    j++;
+                }
+                
+                if (braceCount === 0) {
+                    const latex = text.substring(i + 7, j - 1);
+                    try {
+                        const html = katex.renderToString(`\\boxed{${latex}}`, {
+                            throwOnError: false,
+                            displayMode: true
+                        });
+                        blocks.push({ type: "math-boxed", content: latex, html });
+                    } catch (error) {
+                        blocks.push({ type: "text", content: `\\boxed{${latex}}` });
+                    }
+                    i = j;
+                    continue;
+                }
+            }
+            
+            // Add regular character
+            currentText += text[i];
+            i++;
+        }
+        
+        // Flush remaining text
+        if (currentText.trim()) {
+            blocks.push({ type: "text", content: currentText });
+        }
+        
+        return blocks;
+    }, []);
+
+    // ---------- IndexedDB Configuration ----------
+    const DB_NAME = 'SpiderAIChatsDB';
+    const DB_VERSION = 1;
+    const STORE_NAME = 'chats';
+
+    // ---------- Detect Mobile & Responsive ----------
+    useEffect(() => {
+        const checkMobile = () => {
+            const mobile = window.innerWidth <= 768;
+            setIsMobile(mobile);
+            if (mobile) {
+                setSidebarOpen(false);
+            }
+        };
+        
+        checkMobile();
+        window.addEventListener('resize', checkMobile);
+        
+        return () => window.removeEventListener('resize', checkMobile);
+    }, []);
+
+    // ---------- Auto-resize textarea ----------
+    useEffect(() => {
+        if (textareaRef.current) {
+            textareaRef.current.style.height = 'auto';
+            textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 120) + 'px';
+        }
+    }, [message]);
+
+    // ---------- Voice Recording Functions ----------
+    const startRecording = useCallback(async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    sampleRate: 16000
+                } 
+            });
+            
+            const recorder = new MediaRecorder(stream);
+            const chunks = [];
+            
+            recorder.ondataavailable = (e) => {
+                if (e.data.size > 0) {
+                    chunks.push(e.data);
+                }
+            };
+            
+            recorder.onstop = async () => {
+                const audioBlob = new Blob(chunks, { type: 'audio/wav' });
+                await transcribeAudio(audioBlob);
+                
+                // Stop all tracks
+                stream.getTracks().forEach(track => track.stop());
+            };
+            
+            recorder.start();
+            setMediaRecorder(recorder);
+            setAudioChunks(chunks);
+            setIsRecording(true);
+            setRecordingTime(0);
+            
+            // Start timer
+            recordingTimerRef.current = setInterval(() => {
+                setRecordingTime(prev => prev + 1);
+            }, 1000);
+            
+            // Auto stop after 60 seconds
+            setTimeout(() => {
+                if (recorder.state === 'recording') {
+                    stopRecording();
+                }
+            }, 60000);
+            
+        } catch (error) {
+            console.error('Error starting recording:', error);
+            showModal("Microphone Error", "Could not access microphone. Please check permissions.");
+        }
+    }, [showModal]);
+
+    const stopRecording = useCallback(() => {
+        if (mediaRecorder && mediaRecorder.state === 'recording') {
+            mediaRecorder.stop();
+            setIsRecording(false);
+            
+            if (recordingTimerRef.current) {
+                clearInterval(recordingTimerRef.current);
+                recordingTimerRef.current = null;
+            }
+        }
+    }, [mediaRecorder]);
+
+    const transcribeAudio = useCallback(async (audioBlob) => {
+        setIsTranscribing(true);
+        
+        try {
+            // Convert blob to base64
+            const reader = new FileReader();
+            reader.readAsDataURL(audioBlob);
+            
+            reader.onloadend = async () => {
+                const base64Audio = reader.result.split(',')[1];
+                
+                // Call Whisper API
+                const apiUrl = '/api/transcribe';
+                const apiPayload = {
+                    audio: base64Audio,
+                    model: 'whisper-large',
+                    language: 'en',
+                    user_preference_id: getPersistentUserId()
+                };
+                
+                const result = await callFastAPI(apiUrl, apiPayload, 'transcribe');
+                
+                if (result?.text) {
+                    setMessage(prev => prev + (prev ? ' ' : '') + result.text);
+                } else {
+                    showModal("Transcription Error", "Could not transcribe audio.");
+                }
+                
+                setIsTranscribing(false);
+            };
+            
+        } catch (error) {
+            console.error('Transcription error:', error);
+            showModal("Transcription Error", "Failed to transcribe audio.");
+            setIsTranscribing(false);
+        }
+    }, [callFastAPI, getPersistentUserId, showModal]);
+
+    // Clean up recording on unmount
+    useEffect(() => {
+        return () => {
+            if (recordingTimerRef.current) {
+                clearInterval(recordingTimerRef.current);
+            }
+            if (mediaRecorder) {
+                mediaRecorder.stream?.getTracks().forEach(track => track.stop());
+            }
+        };
+    }, [mediaRecorder]);
+
+    // ---------- Open Database ----------
+    const openDatabase = useCallback(() => {
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open(DB_NAME, DB_VERSION);
+            
+            request.onerror = () => {
+                reject(new Error(`Failed to open database: ${request.error}`));
+            };
+            
+            request.onsuccess = () => {
+                resolve(request.result);
+            };
+            
+            request.onupgradeneeded = (event) => {
+                const db = event.target.result;
+                
+                if (!db.objectStoreNames.contains(STORE_NAME)) {
+                    const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+                    store.createIndex('userId', 'userId', { unique: false });
+                    store.createIndex('timestamp', 'timestamp', { unique: false });
+                    store.createIndex('appId', 'appId', { unique: false });
+                }
+            };
+        });
+    }, []);
+
+    const getUserId = useCallback(() => {
+        return currentUser?.email || currentUser?.id || getPersistentUserId();
+    }, [currentUser, getPersistentUserId]);
+
+    // ---------- Load Recent Chats ----------
+    const loadRecentChats = useCallback(async () => {
+        try {
+            const db = await openDatabase();
+            const transaction = db.transaction([STORE_NAME], 'readonly');
+            const store = transaction.objectStore(STORE_NAME);
+            const index = store.index('userId');
+            
+            const userId = getUserId();
+            const range = IDBKeyRange.only(userId);
+            const request = index.getAll(range);
+            
+            return new Promise((resolve) => {
+                request.onsuccess = () => {
+                    const chats = request.result || [];
+                    const sortedChats = chats
+                        .sort((a, b) => b.timestamp - a.timestamp)
+                        .slice(0, 10)
+                        .map(chat => ({
+                            id: chat.id,
+                            title: chat.title || 'Untitled Chat',
+                            timestamp: chat.timestamp,
+                            mode: chat.mode || 'chat',
+                            aiMode: chat.aiMode || 'chat'
+                        }));
+                    
+                    setRecentChats(sortedChats);
+                    resolve(sortedChats);
+                    db.close();
+                };
+                
+                request.onerror = () => {
+                    console.error('Error loading recent chats:', request.error);
+                    setRecentChats([]);
+                    resolve([]);
+                    db.close();
+                };
+            });
+        } catch (error) {
+            console.error('Error in loadRecentChats:', error);
+            setRecentChats([]);
+            return [];
+        }
+    }, [openDatabase, getUserId]);
+
+    // ---------- Load Specific Chat ----------
+    const loadChatById = useCallback(async (chatId) => {
+        if (!chatId) return;
+        
+        try {
+            const db = await openDatabase();
+            const transaction = db.transaction([STORE_NAME], 'readonly');
+            const store = transaction.objectStore(STORE_NAME);
+            const request = store.get(chatId);
+            
+            return new Promise((resolve, reject) => {
+                request.onsuccess = () => {
+                    if (request.result) {
+                        const chat = request.result;
+                        try {
+                            const history = JSON.parse(chat.history || '[]');
+                            if (Array.isArray(history) && history.length > 0) {
+                                setChatHistory(history);
+                                setActiveChatId(chatId);
+                                setSelectedAIMode(chat.aiMode || 'chat');
+                                resolve(history);
+                            } else {
+                                throw new Error('Invalid chat history');
+                            }
+                        } catch (parseError) {
+                            console.error('Error parsing chat history:', parseError);
+                            reject(parseError);
+                        }
+                    } else {
+                        reject(new Error('Chat not found'));
+                    }
+                    db.close();
+                };
+                
+                request.onerror = () => {
+                    reject(request.error);
+                    db.close();
+                };
+            });
+        } catch (error) {
+            console.error('Error in loadChatById:', error);
+            throw error;
+        }
+    }, [openDatabase]);
+
+    // ---------- Save Chat History ----------
+    const saveChatHistory = useCallback(async (history, aiMode = selectedAIMode) => {
+        if (!Array.isArray(history) || history.length <= 1) return;
+        
+        try {
+            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(history));
+        } catch (e) {
+            console.warn('LocalStorage save failed:', e);
+        }
+        
+        const userId = getUserId();
+        const chatTitle = (history[1]?.content || 'New Chat')
+            .toString()
+            .substring(0, 50)
+            .trim() || 'New Chat';
+        
+        const chatData = {
+            id: activeChatId || `chat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            title: chatTitle,
+            history: JSON.stringify(history),
+            timestamp: Date.now(),
+            mode: history[1]?.type || 'chat',
+            aiMode: aiMode,
+            userId: userId,
+            appId: getAppId()
+        };
+        
+        try {
+            const db = await openDatabase();
+            const transaction = db.transaction([STORE_NAME], 'readwrite');
+            const store = transaction.objectStore(STORE_NAME);
+            
+            store.put(chatData);
+            
+            transaction.oncomplete = () => {
+                if (!activeChatId) {
+                    setActiveChatId(chatData.id);
+                }
+                loadRecentChats();
+                db.close();
+            };
+            
+            transaction.onerror = () => {
+                console.error('Error saving to IndexedDB:', transaction.error);
+                db.close();
+            };
+        } catch (error) {
+            console.error('Error saving chat:', error);
+        }
+    }, [activeChatId, openDatabase, getUserId, loadRecentChats, selectedAIMode]);
+
+    // ---------- Delete Chat ----------
+    const deleteChat = useCallback(async (chatId) => {
+        if (!chatId) return;
+        
+        setIsDeleting(true);
+        try {
+            const db = await openDatabase();
+            const transaction = db.transaction([STORE_NAME], 'readwrite');
+            const store = transaction.objectStore(STORE_NAME);
+            
+            store.delete(chatId);
+            
+            transaction.oncomplete = () => {
+                if (activeChatId === chatId) {
+                    handleNewChat();
+                }
+                loadRecentChats();
+                db.close();
+                setIsDeleting(false);
+            };
+            
+            transaction.onerror = () => {
+                console.error('Error deleting chat:', transaction.error);
+                db.close();
+                setIsDeleting(false);
+            };
+        } catch (error) {
+            console.error('Error in deleteChat:', error);
+            setIsDeleting(false);
+        }
+    }, [activeChatId, openDatabase, loadRecentChats]);
+
+    // ---------- Initialize ----------
+    useEffect(() => {
+        const initializeChats = async () => {
+            try {
+                await loadRecentChats();
+                
+                if (recentChats.length > 0) {
+                    try {
+                        await loadChatById(recentChats[0].id);
+                    } catch (error) {
+                        console.log('Starting new chat');
+                    }
+                }
+            } catch (error) {
+                console.error('Error initializing chats:', error);
+            }
+        };
+        
+        initializeChats();
+    }, [currentUser]);
+
+    // Auto-save chat history
+    useEffect(() => {
+        if (chatHistory.length > 1) {
+            const timeoutId = setTimeout(() => {
+                saveChatHistory(chatHistory);
+            }, 500);
+            
+            return () => clearTimeout(timeoutId);
+        }
+    }, [chatHistory, saveChatHistory]);
+
+    // Scroll to bottom when chat updates
+    useEffect(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [chatHistory, streamingMessage, streamedContent]);
+
+    // ---------- Fast Typing Animation ----------
+    const typeText = useCallback((text, onComplete) => {
+        if (!text) {
+            onComplete?.();
+            return;
+        }
+        
+        const words = text.split(' ');
+        let currentText = '';
+        let wordIndex = 0;
+        
+        const typeNextWord = () => {
+            if (wordIndex < words.length) {
+                const wordsToAdd = words.slice(wordIndex, wordIndex + 2 + Math.floor(Math.random() * 3));
+                currentText += (currentText ? ' ' : '') + wordsToAdd.join(' ');
+                wordIndex += wordsToAdd.length;
+                
+                setStreamingMessage(prev => ({
+                    ...prev,
+                    content: currentText
+                }));
+                
+                setTimeout(typeNextWord, 10 + Math.random() * 20);
+            } else {
+                onComplete?.();
+            }
+        };
+        
+        typeNextWord();
+    }, []);
+
+// ---------- Fixed Streaming Handler with Code Block Continuation ----------
+// ---------- Fixed Streaming Handler (Seamless Merging) ---------
+const handleStreamResponse = useCallback(async (response, isContinue = false, initialContent = '') => {
+    if (!response.body) return;
+
+    const reader = response.body.getReader();
+    streamReaderRef.current = reader;
+    
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let tokenCount = 0;
+    
+    // Initialize with existing content if continuing
+    accumulatedTokensRef.current = initialContent;
+    
+    // Update UI immediately with existing content
+    setStreamedContent(initialContent);
+
+    try {
+        while (true) {
+            const { done, value } = await reader.read();
+            
+            if (done) {
+                // Check if response ends abruptly (not ending in punctuation or code block)
+                const content = accumulatedTokensRef.current.trim();
+                const lastChar = content.slice(-1);
+                const isCodeBlockOpen = (content.match(/```/g) || []).length % 2 !== 0;
+                
+                // Show continue button if code block is open or doesn't end in sentence terminator
+                if (content.length > 0 && (isCodeBlockOpen || !['.', '!', '?', '}', '`'].includes(lastChar))) {
+                    setShowContinueButton(true);
+                }
+                
+                // IMPORTANT: When streaming completes, add the message to history
+                if (accumulatedTokensRef.current) {
+                    const assistantMessage = {
+                        role: 'assistant',
+                        content: accumulatedTokensRef.current,
+                        type: 'text',
+                        ts: Date.now(),
+                        isContinued: isContinue
+                    };
+                    
+                    // Add to history if we're in a normal streaming state
+                    if (isStreaming) {
+                        setChatHistory(prev => [...prev, assistantMessage]);
+                    }
+                }
+                break;
+            }
+            
+            const chunk = decoder.decode(value, { stream: true });
+            buffer += chunk;
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+            
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    const data = line.slice(6);
+                    if (data === '[DONE]') break;
+                    
+                    try {
+                        const parsed = JSON.parse(data);
+                        if (parsed.text) {
+                            tokenCount++;
+                            const textToAdd = parsed.text;
+                            
+                            // Append to the MASTER Ref
+                            accumulatedTokensRef.current += textToAdd;
+                            
+                            // Update State for UI
+                            setStreamedContent(accumulatedTokensRef.current);
+                            
+                            // Update streaming message if exists
+                            setStreamingMessage(prev => prev ? {
+                                ...prev,
+                                content: accumulatedTokensRef.current
+                            } : null);
+                            
+                            // Handle Full Code Parsing
+                            if (isFullCodeMode) {
+                                fileContentBufferRef.current += textToAdd;
+                                if (tokenCount % 20 === 0) {
+                                    const files = parseCodeForFiles(fileContentBufferRef.current);
+                                    if (files.length > 0) setGeneratedFiles(files);
+                                }
+                            }
+                        }
+                        if (parsed.stream_id) {
+                            setLastStreamId(parsed.stream_id);
+                            continueStreamIdRef.current = parsed.stream_id;
+                        }
+                    } catch (e) { console.warn(e); }
+                }
+            }
+        }
+    } catch (error) {
+        if (error.name !== 'AbortError') {
+            console.error('Stream error:', error);
+            throw error;
+        }
+    } finally {
+        reader.releaseLock();
+        streamReaderRef.current = null;
+        
+        if (isFullCodeMode && fileContentBufferRef.current) {
+            const files = parseCodeForFiles(fileContentBufferRef.current);
+            if (files.length > 0) setGeneratedFiles(files);
+        }
+    }
+}, [isFullCodeMode, parseCodeForFiles, isStreaming]);
+
+// ---------- Fixed Continue Generation ----------
+const handleContinueGeneration = useCallback(async () => {
+    if (!lastStreamId) return;
+    
+    setIsLoading(true);
+    setIsStreaming(true);
+    setShowContinueButton(false);
+    
+    // 1. Get the last AI message
+    const lastMsgIndex = chatHistory.length - 1;
+    const lastMsg = chatHistory[lastMsgIndex];
+    
+    // 2. Capture its content as the "Base"
+    const previousContent = lastMsg.role === 'assistant' ? lastMsg.content : '';
+    
+    // 3. Temporarily remove the last static message from history
+    //    because we are about to re-render it as a "streaming" message
+    if (lastMsg.role === 'assistant') {
+        setChatHistory(prev => prev.slice(0, -1));
+    }
+
+    // 4. Set the Streaming UI to start with the OLD content
+    setStreamingMessage({
+        role: 'assistant',
+        content: previousContent, // Start with old content
+        type: 'text',
+        ts: Date.now(),
+        isStreaming: true,
+        isContinue: true
+    });
+
+    const apiUrl = '/api/generate/continue';
+    const apiPayload = {
+        stream_id: continueStreamIdRef.current || lastStreamId,
+        user_preference_id: getPersistentUserId(),
+        firebase_token: currentUser?.firebaseToken || '',
+        stream: true
+    };
+    
+    try {
+        const controller = new AbortController();
+        setAbortController(controller);
+        
+        const response = await callFastAPI(apiUrl, apiPayload, 'chat', {
+            signal: controller.signal,
+            stream: true
+        });
+        
+        if (!response.ok) throw new Error(response.statusText);
+        
+        // 5. Pass previousContent to the handler to append to it
+        await handleStreamResponse(response, true, previousContent);
+        
+        // The message is now added in handleStreamResponse when done
+        // No need to add it here again
+        
+    } catch (error) {
+        console.error('Continue error:', error);
+        
+        // On error, restore the original message or save partial progress
+        if (accumulatedTokensRef.current && accumulatedTokensRef.current !== previousContent) {
+            // We have some new content, save it as partial
+            const assistantMessage = {
+                role: 'assistant',
+                content: accumulatedTokensRef.current,
+                type: 'text',
+                ts: Date.now(),
+                isPartial: true
+            };
+            setChatHistory(prev => [...prev, assistantMessage]);
         } else {
+            // No new content, restore original message
+            setChatHistory(prev => [...prev, lastMsg]);
+        }
+    } finally {
+        setIsLoading(false);
+        setIsStreaming(false);
+        setStreamingMessage(null);
+    }
+}, [lastStreamId, chatHistory, getPersistentUserId, currentUser, callFastAPI, handleStreamResponse]);
+
+// ---------- Stop Generation ----------
+const handleStopGeneration = useCallback(() => {
+    if (abortController) {
+        abortController.abort();
+        setAbortController(null);
+    }
+    if (streamReaderRef.current) {
+        streamReaderRef.current.cancel();
+        streamReaderRef.current = null;
+    }
+    
+    setIsLoading(false);
+    setIsStreaming(false);
+    
+    // Save whatever we've streamed so far
+    if (accumulatedTokensRef.current) {
+        const assistantMessage = {
+            role: 'assistant',
+            content: accumulatedTokensRef.current,
+            type: 'text',
+            ts: Date.now(),
+            isPartial: true
+        };
+        setChatHistory(prev => [...prev, assistantMessage]);
+        accumulatedTokensRef.current = '';
+        setStreamedContent('');
+    }
+    
+    setStreamingMessage(null);
+}, [abortController]);
+
+// Add this useEffect to handle cleanup and finalization
+useEffect(() => {
+    // When streaming stops naturally (not via stop button)
+    if (!isStreaming && !isLoading && streamingMessage === null) {
+        // Check if we have accumulated content that hasn't been saved yet
+        if (accumulatedTokensRef.current && accumulatedTokensRef.current.trim()) {
+            const lastMessage = chatHistory[chatHistory.length - 1];
+            
+            // Only add if the last message is not the same content
+            if (!lastMessage || lastMessage.content !== accumulatedTokensRef.current) {
+                const assistantMessage = {
+                    role: 'assistant',
+                    content: accumulatedTokensRef.current,
+                    type: 'text',
+                    ts: Date.now(),
+                    isContinued: false
+                };
+                setChatHistory(prev => [...prev, assistantMessage]);
+            }
+            
             accumulatedTokensRef.current = '';
             setStreamedContent('');
         }
+    }
+}, [isStreaming, isLoading, streamingMessage, chatHistory]);
+    // ---------- Auto-detect Image Generation ----------
+    const detectImageGeneration = (prompt) => {
+        const lowerPrompt = prompt.toLowerCase();
+        const imageTriggers = [
+            'generate image', 'create image', 'make image', 'draw', 'paint',
+            'picture of', 'photo of', 'image of', 'generate a picture',
+            'create a picture', 'make a picture', 'visualize', 'illustrate',
+            'show me an image', 'show me a picture', 'can you draw',
+            'can you create an image', 'can you generate an image'
+        ];
+        
+        return imageTriggers.some(trigger => lowerPrompt.includes(trigger));
+    };
 
-        try {
-            while (true) {
-                const { done, value } = await reader.read();
-                
-                if (done) {
-                    // Streaming completed naturally
-                    finalizeStreamedMessage();
-                    break;
-                }
-                
-                const chunk = decoder.decode(value, { stream: true });
-                buffer += chunk;
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';
-                
-                for (const line of lines) {
-                    if (line.startsWith('data: ')) {
-                        const data = line.slice(6);
-                        if (data === '[DONE]') {
-                            finalizeStreamedMessage();
-                            break;
-                        }
-                        
-                        try {
-                            const parsed = JSON.parse(data);
-                            if (parsed.text) {
-                                accumulatedTokensRef.current += parsed.text;
-                                setStreamedContent(accumulatedTokensRef.current);
-                            }
-                            if (parsed.stream_id) {
-                                setLastStreamId(parsed.stream_id);
-                                continueStreamIdRef.current = parsed.stream_id;
-                            }
-                        } catch (e) { 
-                            console.warn('JSON parse error:', e);
-                        }
-                    }
-                }
-            }
-        } catch (error) {
-            if (error.name !== 'AbortError') {
-                console.error('Stream error:', error);
-                // Save partial content on error
-                if (accumulatedTokensRef.current) {
-                    finalizeStreamedMessage(true);
-                }
-            }
-        } finally {
-            if (streamReaderRef.current === reader) {
-                streamReaderRef.current = null;
-            }
-            reader.releaseLock();
-        }
-    }, []);
+    // ---------- File / Image Upload Handlers ----------
+// ---------- Universal File Handler ----------
+    const handleFileUpload = (event) => {
+        const file = event?.target?.files?.[0];
+        if (!file) return;
 
-    // ---------- FINALIZE MESSAGE ----------
-    const finalizeStreamedMessage = useCallback((isError = false) => {
-        if (!accumulatedTokensRef.current || accumulatedTokensRef.current.trim() === '') {
-            setIsStreaming(false);
-            setStreamedContent('');
-            return;
-        }
-        
-        const content = accumulatedTokensRef.current;
-        
-        // Check if we should show continue button
-        const shouldShowContinue = () => {
-            const trimmed = content.trim();
-            if (!trimmed) return false;
-            
-            const lastChar = trimmed.slice(-1);
-            const hasUnclosedCodeBlock = (trimmed.match(/```/g) || []).length % 2 !== 0;
-            const hasUnclosedList = trimmed.split('\n').some(line => 
-                /^\s*[-*+]\s/.test(line) && !line.trim().endsWith('.')
-            );
-            
-            return hasUnclosedCodeBlock || 
-                   !['.', '!', '?', '`', '}', ']', ')', '"', "'"].includes(lastChar) ||
-                   hasUnclosedList;
-        };
-        
-        setShowContinueButton(shouldShowContinue());
-        
-        // Update or add message to chat history
-        setChatHistory(prev => {
-            const lastMessage = prev[prev.length - 1];
-            
-            // If last message is assistant and streaming, update it
-            if (lastMessage && lastMessage.role === 'assistant' && lastMessage.isStreaming) {
-                const updated = [...prev];
-                updated[updated.length - 1] = {
-                    ...lastMessage,
-                    content: content,
-                    isStreaming: false,
-                    isError: isError,
-                    ts: Date.now()
-                };
-                return updated;
-            }
-            
-            // Otherwise add new message
-            return [...prev, {
-                role: 'assistant',
-                content: content,
-                type: 'text',
-                ts: Date.now(),
-                isError: isError
-            }];
-        });
-        
-        // Clear streaming state
-        accumulatedTokensRef.current = '';
-        setStreamedContent('');
-        setIsStreaming(false);
-    }, []);
-
-    // ---------- PERFECT CONTINUE GENERATION ----------
-    const handleContinueGeneration = useCallback(async () => {
-        if (!lastStreamId) {
-            console.error('No stream ID available for continue');
-            return;
-        }
-        
-        console.log('Continue generation with stream ID:', lastStreamId);
-        
-        const lastMessage = chatHistory[chatHistory.length - 1];
-        if (!lastMessage || lastMessage.role !== 'assistant') {
-            console.error('No assistant message to continue');
-            return;
-        }
-        
-        const previousContent = lastMessage.content;
-        
-        // Start streaming state
-        setIsLoading(true);
-        setIsStreaming(true);
-        setShowContinueButton(false);
-        
-        // Update last message to show it's streaming
-        setChatHistory(prev => {
-            const updated = [...prev];
-            if (updated.length > 0) {
-                updated[updated.length - 1] = {
-                    ...updated[updated.length - 1],
-                    isStreaming: true,
-                    isContinued: true
-                };
-            }
-            return updated;
-        });
-        
-        try {
-            const apiUrl = '/api/generate/continue';
-            const apiPayload = {
-                stream_id: lastStreamId,
-                user_preference_id: getPersistentUserId(),
-                firebase_token: currentUser?.firebaseToken || '',
-                stream: true
-            };
-            
-            const controller = new AbortController();
-            setAbortController(controller);
-            
-            const response = await callFastAPI(apiUrl, apiPayload, 'chat', {
-                signal: controller.signal,
-                stream: true,
-                timeout: 60000
-            });
-            
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`HTTP ${response.status}: ${errorText}`);
-            }
-            
-            // Pass previous content to continue streaming
-            await handleStreamResponse(response, true, previousContent);
-            
-        } catch (error) {
-            console.error('Continue error:', error);
-            
-            // On error, finalize with current content
-            if (accumulatedTokensRef.current) {
-                finalizeStreamedMessage(true);
-            } else {
-                // Restore original message state
-                setChatHistory(prev => {
-                    const updated = [...prev];
-                    if (updated.length > 0) {
-                        updated[updated.length - 1] = {
-                            ...updated[updated.length - 1],
-                            isStreaming: false,
-                            isError: true,
-                            content: previousContent + "\n\n[Continue failed: " + error.message + "]"
-                        };
-                    }
-                    return updated;
-                });
-            }
-        } finally {
-            setIsLoading(false);
-        }
-    }, [lastStreamId, chatHistory, currentUser, callFastAPI, handleStreamResponse, finalizeStreamedMessage]);
-
-    // ---------- STOP GENERATION ----------
-    const handleStopGeneration = useCallback(() => {
-        if (abortController) {
-            abortController.abort();
-            setAbortController(null);
-        }
-        
-        if (streamReaderRef.current) {
-            streamReaderRef.current.cancel();
-            streamReaderRef.current = null;
-        }
-        
-        // Finalize with whatever we have
-        if (accumulatedTokensRef.current) {
-            finalizeStreamedMessage();
+        // Check if it is an image
+        if (file.type.startsWith('image/')) {
+             setUploadedImage(file);
+             setUploadedFile(null); // Clear text file if any
+             setMessage("Analyze this image: ");
+             
+             // If active mode isn't already compatible, suggest image mode
+             if (selectedAIMode !== 'pro' && selectedAIMode !== 'reasoning') {
+                 // You might want to switch to a vision-capable mode here
+                 // setSelectedAIMode('chat'); 
+             }
         } else {
-            setIsStreaming(false);
-            setStreamedContent('');
+            // It's a document/code
+            if (file.size > 1024 * 1024 * 10) {
+                showModal("File Error", "File size exceeds 10MB limit.");
+                event.target.value = null;
+                return;
+            }
+            setUploadedFile(file);
+            setUploadedImage(null); // Clear image if any
+            setMessage(`Analyze the contents of ${file.name}.`);
         }
-    }, [abortController, finalizeStreamedMessage]);
+        event.target.value = null;
+    };
+  
+    const handleImageUpload = (event) => {
+        const file = event?.target?.files?.[0];
+        if (!file) {
+            if (event) event.target.value = null;
+            return;
+        }
+        if (!file.type.startsWith('image/')) {
+            showModal("File Error", "Please upload a valid image file.");
+            event.target.value = null;
+            return;
+        }
+        if (file.size > 1024 * 1024 * 5) {
+            showModal("File Error", "Image size exceeds 5MB limit.");
+            event.target.value = null;
+            return;
+        }
+        setUploadedImage(file);
+        setUploadedFile(null);
+        setMessage("Transform or edit this image to: ");
+        event.target.value = null;
+    };
 
-    // ---------- Simplified Send Message ----------
-    const handleSendMessage = async () => {
-        if (!message.trim() && !uploadedFile && !uploadedImage) return;
+    // ---------- Enhanced PlusMenu with AI Modes ----------
+    const PlusMenu = useMemo(() => {
+        return React.memo(({ setActiveAIMode: _setActiveAIMode, fileInputRef, imageInputRef }) => {
+            const [open, setOpen] = useState(false);
+            const menuRef = useRef(null);
 
-        setIsLoading(true);
-        const controller = new AbortController();
-        setAbortController(controller);
+            useEffect(() => {
+                const handleClickOutside = (event) => {
+                    if (menuRef.current && !menuRef.current.contains(event.target)) {
+                        setOpen(false);
+                    }
+                };
 
-        const userMessage = {
-            role: 'user',
-            content: message,
-            type: 'text',
-            ts: Date.now(),
-            aiMode: selectedAIMode
-        };
-
-        setChatHistory(prev => [...prev, userMessage]);
-        setMessage('');
-
-        // Reset streaming state
-        accumulatedTokensRef.current = '';
-        setStreamedContent('');
-        setShowContinueButton(false);
-
-        // Add an empty assistant message for streaming
-        const assistantMessage = {
-            role: 'assistant',
-            content: '',
-            type: 'text',
-            ts: Date.now(),
-            isStreaming: true
-        };
-        setChatHistory(prev => [...prev, assistantMessage]);
-        setIsStreaming(true);
-
-        try {
-            const apiUrl = '/api/generate/text';
-            const apiPayload = { 
-                prompt: message, 
-                mode: selectedAIMode,
-                user_preference_id: getPersistentUserId(),
-                firebase_token: currentUser?.firebaseToken || '',
-                stream: true,
-                ai_mode: selectedAIMode
-            };
-            
-            const response = await callFastAPI(apiUrl, apiPayload, selectedAIMode, {
-                signal: controller.signal,
-                stream: true,
-                timeout: 90000
-            });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`HTTP ${response.status}: ${errorText}`);
-            }
-
-            await handleStreamResponse(response);
-
-        } catch (error) {
-            console.error('API ERROR:', error);
-            
-            let errorMessage = 'Something went wrong. Please try again.';
-            
-            if (error.name === 'AbortError') {
-                errorMessage = 'Request was cancelled.';
-            } else if (error.message.includes('timeout')) {
-                errorMessage = 'Request timed out. The prompt might be too long.';
-            } else if (error.message.includes('413')) {
-                errorMessage = 'Request too large. Please shorten your prompt.';
-            } else if (error.message.includes('429')) {
-                errorMessage = 'Too many requests. Please wait a moment.';
-            } else if (error.message.includes('500')) {
-                errorMessage = 'Server error. Please try again in a few moments.';
-            } else {
-                errorMessage = `Error: ${error.message || 'Unknown error'}`;
-            }
-            
-            // Update the streaming message with error
-            setChatHistory(prev => {
-                const updated = [...prev];
-                const lastMsg = updated[updated.length - 1];
-                if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
-                    updated[updated.length - 1] = {
-                        ...lastMsg,
-                        content: errorMessage,
-                        isStreaming: false,
-                        isError: true
-                    };
+                if (open) {
+                    document.addEventListener('mousedown', handleClickOutside);
+                    document.addEventListener('touchstart', handleClickOutside);
                 }
-                return updated;
-            });
-        } finally {
-            setAbortController(null);
-            setUploadedFile(null);
-            setUploadedImage(null);
-            setIsLoading(false);
+
+                return () => {
+                    document.removeEventListener('mousedown', handleClickOutside);
+                    document.removeEventListener('touchstart', handleClickOutside);
+                };
+            }, [open]);
+
+            const handleAIModeChange = (mode) => {
+                setSelectedAIMode(mode);
+                setOpen(false);
+            };
+
+            const onUploadFile = (e) => {
+                e.stopPropagation();
+                setOpen(false);
+                if (typeof _setActiveAIMode === 'function') _setActiveAIMode('file_analysis');
+                setTimeout(() => fileInputRef.current?.click(), 50);
+            };
+
+            const onUploadImage = (e) => {
+                e.stopPropagation();
+                setOpen(false);
+                if (typeof _setActiveAIMode === 'function') _setActiveAIMode('image_edit');
+                setTimeout(() => imageInputRef.current?.click(), 50);
+            };
+
+            const onGenImage = (e) => {
+                e.stopPropagation();
+                setOpen(false);
+                if (typeof _setActiveAIMode === 'function') _setActiveAIMode('image_gen');
+            };
+
+            const handleToggleMenu = (e) => {
+                e.stopPropagation();
+                setOpen(!open);
+            };
+
+            const getModeIcon = (mode) => {
+                switch(mode) {
+                    case 'chat': return '💬';
+                    case 'reasoning': return '🧠';
+                    case 'pro': return '🚀';
+                    default: return '💬';
+                }
+            };
+
+            return (
+                <div className="relative" ref={menuRef}>
+                    <button 
+                        onClick={handleToggleMenu} 
+                        className="bg-[var(--spider-light)] text-white w-10 h-10 rounded-md flex items-center justify-center hover:opacity-90 transition touch-manipulation active:scale-95"
+                        aria-label="Open menu"
+                        aria-expanded={open}
+                    >
+                        {open ? '×' : '+'}
+                    </button>
+                    {open && (
+                        <div className="absolute bottom-12 right-0 bg-[var(--spider-dark)] border border-[var(--spider-light)] rounded-md shadow-lg w-48 p-2 z-50">
+                            <div className="text-xs text-[var(--spider-text-dim)] px-3 py-2 border-b border-[var(--spider-light)] mb-2">
+                                AI Mode
+                            </div>
+                            <button 
+                                onClick={() => handleAIModeChange('chat')} 
+                                className={`w-full text-left px-3 py-2 rounded-md text-sm flex items-center touch-manipulation active:scale-95 transition-colors ${
+                                    selectedAIMode === 'chat' 
+                                        ? 'bg-[var(--spider-light)] text-white' 
+                                        : 'hover:bg-[var(--spider-light)]'
+                                }`}
+                            >
+                                <span className="mr-2">{getModeIcon('chat')}</span> 
+                                <span>Chat Mode</span>
+                            </button>
+                            <button 
+                                onClick={() => handleAIModeChange('reasoning')} 
+                                className={`w-full text-left px-3 py-2 rounded-md text-sm flex items-center touch-manipulation active:scale-95 transition-colors ${
+                                    selectedAIMode === 'reasoning' 
+                                        ? 'bg-[var(--spider-light)] text-white' 
+                                        : 'hover:bg-[var(--spider-light)]'
+                                }`}
+                            >
+                                <span className="mr-2">{getModeIcon('reasoning')}</span> 
+                                <span>Reasoning</span>
+                            </button>
+                            <button 
+                                onClick={() => handleAIModeChange('pro')} 
+                                className={`w-full text-left px-3 py-2 rounded-md text-sm flex items-center touch-manipulation active:scale-95 transition-colors ${
+                                    selectedAIMode === 'pro' 
+                                        ? 'bg-[var(--spider-light)] text-white' 
+                                        : 'hover:bg-[var(--spider-light)]'
+                                }`}
+                            >
+                                <span className="mr-2">{getModeIcon('pro')}</span> 
+                                <span>Spider AI Pro</span>
+                            </button>
+                            
+                            <div className="text-xs text-[var(--spider-text-dim)] px-3 py-2 border-t border-[var(--spider-light)] mt-2 mb-2">
+                                Tools
+                            </div>
+                            <button 
+                                onClick={onUploadFile} 
+                                className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center touch-manipulation active:scale-95 transition-colors"
+                            >
+                                <span className="mr-2">📄</span> Upload File
+                            </button>
+                            <button 
+                                onClick={onUploadImage} 
+                                className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center touch-manipulation active:scale-95 transition-colors"
+                            >
+                                <span className="mr-2">🖼</span> Upload Image
+                            </button>
+                            <button 
+                                onClick={onGenImage} 
+                                className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center touch-manipulation active:scale-95 transition-colors"
+                            >
+                                <span className="mr-2">🎨</span> Create Image
+                            </button>
+                        </div>
+                    )}
+                </div>
+            );
+        });
+    }, [selectedAIMode]);
+
+    // ---------- Voice Recording Button ----------
+    const VoiceButton = useMemo(() => {
+        return React.memo(({ isRecording, recordingTime, isTranscribing, onStartRecording, onStopRecording }) => {
+            const formatTime = (seconds) => {
+                const mins = Math.floor(seconds / 60);
+                const secs = seconds % 60;
+                return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+            };
+
+            if (isTranscribing) {
+                return (
+                    <button 
+                        className="w-10 h-10 flex items-center justify-center bg-[var(--spider-light)] text-white rounded-md hover:opacity-90 transition"
+                        disabled
+                    >
+                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    </button>
+                );
+            }
+
+            if (isRecording) {
+                return (
+                    <div className="relative">
+                        <button 
+                            onClick={onStopRecording}
+                            className="w-10 h-10 flex items-center justify-center bg-red-500 text-white rounded-md hover:bg-red-600 transition animate-pulse"
+                        >
+                            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
+                            </svg>
+                        </button>
+                        <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-red-500 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
+                            {formatTime(recordingTime)}
+                        </div>
+                        <div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-2 h-2 bg-red-500 rounded-full animate-ping"></div>
+                    </div>
+                );
+            }
+
+            return (
+                <button 
+                    onClick={onStartRecording}
+                    className="w-10 h-10 flex items-center justify-center bg-[var(--spider-light)] text-white rounded-md hover:opacity-90 transition hover:bg-[var(--spider-med)]"
+                    title="Voice Input"
+                >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
+                    </svg>
+                </button>
+            );
+        });
+    }, []);
+
+    // ---------- Optimized Content Processing ----------
+    const processContent = useCallback((text) => {
+        if (!text || typeof text !== "string") {
+            return [{ type: "text", content: text || "" }];
         }
+
+        const blocks = [];
+        const lines = text.split('\n');
+        let currentBlock = { type: "text", content: "" };
+        let inCodeBlock = false;
+        let codeLanguage = "";
+        let codeContent = "";
+        let tableRows = [];
+
+        const flushCurrentBlock = () => {
+            if (currentBlock.content.trim()) {
+                blocks.push({ ...currentBlock });
+                currentBlock = { type: "text", content: "" };
+            }
+        };
+
+        const flushTable = () => {
+            if (tableRows.length >= 2) {
+                blocks.push({
+                    type: "table",
+                    content: tableRows.join('\n')
+                });
+                tableRows = [];
+            }
+        };
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+
+            // Handle code blocks
+            if (line.trim().startsWith('```')) {
+                if (!inCodeBlock) {
+                    flushCurrentBlock();
+                    flushTable();
+                    inCodeBlock = true;
+                    codeLanguage = line.trim().replace(/```/g, '').trim();
+                    codeContent = "";
+                } else {
+                    inCodeBlock = false;
+                    blocks.push({
+                        type: "code",
+                        language: codeLanguage || "text",
+                        content: codeContent.trim()
+                    });
+                }
+                continue;
+            }
+
+            if (inCodeBlock) {
+                codeContent += line + '\n';
+                continue;
+            }
+
+            // Handle tables
+            const trimmedLine = line.trim();
+            if (trimmedLine.includes('|') && 
+                !trimmedLine.includes('```') && 
+                !trimmedLine.startsWith('|--') &&
+                trimmedLine.match(/[^\s|:-]/)) {
+                
+                const isSeparator = trimmedLine.match(/^[\s|:-]+$/);
+                
+                if (!isSeparator || (isSeparator && tableRows.length > 0)) {
+                    tableRows.push(line);
+                }
+                
+                let j = i + 1;
+                while (j < lines.length && lines[j].trim().includes('|') && !lines[j].trim().startsWith('```')) {
+                    tableRows.push(lines[j]);
+                    j++;
+                }
+                
+                if (j > i + 1) {
+                    i = j - 1;
+                }
+                
+                if (tableRows.length >= 2) {
+                    flushCurrentBlock();
+                    flushTable();
+                    continue;
+                } else {
+                    tableRows.forEach(row => {
+                        currentBlock.content += row + '\n';
+                    });
+                    tableRows = [];
+                    continue;
+                }
+            } else {
+                if (tableRows.length > 0) {
+                    tableRows.forEach(row => {
+                        currentBlock.content += row + '\n';
+                    });
+                    tableRows = [];
+                }
+            }
+
+            // Regular text
+            if (line.trim() === '') {
+                flushCurrentBlock();
+                currentBlock.content += '\n';
+            } else {
+                currentBlock.content += line + '\n';
+            }
+        }
+
+        flushCurrentBlock();
+        flushTable();
+
+        if (inCodeBlock && codeContent.trim()) {
+            blocks.push({
+                type: "code",
+                language: codeLanguage || "text",
+                content: codeContent.trim()
+            });
+        }
+
+        return blocks;
+    }, []);
+
+    // ---------- Enhanced Chat Bubble with Math Support ----------
+    const ChatBubble = useMemo(() => {
+        return React.memo(({ message }) => {
+            const [contentBlocks, setContentBlocks] = useState([]);
+            const [mathBlocks, setMathBlocks] = useState([]);
+            const [combinedBlocks, setCombinedBlocks] = useState([]);
+
+            useEffect(() => {
+                // Process LaTeX math first
+                const mathBlocks = processMathContent(message.content);
+                
+                // Then process regular content
+                const regularBlocks = processContent(message.content);
+                
+                // Combine both
+                const combined = [];
+                let regularIndex = 0;
+                let mathIndex = 0;
+                
+                // For now, just use regular blocks with math processing
+                const blocks = processContent(message.content);
+                setContentBlocks(blocks);
+                
+                // Apply syntax highlighting
+                if (typeof window !== "undefined" && window.Prism) {
+                    setTimeout(() => {
+                        window.Prism.highlightAll();
+                    }, 50);
+                }
+                
+                // Re-render KaTeX for any math in text blocks
+                setTimeout(() => {
+                    document.querySelectorAll('.math-content').forEach(element => {
+                        const latex = element.getAttribute('data-latex');
+                        const isDisplay = element.classList.contains('math-display');
+                        if (latex) {
+                            try {
+                                element.innerHTML = katex.renderToString(latex, {
+                                    throwOnError: false,
+                                    displayMode: isDisplay
+                                });
+                            } catch (error) {
+                                element.textContent = isDisplay ? `$$${latex}$$` : `$${latex}$`;
+                            }
+                        }
+                    });
+                }, 100);
+            }, [message.content, processContent, processMathContent]);
+
+            const handleCopyCode = (content) => {
+                navigator.clipboard.writeText(content);
+            };
+
+            const renderTable = (tableText) => {
+                const rows = tableText.trim().split('\n').filter(r => r.trim());
+                if (rows.length < 2) return null;
+
+                const headers = rows[0].split('|').filter(c => c.trim()).map(c => c.trim());
+                const separator = rows[1];
+                const dataRows = rows.slice(2).filter(r => r.includes('|'));
+
+                const alignments = separator.split('|').filter(c => c.trim()).map(col => {
+                    if (col.startsWith(':') && col.endsWith(':')) return 'center';
+                    if (col.endsWith(':')) return 'right';
+                    return 'left';
+                });
+
+                return (
+                    <div className="overflow-x-auto my-3 rounded-lg border border-[var(--spider-light)] bg-[var(--spider-dark)]">
+                        <table className="min-w-full divide-y divide-[var(--spider-light)]">
+                            <thead>
+                                <tr className="bg-[var(--spider-med)]">
+                                    {headers.map((header, idx) => (
+                                        <th 
+                                            key={idx}
+                                            className={`px-4 py-3 text-left text-sm font-semibold text-white border-r border-[var(--spider-light)] last:border-r-0 ${
+                                                alignments[idx] === 'center' ? 'text-center' :
+                                                alignments[idx] === 'right' ? 'text-right' : 'text-left'
+                                            }`}
+                                        >
+                                            {header}
+                                        </th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-[var(--spider-light)]">
+                                {dataRows.map((row, rowIdx) => {
+                                    const cells = row.split('|').filter(c => c.trim()).map(c => c.trim());
+                                    return (
+                                        <tr 
+                                            key={rowIdx} 
+                                            className={`${
+                                                rowIdx % 2 === 0 
+                                                    ? 'bg-[var(--spider-dark)]' 
+                                                    : 'bg-[#0a2a2a]'
+                                            } hover:bg-[var(--spider-light)] transition-colors`}
+                                        >
+                                            {cells.map((cell, cellIdx) => (
+                                                <td 
+                                                    key={cellIdx}
+                                                    className={`px-4 py-3 text-sm text-white border-r border-[var(--spider-light)] last:border-r-0 ${
+                                                        alignments[cellIdx] === 'center' ? 'text-center' :
+                                                        alignments[cellIdx] === 'right' ? 'text-right' : 'text-left'
+                                                    }`}
+                                                >
+                                                    {cell}
+                                                </td>
+                                            ))}
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                );
+            };
+
+            const renderMathBlock = (block) => {
+                if (!block.html) {
+                    return (
+                        <div className={`my-2 ${block.type === 'math-display' || block.type === 'math-boxed' ? 'text-center' : ''}`}>
+                            <span className="text-gray-400">
+                                {block.type === 'math-display' ? `$$${block.content}$$` :
+                                 block.type === 'math-boxed' ? `\\boxed{${block.content}}` :
+                                 `$${block.content}$`}
+                            </span>
+                        </div>
+                    );
+                }
+
+                return (
+                    <div className={`my-2 ${block.type === 'math-display' || block.type === 'math-boxed' ? 'text-center' : ''}`}>
+                        <div 
+                            className={`inline-block ${block.type === 'math-boxed' ? 'border-2 border-green-500 p-2 rounded' : ''}`}
+                            dangerouslySetInnerHTML={{ __html: block.html }}
+                        />
+                    </div>
+                );
+            };
+
+            const bubbleClass = message.role === "user"
+                ? "bg-[#00e5ff] text-black ml-auto"
+                : "bg-[#004745] text-white mr-auto";
+
+            return (
+                <div
+                    className={`flex w-full ${
+                        message.role === "user" ? "justify-end" : "justify-start"
+                    } mb-4 px-2`}
+                >
+                    <div
+                        className={`px-4 py-3 rounded-2xl max-w-[95%] sm:max-w-4xl ${bubbleClass}`}
+                    >
+                        {message.type === "image" && message.base64_image && (
+                            <div className="w-full rounded-xl overflow-hidden bg-black mb-3">
+                                <img
+                                    src={`data:image/jpeg;base64,${message.base64_image}`}
+                                    alt="AI Generated"
+                                    className="w-full h-auto max-h-96 object-contain"
+                                    onError={(e) => {
+                                        e.target.style.display = 'none';
+                                        e.target.parentElement.innerHTML = 
+                                            '<div class="p-4 text-center text-gray-400">Image failed to load</div>';
+                                    }}
+                                />
+                            </div>
+                        )}
+
+                        <div className="space-y-3">
+                            {contentBlocks.map((block, index) => {
+                                if (block.type === "code") {
+                                    return (
+                                        <div
+                                            key={index}
+                                            className="rounded-lg overflow-hidden relative group"
+                                            style={{ background: "#0f0f0f" }}
+                                        >
+                                            <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                                                <button
+                                                    onClick={() => handleCopyCode(block.content)}
+                                                    className="w-8 h-8 flex items-center justify-center rounded bg-gray-800 hover:bg-gray-700 transition-colors touch-manipulation"
+                                                    title="Copy code"
+                                                >
+                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                                    </svg>
+                                                </button>
+                                            </div>
+                                            <pre className="overflow-x-auto p-4 m-0 text-sm" style={{ background: "#0f0f0f", lineHeight: "1.5", color: "white" }}>
+                                                <code className={`language-${block.language}`}>
+                                                    {block.content}
+                                                </code>
+                                            </pre>
+                                        </div>
+                                    );
+                                }
+
+                                if (block.type === "table") {
+                                    return (
+                                        <div key={index}>
+                                            {renderTable(block.content)}
+                                        </div>
+                                    );
+                                }
+
+                                if (block.type === "text") {
+                                    // Process math in text blocks
+                                    const text = block.content;
+                                    const parts = [];
+                                    let lastIndex = 0;
+                                    
+                                    // Find inline math: $...$
+                                    const inlineMathRegex = /\$([^$]+?)\$/g;
+                                    let match;
+                                    
+                                    while ((match = inlineMathRegex.exec(text)) !== null) {
+                                        // Add text before math
+                                        if (match.index > lastIndex) {
+                                            parts.push({
+                                                type: 'text',
+                                                content: text.substring(lastIndex, match.index)
+                                            });
+                                        }
+                                        
+                                        // Add math
+                                        const latex = match[1];
+                                        try {
+                                            const html = katex.renderToString(latex, {
+                                                throwOnError: false,
+                                                displayMode: false
+                                            });
+                                            parts.push({
+                                                type: 'math-inline',
+                                                html,
+                                                latex
+                                            });
+                                        } catch (error) {
+                                            parts.push({
+                                                type: 'text',
+                                                content: `$${latex}$`
+                                            });
+                                        }
+                                        
+                                        lastIndex = match.index + match[0].length;
+                                    }
+                                    
+                                    // Add remaining text
+                                    if (lastIndex < text.length) {
+                                        parts.push({
+                                            type: 'text',
+                                            content: text.substring(lastIndex)
+                                        });
+                                    }
+                                    
+                                    return (
+                                        <div
+                                            key={index}
+                                            className="whitespace-pre-wrap break-words text-sm sm:text-base leading-relaxed"
+                                        >
+                                            {parts.map((part, partIndex) => {
+                                                if (part.type === 'text') {
+                                                    return <span key={partIndex}>{part.content}</span>;
+                                                } else if (part.type === 'math-inline') {
+                                                    return (
+                                                        <span 
+                                                            key={partIndex} 
+                                                            className="math-content math-inline"
+                                                            dangerouslySetInnerHTML={{ __html: part.html }}
+                                                        />
+                                                    );
+                                                }
+                                                return null;
+                                            })}
+                                        </div>
+                                    );
+                                }
+
+                                return null;
+                            })}
+                        </div>
+                    </div>
+                </div>
+            );
+        });
+    }, [processContent, processMathContent]);
+
+    // Helper function for mode display
+    const getModeText = () => {
+        if (selectedAIMode === 'reasoning') return "Reasoning Mode";
+        if (selectedAIMode === 'pro') return "Spider AI Pro";
+        if (isFullCodeMode) return "Full Code Project";
+        if (uploadedFile) return "File Analysis";
+        if (uploadedImage) return "Image Edit";
+        if (activeAIMode === 'image_gen') return "Create Image";
+        if (activeAIMode === 'image_edit') return "Edit Image";
+        return "Chat Mode";
     };
 
     // ---------- New Chat Handler ----------
@@ -1745,8 +3329,18 @@ const SpiderAIApp = ({
         setActiveChatId(null);
         setLastStreamId(null);
         setShowContinueButton(false);
+        setIsFullCodeMode(false);
+        setGeneratedFiles([]);
+        setIsProjectView(false);
+        setProjectMetadata({
+            name: '',
+            type: '',
+            description: '',
+            totalFiles: 0
+        });
         accumulatedTokensRef.current = '';
         setStreamedContent('');
+        fileContentBufferRef.current = '';
         continueStreamIdRef.current = null;
         const welcome = [{ 
             role: 'assistant', 
@@ -1754,86 +3348,1081 @@ const SpiderAIApp = ({
             type: 'text' 
         }];
         setChatHistory(welcome);
+        try { 
+            localStorage.removeItem(LOCAL_STORAGE_KEY); 
+        } catch (e) { 
+            console.warn("Error clearing localStorage:", e);
+        }
     };
+
+    // ---------- Enhanced Send Message with AI Modes ----------
+   // ---------- NEW CONSTANTS ----------
+const handleSendMessage = async () => {
+    if (!message.trim() && !uploadedFile && !uploadedImage) return;
+
+    console.log('Sending message:', {
+        persistentId: getPersistentUserId(),
+        currentUser: currentUser,
+        messageLength: message.length, // Track length
+        aiMode: selectedAIMode
+    });
+
+    // VALIDATE AND TRIM LARGE PROMPTS
+    const MAX_PROMPT_LENGTH = 4000; // Adjust based on your API limits
+    const processedMessage = message.length > MAX_PROMPT_LENGTH 
+        ? message.substring(0, MAX_PROMPT_LENGTH) + "...[truncated due to length]"
+        : message;
+    
+    console.log('Message processed:', {
+        originalLength: message.length,
+        processedLength: processedMessage.length,
+        wasTruncated: message.length > MAX_PROMPT_LENGTH
+    });
+
+    setIsLoading(true);
+    const controller = new AbortController();
+    setAbortController(controller);
+
+    const fileCopy = uploadedFile;
+    const imageCopy = uploadedImage;
+    let mode = activeAIMode || selectedAIMode;
+
+    // Auto-detect image generation
+    if (!fileCopy && !imageCopy && detectImageGeneration(processedMessage)) {
+        mode = 'image_gen';
+    }
+
+    // Auto-detect full code requests
+    const isFullCodeRequest = detectFullCodeRequest(processedMessage);
+    if (isFullCodeRequest && !fileCopy && !imageCopy) {
+        setIsFullCodeMode(true);
+        setProjectMetadata(extractProjectMetadata(processedMessage));
+    }
+
+    // Check if this is likely an edit continuation
+    const isLikelyEditContinuation = () => {
+        const lowerMsg = processedMessage.toLowerCase();
+        const editKeywords = ['edit the image ', 'change the background ', 'modify the image ', 'adjust the size ', 'fix the ratio ', 'add the person', 'remove the object ', 'replace the image '];
+        const previousMessages = chatHistory.slice(-3);
+        
+        const hadImage = previousMessages.some(msg => 
+            msg.type === 'image' || 
+            msg.base64_image ||
+            (msg.role === 'assistant' && msg.content?.includes('image'))
+        );
+        
+        return hadImage && editKeywords.some(keyword => lowerMsg.includes(keyword));
+    };
+
+    // Override based on file/image uploads
+    if (fileCopy) mode = "analyze_file";
+    if (imageCopy) mode = "image_edit";
+    
+    // Force edit mode for edit continuations
+    if (isLikelyEditContinuation() && !imageCopy) {
+        mode = "image_edit";
+        console.log("Forcing edit mode for continuation request");
+    }
+
+    const userMessage = {
+        role: 'user',
+        content: processedMessage,
+        type: mode,
+        fileName: fileCopy ? fileCopy.name : undefined,
+        imageName: imageCopy ? imageCopy.name : undefined,
+        ts: Date.now(),
+        isFullCodeRequest: isFullCodeRequest,
+        aiMode: selectedAIMode,
+        wasTruncated: message.length > MAX_PROMPT_LENGTH
+    };
+
+    setChatHistory(prev => [...prev, userMessage]);
+    setMessage('');
+
+    // Reset streaming state
+    accumulatedTokensRef.current = '';
+    setStreamedContent('');
+    setShowContinueButton(false);
+    setLastStreamId(null);
+    fileContentBufferRef.current = '';
+    continueStreamIdRef.current = null;
+
+    // DECISION: When to use streaming vs normal API
+    const shouldStream = 
+        isFullCodeRequest ||
+        detectLargeCodeRequest(processedMessage) ||
+        mode === "analyze_file" ||
+        processedMessage.length > 1000 || // Stream long prompts
+        processedMessage.toLowerCase().includes('stream') ||
+        processedMessage.toLowerCase().includes('step by step') ||
+        detectMathRequest(processedMessage) ||
+        selectedAIMode === 'reasoning' ||
+        selectedAIMode === 'pro';
+
+    console.log('Streaming decision:', {
+        shouldStream,
+        isFullCodeRequest,
+        mode,
+        selectedAIMode,
+        messageLength: processedMessage.length,
+        isEditContinuation: isLikelyEditContinuation()
+    });
+
+    try {
+        // FILE ANALYSIS
+        if (mode === "analyze_file" && fileCopy) {
+            let fileContent;
+            
+            if (fileCopy.type.startsWith('text/') || 
+                fileCopy.name.endsWith('.txt') || 
+                fileCopy.name.endsWith('.py') ||
+                fileCopy.name.endsWith('.js') ||
+                fileCopy.name.endsWith('.html') ||
+                fileCopy.name.endsWith('.css') ||
+                fileCopy.name.endsWith('.md')) {
+                fileContent = await fileCopy.text();
+            } else {
+                fileContent = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        try {
+                            const base64 = reader.result.split(",")[1];
+                            resolve(base64);
+                        } catch (e) {
+                            reject(e);
+                        }
+                    };
+                    reader.onerror = (err) => reject(err);
+                    reader.readAsDataURL(fileCopy);
+                });
+            }
+
+            // HANDLE LARGE FILES
+            if (fileContent.length > 1000000) { // 1MB limit
+                console.warn('Large file detected, truncating analysis');
+                fileContent = fileContent.substring(0, 1000000) + "...[file truncated]";
+            }
+
+            const apiUrl = '/api/generate/text';
+            const apiPayload = {
+                prompt: processedMessage || `Analyze the contents of ${fileCopy.name}`,
+                mode: "analyze_file",
+                filename: fileCopy.name,
+                file_content: fileContent,
+                file_type: fileCopy.type,
+                user_preference_id: getPersistentUserId(),
+                firebase_token: currentUser?.firebaseToken || '',
+                stream: true,
+                ai_mode: selectedAIMode
+            };
+            
+            console.log('Sending file analysis request');
+            
+            setIsStreaming(true);
+            const initialStreamMessage = {
+                role: 'assistant',
+                content: '',
+                type: 'text',
+                ts: Date.now(),
+                isStreaming: true
+            };
+            setStreamingMessage(initialStreamMessage);
+            
+            const response = await callFastAPI(apiUrl, apiPayload, mode, {
+                signal: controller.signal,
+                stream: true,
+                timeout: 60000 // 60 seconds for large files
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`HTTP ${response.status}: ${errorText}`);
+            }
+
+            await handleStreamResponse(response);
+
+            if (accumulatedTokensRef.current) {
+                const assistantMessage = {
+                    role: 'assistant',
+                    content: accumulatedTokensRef.current,
+                    type: 'text',
+                    ts: Date.now()
+                };
+                setChatHistory(prev => [...prev, assistantMessage]);
+            }
+        }
+        // IMAGE EDIT
+        else if (mode === "image_edit") {
+            console.log('Processing image edit request...');
+            
+            let base64Image = null;
+            
+            if (imageCopy) {
+                base64Image = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        try {
+                            const result = reader.result;
+                            if (result && result.includes(',')) {
+                                const b = result.split(",")[1];
+                                if (b && b.length > 100 && /^[A-Za-z0-9+/=]+$/.test(b.replace(/\s/g, ''))) {
+                                    resolve(b);
+                                } else {
+                                    reject(new Error('Invalid base64 data'));
+                                }
+                            } else {
+                                reject(new Error('No valid base64 found'));
+                            }
+                        } catch (e) {
+                            reject(e);
+                        }
+                    };
+                    reader.onerror = (err) => {
+                        console.error('FileReader error:', err);
+                        reject(err);
+                    };
+                    reader.readAsDataURL(imageCopy);
+                });
+                
+                console.log('Uploaded image processed, size:', base64Image?.length);
+            }
+
+            // TRUNCATE LONG IMAGE PROMPTS
+            const imagePrompt = processedMessage.length > 1000 
+                ? processedMessage.substring(0, 1000) + "...[prompt truncated for image editing]"
+                : processedMessage;
+
+            const apiUrl = '/api/generate/text';
+            const apiPayload = {
+                prompt: imagePrompt,
+                mode: "image_edit",
+                image: base64Image,
+                strength: 0.7,
+                user_preference_id: getPersistentUserId(),
+                firebase_token: currentUser?.firebaseToken || '',
+                stream: false,
+                ai_mode: selectedAIMode,
+                is_edit_continuation: !imageCopy && isLikelyEditContinuation(),
+                max_tokens: 800 // Limit tokens for image prompts
+            };
+            
+            console.log('Sending image edit request:', {
+                hasImage: !!base64Image,
+                promptLength: imagePrompt.length
+            });
+            
+            try {
+                const result = await callFastAPI(apiUrl, apiPayload, mode, {
+                    signal: controller.signal,
+                    timeout: 45000 // 45 seconds for image generation
+                });
+
+                console.log('Image edit response received');
+
+                if (result?.base64_image) {
+                    const assistantMessage = {
+                        role: 'assistant',
+                        content: imagePrompt.includes('edit') ? `Edited: ${imagePrompt}` : '',
+                        type: 'image',
+                        base64_image: result.base64_image,
+                        ts: Date.now(),
+                        is_edited: true
+                    };
+                    setChatHistory(prev => [...prev, assistantMessage]);
+                    localStorage.setItem('last_edited_image', result.base64_image);
+                } else if (result?.image) {
+                    const assistantMessage = {
+                        role: 'assistant',
+                        content: '',
+                        type: 'image',
+                        base64_image: result.image,
+                        ts: Date.now(),
+                        is_edited: true
+                    };
+                    setChatHistory(prev => [...prev, assistantMessage]);
+                    localStorage.setItem('last_edited_image', result.image);
+                } else {
+                    throw new Error('No image data in response');
+                }
+            } catch (apiError) {
+                console.error('Image edit API error:', apiError);
+                throw apiError;
+            }
+        }
+        // IMAGE GENERATION
+        else if (mode === "image_gen") {
+            // TRUNCATE LONG IMAGE PROMPTS
+            const imageGenPrompt = processedMessage.length > 1000 
+                ? processedMessage.substring(0, 1000) + "...[prompt truncated for image generation]"
+                : processedMessage;
+
+            const apiUrl = '/api/generate/text';
+            const apiPayload = { 
+                prompt: imageGenPrompt, 
+                mode: 'image_gen',
+                aspect_ratio: aspectRatio,
+                user_preference_id: getPersistentUserId(),
+                firebase_token: currentUser?.firebaseToken || '',
+                stream: false,
+                ai_mode: selectedAIMode,
+                max_tokens: 400 // Limit for image generation
+            };
+            
+            console.log('Sending image generation request', {
+                promptLength: imageGenPrompt.length
+            });
+            
+            const result = await callFastAPI(apiUrl, apiPayload, mode, {
+                timeout: 45000
+            });
+
+            console.log('Image gen response received');
+
+            if (result?.base64_image) {
+                const assistantMessage = {
+                    role: 'assistant',
+                    content: '',
+                    type: 'image',
+                    base64_image: result.base64_image,
+                    ts: Date.now(),
+                    is_generated: true
+                };
+                setChatHistory(prev => [...prev, assistantMessage]);
+                localStorage.setItem('last_edited_image', result.base64_image);
+            } else {
+                throw new Error('No image data received');
+            }
+        }
+        // FULL CODE MODE
+        else if (isFullCodeRequest) {
+            const apiUrl = '/api/generate/text';
+            const apiPayload = { 
+                prompt: processedMessage, 
+                mode: "chat",
+                user_preference_id: getPersistentUserId(),
+                firebase_token: currentUser?.firebaseToken || '',
+                stream: true,
+                full_code_mode: true,
+                project_type: projectMetadata.type,
+                ai_mode: selectedAIMode,
+                max_tokens: 4000 // Limit for code generation
+            };
+            
+            console.log('Sending full-code request with streaming');
+            
+            setIsStreaming(true);
+            const initialStreamMessage = {
+                role: 'assistant',
+                content: `Generating complete project: ${projectMetadata.name}...`,
+                type: 'text',
+                ts: Date.now(),
+                isStreaming: true
+            };
+            setStreamingMessage(initialStreamMessage);
+            
+            const response = await callFastAPI(apiUrl, apiPayload, mode, {
+                signal: controller.signal,
+                stream: true,
+                timeout: 90000 // 90 seconds for full code
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`HTTP ${response.status}: ${errorText}`);
+            }
+
+            await handleStreamResponse(response);
+
+            if (accumulatedTokensRef.current) {
+                const assistantMessage = {
+                    role: 'assistant',
+                    content: accumulatedTokensRef.current,
+                    type: 'text',
+                    ts: Date.now(),
+                    isFullCode: true,
+                    files: generatedFiles.length > 0 ? generatedFiles : undefined
+                };
+                setChatHistory(prev => [...prev, assistantMessage]);
+                
+                if (generatedFiles.length > 0) {
+                    setTimeout(() => {
+                        setIsProjectView(true);
+                        showModal("Project Generated", 
+                            `Successfully generated ${generatedFiles.length} files.`
+                        );
+                    }, 500);
+                }
+            }
+        }
+        // AI MODES: REASONING & PRO
+        else if (selectedAIMode === 'reasoning' || selectedAIMode === 'pro') {
+            // LIMIT REASONING PROMPTS
+            const reasoningPrompt = processedMessage.length > 3000 
+                ? processedMessage.substring(0, 3000) + "...[prompt truncated for reasoning]"
+                : processedMessage;
+
+            const apiUrl = '/api/generate/text';
+            const apiPayload = { 
+                prompt: reasoningPrompt, 
+                mode: selectedAIMode,
+                user_preference_id: getPersistentUserId(),
+                firebase_token: currentUser?.firebaseToken || '',
+                stream: true,
+                ai_mode: selectedAIMode,
+                max_tokens: 2000 // Limit reasoning output
+            };
+            
+            console.log(`Sending ${selectedAIMode} request with streaming`);
+            
+            setIsStreaming(true);
+            const initialStreamMessage = {
+                role: 'assistant',
+                content: selectedAIMode === 'pro' 
+                    ? '🤖 Spider AI Pro is thinking...' 
+                    : '🧠 Reasoning step by step...',
+                type: 'text',
+                ts: Date.now(),
+                isStreaming: true
+            };
+            setStreamingMessage(initialStreamMessage);
+            
+            const response = await callFastAPI(apiUrl, apiPayload, mode, {
+                signal: controller.signal,
+                stream: true,
+                timeout: 60000
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`HTTP ${response.status}: ${errorText}`);
+            }
+
+            await handleStreamResponse(response);
+
+            if (accumulatedTokensRef.current) {
+                const assistantMessage = {
+                    role: 'assistant',
+                    content: accumulatedTokensRef.current,
+                    type: 'text',
+                    ts: Date.now(),
+                    aiMode: selectedAIMode
+                };
+                setChatHistory(prev => [...prev, assistantMessage]);
+            }
+        }
+        // NORMAL CHAT
+        else {
+            if (shouldStream) {
+                const apiUrl = '/api/generate/text';
+                const apiPayload = { 
+                    prompt: processedMessage, 
+                    mode,
+                    user_preference_id: getPersistentUserId(),
+                    firebase_token: currentUser?.firebaseToken || '',
+                    stream: true,
+                    ai_mode: selectedAIMode,
+                    max_tokens: processedMessage.length > 2000 ? 2000 : undefined
+                };
+                
+                console.log('Using streaming for this request');
+                
+                setIsStreaming(true);
+                const initialStreamMessage = {
+                    role: 'assistant',
+                    content: '',
+                    type: 'text',
+                    ts: Date.now(),
+                    isStreaming: true
+                };
+                setStreamingMessage(initialStreamMessage);
+                
+                const response = await callFastAPI(apiUrl, apiPayload, mode, {
+                    signal: controller.signal,
+                    stream: true,
+                    timeout: 45000
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+
+                await handleStreamResponse(response);
+
+                if (accumulatedTokensRef.current) {
+                    const assistantMessage = {
+                        role: 'assistant',
+                        content: accumulatedTokensRef.current,
+                        type: 'text',
+                        ts: Date.now()
+                    };
+                    setChatHistory(prev => [...prev, assistantMessage]);
+                }
+            } else {
+                const apiUrl = '/api/generate/text';
+                const apiPayload = { 
+                    prompt: processedMessage, 
+                    mode,
+                    user_preference_id: getPersistentUserId(),
+                    firebase_token: currentUser?.firebaseToken || '',
+                    stream: false,
+                    ai_mode: selectedAIMode,
+                    max_tokens: 1500 // Limit for non-streaming responses
+                };
+                
+                console.log('Using normal API call for regular chat');
+                
+                const result = await callFastAPI(apiUrl, apiPayload, mode, {
+                    signal: controller.signal,
+                    stream: false,
+                    timeout: 30000
+                });
+
+                console.log('Received normal response');
+
+                if (result?.text) {
+                    // Use fast typing animation for better UX
+                    typeText(result.text, () => {
+                        const assistantMessage = {
+                            role: 'assistant',
+                            content: result.text,
+                            type: 'text',
+                            ts: Date.now()
+                        };
+                        setChatHistory(prev => [...prev, assistantMessage]);
+                        setStreamingMessage(null);
+                    });
+                } else {
+                    const assistantMessage = {
+                        role: 'assistant',
+                        content: result?.text || '',
+                        type: 'text',
+                        ts: Date.now()
+                    };
+                    setChatHistory(prev => [...prev, assistantMessage]);
+                }
+            }
+        }
+    } catch (error) {
+        console.error('API ERROR:', error);
+        
+        // Handle specific error types
+        let errorMessage = 'Something went wrong. Please try again.';
+        
+        if (error.name === 'AbortError') {
+            errorMessage = 'Request was cancelled.';
+            console.log('Request aborted by user');
+        } else if (error.message.includes('timeout')) {
+            errorMessage = 'Request timed out. The prompt might be too long. Please try a shorter version.';
+        } else if (error.message.includes('413')) {
+            errorMessage = 'Request too large. Please shorten your prompt or try splitting it into smaller parts.';
+        } else if (error.message.includes('429')) {
+            errorMessage = 'Too many requests. Please wait a moment and try again.';
+        } else if (error.message.includes('500')) {
+            errorMessage = 'Server error. Please try again in a few moments.';
+        } else {
+            errorMessage = `Error: ${error.message || 'Unknown error'}`;
+        }
+        
+        const assistantError = {
+            role: 'assistant',
+            content: errorMessage,
+            type: 'text',
+            ts: Date.now(),
+            isError: true
+        };
+        setChatHistory(prev => [...prev, assistantError]);
+        
+        // Show notification for large prompts
+        if (message.length > 3000) {
+            showNotification(
+                "Large Prompt Detected", 
+                "Your prompt was quite long. For better results, try breaking it into smaller parts.",
+                "warning"
+            );
+        }
+    } finally {
+        // Clean up
+        setAbortController(null);
+        setUploadedFile(null);
+        setUploadedImage(null);
+        setIsLoading(false);
+        setIsStreaming(false);
+        setStreamingMessage(null);
+        
+        // Clear streaming content
+        setStreamedContent('');
+        accumulatedTokensRef.current = '';
+    }
+}; 
+  // ---------- Download Project ----------
+    const downloadProjectAsZip = useCallback(async () => {
+        if (generatedFiles.length === 0) {
+            showModal("No Files", "No generated files to download.");
+            return;
+        }
+        
+        try {
+            const projectData = {
+                name: projectMetadata.name || 'spider-project',
+                files: generatedFiles,
+                metadata: projectMetadata,
+                generatedAt: new Date().toISOString()
+            };
+            
+            const blob = new Blob([JSON.stringify(projectData, null, 2)], {
+                type: 'application/json'
+            });
+            
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${projectMetadata.name || 'project'}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            showModal("Project Downloaded", `Project "${projectMetadata.name}" has been downloaded.`);
+        } catch (error) {
+            console.error('Download error:', error);
+            showModal("Download Error", "Failed to download project.");
+        }
+    }, [generatedFiles, projectMetadata, showModal]);
+
+    // ---------- Project View Components ----------
+    const ProjectFileTree = useMemo(() => {
+        return React.memo(({ files, activeIndex, onSelectFile }) => {
+            if (!files || files.length === 0) return null;
+            
+            const getFileIcon = (fileName) => {
+                const ext = fileName.split('.').pop().toLowerCase();
+                const icons = {
+                    'js': '📜', 'jsx': '⚛️', 'ts': '📘', 'tsx': '⚛️',
+                    'py': '🐍', 'html': '🌐', 'css': '🎨', 'json': '📦',
+                    'md': '📝', 'txt': '📄'
+                };
+                return icons[ext] || '📄';
+            };
+            
+            return (
+                <div className="bg-[var(--spider-dark)] rounded-lg border border-[var(--spider-light)] p-3">
+                    <div className="flex items-center justify-between mb-3">
+                        <h4 className="text-sm font-semibold text-white">Project Files</h4>
+                        <span className="text-xs text-[var(--spider-text-dim)]">
+                            {files.length} file{files.length !== 1 ? 's' : ''}
+                        </span>
+                    </div>
+                    
+                    <div className="space-y-1 max-h-60 overflow-y-auto">
+                        {files.map((file, index) => (
+                            <button
+                                key={index}
+                                onClick={() => onSelectFile(index)}
+                                className={`w-full text-left px-3 py-2 text-sm rounded-md flex items-center space-x-2 transition-colors ${
+                                    activeIndex === index
+                                        ? 'bg-[var(--spider-light)] text-white'
+                                        : 'text-[var(--spider-text)] hover:bg-[var(--spider-med)]'
+                                }`}
+                            >
+                                <span>{getFileIcon(file.name)}</span>
+                                <span className="truncate">{file.name}</span>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            );
+        });
+    }, []);
+
+    const FileViewer = useMemo(() => {
+        return React.memo(({ file }) => {
+            if (!file) return null;
+            
+            const handleCopyFile = () => {
+                navigator.clipboard.writeText(file.content);
+                showModal("Copied", "File content copied to clipboard!");
+            };
+            
+            return (
+                <div className="bg-[var(--spider-dark)] rounded-lg border border-[var(--spider-light)] p-4">
+                    <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center space-x-2">
+                            <h4 className="text-sm font-semibold text-white truncate">{file.name}</h4>
+                            <span className="text-xs text-[var(--spider-text-dim)] bg-[var(--spider-med)] px-2 py-1 rounded">
+                                {file.language}
+                            </span>
+                        </div>
+                        <button
+                            onClick={handleCopyFile}
+                            className="text-xs bg-[var(--spider-light)] text-white px-3 py-1.5 rounded hover:opacity-90 transition-colors"
+                        >
+                            Copy
+                        </button>
+                    </div>
+                    
+                    <div className="bg-black rounded-lg overflow-hidden">
+                        <pre className="text-sm p-4 overflow-x-auto max-h-96">
+                            <code className={`language-${file.language}`}>
+                                {file.content}
+                            </code>
+                        </pre>
+                    </div>
+                </div>
+            );
+        });
+    }, [showModal]);
 
     // ---------- Main JSX ----------
     return (
         <div className="flex flex-row h-full w-full bg-[var(--spider-dark)] text-[var(--spider-text)] overflow-hidden relative">
+            {/* Desktop Sidebar */}
+            {!isMobile && (
+                <div className="hidden md:flex flex-col bg-[var(--spider-med)] w-64 p-4 border-r border-[var(--spider-light)] flex-shrink-0 space-y-4 overflow-y-auto">
+                    <button 
+                        onClick={handleNewChat} 
+                        className="w-full bg-[var(--spider-neon-blue)] text-black text-sm font-semibold py-3 px-4 rounded-lg hover:opacity-90 transition flex items-center space-x-2 justify-center active:scale-95"
+                        disabled={isDeleting}
+                    >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
+                        </svg>
+                        <span>New Chat</span>
+                    </button>
+
+                    <div className="flex-grow pt-4 border-t border-[var(--spider-light)] overflow-y-auto">
+                        <h3 className="text-xs font-semibold uppercase text-[var(--spider-text-dim)] mb-2 px-1">
+                            Recent Chats
+                        </h3>
+                        <div className="space-y-1">
+                            {recentChats.length > 0 ? (
+                                recentChats.map((chat) => (
+                                    <div key={chat.id} className="flex items-center group">
+                                        <button 
+                                            onClick={() => loadChatById(chat.id)} 
+                                            className={`flex-grow text-left px-3 py-2 text-sm rounded-lg hover:bg-[var(--spider-light)] truncate transition-colors active:scale-95 ${
+                                                activeChatId === chat.id 
+                                                    ? 'bg-[var(--spider-light)] text-white font-medium' 
+                                                    : 'text-[var(--spider-text)] hover:text-white'
+                                            }`}
+                                            disabled={isDeleting}
+                                        >
+                                            <div className="truncate">{chat.title}</div>
+                                            <div className="text-xs text-[var(--spider-text-dim)] mt-1">
+                                                {new Date(chat.timestamp).toLocaleDateString()} • {chat.aiMode || chat.mode}
+                                            </div>
+                                        </button>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (window.confirm('Delete this chat?')) {
+                                                    deleteChat(chat.id);
+                                                }
+                                            }}
+                                            className="ml-2 text-red-400 hover:text-red-300 opacity-0 group-hover:opacity-100 transition-opacity p-2 active:scale-95"
+                                            title="Delete chat"
+                                            disabled={isDeleting}
+                                        >
+                                            {isDeleting ? (
+                                                <div className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin"></div>
+                                            ) : (
+                                                '×'
+                                            )}
+                                        </button>
+                                    </div>
+                                ))
+                            ) : (
+                                <div className="text-center py-6 text-[var(--spider-text-dim)] text-sm">
+                                    No recent chats
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Main Chat Area */}
             <div className="flex flex-col flex-1 h-full min-h-0 w-full">
-                {/* Chat History */}
-                <div className="flex-grow overflow-y-auto p-2 sm:p-4 space-y-4 pb-28 sm:pb-4">
-                    {chatHistory.map((msg, index) => (
-                        <div key={index} className={`flex w-full ${msg.role === "user" ? "justify-end" : "justify-start"} mb-4 px-2`}>
-                            <div className={`px-4 py-3 rounded-2xl max-w-[95%] sm:max-w-4xl ${
-                                msg.role === "user" ? "bg-[#00e5ff] text-black ml-auto" : "bg-[#004745] text-white mr-auto"
-                            }`}>
-                                <pre className="whitespace-pre-wrap font-sans text-sm break-words leading-relaxed">
-                                    {msg.content}
-                                </pre>
+                {/* Mobile Header */}
+                {isMobile && (
+                    <div className="flex items-center justify-between p-3 bg-[var(--spider-med)] border-b border-[var(--spider-light)] flex-shrink-0">
+                        <button 
+                            onClick={() => setSidebarOpen(!sidebarOpen)}
+                            className="text-white p-2 touch-manipulation active:scale-95"
+                            aria-label="Open menu"
+                        >
+                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                            </svg>
+                        </button>
+                        <span className="text-sm font-semibold text-[var(--spider-neon-blue)] truncate px-2">
+                            {getModeText()}
+                        </span>
+                        <button 
+                            onClick={handleNewChat}
+                            className="text-white p-2 touch-manipulation active:scale-95"
+                            aria-label="New chat"
+                        >
+                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
+                            </svg>
+                        </button>
+                    </div>
+                )}
+
+                {/* Mobile Sidebar */}
+                {isMobile && sidebarOpen && (
+                    <div className="fixed inset-0 z-50">
+                        <div 
+                            className="fixed inset-0 bg-black bg-opacity-50"
+                            onClick={() => setSidebarOpen(false)}
+                        />
+                        <div className="fixed left-0 top-0 h-full w-64 bg-[var(--spider-med)] z-50 overflow-y-auto p-4">
+                            <div className="flex justify-between items-center mb-4">
+                                <h2 className="text-white font-semibold">Chat History</h2>
+                                <button 
+                                    onClick={() => setSidebarOpen(false)}
+                                    className="text-white hover:text-gray-300 text-2xl p-1"
+                                >
+                                    ×
+                                </button>
+                            </div>
+                            
+                            <button 
+                                onClick={handleNewChat} 
+                                className="w-full bg-[var(--spider-neon-blue)] text-black text-sm font-semibold py-3 px-4 rounded-lg hover:opacity-90 transition flex items-center space-x-2 justify-center mb-4"
+                            >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
+                                </svg>
+                                <span>New Chat</span>
+                            </button>
+
+                            <div className="space-y-1">
+                                {recentChats.length > 0 ? (
+                                    recentChats.map((chat) => (
+                                        <button 
+                                            key={chat.id}
+                                            onClick={() => {
+                                                loadChatById(chat.id);
+                                                setSidebarOpen(false);
+                                            }} 
+                                            className={`w-full text-left px-3 py-3 text-sm rounded-lg hover:bg-[var(--spider-light)] truncate transition-colors ${
+                                                activeChatId === chat.id 
+                                                    ? 'bg-[var(--spider-light)] text-white font-medium' 
+                                                    : 'text-[var(--spider-text)] hover:text-white'
+                                            }`}
+                                        >
+                                            <div className="truncate">{chat.title}</div>
+                                            <div className="text-xs text-[var(--spider-text-dim)] mt-1">
+                                                {new Date(chat.timestamp).toLocaleDateString()}
+                                            </div>
+                                        </button>
+                                    ))
+                                ) : (
+                                    <div className="text-center py-6 text-[var(--spider-text-dim)] text-sm">
+                                        No recent chats
+                                    </div>
+                                )}
                             </div>
                         </div>
-                    ))}
-                    
-                    {/* Streaming Message */}
-                    {isStreaming && (
-                        <div className="flex justify-start mb-4 px-2">
-                            <div className="bg-[var(--spider-med)] text-white p-4 rounded-2xl max-w-[95%] shadow-md border border-[var(--spider-light)]">
-                                <pre className="whitespace-pre-wrap font-sans text-sm break-words leading-relaxed">
-                                    {streamedContent || 'AI is thinking...'}
-                                </pre>
-                                <div className="flex items-center justify-between mt-3">
-                                    <div className="flex items-center space-x-2">
-                                        <div className="flex space-x-1">
-                                            <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce"></div>
-                                            <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                                            <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                    </div>
+                )}
+
+                {/* Project View */}
+                {isProjectView ? (
+                    <div className="flex-grow overflow-y-auto p-4">
+                        <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-4">
+                            <div className="lg:col-span-1">
+                                <ProjectFileTree 
+                                    files={generatedFiles}
+                                    activeIndex={activeFileIndex}
+                                    onSelectFile={setActiveFileIndex}
+                                />
+                                
+                                <div className="mt-4 bg-[var(--spider-dark)] rounded-lg border border-[var(--spider-light)] p-3">
+                                    <h4 className="text-sm font-semibold text-white mb-2">Project Info</h4>
+                                    <div className="space-y-2 text-xs">
+                                        <div className="flex justify-between">
+                                            <span className="text-[var(--spider-text-dim)]">Name:</span>
+                                            <span className="text-white">{projectMetadata.name}</span>
                                         </div>
-                                        <span className="text-xs text-[var(--spider-text-dim)]">
-                                            {streamedContent ? 'AI is typing...' : 'AI is thinking...'}
-                                        </span>
+                                        <div className="flex justify-between">
+                                            <span className="text-[var(--spider-text-dim)]">Type:</span>
+                                            <span className="text-white">{projectMetadata.type}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-[var(--spider-text-dim)]">Files:</span>
+                                            <span className="text-white">{generatedFiles.length}</span>
+                                        </div>
                                     </div>
-                                    <button 
-                                        onClick={handleStopGeneration}
-                                        className="bg-red-500 hover:bg-red-600 text-white text-xs px-3 py-1.5 rounded-lg transition-colors"
-                                    >
-                                        Stop
-                                    </button>
                                 </div>
                             </div>
-                        </div>
-                    )}
-                    
-                    {/* Continue Button */}
-                    {showContinueButton && !isLoading && !isStreaming && (
-                        <div className="flex justify-start mb-4 px-2">
-                            <div className="bg-[var(--spider-dark)] p-3 rounded-lg border border-[var(--spider-light)]">
-                                <div className="flex items-center space-x-3">
-                                    <div className="text-sm text-[var(--spider-text-dim)]">
-                                        Response seems incomplete. Continue generation?
+                            
+                            <div className="lg:col-span-2">
+                                {generatedFiles[activeFileIndex] ? (
+                                    <FileViewer file={generatedFiles[activeFileIndex]} />
+                                ) : (
+                                    <div className="bg-[var(--spider-dark)] rounded-lg border border-[var(--spider-light)] p-8 text-center">
+                                        <div className="text-4xl mb-4">📁</div>
+                                        <h3 className="text-lg font-semibold text-white mb-2">Select a File</h3>
+                                        <p className="text-[var(--spider-text-dim)]">
+                                            Choose a file from the sidebar to view its contents
+                                        </p>
                                     </div>
-                                    <button 
-                                        onClick={handleContinueGeneration}
-                                        className="bg-[var(--spider-neon-blue)] text-black text-xs font-semibold px-4 py-2 rounded-lg hover:opacity-90 transition"
-                                    >
-                                        Continue
-                                    </button>
-                                </div>
+                                )}
                             </div>
                         </div>
-                    )}
-                    
-                    <div ref={chatEndRef} />
-                </div>
+                    </div>
+                ) : (
+                    <div className="flex-grow overflow-y-auto p-2 sm:p-4 space-y-4 pb-28 sm:pb-4">
+                        {chatHistory.map((msg, index) => (
+                            <ChatBubble key={`${msg.ts}_${index}`} message={msg} />
+                        ))}
+                        
+                        {/* Streaming Message */}
+                        {(streamingMessage || isStreaming) && (
+                            <div className="flex justify-start mb-4 px-2">
+                                <div className="bg-[var(--spider-med)] text-white p-4 rounded-2xl max-w-[95%] shadow-md border border-[var(--spider-light)]">
+                                    <pre className="whitespace-pre-wrap font-sans text-sm break-words leading-relaxed">
+                                        {streamedContent || streamingMessage?.content || ''}
+                                    </pre>
+                                    <div className="flex items-center justify-between mt-3">
+                                        <div className="flex items-center space-x-2">
+                                            <div className="flex space-x-1">
+                                                <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce"></div>
+                                                <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                                                <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                                            </div>
+                                            <span className="text-xs text-[var(--spider-text-dim)]">
+                                                {isStreaming ? 'AI is generating...' : 'AI is typing...'}
+                                            </span>
+                                        </div>
+                                        <button 
+                                            onClick={handleStopGeneration}
+                                            className="bg-red-500 hover:bg-red-600 text-white text-xs px-3 py-1.5 rounded-lg transition-colors"
+                                        >
+                                            Stop
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                        
+                        {/* Continue Button */}
+                        {showContinueButton && !isLoading && (
+                            <div className="flex justify-start mb-4 px-2">
+                                <div className="bg-[var(--spider-dark)] p-3 rounded-lg border border-[var(--spider-light)]">
+                                    <div className="flex items-center space-x-3">
+                                        <div className="text-sm text-[var(--spider-text-dim)]">
+                                            {isFullCodeMode 
+                                                ? 'Project generation seems incomplete. Continue?' 
+                                                : 'Response seems incomplete. Continue generation?'}
+                                        </div>
+                                        <button 
+                                            onClick={handleContinueGeneration}
+                                            className="bg-[var(--spider-neon-blue)] text-black text-xs font-semibold px-4 py-2 rounded-lg hover:opacity-90 transition"
+                                        >
+                                            Continue
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                        
+                        <div ref={chatEndRef} />
+                    </div>
+                )}
+
+                {/* Hidden file inputs */}
+                <input 
+                    type="file" 
+                    ref={fileInputRef} 
+                    onChange={handleFileUpload} 
+                    className="hidden" 
+                    accept=".txt,.md,.js,.html,.css,.json,.py" 
+                />
+                <input 
+                    type="file" 
+                    ref={imageInputRef} 
+                    onChange={handleImageUpload} 
+                    className="hidden" 
+                    accept="image/*" 
+                />
 
                 {/* Input Area */}
-                <div className={`bg-[var(--spider-med)] border-t border-[var(--spider-light)] flex-shrink-0 w-full p-4`}>
+                <div className={`bg-[var(--spider-med)] border-t border-[var(--spider-light)] flex-shrink-0 w-full ${
+                    isMobile ? 'fixed bottom-0 left-0 right-0 p-3' : 'p-4'
+                }`}>
                     <div className="max-w-5xl mx-auto">
+                        {!isMobile && (
+                            <div className="flex justify-between items-center mb-3">
+                                <div className="flex items-center space-x-2">
+                                    <span className="text-sm text-[var(--spider-neon-blue)] font-semibold flex items-center">
+                                        <span className="mr-2">
+                                            {selectedAIMode === 'pro' ? '🚀' : 
+                                             selectedAIMode === 'reasoning' ? '🧠' : '💬'}
+                                        </span>
+                                        {getModeText()}
+                                        {isFullCodeMode && (
+                                            <span className="ml-2 text-xs px-2 py-0.5 bg-[var(--spider-neon-blue)] text-black rounded-full">
+                                                FULL CODE
+                                            </span>
+                                        )}
+                                    </span>
+                                </div>
+                                {activeAIMode === 'image_gen' && (
+                                    <select 
+                                        value={aspectRatio} 
+                                        onChange={(e) => setAspectRatio(e.target.value)} 
+                                        className="bg-[var(--spider-light)] text-[var(--spider-text)] px-3 py-1.5 rounded-lg text-sm focus:outline-none"
+                                    >
+                                        <option value="1:1">1:1 Square</option>
+                                        <option value="16:9">16:9 Landscape</option>
+                                        <option value="9:16">9:16 Portrait</option>
+                                        <option value="4:3">4:3 Standard</option>
+                                    </select>
+                                )}
+                            </div>
+                        )}
+
+                        {(uploadedFile || uploadedImage) && (
+                            <div className="mb-3 text-xs text-green-400 p-3 bg-[var(--spider-dark)] rounded-lg flex justify-between items-center border border-green-800">
+                                <span className="truncate flex items-center space-x-2">
+                                    {uploadedFile ? (
+                                        <>
+                                            <span>📄</span>
+                                            <span>{uploadedFile.name}</span>
+                                        </>
+                                    ) : uploadedImage ? (
+                                        <>
+                                            <span>🖼</span>
+                                            <span>{uploadedImage.name}</span>
+                                        </>
+                                    ) : ''}
+                                </span>
+                                <button 
+                                    onClick={() => { 
+                                        setUploadedFile(null); 
+                                        setUploadedImage(null); 
+                                    }} 
+                                    className="text-red-400 hover:text-red-300 ml-3 font-bold flex-shrink-0 p-1"
+                                >
+                                    ×
+                                </button>
+                            </div>
+                        )}
+
                         <div className="flex items-end w-full space-x-3">
                             <div className="flex-1 bg-[var(--spider-light)] rounded-xl p-3 min-h-[48px] border border-[var(--spider-light)]">
                                 <textarea 
                                     ref={textareaRef}
-                                    placeholder="Message Spider AI..."
+                                    placeholder={
+                                        isFullCodeMode ? "Describe your complete project..." :
+                                        uploadedImage ? "Describe how to edit this image..." : 
+                                        uploadedFile ? `Analyze "${uploadedFile.name}"...` : 
+                                        `Message Spider AI ${selectedAIMode === 'pro' ? 'Pro' : selectedAIMode === 'reasoning' ? '(Reasoning)' : ''}... (Try: 'solve x² + 2x - 3 = 0' or 'write full code for a todo app')`
+                                    } 
                                     className="w-full bg-transparent text-white focus:outline-none resize-none text-sm sm:text-base max-h-32 overflow-y-auto"
                                     value={message} 
                                     onChange={(e) => setMessage(e.target.value)} 
@@ -1847,6 +4436,20 @@ const SpiderAIApp = ({
                                     disabled={isLoading}
                                 />
                             </div>
+
+                            <VoiceButton 
+                                isRecording={isRecording}
+                                recordingTime={recordingTime}
+                                isTranscribing={isTranscribing}
+                                onStartRecording={startRecording}
+                                onStopRecording={stopRecording}
+                            />
+
+                            <PlusMenu 
+                                setActiveAIMode={setActiveAIMode} 
+                                fileInputRef={fileInputRef} 
+                                imageInputRef={imageInputRef} 
+                            />
 
                             <button 
                                 onClick={handleSendMessage} 
@@ -1864,11 +4467,12 @@ const SpiderAIApp = ({
                         </div>
                     </div>
                 </div>
+
+                {isMobile && <div className="h-24" />}
             </div>
         </div>
     );
-};
-
+};  
 
 // --- END Plus Menu Component ---
 const SpiderVFXApp = () => { /* ... (Remains Placeholder) ... */ return (<div className="flex-grow h-full flex flex-col items-center justify-center bg-black text-white p-8 pattern-vfx-grid overflow-y-auto"><div className="bg-black bg-opacity-80 p-10 rounded-lg text-center shadow-xl"><h1 className="text-4xl font-bold mb-4 text-[var(--spider-neon-blue)]">Spider VFX</h1><p className="text-lg text-gray-400 mb-8">Coming Soon!</p><div className="animate-pulse text-6xl">✨</div></div></div>);};
