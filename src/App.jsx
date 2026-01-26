@@ -1995,11 +1995,20 @@ const SpiderAIApp = ({
         return () => window.removeEventListener('resize', checkMobile);
     }, []);
 
-    // ---------- Auto-resize textarea ----------
+    // ---------- Auto-resize textarea with iOS fix ----------
     useEffect(() => {
         if (textareaRef.current) {
-            textareaRef.current.style.height = 'auto';
-            textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 120) + 'px';
+            // iOS Safari fix for textarea height
+            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+            if (isIOS) {
+                textareaRef.current.style.height = 'auto';
+                textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 120) + 'px';
+                // Force reflow on iOS
+                textareaRef.current.style.transform = 'translateZ(0)';
+            } else {
+                textareaRef.current.style.height = 'auto';
+                textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 120) + 'px';
+            }
         }
     }, [message]);
 
@@ -2354,8 +2363,12 @@ const SpiderAIApp = ({
 
     // Scroll to bottom when chat updates
     useEffect(() => {
-        chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [chatHistory, streamingMessage, streamedContent]);
+        if (chatEndRef.current) {
+            // Use smooth scroll for desktop, instant for mobile (better performance)
+            const behavior = isMobile ? 'auto' : 'smooth';
+            chatEndRef.current.scrollIntoView({ behavior });
+        }
+    }, [chatHistory, streamingMessage, streamedContent, isMobile]);
 
     // ---------- Fast Typing Animation ----------
     const typeText = useCallback((text, onComplete) => {
@@ -2388,240 +2401,271 @@ const SpiderAIApp = ({
         typeNextWord();
     }, []);
 
-// ---------- Fixed Streaming Handler with Code Block Continuation ----------
-// ---------- Fixed Streaming Handler (Seamless Merging) ---------
-const handleStreamResponse = useCallback(async (response, isContinue = false, initialContent = '') => {
-    if (!response.body) return;
+    // ---------- FIXED: Streaming Handler with Proper Continuation ----------
+    const handleStreamResponse = useCallback(async (response, isContinue = false, previousContent = '') => {
+        if (!response.body) return;
+        
+        const reader = response.body.getReader();
+        streamReaderRef.current = reader;
+        
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let tokenCount = 0;
+        let isInCodeBlock = false;
+        let openCodeBlocks = 0;
+        let lastContentForAnalysis = '';
+        
+        // Initialize with existing content if continuing
+        if (isContinue && previousContent) {
+            accumulatedTokensRef.current = previousContent;
+            lastContentForAnalysis = previousContent;
+            // Count existing code blocks
+            const codeBlockMatches = (previousContent.match(/```/g) || []);
+            openCodeBlocks = codeBlockMatches.length % 2;
+            isInCodeBlock = openCodeBlocks === 1;
+        }
+        
+        setStreamedContent(accumulatedTokensRef.current);
 
-    const reader = response.body.getReader();
-    streamReaderRef.current = reader;
-    
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let tokenCount = 0;
-    
-    // Initialize with existing content if continuing
-    accumulatedTokensRef.current = initialContent;
-    
-    // Update UI immediately with existing content
-    setStreamedContent(initialContent);
-
-    try {
-        while (true) {
-            const { done, value } = await reader.read();
-            
-            if (done) {
-                // Check if response ends abruptly (not ending in punctuation or code block)
-                const content = accumulatedTokensRef.current.trim();
-                const lastChar = content.slice(-1);
-                const isCodeBlockOpen = (content.match(/```/g) || []).length % 2 !== 0;
+        try {
+            while (true) {
+                const { done, value } = await reader.read();
                 
-                // Show continue button if code block is open or doesn't end in sentence terminator
-                if (content.length > 0 && (isCodeBlockOpen || !['.', '!', '?', '}', '`'].includes(lastChar))) {
-                    setShowContinueButton(true);
+                if (done) {
+                    // Check if we need to show continue button
+                    lastContentForAnalysis = accumulatedTokensRef.current;
+                    const trimmedContent = lastContentForAnalysis.trim();
+                    
+                    // Check for open code blocks
+                    const codeBlockCount = (trimmedContent.match(/```/g) || []).length;
+                    const hasOpenCodeBlock = codeBlockCount % 2 !== 0;
+                    
+                    // Check for incomplete sentences (ends with code-related or markdown syntax)
+                    const lastLine = trimmedContent.split('\n').pop() || '';
+                    const isLikelyIncomplete = (
+                        hasOpenCodeBlock ||
+                        lastLine.includes('```') ||
+                        lastLine.trim().match(/^#{1,6}\s/) || // Markdown headers
+                        lastLine.includes('**') && (lastLine.match(/\*\*/g) || []).length % 2 !== 0 || // Bold text
+                        lastLine.includes('*') && (lastLine.match(/\*/g) || []).length % 2 !== 0 || // Italics
+                        lastLine.includes('`') && (lastLine.match(/`/g) || []).length % 2 !== 0 // Inline code
+                    );
+                    
+                    // Don't show continue for very short responses
+                    const shouldShowContinue = isLikelyIncomplete && trimmedContent.length > 50;
+                    
+                    if (shouldShowContinue) {
+                        setShowContinueButton(true);
+                    }
+                    
+                    // Finalize the message
+                    if (accumulatedTokensRef.current) {
+                        const assistantMessage = {
+                            role: 'assistant',
+                            content: accumulatedTokensRef.current,
+                            type: 'text',
+                            ts: Date.now(),
+                            isContinued: isContinue,
+                            hasOpenCodeBlock: hasOpenCodeBlock
+                        };
+                        
+                        // Add to history if we're done streaming
+                        if (!isStreaming && accumulatedTokensRef.current !== previousContent) {
+                            setChatHistory(prev => [...prev, assistantMessage]);
+                        }
+                    }
+                    break;
                 }
                 
-                // IMPORTANT: When streaming completes, add the message to history
-                if (accumulatedTokensRef.current) {
-                    const assistantMessage = {
-                        role: 'assistant',
-                        content: accumulatedTokensRef.current,
-                        type: 'text',
-                        ts: Date.now(),
-                        isContinued: isContinue
-                    };
-                    
-                    // Add to history if we're in a normal streaming state
-                    if (isStreaming) {
-                        setChatHistory(prev => [...prev, assistantMessage]);
+                const chunk = decoder.decode(value, { stream: true });
+                buffer += chunk;
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+                
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        const data = line.slice(6);
+                        if (data === '[DONE]') break;
+                        
+                        try {
+                            const parsed = JSON.parse(data);
+                            if (parsed.text) {
+                                tokenCount++;
+                                const textToAdd = parsed.text;
+                                
+                                // Track code block state
+                                if (textToAdd.includes('```')) {
+                                    const count = (textToAdd.match(/```/g) || []).length;
+                                    openCodeBlocks += count;
+                                    isInCodeBlock = openCodeBlocks % 2 !== 0;
+                                }
+                                
+                                // Append to accumulated content
+                                accumulatedTokensRef.current += textToAdd;
+                                
+                                // Update UI
+                                setStreamedContent(accumulatedTokensRef.current);
+                                
+                                // Update streaming message
+                                setStreamingMessage(prev => prev ? {
+                                    ...prev,
+                                    content: accumulatedTokensRef.current
+                                } : null);
+                                
+                                // Handle Full Code Parsing
+                                if (isFullCodeMode) {
+                                    fileContentBufferRef.current += textToAdd;
+                                    if (tokenCount % 20 === 0) {
+                                        const files = parseCodeForFiles(fileContentBufferRef.current);
+                                        if (files.length > 0) setGeneratedFiles(files);
+                                    }
+                                }
+                                
+                                // Save for continue analysis
+                                lastContentForAnalysis = accumulatedTokensRef.current;
+                            }
+                            if (parsed.stream_id) {
+                                setLastStreamId(parsed.stream_id);
+                                continueStreamIdRef.current = parsed.stream_id;
+                            }
+                        } catch (e) { 
+                            console.warn('Stream parse error:', e); 
+                        }
                     }
                 }
-                break;
             }
+        } catch (error) {
+            if (error.name !== 'AbortError') {
+                console.error('Stream error:', error);
+                throw error;
+            }
+        } finally {
+            reader.releaseLock();
+            streamReaderRef.current = null;
             
-            const chunk = decoder.decode(value, { stream: true });
-            buffer += chunk;
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || '';
-            
-            for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                    const data = line.slice(6);
-                    if (data === '[DONE]') break;
-                    
-                    try {
-                        const parsed = JSON.parse(data);
-                        if (parsed.text) {
-                            tokenCount++;
-                            const textToAdd = parsed.text;
-                            
-                            // Append to the MASTER Ref
-                            accumulatedTokensRef.current += textToAdd;
-                            
-                            // Update State for UI
-                            setStreamedContent(accumulatedTokensRef.current);
-                            
-                            // Update streaming message if exists
-                            setStreamingMessage(prev => prev ? {
-                                ...prev,
-                                content: accumulatedTokensRef.current
-                            } : null);
-                            
-                            // Handle Full Code Parsing
-                            if (isFullCodeMode) {
-                                fileContentBufferRef.current += textToAdd;
-                                if (tokenCount % 20 === 0) {
-                                    const files = parseCodeForFiles(fileContentBufferRef.current);
-                                    if (files.length > 0) setGeneratedFiles(files);
-                                }
-                            }
-                        }
-                        if (parsed.stream_id) {
-                            setLastStreamId(parsed.stream_id);
-                            continueStreamIdRef.current = parsed.stream_id;
-                        }
-                    } catch (e) { console.warn(e); }
-                }
+            if (isFullCodeMode && fileContentBufferRef.current) {
+                const files = parseCodeForFiles(fileContentBufferRef.current);
+                if (files.length > 0) setGeneratedFiles(files);
             }
         }
-    } catch (error) {
-        if (error.name !== 'AbortError') {
-            console.error('Stream error:', error);
-            throw error;
+    }, [isFullCodeMode, parseCodeForFiles, isStreaming]);
+
+    // ---------- FIXED: Continue Generation ----------
+    const handleContinueGeneration = useCallback(async () => {
+        if (!lastStreamId && !continueStreamIdRef.current) {
+            console.log('No stream ID found for continuation');
+            return;
         }
-    } finally {
-        reader.releaseLock();
-        streamReaderRef.current = null;
         
-        if (isFullCodeMode && fileContentBufferRef.current) {
-            const files = parseCodeForFiles(fileContentBufferRef.current);
-            if (files.length > 0) setGeneratedFiles(files);
-        }
-    }
-}, [isFullCodeMode, parseCodeForFiles, isStreaming]);
-
-// ---------- Fixed Continue Generation ----------
-const handleContinueGeneration = useCallback(async () => {
-    if (!lastStreamId) return;
-    
-    setIsLoading(true);
-    setIsStreaming(true);
-    setShowContinueButton(false);
-    
-    // 1. Get the last AI message
-    const lastMsgIndex = chatHistory.length - 1;
-    const lastMsg = chatHistory[lastMsgIndex];
-    
-    // 2. Capture its content as the "Base"
-    const previousContent = lastMsg.role === 'assistant' ? lastMsg.content : '';
-    
-    // 3. Temporarily remove the last static message from history
-    //    because we are about to re-render it as a "streaming" message
-    if (lastMsg.role === 'assistant') {
-        setChatHistory(prev => prev.slice(0, -1));
-    }
-
-    // 4. Set the Streaming UI to start with the OLD content
-    setStreamingMessage({
-        role: 'assistant',
-        content: previousContent, // Start with old content
-        type: 'text',
-        ts: Date.now(),
-        isStreaming: true,
-        isContinue: true
-    });
-
-    const apiUrl = '/api/generate/continue';
-    const apiPayload = {
-        stream_id: continueStreamIdRef.current || lastStreamId,
-        user_preference_id: getPersistentUserId(),
-        firebase_token: currentUser?.firebaseToken || '',
-        stream: true
-    };
-    
-    try {
-        const controller = new AbortController();
-        setAbortController(controller);
+        setIsLoading(true);
+        setIsStreaming(true);
+        setShowContinueButton(false);
         
-        const response = await callFastAPI(apiUrl, apiPayload, 'chat', {
-            signal: controller.signal,
-            stream: true
+        // Get the current accumulated content
+        const currentContent = accumulatedTokensRef.current || '';
+        
+        // Set up streaming UI with existing content
+        setStreamingMessage({
+            role: 'assistant',
+            content: currentContent,
+            type: 'text',
+            ts: Date.now(),
+            isStreaming: true,
+            isContinue: true
         });
+
+        const apiUrl = '/api/generate/continue';
+        const apiPayload = {
+            stream_id: continueStreamIdRef.current || lastStreamId,
+            user_preference_id: getPersistentUserId(),
+            firebase_token: currentUser?.firebaseToken || '',
+            stream: true,
+            previous_content: currentContent.substring(Math.max(0, currentContent.length - 1000)) // Send last 1000 chars for context
+        };
         
-        if (!response.ok) throw new Error(response.statusText);
+        try {
+            const controller = new AbortController();
+            setAbortController(controller);
+            
+            const response = await callFastAPI(apiUrl, apiPayload, 'chat', {
+                signal: controller.signal,
+                stream: true
+            });
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`HTTP ${response.status}: ${errorText}`);
+            }
+            
+            // Pass current content to continue from
+            await handleStreamResponse(response, true, currentContent);
+            
+        } catch (error) {
+            console.error('Continue error:', error);
+            
+            // On error, restore the continue button
+            setShowContinueButton(true);
+            
+            // Keep the accumulated content
+            if (accumulatedTokensRef.current) {
+                const assistantMessage = {
+                    role: 'assistant',
+                    content: accumulatedTokensRef.current,
+                    type: 'text',
+                    ts: Date.now(),
+                    isPartial: true,
+                    error: error.message
+                };
+                setChatHistory(prev => [...prev, assistantMessage]);
+            }
+        } finally {
+            setIsLoading(false);
+            setIsStreaming(false);
+            setStreamingMessage(null);
+        }
+    }, [lastStreamId, getPersistentUserId, currentUser, callFastAPI, handleStreamResponse]);
+
+    // ---------- Stop Generation ----------
+    const handleStopGeneration = useCallback(() => {
+        if (abortController) {
+            abortController.abort();
+            setAbortController(null);
+        }
+        if (streamReaderRef.current) {
+            streamReaderRef.current.cancel();
+            streamReaderRef.current = null;
+        }
         
-        // 5. Pass previousContent to the handler to append to it
-        await handleStreamResponse(response, true, previousContent);
+        setIsLoading(false);
+        setIsStreaming(false);
         
-        // The message is now added in handleStreamResponse when done
-        // No need to add it here again
-        
-    } catch (error) {
-        console.error('Continue error:', error);
-        
-        // On error, restore the original message or save partial progress
-        if (accumulatedTokensRef.current && accumulatedTokensRef.current !== previousContent) {
-            // We have some new content, save it as partial
+        // Save whatever we've streamed so far
+        if (accumulatedTokensRef.current && accumulatedTokensRef.current.trim()) {
             const assistantMessage = {
                 role: 'assistant',
                 content: accumulatedTokensRef.current,
                 type: 'text',
                 ts: Date.now(),
-                isPartial: true
+                isPartial: true,
+                wasStopped: true
             };
             setChatHistory(prev => [...prev, assistantMessage]);
-        } else {
-            // No new content, restore original message
-            setChatHistory(prev => [...prev, lastMsg]);
+            accumulatedTokensRef.current = '';
+            setStreamedContent('');
         }
-    } finally {
-        setIsLoading(false);
-        setIsStreaming(false);
+        
         setStreamingMessage(null);
-    }
-}, [lastStreamId, chatHistory, getPersistentUserId, currentUser, callFastAPI, handleStreamResponse]);
+        setShowContinueButton(false);
+    }, [abortController]);
 
-// ---------- Stop Generation ----------
-const handleStopGeneration = useCallback(() => {
-    if (abortController) {
-        abortController.abort();
-        setAbortController(null);
-    }
-    if (streamReaderRef.current) {
-        streamReaderRef.current.cancel();
-        streamReaderRef.current = null;
-    }
-    
-    setIsLoading(false);
-    setIsStreaming(false);
-    
-    // Save whatever we've streamed so far
-    if (accumulatedTokensRef.current) {
-        const assistantMessage = {
-            role: 'assistant',
-            content: accumulatedTokensRef.current,
-            type: 'text',
-            ts: Date.now(),
-            isPartial: true
-        };
-        setChatHistory(prev => [...prev, assistantMessage]);
-        accumulatedTokensRef.current = '';
-        setStreamedContent('');
-    }
-    
-    setStreamingMessage(null);
-}, [abortController]);
-
-// Add this useEffect to handle cleanup and finalization
-useEffect(() => {
-    // When streaming stops naturally (not via stop button)
-    if (!isStreaming && !isLoading && streamingMessage === null) {
-        // Check if we have accumulated content that hasn't been saved yet
-        if (accumulatedTokensRef.current && accumulatedTokensRef.current.trim()) {
+    // Clean up streaming state
+    useEffect(() => {
+        // When streaming stops and we have content
+        if (!isStreaming && !isLoading && streamingMessage === null) {
+            const hasContent = accumulatedTokensRef.current && accumulatedTokensRef.current.trim();
             const lastMessage = chatHistory[chatHistory.length - 1];
             
-            // Only add if the last message is not the same content
-            if (!lastMessage || lastMessage.content !== accumulatedTokensRef.current) {
+            if (hasContent && (!lastMessage || lastMessage.content !== accumulatedTokensRef.current)) {
                 const assistantMessage = {
                     role: 'assistant',
                     content: accumulatedTokensRef.current,
@@ -2629,14 +2673,23 @@ useEffect(() => {
                     ts: Date.now(),
                     isContinued: false
                 };
-                setChatHistory(prev => [...prev, assistantMessage]);
+                
+                // Check if we should add to history
+                const shouldAdd = !lastMessage || 
+                                 lastMessage.role !== 'assistant' || 
+                                 lastMessage.content !== accumulatedTokensRef.current;
+                
+                if (shouldAdd) {
+                    setChatHistory(prev => [...prev, assistantMessage]);
+                }
+                
+                // Clear streaming content
+                accumulatedTokensRef.current = '';
+                setStreamedContent('');
             }
-            
-            accumulatedTokensRef.current = '';
-            setStreamedContent('');
         }
-    }
-}, [isStreaming, isLoading, streamingMessage, chatHistory]);
+    }, [isStreaming, isLoading, streamingMessage, chatHistory]);
+
     // ---------- Auto-detect Image Generation ----------
     const detectImageGeneration = (prompt) => {
         const lowerPrompt = prompt.toLowerCase();
@@ -2651,8 +2704,7 @@ useEffect(() => {
         return imageTriggers.some(trigger => lowerPrompt.includes(trigger));
     };
 
-    // ---------- File / Image Upload Handlers ----------
-// ---------- Universal File Handler ----------
+    // ---------- Universal File Handler ----------
     const handleFileUpload = (event) => {
         const file = event?.target?.files?.[0];
         if (!file) return;
@@ -2660,23 +2712,20 @@ useEffect(() => {
         // Check if it is an image
         if (file.type.startsWith('image/')) {
              setUploadedImage(file);
-             setUploadedFile(null); // Clear text file if any
+             setUploadedFile(null);
              setMessage("Analyze this image: ");
              
-             // If active mode isn't already compatible, suggest image mode
              if (selectedAIMode !== 'pro' && selectedAIMode !== 'reasoning') {
-                 // You might want to switch to a vision-capable mode here
-                 // setSelectedAIMode('chat'); 
+                 setSelectedAIMode('chat');
              }
         } else {
-            // It's a document/code
             if (file.size > 1024 * 1024 * 10) {
                 showModal("File Error", "File size exceeds 10MB limit.");
                 event.target.value = null;
                 return;
             }
             setUploadedFile(file);
-            setUploadedImage(null); // Clear image if any
+            setUploadedImage(null);
             setMessage(`Analyze the contents of ${file.name}.`);
         }
         event.target.value = null;
@@ -2897,7 +2946,7 @@ useEffect(() => {
         });
     }, []);
 
-    // ---------- Optimized Content Processing ----------
+    // ---------- FIXED: Content Processing with Markdown Handling ----------
     const processContent = useCallback((text) => {
         if (!text || typeof text !== "string") {
             return [{ type: "text", content: text || "" }];
@@ -2913,6 +2962,12 @@ useEffect(() => {
 
         const flushCurrentBlock = () => {
             if (currentBlock.content.trim()) {
+                // Process markdown only outside code blocks
+                if (!inCodeBlock) {
+                    currentBlock.content = currentBlock.content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                    currentBlock.content = currentBlock.content.replace(/\*(.*?)\*/g, '<em>$1</em>');
+                    currentBlock.content = currentBlock.content.replace(/`(.*?)`/g, '<code class="inline-code">$1</code>');
+                }
                 blocks.push({ ...currentBlock });
                 currentBlock = { type: "text", content: "" };
             }
@@ -2931,7 +2986,7 @@ useEffect(() => {
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
 
-            // Handle code blocks
+            // Handle code blocks - preserve markdown inside
             if (line.trim().startsWith('```')) {
                 if (!inCodeBlock) {
                     flushCurrentBlock();
@@ -2951,6 +3006,7 @@ useEffect(() => {
             }
 
             if (inCodeBlock) {
+                // Inside code blocks, preserve markdown as-is
                 codeContent += line + '\n';
                 continue;
             }
@@ -2998,7 +3054,7 @@ useEffect(() => {
                 }
             }
 
-            // Regular text
+            // Regular text - outside code blocks, process markdown
             if (line.trim() === '') {
                 flushCurrentBlock();
                 currentBlock.content += '\n';
@@ -3021,57 +3077,29 @@ useEffect(() => {
         return blocks;
     }, []);
 
-    // ---------- Enhanced Chat Bubble with Math Support ----------
+    // ---------- Enhanced Chat Bubble with Markdown Support ----------
     const ChatBubble = useMemo(() => {
         return React.memo(({ message }) => {
             const [contentBlocks, setContentBlocks] = useState([]);
-            const [mathBlocks, setMathBlocks] = useState([]);
-            const [combinedBlocks, setCombinedBlocks] = useState([]);
+            const [isCopied, setIsCopied] = useState(false);
 
             useEffect(() => {
-                // Process LaTeX math first
-                const mathBlocks = processMathContent(message.content);
-                
-                // Then process regular content
-                const regularBlocks = processContent(message.content);
-                
-                // Combine both
-                const combined = [];
-                let regularIndex = 0;
-                let mathIndex = 0;
-                
-                // For now, just use regular blocks with math processing
                 const blocks = processContent(message.content);
                 setContentBlocks(blocks);
                 
-                // Apply syntax highlighting
+                // Apply syntax highlighting with delay for stability
                 if (typeof window !== "undefined" && window.Prism) {
-                    setTimeout(() => {
+                    const timer = setTimeout(() => {
                         window.Prism.highlightAll();
-                    }, 50);
+                    }, 100);
+                    return () => clearTimeout(timer);
                 }
-                
-                // Re-render KaTeX for any math in text blocks
-                setTimeout(() => {
-                    document.querySelectorAll('.math-content').forEach(element => {
-                        const latex = element.getAttribute('data-latex');
-                        const isDisplay = element.classList.contains('math-display');
-                        if (latex) {
-                            try {
-                                element.innerHTML = katex.renderToString(latex, {
-                                    throwOnError: false,
-                                    displayMode: isDisplay
-                                });
-                            } catch (error) {
-                                element.textContent = isDisplay ? `$$${latex}$$` : `$${latex}$`;
-                            }
-                        }
-                    });
-                }, 100);
-            }, [message.content, processContent, processMathContent]);
+            }, [message.content, processContent]);
 
             const handleCopyCode = (content) => {
                 navigator.clipboard.writeText(content);
+                setIsCopied(true);
+                setTimeout(() => setIsCopied(false), 2000);
             };
 
             const renderTable = (tableText) => {
@@ -3138,29 +3166,6 @@ useEffect(() => {
                 );
             };
 
-            const renderMathBlock = (block) => {
-                if (!block.html) {
-                    return (
-                        <div className={`my-2 ${block.type === 'math-display' || block.type === 'math-boxed' ? 'text-center' : ''}`}>
-                            <span className="text-gray-400">
-                                {block.type === 'math-display' ? `$$${block.content}$$` :
-                                 block.type === 'math-boxed' ? `\\boxed{${block.content}}` :
-                                 `$${block.content}$`}
-                            </span>
-                        </div>
-                    );
-                }
-
-                return (
-                    <div className={`my-2 ${block.type === 'math-display' || block.type === 'math-boxed' ? 'text-center' : ''}`}>
-                        <div 
-                            className={`inline-block ${block.type === 'math-boxed' ? 'border-2 border-green-500 p-2 rounded' : ''}`}
-                            dangerouslySetInnerHTML={{ __html: block.html }}
-                        />
-                    </div>
-                );
-            };
-
             const bubbleClass = message.role === "user"
                 ? "bg-[#00e5ff] text-black ml-auto"
                 : "bg-[#004745] text-white mr-auto";
@@ -3202,14 +3207,25 @@ useEffect(() => {
                                                 <button
                                                     onClick={() => handleCopyCode(block.content)}
                                                     className="w-8 h-8 flex items-center justify-center rounded bg-gray-800 hover:bg-gray-700 transition-colors touch-manipulation"
-                                                    title="Copy code"
+                                                    title={isCopied ? "Copied!" : "Copy code"}
                                                 >
-                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                                                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                                                    </svg>
+                                                    {isCopied ? (
+                                                        <svg className="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                                                        </svg>
+                                                    ) : (
+                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                                        </svg>
+                                                    )}
                                                 </button>
                                             </div>
+                                            {block.language && (
+                                                <div className="text-xs text-gray-400 px-4 pt-3 pb-1 font-mono">
+                                                    {block.language}
+                                                </div>
+                                            )}
                                             <pre className="overflow-x-auto p-4 m-0 text-sm" style={{ background: "#0f0f0f", lineHeight: "1.5", color: "white" }}>
                                                 <code className={`language-${block.language}`}>
                                                     {block.content}
@@ -3228,74 +3244,12 @@ useEffect(() => {
                                 }
 
                                 if (block.type === "text") {
-                                    // Process math in text blocks
-                                    const text = block.content;
-                                    const parts = [];
-                                    let lastIndex = 0;
-                                    
-                                    // Find inline math: $...$
-                                    const inlineMathRegex = /\$([^$]+?)\$/g;
-                                    let match;
-                                    
-                                    while ((match = inlineMathRegex.exec(text)) !== null) {
-                                        // Add text before math
-                                        if (match.index > lastIndex) {
-                                            parts.push({
-                                                type: 'text',
-                                                content: text.substring(lastIndex, match.index)
-                                            });
-                                        }
-                                        
-                                        // Add math
-                                        const latex = match[1];
-                                        try {
-                                            const html = katex.renderToString(latex, {
-                                                throwOnError: false,
-                                                displayMode: false
-                                            });
-                                            parts.push({
-                                                type: 'math-inline',
-                                                html,
-                                                latex
-                                            });
-                                        } catch (error) {
-                                            parts.push({
-                                                type: 'text',
-                                                content: `$${latex}$`
-                                            });
-                                        }
-                                        
-                                        lastIndex = match.index + match[0].length;
-                                    }
-                                    
-                                    // Add remaining text
-                                    if (lastIndex < text.length) {
-                                        parts.push({
-                                            type: 'text',
-                                            content: text.substring(lastIndex)
-                                        });
-                                    }
-                                    
                                     return (
                                         <div
                                             key={index}
                                             className="whitespace-pre-wrap break-words text-sm sm:text-base leading-relaxed"
-                                        >
-                                            {parts.map((part, partIndex) => {
-                                                if (part.type === 'text') {
-                                                    return <span key={partIndex}>{part.content}</span>;
-                                                } else if (part.type === 'math-inline') {
-                                                    return (
-                                                        <span 
-                                                            key={partIndex} 
-                                                            className="math-content math-inline"
-                                                            dangerouslySetInnerHTML={{ __html: part.html }}
-                                                        />
-                                                    );
-                                                }
-                                                return null;
-                                            })}
-                                        </div>
+                                            dangerouslySetInnerHTML={{ __html: block.content }}
+                                        />
                                     );
                                 }
 
@@ -3306,7 +3260,7 @@ useEffect(() => {
                 </div>
             );
         });
-    }, [processContent, processMathContent]);
+    }, [processContent]);
 
     // Helper function for mode display
     const getModeText = () => {
@@ -3355,269 +3309,209 @@ useEffect(() => {
         }
     };
 
-    // ---------- Enhanced Send Message with AI Modes ----------
-   // ---------- NEW CONSTANTS ----------
-const handleSendMessage = async () => {
-    if (!message.trim() && !uploadedFile && !uploadedImage) return;
+    // ---------- Enhanced Send Message ----------
+    const handleSendMessage = async () => {
+        if (!message.trim() && !uploadedFile && !uploadedImage) return;
 
-    console.log('Sending message:', {
-        persistentId: getPersistentUserId(),
-        currentUser: currentUser,
-        messageLength: message.length, // Track length
-        aiMode: selectedAIMode
-    });
+        console.log('Sending message:', {
+            persistentId: getPersistentUserId(),
+            messageLength: message.length,
+            aiMode: selectedAIMode
+        });
 
-    // VALIDATE AND TRIM LARGE PROMPTS
-    const MAX_PROMPT_LENGTH = 4000; // Adjust based on your API limits
-    const processedMessage = message.length > MAX_PROMPT_LENGTH 
-        ? message.substring(0, MAX_PROMPT_LENGTH) + "...[truncated due to length]"
-        : message;
-    
-    console.log('Message processed:', {
-        originalLength: message.length,
-        processedLength: processedMessage.length,
-        wasTruncated: message.length > MAX_PROMPT_LENGTH
-    });
-
-    setIsLoading(true);
-    const controller = new AbortController();
-    setAbortController(controller);
-
-    const fileCopy = uploadedFile;
-    const imageCopy = uploadedImage;
-    let mode = activeAIMode || selectedAIMode;
-
-    // Auto-detect image generation
-    if (!fileCopy && !imageCopy && detectImageGeneration(processedMessage)) {
-        mode = 'image_gen';
-    }
-
-    // Auto-detect full code requests
-    const isFullCodeRequest = detectFullCodeRequest(processedMessage);
-    if (isFullCodeRequest && !fileCopy && !imageCopy) {
-        setIsFullCodeMode(true);
-        setProjectMetadata(extractProjectMetadata(processedMessage));
-    }
-
-    // Check if this is likely an edit continuation
-    const isLikelyEditContinuation = () => {
-        const lowerMsg = processedMessage.toLowerCase();
-        const editKeywords = ['edit the image ', 'change the background ', 'modify the image ', 'adjust the size ', 'fix the ratio ', 'add the person', 'remove the object ', 'replace the image '];
-        const previousMessages = chatHistory.slice(-3);
+        // Validate and trim large prompts
+        const MAX_PROMPT_LENGTH = 4000;
+        const processedMessage = message.length > MAX_PROMPT_LENGTH 
+            ? message.substring(0, MAX_PROMPT_LENGTH) + "...[truncated due to length]"
+            : message;
         
-        const hadImage = previousMessages.some(msg => 
-            msg.type === 'image' || 
-            msg.base64_image ||
-            (msg.role === 'assistant' && msg.content?.includes('image'))
-        );
-        
-        return hadImage && editKeywords.some(keyword => lowerMsg.includes(keyword));
-    };
+        setIsLoading(true);
+        const controller = new AbortController();
+        setAbortController(controller);
 
-    // Override based on file/image uploads
-    if (fileCopy) mode = "analyze_file";
-    if (imageCopy) mode = "image_edit";
-    
-    // Force edit mode for edit continuations
-    if (isLikelyEditContinuation() && !imageCopy) {
-        mode = "image_edit";
-        console.log("Forcing edit mode for continuation request");
-    }
+        const fileCopy = uploadedFile;
+        const imageCopy = uploadedImage;
+        let mode = activeAIMode || selectedAIMode;
 
-    const userMessage = {
-        role: 'user',
-        content: processedMessage,
-        type: mode,
-        fileName: fileCopy ? fileCopy.name : undefined,
-        imageName: imageCopy ? imageCopy.name : undefined,
-        ts: Date.now(),
-        isFullCodeRequest: isFullCodeRequest,
-        aiMode: selectedAIMode,
-        wasTruncated: message.length > MAX_PROMPT_LENGTH
-    };
-
-    setChatHistory(prev => [...prev, userMessage]);
-    setMessage('');
-
-    // Reset streaming state
-    accumulatedTokensRef.current = '';
-    setStreamedContent('');
-    setShowContinueButton(false);
-    setLastStreamId(null);
-    fileContentBufferRef.current = '';
-    continueStreamIdRef.current = null;
-
-    // DECISION: When to use streaming vs normal API
-    const shouldStream = 
-        isFullCodeRequest ||
-        detectLargeCodeRequest(processedMessage) ||
-        mode === "analyze_file" ||
-        processedMessage.length > 1000 || // Stream long prompts
-        processedMessage.toLowerCase().includes('stream') ||
-        processedMessage.toLowerCase().includes('step by step') ||
-        detectMathRequest(processedMessage) ||
-        selectedAIMode === 'reasoning' ||
-        selectedAIMode === 'pro';
-
-    console.log('Streaming decision:', {
-        shouldStream,
-        isFullCodeRequest,
-        mode,
-        selectedAIMode,
-        messageLength: processedMessage.length,
-        isEditContinuation: isLikelyEditContinuation()
-    });
-
-    try {
-        // FILE ANALYSIS
-        if (mode === "analyze_file" && fileCopy) {
-            let fileContent;
-            
-            if (fileCopy.type.startsWith('text/') || 
-                fileCopy.name.endsWith('.txt') || 
-                fileCopy.name.endsWith('.py') ||
-                fileCopy.name.endsWith('.js') ||
-                fileCopy.name.endsWith('.html') ||
-                fileCopy.name.endsWith('.css') ||
-                fileCopy.name.endsWith('.md')) {
-                fileContent = await fileCopy.text();
-            } else {
-                fileContent = await new Promise((resolve, reject) => {
-                    const reader = new FileReader();
-                    reader.onload = () => {
-                        try {
-                            const base64 = reader.result.split(",")[1];
-                            resolve(base64);
-                        } catch (e) {
-                            reject(e);
-                        }
-                    };
-                    reader.onerror = (err) => reject(err);
-                    reader.readAsDataURL(fileCopy);
-                });
-            }
-
-            // HANDLE LARGE FILES
-            if (fileContent.length > 1000000) { // 1MB limit
-                console.warn('Large file detected, truncating analysis');
-                fileContent = fileContent.substring(0, 1000000) + "...[file truncated]";
-            }
-
-            const apiUrl = '/api/generate/text';
-            const apiPayload = {
-                prompt: processedMessage || `Analyze the contents of ${fileCopy.name}`,
-                mode: "analyze_file",
-                filename: fileCopy.name,
-                file_content: fileContent,
-                file_type: fileCopy.type,
-                user_preference_id: getPersistentUserId(),
-                firebase_token: currentUser?.firebaseToken || '',
-                stream: true,
-                ai_mode: selectedAIMode
-            };
-            
-            console.log('Sending file analysis request');
-            
-            setIsStreaming(true);
-            const initialStreamMessage = {
-                role: 'assistant',
-                content: '',
-                type: 'text',
-                ts: Date.now(),
-                isStreaming: true
-            };
-            setStreamingMessage(initialStreamMessage);
-            
-            const response = await callFastAPI(apiUrl, apiPayload, mode, {
-                signal: controller.signal,
-                stream: true,
-                timeout: 60000 // 60 seconds for large files
-            });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`HTTP ${response.status}: ${errorText}`);
-            }
-
-            await handleStreamResponse(response);
-
-            if (accumulatedTokensRef.current) {
-                const assistantMessage = {
-                    role: 'assistant',
-                    content: accumulatedTokensRef.current,
-                    type: 'text',
-                    ts: Date.now()
-                };
-                setChatHistory(prev => [...prev, assistantMessage]);
-            }
+        // Auto-detect image generation
+        if (!fileCopy && !imageCopy && detectImageGeneration(processedMessage)) {
+            mode = 'image_gen';
         }
-        // IMAGE EDIT
-        else if (mode === "image_edit") {
-            console.log('Processing image edit request...');
-            
-            let base64Image = null;
-            
-            if (imageCopy) {
-                base64Image = await new Promise((resolve, reject) => {
-                    const reader = new FileReader();
-                    reader.onload = () => {
-                        try {
-                            const result = reader.result;
-                            if (result && result.includes(',')) {
-                                const b = result.split(",")[1];
-                                if (b && b.length > 100 && /^[A-Za-z0-9+/=]+$/.test(b.replace(/\s/g, ''))) {
-                                    resolve(b);
-                                } else {
-                                    reject(new Error('Invalid base64 data'));
-                                }
-                            } else {
-                                reject(new Error('No valid base64 found'));
-                            }
-                        } catch (e) {
-                            reject(e);
-                        }
-                    };
-                    reader.onerror = (err) => {
-                        console.error('FileReader error:', err);
-                        reject(err);
-                    };
-                    reader.readAsDataURL(imageCopy);
-                });
+
+        // Auto-detect full code requests
+        const isFullCodeRequest = detectFullCodeRequest(processedMessage);
+        if (isFullCodeRequest && !fileCopy && !imageCopy) {
+            setIsFullCodeMode(true);
+            setProjectMetadata(extractProjectMetadata(processedMessage));
+        }
+
+        const userMessage = {
+            role: 'user',
+            content: processedMessage,
+            type: mode,
+            fileName: fileCopy ? fileCopy.name : undefined,
+            imageName: imageCopy ? imageCopy.name : undefined,
+            ts: Date.now(),
+            isFullCodeRequest: isFullCodeRequest,
+            aiMode: selectedAIMode,
+            wasTruncated: message.length > MAX_PROMPT_LENGTH
+        };
+
+        setChatHistory(prev => [...prev, userMessage]);
+        setMessage('');
+
+        // Reset streaming state
+        accumulatedTokensRef.current = '';
+        setStreamedContent('');
+        setShowContinueButton(false);
+        setLastStreamId(null);
+        fileContentBufferRef.current = '';
+        continueStreamIdRef.current = null;
+
+        // Decision: When to use streaming
+        const shouldStream = 
+            isFullCodeRequest ||
+            detectLargeCodeRequest(processedMessage) ||
+            mode === "analyze_file" ||
+            processedMessage.length > 1000 ||
+            processedMessage.toLowerCase().includes('stream') ||
+            processedMessage.toLowerCase().includes('step by step') ||
+            detectMathRequest(processedMessage) ||
+            selectedAIMode === 'reasoning' ||
+            selectedAIMode === 'pro';
+
+        try {
+            // FILE ANALYSIS
+            if (mode === "analyze_file" && fileCopy) {
+                let fileContent;
                 
-                console.log('Uploaded image processed, size:', base64Image?.length);
+                if (fileCopy.type.startsWith('text/') || 
+                    fileCopy.name.endsWith('.txt') || 
+                    fileCopy.name.endsWith('.py') ||
+                    fileCopy.name.endsWith('.js') ||
+                    fileCopy.name.endsWith('.html') ||
+                    fileCopy.name.endsWith('.css') ||
+                    fileCopy.name.endsWith('.md')) {
+                    fileContent = await fileCopy.text();
+                } else {
+                    fileContent = await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                            try {
+                                const base64 = reader.result.split(",")[1];
+                                resolve(base64);
+                            } catch (e) {
+                                reject(e);
+                            }
+                        };
+                        reader.onerror = (err) => reject(err);
+                        reader.readAsDataURL(fileCopy);
+                    });
+                }
+
+                if (fileContent.length > 1000000) {
+                    fileContent = fileContent.substring(0, 1000000) + "...[file truncated]";
+                }
+
+                const apiUrl = '/api/generate/text';
+                const apiPayload = {
+                    prompt: processedMessage || `Analyze the contents of ${fileCopy.name}`,
+                    mode: "analyze_file",
+                    filename: fileCopy.name,
+                    file_content: fileContent,
+                    file_type: fileCopy.type,
+                    user_preference_id: getPersistentUserId(),
+                    firebase_token: currentUser?.firebaseToken || '',
+                    stream: true,
+                    ai_mode: selectedAIMode
+                };
+                
+                setIsStreaming(true);
+                const initialStreamMessage = {
+                    role: 'assistant',
+                    content: '',
+                    type: 'text',
+                    ts: Date.now(),
+                    isStreaming: true
+                };
+                setStreamingMessage(initialStreamMessage);
+                
+                const response = await callFastAPI(apiUrl, apiPayload, mode, {
+                    signal: controller.signal,
+                    stream: true,
+                    timeout: 60000
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+
+                await handleStreamResponse(response);
+
+                if (accumulatedTokensRef.current) {
+                    const assistantMessage = {
+                        role: 'assistant',
+                        content: accumulatedTokensRef.current,
+                        type: 'text',
+                        ts: Date.now()
+                    };
+                    setChatHistory(prev => [...prev, assistantMessage]);
+                }
             }
+            // IMAGE EDIT
+            else if (mode === "image_edit") {
+                let base64Image = null;
+                
+                if (imageCopy) {
+                    base64Image = await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                            try {
+                                const result = reader.result;
+                                if (result && result.includes(',')) {
+                                    const b = result.split(",")[1];
+                                    if (b && b.length > 100 && /^[A-Za-z0-9+/=]+$/.test(b.replace(/\s/g, ''))) {
+                                        resolve(b);
+                                    } else {
+                                        reject(new Error('Invalid base64 data'));
+                                    }
+                                } else {
+                                    reject(new Error('No valid base64 found'));
+                                }
+                            } catch (e) {
+                                reject(e);
+                            }
+                        };
+                        reader.onerror = (err) => {
+                            console.error('FileReader error:', err);
+                            reject(err);
+                        };
+                        reader.readAsDataURL(imageCopy);
+                    });
+                }
 
-            // TRUNCATE LONG IMAGE PROMPTS
-            const imagePrompt = processedMessage.length > 1000 
-                ? processedMessage.substring(0, 1000) + "...[prompt truncated for image editing]"
-                : processedMessage;
+                const imagePrompt = processedMessage.length > 1000 
+                    ? processedMessage.substring(0, 1000) + "...[prompt truncated for image editing]"
+                    : processedMessage;
 
-            const apiUrl = '/api/generate/text';
-            const apiPayload = {
-                prompt: imagePrompt,
-                mode: "image_edit",
-                image: base64Image,
-                strength: 0.7,
-                user_preference_id: getPersistentUserId(),
-                firebase_token: currentUser?.firebaseToken || '',
-                stream: false,
-                ai_mode: selectedAIMode,
-                is_edit_continuation: !imageCopy && isLikelyEditContinuation(),
-                max_tokens: 800 // Limit tokens for image prompts
-            };
-            
-            console.log('Sending image edit request:', {
-                hasImage: !!base64Image,
-                promptLength: imagePrompt.length
-            });
-            
-            try {
+                const apiUrl = '/api/generate/text';
+                const apiPayload = {
+                    prompt: imagePrompt,
+                    mode: "image_edit",
+                    image: base64Image,
+                    strength: 0.7,
+                    user_preference_id: getPersistentUserId(),
+                    firebase_token: currentUser?.firebaseToken || '',
+                    stream: false,
+                    ai_mode: selectedAIMode,
+                    max_tokens: 800
+                };
+                
                 const result = await callFastAPI(apiUrl, apiPayload, mode, {
                     signal: controller.signal,
-                    timeout: 45000 // 45 seconds for image generation
+                    timeout: 45000
                 });
-
-                console.log('Image edit response received');
 
                 if (result?.base64_image) {
                     const assistantMessage = {
@@ -3644,192 +3538,63 @@ const handleSendMessage = async () => {
                 } else {
                     throw new Error('No image data in response');
                 }
-            } catch (apiError) {
-                console.error('Image edit API error:', apiError);
-                throw apiError;
             }
-        }
-        // IMAGE GENERATION
-        else if (mode === "image_gen") {
-            // TRUNCATE LONG IMAGE PROMPTS
-            const imageGenPrompt = processedMessage.length > 1000 
-                ? processedMessage.substring(0, 1000) + "...[prompt truncated for image generation]"
-                : processedMessage;
+            // IMAGE GENERATION
+            else if (mode === "image_gen") {
+                const imageGenPrompt = processedMessage.length > 1000 
+                    ? processedMessage.substring(0, 1000) + "...[prompt truncated for image generation]"
+                    : processedMessage;
 
-            const apiUrl = '/api/generate/text';
-            const apiPayload = { 
-                prompt: imageGenPrompt, 
-                mode: 'image_gen',
-                aspect_ratio: aspectRatio,
-                user_preference_id: getPersistentUserId(),
-                firebase_token: currentUser?.firebaseToken || '',
-                stream: false,
-                ai_mode: selectedAIMode,
-                max_tokens: 400 // Limit for image generation
-            };
-            
-            console.log('Sending image generation request', {
-                promptLength: imageGenPrompt.length
-            });
-            
-            const result = await callFastAPI(apiUrl, apiPayload, mode, {
-                timeout: 45000
-            });
-
-            console.log('Image gen response received');
-
-            if (result?.base64_image) {
-                const assistantMessage = {
-                    role: 'assistant',
-                    content: '',
-                    type: 'image',
-                    base64_image: result.base64_image,
-                    ts: Date.now(),
-                    is_generated: true
+                const apiUrl = '/api/generate/text';
+                const apiPayload = { 
+                    prompt: imageGenPrompt, 
+                    mode: 'image_gen',
+                    aspect_ratio: aspectRatio,
+                    user_preference_id: getPersistentUserId(),
+                    firebase_token: currentUser?.firebaseToken || '',
+                    stream: false,
+                    ai_mode: selectedAIMode,
+                    max_tokens: 400
                 };
-                setChatHistory(prev => [...prev, assistantMessage]);
-                localStorage.setItem('last_edited_image', result.base64_image);
-            } else {
-                throw new Error('No image data received');
-            }
-        }
-        // FULL CODE MODE
-        else if (isFullCodeRequest) {
-            const apiUrl = '/api/generate/text';
-            const apiPayload = { 
-                prompt: processedMessage, 
-                mode: "chat",
-                user_preference_id: getPersistentUserId(),
-                firebase_token: currentUser?.firebaseToken || '',
-                stream: true,
-                full_code_mode: true,
-                project_type: projectMetadata.type,
-                ai_mode: selectedAIMode,
-                max_tokens: 4000 // Limit for code generation
-            };
-            
-            console.log('Sending full-code request with streaming');
-            
-            setIsStreaming(true);
-            const initialStreamMessage = {
-                role: 'assistant',
-                content: `Generating complete project: ${projectMetadata.name}...`,
-                type: 'text',
-                ts: Date.now(),
-                isStreaming: true
-            };
-            setStreamingMessage(initialStreamMessage);
-            
-            const response = await callFastAPI(apiUrl, apiPayload, mode, {
-                signal: controller.signal,
-                stream: true,
-                timeout: 90000 // 90 seconds for full code
-            });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`HTTP ${response.status}: ${errorText}`);
-            }
-
-            await handleStreamResponse(response);
-
-            if (accumulatedTokensRef.current) {
-                const assistantMessage = {
-                    role: 'assistant',
-                    content: accumulatedTokensRef.current,
-                    type: 'text',
-                    ts: Date.now(),
-                    isFullCode: true,
-                    files: generatedFiles.length > 0 ? generatedFiles : undefined
-                };
-                setChatHistory(prev => [...prev, assistantMessage]);
                 
-                if (generatedFiles.length > 0) {
-                    setTimeout(() => {
-                        setIsProjectView(true);
-                        showModal("Project Generated", 
-                            `Successfully generated ${generatedFiles.length} files.`
-                        );
-                    }, 500);
+                const result = await callFastAPI(apiUrl, apiPayload, mode, {
+                    timeout: 45000
+                });
+
+                if (result?.base64_image) {
+                    const assistantMessage = {
+                        role: 'assistant',
+                        content: '',
+                        type: 'image',
+                        base64_image: result.base64_image,
+                        ts: Date.now(),
+                        is_generated: true
+                    };
+                    setChatHistory(prev => [...prev, assistantMessage]);
+                    localStorage.setItem('last_edited_image', result.base64_image);
+                } else {
+                    throw new Error('No image data received');
                 }
             }
-        }
-        // AI MODES: REASONING & PRO
-        else if (selectedAIMode === 'reasoning' || selectedAIMode === 'pro') {
-            // LIMIT REASONING PROMPTS
-            const reasoningPrompt = processedMessage.length > 3000 
-                ? processedMessage.substring(0, 3000) + "...[prompt truncated for reasoning]"
-                : processedMessage;
-
-            const apiUrl = '/api/generate/text';
-            const apiPayload = { 
-                prompt: reasoningPrompt, 
-                mode: selectedAIMode,
-                user_preference_id: getPersistentUserId(),
-                firebase_token: currentUser?.firebaseToken || '',
-                stream: true,
-                ai_mode: selectedAIMode,
-                max_tokens: 2000 // Limit reasoning output
-            };
-            
-            console.log(`Sending ${selectedAIMode} request with streaming`);
-            
-            setIsStreaming(true);
-            const initialStreamMessage = {
-                role: 'assistant',
-                content: selectedAIMode === 'pro' 
-                    ? '🤖 Spider AI Pro is thinking...' 
-                    : '🧠 Reasoning step by step...',
-                type: 'text',
-                ts: Date.now(),
-                isStreaming: true
-            };
-            setStreamingMessage(initialStreamMessage);
-            
-            const response = await callFastAPI(apiUrl, apiPayload, mode, {
-                signal: controller.signal,
-                stream: true,
-                timeout: 60000
-            });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`HTTP ${response.status}: ${errorText}`);
-            }
-
-            await handleStreamResponse(response);
-
-            if (accumulatedTokensRef.current) {
-                const assistantMessage = {
-                    role: 'assistant',
-                    content: accumulatedTokensRef.current,
-                    type: 'text',
-                    ts: Date.now(),
-                    aiMode: selectedAIMode
-                };
-                setChatHistory(prev => [...prev, assistantMessage]);
-            }
-        }
-        // NORMAL CHAT
-        else {
-            if (shouldStream) {
+            // FULL CODE MODE
+            else if (isFullCodeRequest) {
                 const apiUrl = '/api/generate/text';
                 const apiPayload = { 
                     prompt: processedMessage, 
-                    mode,
+                    mode: "chat",
                     user_preference_id: getPersistentUserId(),
                     firebase_token: currentUser?.firebaseToken || '',
                     stream: true,
+                    full_code_mode: true,
+                    project_type: projectMetadata.type,
                     ai_mode: selectedAIMode,
-                    max_tokens: processedMessage.length > 2000 ? 2000 : undefined
+                    max_tokens: 4000
                 };
-                
-                console.log('Using streaming for this request');
                 
                 setIsStreaming(true);
                 const initialStreamMessage = {
                     role: 'assistant',
-                    content: '',
+                    content: `Generating complete project: ${projectMetadata.name}...`,
                     type: 'text',
                     ts: Date.now(),
                     isStreaming: true
@@ -3839,7 +3604,7 @@ const handleSendMessage = async () => {
                 const response = await callFastAPI(apiUrl, apiPayload, mode, {
                     signal: controller.signal,
                     stream: true,
-                    timeout: 45000
+                    timeout: 90000
                 });
 
                 if (!response.ok) {
@@ -3854,108 +3619,199 @@ const handleSendMessage = async () => {
                         role: 'assistant',
                         content: accumulatedTokensRef.current,
                         type: 'text',
-                        ts: Date.now()
+                        ts: Date.now(),
+                        isFullCode: true,
+                        files: generatedFiles.length > 0 ? generatedFiles : undefined
                     };
                     setChatHistory(prev => [...prev, assistantMessage]);
+                    
+                    if (generatedFiles.length > 0) {
+                        setTimeout(() => {
+                            setIsProjectView(true);
+                            showModal("Project Generated", 
+                                `Successfully generated ${generatedFiles.length} files.`
+                            );
+                        }, 500);
+                    }
                 }
-            } else {
+            }
+            // AI MODES: REASONING & PRO
+            else if (selectedAIMode === 'reasoning' || selectedAIMode === 'pro') {
+                const reasoningPrompt = processedMessage.length > 3000 
+                    ? processedMessage.substring(0, 3000) + "...[prompt truncated for reasoning]"
+                    : processedMessage;
+
                 const apiUrl = '/api/generate/text';
                 const apiPayload = { 
-                    prompt: processedMessage, 
-                    mode,
+                    prompt: reasoningPrompt, 
+                    mode: selectedAIMode,
                     user_preference_id: getPersistentUserId(),
                     firebase_token: currentUser?.firebaseToken || '',
-                    stream: false,
+                    stream: true,
                     ai_mode: selectedAIMode,
-                    max_tokens: 1500 // Limit for non-streaming responses
+                    max_tokens: 2000
                 };
                 
-                console.log('Using normal API call for regular chat');
+                setIsStreaming(true);
+                const initialStreamMessage = {
+                    role: 'assistant',
+                    content: selectedAIMode === 'pro' 
+                        ? '🤖 Spider AI Pro is thinking...' 
+                        : '🧠 Reasoning step by step...',
+                    type: 'text',
+                    ts: Date.now(),
+                    isStreaming: true
+                };
+                setStreamingMessage(initialStreamMessage);
                 
-                const result = await callFastAPI(apiUrl, apiPayload, mode, {
+                const response = await callFastAPI(apiUrl, apiPayload, mode, {
                     signal: controller.signal,
-                    stream: false,
-                    timeout: 30000
+                    stream: true,
+                    timeout: 60000
                 });
 
-                console.log('Received normal response');
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
 
-                if (result?.text) {
-                    // Use fast typing animation for better UX
-                    typeText(result.text, () => {
-                        const assistantMessage = {
-                            role: 'assistant',
-                            content: result.text,
-                            type: 'text',
-                            ts: Date.now()
-                        };
-                        setChatHistory(prev => [...prev, assistantMessage]);
-                        setStreamingMessage(null);
-                    });
-                } else {
+                await handleStreamResponse(response);
+
+                if (accumulatedTokensRef.current) {
                     const assistantMessage = {
                         role: 'assistant',
-                        content: result?.text || '',
+                        content: accumulatedTokensRef.current,
                         type: 'text',
-                        ts: Date.now()
+                        ts: Date.now(),
+                        aiMode: selectedAIMode
                     };
                     setChatHistory(prev => [...prev, assistantMessage]);
                 }
             }
+            // NORMAL CHAT
+            else {
+                if (shouldStream) {
+                    const apiUrl = '/api/generate/text';
+                    const apiPayload = { 
+                        prompt: processedMessage, 
+                        mode,
+                        user_preference_id: getPersistentUserId(),
+                        firebase_token: currentUser?.firebaseToken || '',
+                        stream: true,
+                        ai_mode: selectedAIMode,
+                        max_tokens: processedMessage.length > 2000 ? 2000 : undefined
+                    };
+                    
+                    setIsStreaming(true);
+                    const initialStreamMessage = {
+                        role: 'assistant',
+                        content: '',
+                        type: 'text',
+                        ts: Date.now(),
+                        isStreaming: true
+                    };
+                    setStreamingMessage(initialStreamMessage);
+                    
+                    const response = await callFastAPI(apiUrl, apiPayload, mode, {
+                        signal: controller.signal,
+                        stream: true,
+                        timeout: 45000
+                    });
+
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(`HTTP ${response.status}: ${errorText}`);
+                    }
+
+                    await handleStreamResponse(response);
+
+                    if (accumulatedTokensRef.current) {
+                        const assistantMessage = {
+                            role: 'assistant',
+                            content: accumulatedTokensRef.current,
+                            type: 'text',
+                            ts: Date.now()
+                        };
+                        setChatHistory(prev => [...prev, assistantMessage]);
+                    }
+                } else {
+                    const apiUrl = '/api/generate/text';
+                    const apiPayload = { 
+                        prompt: processedMessage, 
+                        mode,
+                        user_preference_id: getPersistentUserId(),
+                        firebase_token: currentUser?.firebaseToken || '',
+                        stream: false,
+                        ai_mode: selectedAIMode,
+                        max_tokens: 1500
+                    };
+                    
+                    const result = await callFastAPI(apiUrl, apiPayload, mode, {
+                        signal: controller.signal,
+                        stream: false,
+                        timeout: 30000
+                    });
+
+                    if (result?.text) {
+                        typeText(result.text, () => {
+                            const assistantMessage = {
+                                role: 'assistant',
+                                content: result.text,
+                                type: 'text',
+                                ts: Date.now()
+                            };
+                            setChatHistory(prev => [...prev, assistantMessage]);
+                            setStreamingMessage(null);
+                        });
+                    } else {
+                        const assistantMessage = {
+                            role: 'assistant',
+                            content: result?.text || '',
+                            type: 'text',
+                            ts: Date.now()
+                        };
+                        setChatHistory(prev => [...prev, assistantMessage]);
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('API ERROR:', error);
+            
+            let errorMessage = 'Something went wrong. Please try again.';
+            
+            if (error.name === 'AbortError') {
+                errorMessage = 'Request was cancelled.';
+            } else if (error.message.includes('timeout')) {
+                errorMessage = 'Request timed out. The prompt might be too long. Please try a shorter version.';
+            } else if (error.message.includes('413')) {
+                errorMessage = 'Request too large. Please shorten your prompt or try splitting it into smaller parts.';
+            } else if (error.message.includes('429')) {
+                errorMessage = 'Too many requests. Please wait a moment and try again.';
+            } else if (error.message.includes('500')) {
+                errorMessage = 'Server error. Please try again in a few moments.';
+            } else {
+                errorMessage = `Error: ${error.message || 'Unknown error'}`;
+            }
+            
+            const assistantError = {
+                role: 'assistant',
+                content: errorMessage,
+                type: 'text',
+                ts: Date.now(),
+                isError: true
+            };
+            setChatHistory(prev => [...prev, assistantError]);
+        } finally {
+            setAbortController(null);
+            setUploadedFile(null);
+            setUploadedImage(null);
+            setIsLoading(false);
+            setIsStreaming(false);
+            setStreamingMessage(null);
         }
-    } catch (error) {
-        console.error('API ERROR:', error);
-        
-        // Handle specific error types
-        let errorMessage = 'Something went wrong. Please try again.';
-        
-        if (error.name === 'AbortError') {
-            errorMessage = 'Request was cancelled.';
-            console.log('Request aborted by user');
-        } else if (error.message.includes('timeout')) {
-            errorMessage = 'Request timed out. The prompt might be too long. Please try a shorter version.';
-        } else if (error.message.includes('413')) {
-            errorMessage = 'Request too large. Please shorten your prompt or try splitting it into smaller parts.';
-        } else if (error.message.includes('429')) {
-            errorMessage = 'Too many requests. Please wait a moment and try again.';
-        } else if (error.message.includes('500')) {
-            errorMessage = 'Server error. Please try again in a few moments.';
-        } else {
-            errorMessage = `Error: ${error.message || 'Unknown error'}`;
-        }
-        
-        const assistantError = {
-            role: 'assistant',
-            content: errorMessage,
-            type: 'text',
-            ts: Date.now(),
-            isError: true
-        };
-        setChatHistory(prev => [...prev, assistantError]);
-        
-        // Show notification for large prompts
-        if (message.length > 3000) {
-            showNotification(
-                "Large Prompt Detected", 
-                "Your prompt was quite long. For better results, try breaking it into smaller parts.",
-                "warning"
-            );
-        }
-    } finally {
-        // Clean up
-        setAbortController(null);
-        setUploadedFile(null);
-        setUploadedImage(null);
-        setIsLoading(false);
-        setIsStreaming(false);
-        setStreamingMessage(null);
-        
-        // Clear streaming content
-        setStreamedContent('');
-        accumulatedTokensRef.current = '';
-    }
-}; 
-  // ---------- Download Project ----------
+    }; 
+
+    // ---------- Download Project ----------
     const downloadProjectAsZip = useCallback(async () => {
         if (generatedFiles.length === 0) {
             showModal("No Files", "No generated files to download.");
@@ -4073,7 +3929,7 @@ const handleSendMessage = async () => {
         });
     }, [showModal]);
 
-    // ---------- Main JSX ----------
+    // ---------- Main JSX with iOS fixes ----------
     return (
         <div className="flex flex-row h-full w-full bg-[var(--spider-dark)] text-[var(--spider-text)] overflow-hidden relative">
             {/* Desktop Sidebar */}
@@ -4145,7 +4001,7 @@ const handleSendMessage = async () => {
             <div className="flex flex-col flex-1 h-full min-h-0 w-full">
                 {/* Mobile Header */}
                 {isMobile && (
-                    <div className="flex items-center justify-between p-3 bg-[var(--spider-med)] border-b border-[var(--spider-light)] flex-shrink-0">
+                    <div className="flex items-center justify-between p-3 bg-[var(--spider-med)] border-b border-[var(--spider-light)] flex-shrink-0 safe-top">
                         <button 
                             onClick={() => setSidebarOpen(!sidebarOpen)}
                             className="text-white p-2 touch-manipulation active:scale-95"
@@ -4177,7 +4033,7 @@ const handleSendMessage = async () => {
                             className="fixed inset-0 bg-black bg-opacity-50"
                             onClick={() => setSidebarOpen(false)}
                         />
-                        <div className="fixed left-0 top-0 h-full w-64 bg-[var(--spider-med)] z-50 overflow-y-auto p-4">
+                        <div className="fixed left-0 top-0 h-full w-64 bg-[var(--spider-med)] z-50 overflow-y-auto p-4 safe-top">
                             <div className="flex justify-between items-center mb-4">
                                 <h2 className="text-white font-semibold">Chat History</h2>
                                 <button 
@@ -4231,7 +4087,7 @@ const handleSendMessage = async () => {
 
                 {/* Project View */}
                 {isProjectView ? (
-                    <div className="flex-grow overflow-y-auto p-4">
+                    <div className="flex-grow overflow-y-auto p-4 safe-area">
                         <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-4">
                             <div className="lg:col-span-1">
                                 <ProjectFileTree 
@@ -4275,7 +4131,7 @@ const handleSendMessage = async () => {
                         </div>
                     </div>
                 ) : (
-                    <div className="flex-grow overflow-y-auto p-2 sm:p-4 space-y-4 pb-28 sm:pb-4">
+                    <div className="flex-grow overflow-y-auto p-2 sm:p-4 space-y-4 pb-28 sm:pb-4 safe-area">
                         {chatHistory.map((msg, index) => (
                             <ChatBubble key={`${msg.ts}_${index}`} message={msg} />
                         ))}
@@ -4309,8 +4165,8 @@ const handleSendMessage = async () => {
                             </div>
                         )}
                         
-                        {/* Continue Button */}
-                        {showContinueButton && !isLoading && (
+                        {/* Continue Button - FIXED LOGIC */}
+                        {showContinueButton && !isLoading && !isStreaming && (
                             <div className="flex justify-start mb-4 px-2">
                                 <div className="bg-[var(--spider-dark)] p-3 rounded-lg border border-[var(--spider-light)]">
                                     <div className="flex items-center space-x-3">
@@ -4350,9 +4206,9 @@ const handleSendMessage = async () => {
                     accept="image/*" 
                 />
 
-                {/* Input Area */}
+                {/* Input Area with iOS safe area */}
                 <div className={`bg-[var(--spider-med)] border-t border-[var(--spider-light)] flex-shrink-0 w-full ${
-                    isMobile ? 'fixed bottom-0 left-0 right-0 p-3' : 'p-4'
+                    isMobile ? 'fixed bottom-0 left-0 right-0 p-3 safe-bottom' : 'p-4'
                 }`}>
                     <div className="max-w-5xl mx-auto">
                         {!isMobile && (
@@ -4423,7 +4279,7 @@ const handleSendMessage = async () => {
                                         uploadedFile ? `Analyze "${uploadedFile.name}"...` : 
                                         `Message Spider AI ${selectedAIMode === 'pro' ? 'Pro' : selectedAIMode === 'reasoning' ? '(Reasoning)' : ''}... (Try: 'solve x² + 2x - 3 = 0' or 'write full code for a todo app')`
                                     } 
-                                    className="w-full bg-transparent text-white focus:outline-none resize-none text-sm sm:text-base max-h-32 overflow-y-auto"
+                                    className="w-full bg-transparent text-white focus:outline-none resize-none text-sm sm:text-base max-h-32 overflow-y-auto ios-textarea"
                                     value={message} 
                                     onChange={(e) => setMessage(e.target.value)} 
                                     onKeyDown={(e) => { 
@@ -4468,11 +4324,44 @@ const handleSendMessage = async () => {
                     </div>
                 </div>
 
-                {isMobile && <div className="h-24" />}
+                {isMobile && <div className="h-24 safe-bottom" />}
             </div>
         </div>
     );
-};  
+};
+
+// Add CSS for iOS fixes
+const styles = `
+.safe-top {
+    padding-top: env(safe-area-inset-top);
+}
+.safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+}
+.safe-area {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+}
+.ios-textarea {
+    -webkit-appearance: none;
+    border-radius: 12px;
+}
+.inline-code {
+    background: rgba(0, 229, 255, 0.1);
+    padding: 0.2em 0.4em;
+    border-radius: 3px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9em;
+}
+`;
+
+// Add styles to document
+if (typeof document !== 'undefined') {
+    const styleSheet = document.createElement("style");
+    styleSheet.innerText = styles;
+    document.head.appendChild(styleSheet);
+}
+
 
 // --- END Plus Menu Component ---
 const SpiderVFXApp = () => { /* ... (Remains Placeholder) ... */ return (<div className="flex-grow h-full flex flex-col items-center justify-center bg-black text-white p-8 pattern-vfx-grid overflow-y-auto"><div className="bg-black bg-opacity-80 p-10 rounded-lg text-center shadow-xl"><h1 className="text-4xl font-bold mb-4 text-[var(--spider-neon-blue)]">Spider VFX</h1><p className="text-lg text-gray-400 mb-8">Coming Soon!</p><div className="animate-pulse text-6xl">✨</div></div></div>);};
