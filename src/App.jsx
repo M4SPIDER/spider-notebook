@@ -1978,6 +1978,15 @@ const SpiderAIApp = ({
     const DB_NAME = 'SpiderAIChatsDB';
     const DB_VERSION = 1;
     const STORE_NAME = 'chats';
+   
+  seEffect(() => {
+    const style = document.createElement("style");
+    style.innerHTML = `
+      pre span { display: inline !important; }
+    `;
+    document.head.appendChild(style);
+  }, []);
+
 
     // ---------- Detect Mobile & Responsive ----------
     useEffect(() => {
@@ -2002,6 +2011,7 @@ const SpiderAIApp = ({
             textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 120) + 'px';
         }
     }, [message]);
+  
 
     // ---------- Voice Recording Functions ----------
     const startRecording = useCallback(async () => {
@@ -5639,4 +5649,5 @@ int main() {
         </>
     );
 }
+
 
