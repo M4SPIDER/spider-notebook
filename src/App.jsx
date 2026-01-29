@@ -3370,7 +3370,7 @@ const handleSendMessage = async () => {
     });
 
     // DIRECT PASS-THROUGH: No truncation logic.
-    // The message is passed exactly as is, even if it is 10k+ lines.
+    // The message is passed exactly as is, even if it is 10k+ lines or a massive image prompt.
     const processedMessage = message; 
 
     setIsLoading(true);
@@ -3416,6 +3416,7 @@ const handleSendMessage = async () => {
         } 
         else {
             // CASE: NO CODE DETECTED -> IMAGE GEN
+            // This ensures prompts like the one you sent trigger Image Gen, not Chat
             mode = 'image_gen';
         }
     }
@@ -3439,7 +3440,7 @@ const handleSendMessage = async () => {
         ts: Date.now(),
         isFullCodeRequest: isFullCodeRequest,
         aiMode: selectedAIMode,
-        wasTruncated: false // Explicitly false as we removed limits
+        wasTruncated: false
     };
 
     setChatHistory(prev => [...prev, userMessage]);
@@ -3454,22 +3455,20 @@ const handleSendMessage = async () => {
     continueStreamIdRef.current = null;
 
     // DECISION: Streaming Logic
-    // We force streaming for large payloads to ensure the connection stays alive
     const shouldStream = 
         isFullCodeRequest ||
-        processedMessage.length > 500 || // Stream anything substantial
+        processedMessage.length > 500 || 
         mode === "analyze_file" ||
         detectMathRequest(processedMessage) ||
         selectedAIMode === 'reasoning' ||
         selectedAIMode === 'pro' ||
-        true; // OPTIONAL: You might want to default to true for everything if handling massive data
+        true; 
 
     try {
         // FILE ANALYSIS
         if (mode === "analyze_file" && fileCopy) {
             let fileContent;
             
-            // Read file content without size limits
             if (fileCopy.type.startsWith('text/') || 
                 fileCopy.name.match(/\.(txt|py|js|html|css|md|json|c|cpp|h|java|xml)$/)) {
                 fileContent = await fileCopy.text();
@@ -3488,9 +3487,6 @@ const handleSendMessage = async () => {
                     reader.readAsDataURL(fileCopy);
                 });
             }
-
-            // REMOVED: Truncation for file content. 
-            // We send the whole file regardless of size.
 
             const apiUrl = '/api/generate/text';
             const apiPayload = {
@@ -3517,7 +3513,7 @@ const handleSendMessage = async () => {
             const response = await callFastAPI(apiUrl, apiPayload, mode, {
                 signal: controller.signal,
                 stream: true,
-                timeout: 0 // 0 = No timeout for large files
+                timeout: 0 
             });
 
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -3541,7 +3537,6 @@ const handleSendMessage = async () => {
                 reader.onload = () => {
                     try {
                         const result = reader.result;
-                        // Basic validation that it is an image data URL, but NO size check
                         if (result && result.includes(',')) {
                             const b = result.split(",")[1];
                             resolve(b);
@@ -3556,12 +3551,9 @@ const handleSendMessage = async () => {
                 reader.readAsDataURL(imageCopy);
             });
             
-            // REMOVED: Image prompt truncation. 
-            // We send the full prompt for the edit.
-            
             const apiUrl = '/api/generate/text';
             const apiPayload = {
-                prompt: processedMessage, // Full message
+                prompt: processedMessage, // Full message, NO TRUNCATION
                 mode: "image_edit",
                 image: base64Image,
                 strength: 0.7,
@@ -3570,13 +3562,12 @@ const handleSendMessage = async () => {
                 stream: false,
                 ai_mode: selectedAIMode,
                 is_edit_continuation: false,
-                max_tokens: 2000 // Increased token limit for complex edits
+                max_tokens: 20000 // Huge limit for complex prompts
             };
             
-            // Increased timeout for large image upload/processing
             const result = await callFastAPI(apiUrl, apiPayload, mode, {
                 signal: controller.signal,
-                timeout: 120000 // 2 minutes
+                timeout: 0 // Infinite timeout - Wait as long as needed
             });
 
             if (result?.base64_image || result?.image) {
@@ -3594,24 +3585,27 @@ const handleSendMessage = async () => {
                 throw new Error('No image data in response');
             }
         }
-        // IMAGE GENERATION
+        // IMAGE GENERATION (Corrected for Large Prompts)
         else if (mode === "image_gen") {
-            // REMOVED: Image gen prompt truncation
-            
             const apiUrl = '/api/generate/text';
+            
+            // We now send the FULL processedMessage. 
+            // Previous code had .substring(0, 1000) here, which broke large prompts.
             const apiPayload = { 
-                prompt: processedMessage, // Full message
+                prompt: processedMessage, 
                 mode: 'image_gen',
                 aspect_ratio: aspectRatio,
                 user_preference_id: getPersistentUserId(),
                 firebase_token: currentUser?.firebaseToken || '',
                 stream: false,
                 ai_mode: selectedAIMode,
-                max_tokens: 1000
+                max_tokens: 20000 // Increased to handle massive context descriptions
             };
             
+            // Set timeout to 0 (No Timeout) 
+            // This prevents "No image data received" errors on slow/large generations
             const result = await callFastAPI(apiUrl, apiPayload, mode, {
-                timeout: 60000 // 60 seconds
+                timeout: 0 
             });
 
             if (result?.base64_image) {
@@ -3640,8 +3634,7 @@ const handleSendMessage = async () => {
                 full_code_mode: true,
                 project_type: projectMetadata.type,
                 ai_mode: selectedAIMode,
-                // Max tokens set high to accommodate large responses
-                max_tokens: 16000 
+                max_tokens: 20000 // Huge token limit for 10k+ lines
             };
             
             setIsStreaming(true);
@@ -3656,7 +3649,7 @@ const handleSendMessage = async () => {
             const response = await callFastAPI(apiUrl, apiPayload, mode, {
                 signal: controller.signal,
                 stream: true,
-                timeout: 0 // No timeout for massive code generation
+                timeout: 0 
             });
 
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -3684,8 +3677,6 @@ const handleSendMessage = async () => {
         }
         // REASONING / PRO MODES
         else if (selectedAIMode === 'reasoning' || selectedAIMode === 'pro') {
-            // REMOVED: Prompt truncation for reasoning
-            
             const apiUrl = '/api/generate/text';
             const apiPayload = { 
                 prompt: processedMessage, 
@@ -3694,7 +3685,7 @@ const handleSendMessage = async () => {
                 firebase_token: currentUser?.firebaseToken || '',
                 stream: true,
                 ai_mode: selectedAIMode,
-                max_tokens: 8000 // High limit for complex reasoning
+                max_tokens: 20000
             };
             
             setIsStreaming(true);
@@ -3709,7 +3700,7 @@ const handleSendMessage = async () => {
             const response = await callFastAPI(apiUrl, apiPayload, mode, {
                 signal: controller.signal,
                 stream: true,
-                timeout: 0 // No timeout
+                timeout: 0 
             });
 
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -3736,7 +3727,7 @@ const handleSendMessage = async () => {
                     firebase_token: currentUser?.firebaseToken || '',
                     stream: true,
                     ai_mode: selectedAIMode,
-                    max_tokens: 8000
+                    max_tokens: 20000
                 };
                 
                 setIsStreaming(true);
@@ -3751,7 +3742,7 @@ const handleSendMessage = async () => {
                 const response = await callFastAPI(apiUrl, apiPayload, mode, {
                     signal: controller.signal,
                     stream: true,
-                    timeout: 0 // No timeout
+                    timeout: 0 
                 });
 
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -3766,7 +3757,6 @@ const handleSendMessage = async () => {
                     }]);
                 }
             } else {
-                // FALLBACK: Normal API call (careful with timeouts on large data here)
                 const apiUrl = '/api/generate/text';
                 const apiPayload = { 
                     prompt: processedMessage, 
@@ -3775,13 +3765,13 @@ const handleSendMessage = async () => {
                     firebase_token: currentUser?.firebaseToken || '',
                     stream: false,
                     ai_mode: selectedAIMode,
-                    max_tokens: 4000
+                    max_tokens: 20000
                 };
                 
                 const result = await callFastAPI(apiUrl, apiPayload, mode, {
                     signal: controller.signal,
                     stream: false,
-                    timeout: 60000 // 60s timeout for non-streaming
+                    timeout: 0 
                 });
 
                 if (result?.text) {
@@ -3812,8 +3802,6 @@ const handleSendMessage = async () => {
         if (error.name === 'AbortError') {
             errorMessage = 'Request was cancelled.';
         } else if (error.message.includes('413')) {
-            // We still catch 413 because the SERVER might reject it, 
-            // even if the client allows it.
             errorMessage = 'The server rejected this request because it was too massive. (Client limits are off, but server limits apply).';
         } else if (error.message.includes('500')) {
             errorMessage = 'Server error. Please try again in a few moments.';
@@ -5485,6 +5473,7 @@ int main() {
         </>
     );
 }
+
 
 
 
