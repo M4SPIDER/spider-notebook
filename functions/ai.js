@@ -674,80 +674,133 @@ let activePrompt = prompt;
     //////////////////////
     // IMAGE EDITING (FLUX 1 SCHNELL)
     //////////////////////
+ // //////////////////////
+    // IMAGE EDITING (FLUX 1 SCHNELL) -> FALLBACK TO LUCID (GEN) ON FAILURE
+    // //////////////////////
     if (mode === "image_edit") {
-            // FIX: If no image provided in payload, try to fetch last image from KV
-            if (!base64ImageInput) {
-                base64ImageInput = await getLastImage(env, imgMemKey);
-            }
-
-            if (!base64ImageInput) return new Response("No image provided for editing. Please upload or generate one first.", { status: 400, headers: cors });
-
-            const imageBytes = base64ToUint8Array(base64ImageInput);
-            const imageBlob = new Blob([imageBytes], { type: 'image/png' });
-
-            const form = new FormData();
-            form.append('prompt', activePrompt); 
-            
-            form.append('image', imageBlob, 'input.png'); 
-            form.append('input_image_0', imageBlob); 
-            
-            form.append('strength', '0.7'); 
-
-            const dummyReq = new Request('http://dummy', {
-              method: 'POST',
-              body: form
-            });
-
-            try {
-                memory.push({ role: "user", content: `[Image Edit Request]: ${activePrompt}` });
-                await saveMemory(env, memKey, memory.slice(-AI_MEMORY_TRIM_TARGET));
-
-                const fluxResponse = await runAi(env, MODEL_EDIT_FLUX, {
-                    multipart: {
-                        body: dummyReq.body, 
-                        contentType: dummyReq.headers.get('content-type') || 'multipart/form-data'
-                    }
-                });
-
-                if (fluxResponse instanceof ReadableStream) {
-                    // CRITICAL FIX: TEE THE STREAM TO SAVE HISTORY
-                    const [stream1, stream2] = fluxResponse.tee();
-                    
-                    // SAVE IN BACKGROUND
-                    context.waitUntil(async function() {
-                        try {
-                            const base64 = await streamToBase64(stream2);
-                            await saveLastImage(env, imgMemKey, base64);
-                            // Also update text memory
-                            memory.push({ role: "assistant", content: "Image edited successfully! 🎨" });
-                            await saveMemory(env, memKey, memory.slice(-AI_MEMORY_TRIM_TARGET));
-                        } catch(e) { console.error("Failed to save stream image", e); }
-                    }());
-
-                    return new Response(stream1, { headers: { ...cors, "Content-Type": "image/png" } });
-                }
-
-                let resultBase64 = fluxResponse?.image || fluxResponse?.result?.image;
-
-                if (resultBase64) {
-                    memory.push({ role: "assistant", content: "Image edited successfully! 🎨" });
-                    context.waitUntil(saveMemory(env, memKey, memory.slice(-AI_MEMORY_TRIM_TARGET)));
-                    
-                    // CRITICAL FIX: SAVE EDITED IMAGE TO KV FOR NEXT TURN
-                    context.waitUntil(saveLastImage(env, imgMemKey, resultBase64));
-
-                    return new Response(base64ToUint8Array(resultBase64), { headers: { ...cors, "Content-Type": "image/png" } });
-                }
-                throw new Error("Flux returned no image data");
-
-            } catch (fluxErr) {
-                return new Response(JSON.stringify({
-                    error: "Flux Edit Failed",
-                    message: fluxErr.message
-                }), { status: 500, headers: cors });
-            }
+        // 1. Fetch Image
+        if (!base64ImageInput) {
+            base64ImageInput = await getLastImage(env, imgMemKey);
+        }
+        // If we still have no image, we can't "edit", so we just force generation immediately.
+        if (!base64ImageInput) {
+             // Fallback to GEN mode logic immediately if no input image found
+             try {
+                const response = await runAi(env, MODEL_GEN_LUCID, { prompt: activePrompt, width: 1024, height: 1024 });
+                // ... (Handle Gen Response Logic below) ...
+                // To keep code clean, we will let the "Catch" block handle the Gen logic to avoid duplication.
+                throw new Error("No Input Image - Switching to Gen");
+             } catch(e) { /* Let the main catch block handle it */ }
         }
 
+        // Prepare Flux Input
+        const imageBytes = base64ToUint8Array(base64ImageInput);
+        const imageBlob = new Blob([imageBytes], { type: 'image/png' });
+
+        const form = new FormData();
+        const safePrompt = activePrompt.replace(/[\r\n]+/g, ' '); // Sanitize headers
+        form.append('prompt', safePrompt);
+        form.append('image', imageBlob, 'input.png');
+        form.append('input_image_0', imageBlob);
+        form.append('strength', '0.7');
+
+        const dummyReq = new Request('http://dummy', {
+            method: 'POST',
+            body: form
+        });
+
+        try {
+            // =========================================================
+            // ATTEMPT 1: EDIT WITH FLUX
+            // =========================================================
+            memory.push({ role: "user", content: `[Image Edit Request]: ${activePrompt}` });
+            await saveMemory(env, memKey, memory.slice(-AI_MEMORY_TRIM_TARGET));
+
+            const fluxResponse = await runAi(env, MODEL_EDIT_FLUX, {
+                multipart: {
+                    body: dummyReq.body,
+                    contentType: dummyReq.headers.get('content-type') || 'multipart/form-data'
+                }
+            });
+
+            // CHECK FLUX SUCCESS
+            if (fluxResponse instanceof ReadableStream) {
+                const [stream1, stream2] = fluxResponse.tee();
+                context.waitUntil(async function() {
+                    try {
+                        const base64 = await streamToBase64(stream2);
+                        await saveLastImage(env, imgMemKey, base64);
+                    } catch(e) {}
+                }());
+                return new Response(stream1, { headers: { ...cors, "Content-Type": "image/png" } });
+            }
+
+            let resultBase64 = fluxResponse?.image || fluxResponse?.result?.image;
+
+            if (resultBase64) {
+                context.waitUntil(saveLastImage(env, imgMemKey, resultBase64));
+                memory.push({ role: "assistant", content: "Image edited successfully! 🎨" });
+                await saveMemory(env, memKey, memory.slice(-AI_MEMORY_TRIM_TARGET));
+                return new Response(base64ToUint8Array(resultBase64), { headers: { ...cors, "Content-Type": "image/png" } });
+            }
+
+            // If we get here, Flux returned success status but no data. Treat as error.
+            throw new Error("Flux returned no image data");
+
+        } catch (fluxError) {
+            // =========================================================
+            // ATTEMPT 2: FALLBACK TO GENERATION (LUCID)
+            // This runs ONLY if Flux fails, blocks, crashes, or errors.
+            // =========================================================
+            // console.log("Edit failed/blocked. Switching to Lucid Gen...", fluxError.message);
+
+            try {
+                // Generate a fresh image using the prompt
+                const genResponse = await runAi(
+                    env,
+                    MODEL_GEN_LUCID,
+                    { prompt: activePrompt, width: 1024, height: 1024 }
+                );
+
+                // Handle Lucid Stream
+                if (genResponse instanceof ReadableStream) {
+                    const [gStream1, gStream2] = genResponse.tee();
+                    context.waitUntil(async function() {
+                        try { await saveLastImage(env, imgMemKey, await streamToBase64(gStream2)); } catch(e) {}
+                    }());
+                    return new Response(gStream1, { headers: { ...cors, "Content-Type": "image/png" } });
+                }
+
+                // Handle Lucid JSON
+                let genBase64 = genResponse?.image || genResponse?.result?.image || (Array.isArray(genResponse) && genResponse[0]?.image);
+
+                if (genBase64) {
+                    context.waitUntil(saveLastImage(env, imgMemKey, genBase64));
+                    
+                    // Sanitize Base64
+                    const cleanB64 = genBase64.replace(/[\r\n\s]+/g, '');
+                    const binaryString = atob(cleanB64);
+                    const bytes = new Uint8Array(binaryString.length);
+                    for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+
+                    // Update memory to let user know we generated instead
+                    memory.push({ role: "assistant", content: "I created a new image for you based on that request! 🎨" });
+                    context.waitUntil(saveMemory(env, memKey, memory.slice(-AI_MEMORY_TRIM_TARGET)));
+
+                    return new Response(bytes.buffer, { headers: { ...cors, "Content-Type": "image/png" } });
+                }
+                
+                throw new Error("Fallback Generation also failed.");
+
+            } catch (fallbackError) {
+                // Both Edit AND Gen failed
+                return new Response(JSON.stringify({
+                    error: "Image Request Failed",
+                    message: `Edit failed (${fluxError.message}) AND Gen failed (${fallbackError.message})`
+                }), { status: 500, headers: { ...cors, "Content-Type": "application/json" } });
+            }
+        }
+    }
 
     //////////////////////
     // IMAGE GENERATION (LUCID ORIGIN)
