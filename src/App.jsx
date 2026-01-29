@@ -3356,12 +3356,10 @@ useEffect(() => {
     };
 
     // ---------- Enhanced Send Message with AI Modes ----------
-
 const handleSendMessage = async () => {
     // 1. INPUT VALIDATION
     if (!message.trim() && !uploadedFile && !uploadedImage) return;
 
-    // NO LIMITS: Log the attempt to send large data
     console.log('Sending message (NO LIMITS):', {
         persistentId: getPersistentUserId(),
         currentUser: currentUser,
@@ -3369,8 +3367,6 @@ const handleSendMessage = async () => {
         aiMode: selectedAIMode
     });
 
-    // DIRECT PASS-THROUGH: No truncation logic.
-    // The message is passed exactly as is, even if it is 10k+ lines or a massive image prompt.
     const processedMessage = message; 
 
     setIsLoading(true);
@@ -3380,12 +3376,9 @@ const handleSendMessage = async () => {
     const fileCopy = uploadedFile;
     const imageCopy = uploadedImage;
     
-    // Default to selected mode initially
     let mode = activeAIMode || selectedAIMode;
 
     // --- LOGIC: CODE vs IMAGE GEN vs IMAGE EDIT ---
-    
-    // Helper to detect programming language constructs
     const hasCodeConstructs = (text) => {
         const codeKeywords = [
             /\bconst\b/, /\blet\b/, /\bvar\b/, /\bval\b/, 
@@ -3397,7 +3390,6 @@ const handleSendMessage = async () => {
         return codeKeywords.some(regex => regex.test(text));
     };
 
-    // 1. PRIORITY: Check Uploads
     if (fileCopy) {
         mode = "analyze_file";
     } 
@@ -3405,9 +3397,7 @@ const handleSendMessage = async () => {
         mode = "image_edit";
     } 
     else {
-        // 2. NO UPLOADS - TEXT ANALYSIS
         if (hasCodeConstructs(processedMessage)) {
-            // CASE: CODE DETECTED
             const isFullCodeRequest = detectFullCodeRequest(processedMessage);
             if (isFullCodeRequest) {
                 setIsFullCodeMode(true);
@@ -3415,16 +3405,12 @@ const handleSendMessage = async () => {
             }
         } 
         else {
-            // CASE: NO CODE DETECTED -> IMAGE GEN
-            // This ensures prompts like the one you sent trigger Image Gen, not Chat
             mode = 'image_gen';
         }
     }
 
-    // 3. SAFETY GUARD: PREVENT IMAGE EDIT WITHOUT IMAGE
     if (mode === 'image_edit' && !imageCopy) {
         mode = hasCodeConstructs(processedMessage) ? activeAIMode : 'image_gen';
-        console.log("Blocked image_edit due to missing image file. Reverted mode to:", mode);
     }
 
     // ----------------------------------------------
@@ -3528,7 +3514,7 @@ const handleSendMessage = async () => {
                 }]);
             }
         }
-        // IMAGE EDIT (Strictly requires imageCopy)
+        // IMAGE EDIT
         else if (mode === "image_edit" && imageCopy) {
             let base64Image = null;
             
@@ -3553,7 +3539,7 @@ const handleSendMessage = async () => {
             
             const apiUrl = '/api/generate/text';
             const apiPayload = {
-                prompt: processedMessage, // Full message, NO TRUNCATION
+                prompt: processedMessage, 
                 mode: "image_edit",
                 image: base64Image,
                 strength: 0.7,
@@ -3562,16 +3548,24 @@ const handleSendMessage = async () => {
                 stream: false,
                 ai_mode: selectedAIMode,
                 is_edit_continuation: false,
-                max_tokens: 20000 // Huge limit for complex prompts
+                max_tokens: 20000 
             };
             
             const result = await callFastAPI(apiUrl, apiPayload, mode, {
                 signal: controller.signal,
-                timeout: 0 // Infinite timeout - Wait as long as needed
+                timeout: 0 
             });
 
-            if (result?.base64_image || result?.image) {
-                const imgData = result.base64_image || result.image;
+            console.log("Image Edit Server Response:", result); // DEBUG LOG
+
+            // Check for API Errors first
+            if (result.error || result.detail) {
+                throw new Error(result.error || result.detail || "Unknown Server Error");
+            }
+
+            const imgData = result.base64_image || result.image || result.url;
+            
+            if (imgData) {
                 setChatHistory(prev => [...prev, {
                     role: 'assistant',
                     content: processedMessage.includes('edit') ? `Edited: ${processedMessage}` : '',
@@ -3582,15 +3576,12 @@ const handleSendMessage = async () => {
                 }]);
                 localStorage.setItem('last_edited_image', imgData);
             } else {
-                throw new Error('No image data in response');
+                throw new Error(`Server returned no image. Raw response: ${JSON.stringify(result)}`);
             }
         }
-        // IMAGE GENERATION (Corrected for Large Prompts)
+        // IMAGE GENERATION (Corrected for "No Image Data")
         else if (mode === "image_gen") {
             const apiUrl = '/api/generate/text';
-            
-            // We now send the FULL processedMessage. 
-            // Previous code had .substring(0, 1000) here, which broke large prompts.
             const apiPayload = { 
                 prompt: processedMessage, 
                 mode: 'image_gen',
@@ -3599,141 +3590,61 @@ const handleSendMessage = async () => {
                 firebase_token: currentUser?.firebaseToken || '',
                 stream: false,
                 ai_mode: selectedAIMode,
-                max_tokens: 20000 // Increased to handle massive context descriptions
+                max_tokens: 20000 
             };
             
-            // Set timeout to 0 (No Timeout) 
-            // This prevents "No image data received" errors on slow/large generations
+            console.log("Sending Image Gen Request...");
+
             const result = await callFastAPI(apiUrl, apiPayload, mode, {
                 timeout: 0 
             });
 
-            if (result?.base64_image) {
+            console.log("Image Gen Server Response:", result); // DEBUG LOG - CHECK CONSOLE
+
+            // 1. Check for explicit API errors
+            if (result.error || result.detail) {
+                throw new Error(`Generation Failed: ${result.error || result.detail}`);
+            }
+
+            // 2. Flexible Check for Image Data (Handles base64, url, or 'image')
+            const imgData = result.base64_image || result.image || result.url || result.data?.[0]?.url;
+
+            if (imgData) {
                 setChatHistory(prev => [...prev, {
                     role: 'assistant',
                     content: '',
                     type: 'image',
-                    base64_image: result.base64_image,
+                    base64_image: imgData,
                     ts: Date.now(),
                     is_generated: true
                 }]);
-                localStorage.setItem('last_edited_image', result.base64_image);
+                localStorage.setItem('last_edited_image', imgData);
             } else {
-                throw new Error('No image data received');
+                // This throws a readable error if the server response is empty or weird
+                throw new Error(`No image data received. Server replied: ${JSON.stringify(result).substring(0, 200)}...`);
             }
         }
-        // FULL CODE MODE
-        else if (isFullCodeRequest) {
+        // FULL CODE / CHAT MODES
+        else {
+            const isCodeMode = isFullCodeRequest;
             const apiUrl = '/api/generate/text';
             const apiPayload = { 
                 prompt: processedMessage, 
-                mode: "chat",
+                mode: isCodeMode ? "chat" : mode,
                 user_preference_id: getPersistentUserId(),
                 firebase_token: currentUser?.firebaseToken || '',
-                stream: true,
-                full_code_mode: true,
-                project_type: projectMetadata.type,
-                ai_mode: selectedAIMode,
-                max_tokens: 20000 // Huge token limit for 10k+ lines
-            };
-            
-            setIsStreaming(true);
-            setStreamingMessage({
-                role: 'assistant',
-                content: `Generating complete project: ${projectMetadata.name}...`,
-                type: 'text',
-                ts: Date.now(),
-                isStreaming: true
-            });
-            
-            const response = await callFastAPI(apiUrl, apiPayload, mode, {
-                signal: controller.signal,
-                stream: true,
-                timeout: 0 
-            });
-
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            await handleStreamResponse(response);
-
-            if (accumulatedTokensRef.current) {
-                setChatHistory(prev => [...prev, {
-                    role: 'assistant',
-                    content: accumulatedTokensRef.current,
-                    type: 'text',
-                    ts: Date.now(),
-                    isFullCode: true,
-                    files: generatedFiles.length > 0 ? generatedFiles : undefined
-                }]);
-                
-                if (generatedFiles.length > 0) {
-                    setTimeout(() => {
-                        setIsProjectView(true);
-                        showModal("Project Generated", 
-                            `Successfully generated ${generatedFiles.length} files.`
-                        );
-                    }, 500);
-                }
-            }
-        }
-        // REASONING / PRO MODES
-        else if (selectedAIMode === 'reasoning' || selectedAIMode === 'pro') {
-            const apiUrl = '/api/generate/text';
-            const apiPayload = { 
-                prompt: processedMessage, 
-                mode: selectedAIMode,
-                user_preference_id: getPersistentUserId(),
-                firebase_token: currentUser?.firebaseToken || '',
-                stream: true,
+                stream: shouldStream,
+                full_code_mode: isCodeMode,
+                project_type: projectMetadata?.type,
                 ai_mode: selectedAIMode,
                 max_tokens: 20000
             };
             
-            setIsStreaming(true);
-            setStreamingMessage({
-                role: 'assistant',
-                content: selectedAIMode === 'pro' ? '🤖 Spider AI Pro is thinking...' : '🧠 Reasoning step by step...',
-                type: 'text',
-                ts: Date.now(),
-                isStreaming: true
-            });
-            
-            const response = await callFastAPI(apiUrl, apiPayload, mode, {
-                signal: controller.signal,
-                stream: true,
-                timeout: 0 
-            });
-
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            await handleStreamResponse(response);
-
-            if (accumulatedTokensRef.current) {
-                setChatHistory(prev => [...prev, {
-                    role: 'assistant',
-                    content: accumulatedTokensRef.current,
-                    type: 'text',
-                    ts: Date.now(),
-                    aiMode: selectedAIMode
-                }]);
-            }
-        }
-        // NORMAL CHAT
-        else {
             if (shouldStream) {
-                const apiUrl = '/api/generate/text';
-                const apiPayload = { 
-                    prompt: processedMessage, 
-                    mode: mode,
-                    user_preference_id: getPersistentUserId(),
-                    firebase_token: currentUser?.firebaseToken || '',
-                    stream: true,
-                    ai_mode: selectedAIMode,
-                    max_tokens: 20000
-                };
-                
                 setIsStreaming(true);
                 setStreamingMessage({
                     role: 'assistant',
-                    content: '',
+                    content: isCodeMode ? `Generating project...` : '',
                     type: 'text',
                     ts: Date.now(),
                     isStreaming: true
@@ -3753,21 +3664,19 @@ const handleSendMessage = async () => {
                         role: 'assistant',
                         content: accumulatedTokensRef.current,
                         type: 'text',
-                        ts: Date.now()
+                        ts: Date.now(),
+                        isFullCode: isCodeMode,
+                        files: isCodeMode && generatedFiles.length > 0 ? generatedFiles : undefined
                     }]);
+                    
+                    if (isCodeMode && generatedFiles.length > 0) {
+                        setTimeout(() => {
+                            setIsProjectView(true);
+                            showModal("Project Generated", `Generated ${generatedFiles.length} files.`);
+                        }, 500);
+                    }
                 }
             } else {
-                const apiUrl = '/api/generate/text';
-                const apiPayload = { 
-                    prompt: processedMessage, 
-                    mode: mode,
-                    user_preference_id: getPersistentUserId(),
-                    firebase_token: currentUser?.firebaseToken || '',
-                    stream: false,
-                    ai_mode: selectedAIMode,
-                    max_tokens: 20000
-                };
-                
                 const result = await callFastAPI(apiUrl, apiPayload, mode, {
                     signal: controller.signal,
                     stream: false,
@@ -3797,21 +3706,18 @@ const handleSendMessage = async () => {
     } catch (error) {
         console.error('API ERROR:', error);
         
-        let errorMessage = 'Something went wrong. Please try again.';
+        let errorMessage = 'Something went wrong.';
         
         if (error.name === 'AbortError') {
-            errorMessage = 'Request was cancelled.';
-        } else if (error.message.includes('413')) {
-            errorMessage = 'The server rejected this request because it was too massive. (Client limits are off, but server limits apply).';
-        } else if (error.message.includes('500')) {
-            errorMessage = 'Server error. Please try again in a few moments.';
+            errorMessage = 'Request cancelled.';
         } else {
-            errorMessage = `Error: ${error.message || 'Unknown error'}`;
+            // Use the detailed error message we constructed above
+            errorMessage = error.message || 'Unknown error';
         }
         
         setChatHistory(prev => [...prev, {
             role: 'assistant',
-            content: errorMessage,
+            content: `Error: ${errorMessage}`,
             type: 'text',
             ts: Date.now(),
             isError: true
@@ -5473,6 +5379,7 @@ int main() {
         </>
     );
 }
+
 
 
 
