@@ -3376,7 +3376,7 @@ const handleSendMessage = async () => {
     const fileCopy = uploadedFile;
     const imageCopy = uploadedImage;
     
-    // Default to the mode selected in the UI (Chat, Pro, Reasoning)
+    // Default to the mode selected in the UI
     let mode = activeAIMode || selectedAIMode;
 
     // --- LOGIC: CODE vs IMAGE GEN vs IMAGE EDIT vs CHAT ---
@@ -3400,7 +3400,7 @@ const handleSendMessage = async () => {
     else {
         // TEXT ONLY LOGIC
         if (hasCodeConstructs(processedMessage)) {
-            // CASE: It looks like code -> Treat as Chat/Code
+            // Check for Full Code Project Intent
             const isFullCodeRequest = detectFullCodeRequest(processedMessage);
             if (isFullCodeRequest) {
                 setIsFullCodeMode(true);
@@ -3409,17 +3409,16 @@ const handleSendMessage = async () => {
             mode = selectedAIMode; // Keep 'chat', 'pro', or 'reasoning'
         } 
         else {
-            // CASE: Normal Text -> Check if user wants an image
+            // Check for Image Gen Intent
             if (detectImageGeneration(processedMessage)) {
                 mode = 'image_gen';
             } else {
-                // CASE: Normal Chat (Hello, How are you, etc.)
-                mode = selectedAIMode; 
+                mode = selectedAIMode; // Normal Chat
             }
         }
     }
 
-    // Safety: If mode is image_edit but no image, revert to standard chat/gen
+    // Safety fallback
     if (mode === 'image_edit' && !imageCopy) {
         mode = detectImageGeneration(processedMessage) ? 'image_gen' : selectedAIMode;
     }
@@ -3451,17 +3450,32 @@ const handleSendMessage = async () => {
     fileContentBufferRef.current = '';
     continueStreamIdRef.current = null;
 
-    // DECISION: Streaming Logic
-    // We stream if: Full Code OR File Analysis OR Large Request OR Pro/Reasoning Mode OR explicit keyword
+    // =================================================================================
+    // 🔥 STREAMING DECISION LOGIC (UPDATED AS REQUESTED)
+    // =================================================================================
+    
+    // Helper to detect if user is asking for code (even simple snippets)
+    const isCodeRequest = (text) => {
+        const lower = text.toLowerCase();
+        const codeWords = ['code', 'function', 'script', 'html', 'css', 'javascript', 'python', 'java', 'react', 'fix', 'debug', 'program', 'snippet'];
+        return codeWords.some(w => lower.includes(w));
+    };
+
     const shouldStream = 
-        isFullCodeRequest ||
-        processedMessage.length > 500 || 
+        // 1. ALWAYS STREAM FOR HEAVY MODES
+        selectedAIMode === 'pro' || 
+        selectedAIMode === 'reasoning' || 
         mode === "analyze_file" ||
-        detectMathRequest(processedMessage) ||
-        selectedAIMode === 'reasoning' ||
-        selectedAIMode === 'pro' ||
-        processedMessage.toLowerCase().includes('stream') || 
-        true; // Defaulting to true for smoother UX usually better
+        isFullCodeRequest ||
+
+        // 2. CHAT MODE TRIGGERS (Only stream if...)
+        (mode === 'chat' && (
+            processedMessage.toLowerCase().includes('step by step') ||  // User asks for steps
+            processedMessage.toLowerCase().includes('stream') ||        // Explicit request
+            isCodeRequest(processedMessage) ||                          // Asking for code
+            detectMathRequest(processedMessage)                         // Math is better streamed
+        ));
+        // NOTE: If mode is 'chat' and none of the above are true (e.g. "Hi"), shouldStream is false.
 
     try {
         // 1. FILE ANALYSIS
@@ -3623,15 +3637,13 @@ const handleSendMessage = async () => {
                 throw new Error(`No image data received.`);
             }
         }
-        // 4. UNIVERSAL CHAT / CODE / REASONING (The part you missed)
+        // 4. CHAT / CODE / PRO / REASONING
         else {
             const isCodeMode = isFullCodeRequest;
             const apiUrl = '/api/generate/text';
-            
-            // This handles normal chat, pro mode, reasoning mode, and full code generation
             const apiPayload = { 
                 prompt: processedMessage, 
-                mode: isCodeMode ? "chat" : mode, // Defaults to 'chat', 'pro' or 'reasoning'
+                mode: isCodeMode ? "chat" : mode, 
                 user_preference_id: getPersistentUserId(),
                 firebase_token: currentUser?.firebaseToken || '',
                 stream: shouldStream,
@@ -3641,7 +3653,7 @@ const handleSendMessage = async () => {
                 max_tokens: 20000
             };
             
-            // OPTION A: Streaming Response
+            // STREAMING PATH
             if (shouldStream) {
                 setIsStreaming(true);
                 setStreamingMessage({
@@ -3679,7 +3691,7 @@ const handleSendMessage = async () => {
                     }
                 }
             } 
-            // OPTION B: Non-Streaming Response (Fallback)
+            // NON-STREAMING PATH (Standard Chat)
             else {
                 const result = await callFastAPI(apiUrl, apiPayload, mode, {
                     signal: controller.signal,
@@ -3688,6 +3700,7 @@ const handleSendMessage = async () => {
                 });
 
                 if (result?.text) {
+                    // Use fast typing animation for non-streamed chat responses
                     typeText(result.text, () => {
                         setChatHistory(prev => [...prev, {
                             role: 'assistant',
@@ -3734,7 +3747,7 @@ const handleSendMessage = async () => {
         setStreamedContent('');
         accumulatedTokensRef.current = '';
     }
-};  
+};
   // ---------- Download Project ----------
     const downloadProjectAsZip = useCallback(async () => {
         if (generatedFiles.length === 0) {
@@ -5476,6 +5489,7 @@ int main() {
         </>
     );
 }
+
 
 
 
