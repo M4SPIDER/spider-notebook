@@ -3360,7 +3360,7 @@ const handleSendMessage = async () => {
     // 1. INPUT VALIDATION
     if (!message.trim() && !uploadedFile && !uploadedImage) return;
 
-    console.log('Sending message (NO LIMITS):', {
+    console.log('Sending message:', {
         persistentId: getPersistentUserId(),
         currentUser: currentUser,
         messageLength: message.length,
@@ -3376,9 +3376,10 @@ const handleSendMessage = async () => {
     const fileCopy = uploadedFile;
     const imageCopy = uploadedImage;
     
+    // Default to the mode selected in the UI (Chat, Pro, Reasoning)
     let mode = activeAIMode || selectedAIMode;
 
-    // --- LOGIC: CODE vs IMAGE GEN vs IMAGE EDIT ---
+    // --- LOGIC: CODE vs IMAGE GEN vs IMAGE EDIT vs CHAT ---
     const hasCodeConstructs = (text) => {
         const codeKeywords = [
             /\bconst\b/, /\blet\b/, /\bvar\b/, /\bval\b/, 
@@ -3397,20 +3398,30 @@ const handleSendMessage = async () => {
         mode = "image_edit";
     } 
     else {
+        // TEXT ONLY LOGIC
         if (hasCodeConstructs(processedMessage)) {
+            // CASE: It looks like code -> Treat as Chat/Code
             const isFullCodeRequest = detectFullCodeRequest(processedMessage);
             if (isFullCodeRequest) {
                 setIsFullCodeMode(true);
                 setProjectMetadata(extractProjectMetadata(processedMessage));
             }
+            mode = selectedAIMode; // Keep 'chat', 'pro', or 'reasoning'
         } 
         else {
-            mode = 'image_gen';
+            // CASE: Normal Text -> Check if user wants an image
+            if (detectImageGeneration(processedMessage)) {
+                mode = 'image_gen';
+            } else {
+                // CASE: Normal Chat (Hello, How are you, etc.)
+                mode = selectedAIMode; 
+            }
         }
     }
 
+    // Safety: If mode is image_edit but no image, revert to standard chat/gen
     if (mode === 'image_edit' && !imageCopy) {
-        mode = hasCodeConstructs(processedMessage) ? activeAIMode : 'image_gen';
+        mode = detectImageGeneration(processedMessage) ? 'image_gen' : selectedAIMode;
     }
 
     // ----------------------------------------------
@@ -3441,6 +3452,7 @@ const handleSendMessage = async () => {
     continueStreamIdRef.current = null;
 
     // DECISION: Streaming Logic
+    // We stream if: Full Code OR File Analysis OR Large Request OR Pro/Reasoning Mode OR explicit keyword
     const shouldStream = 
         isFullCodeRequest ||
         processedMessage.length > 500 || 
@@ -3448,10 +3460,11 @@ const handleSendMessage = async () => {
         detectMathRequest(processedMessage) ||
         selectedAIMode === 'reasoning' ||
         selectedAIMode === 'pro' ||
-        true; 
+        processedMessage.toLowerCase().includes('stream') || 
+        true; // Defaulting to true for smoother UX usually better
 
     try {
-        // FILE ANALYSIS
+        // 1. FILE ANALYSIS
         if (mode === "analyze_file" && fileCopy) {
             let fileContent;
             
@@ -3514,7 +3527,7 @@ const handleSendMessage = async () => {
                 }]);
             }
         }
-        // IMAGE EDIT
+        // 2. IMAGE EDIT
         else if (mode === "image_edit" && imageCopy) {
             let base64Image = null;
             
@@ -3556,12 +3569,7 @@ const handleSendMessage = async () => {
                 timeout: 0 
             });
 
-            console.log("Image Edit Server Response:", result); // DEBUG LOG
-
-            // Check for API Errors first
-            if (result.error || result.detail) {
-                throw new Error(result.error || result.detail || "Unknown Server Error");
-            }
+            if (result.error || result.detail) throw new Error(result.error || result.detail);
 
             const imgData = result.base64_image || result.image || result.url;
             
@@ -3576,10 +3584,10 @@ const handleSendMessage = async () => {
                 }]);
                 localStorage.setItem('last_edited_image', imgData);
             } else {
-                throw new Error(`Server returned no image. Raw response: ${JSON.stringify(result)}`);
+                throw new Error(`Server returned no image.`);
             }
         }
-        // IMAGE GENERATION (Corrected for "No Image Data")
+        // 3. IMAGE GENERATION
         else if (mode === "image_gen") {
             const apiUrl = '/api/generate/text';
             const apiPayload = { 
@@ -3593,20 +3601,12 @@ const handleSendMessage = async () => {
                 max_tokens: 20000 
             };
             
-            console.log("Sending Image Gen Request...");
-
             const result = await callFastAPI(apiUrl, apiPayload, mode, {
                 timeout: 0 
             });
 
-            console.log("Image Gen Server Response:", result); // DEBUG LOG - CHECK CONSOLE
+            if (result.error || result.detail) throw new Error(`Generation Failed: ${result.error || result.detail}`);
 
-            // 1. Check for explicit API errors
-            if (result.error || result.detail) {
-                throw new Error(`Generation Failed: ${result.error || result.detail}`);
-            }
-
-            // 2. Flexible Check for Image Data (Handles base64, url, or 'image')
             const imgData = result.base64_image || result.image || result.url || result.data?.[0]?.url;
 
             if (imgData) {
@@ -3620,17 +3620,18 @@ const handleSendMessage = async () => {
                 }]);
                 localStorage.setItem('last_edited_image', imgData);
             } else {
-                // This throws a readable error if the server response is empty or weird
-                throw new Error(`No image data received. Server replied: ${JSON.stringify(result).substring(0, 200)}...`);
+                throw new Error(`No image data received.`);
             }
         }
-        // FULL CODE / CHAT MODES
+        // 4. UNIVERSAL CHAT / CODE / REASONING (The part you missed)
         else {
             const isCodeMode = isFullCodeRequest;
             const apiUrl = '/api/generate/text';
+            
+            // This handles normal chat, pro mode, reasoning mode, and full code generation
             const apiPayload = { 
                 prompt: processedMessage, 
-                mode: isCodeMode ? "chat" : mode,
+                mode: isCodeMode ? "chat" : mode, // Defaults to 'chat', 'pro' or 'reasoning'
                 user_preference_id: getPersistentUserId(),
                 firebase_token: currentUser?.firebaseToken || '',
                 stream: shouldStream,
@@ -3640,6 +3641,7 @@ const handleSendMessage = async () => {
                 max_tokens: 20000
             };
             
+            // OPTION A: Streaming Response
             if (shouldStream) {
                 setIsStreaming(true);
                 setStreamingMessage({
@@ -3676,7 +3678,9 @@ const handleSendMessage = async () => {
                         }, 500);
                     }
                 }
-            } else {
+            } 
+            // OPTION B: Non-Streaming Response (Fallback)
+            else {
                 const result = await callFastAPI(apiUrl, apiPayload, mode, {
                     signal: controller.signal,
                     stream: false,
@@ -3707,11 +3711,9 @@ const handleSendMessage = async () => {
         console.error('API ERROR:', error);
         
         let errorMessage = 'Something went wrong.';
-        
         if (error.name === 'AbortError') {
             errorMessage = 'Request cancelled.';
         } else {
-            // Use the detailed error message we constructed above
             errorMessage = error.message || 'Unknown error';
         }
         
@@ -3732,8 +3734,7 @@ const handleSendMessage = async () => {
         setStreamedContent('');
         accumulatedTokensRef.current = '';
     }
-};
-  
+};  
   // ---------- Download Project ----------
     const downloadProjectAsZip = useCallback(async () => {
         if (generatedFiles.length === 0) {
@@ -5475,6 +5476,7 @@ int main() {
         </>
     );
 }
+
 
 
 
