@@ -3076,53 +3076,6 @@ const SpiderAIApp = ({
     );
 };
 
-// Export with proper error boundary
-export default function SpiderAIAppWithErrorBoundary(props) {
-    const [hasError, setHasError] = useState(false);
-    
-    if (hasError) {
-        return (
-            <div className="error-fallback">
-                <h3>Something went wrong</h3>
-                <button onClick={() => window.location.reload()}>
-                    Reload Application
-                </button>
-            </div>
-        );
-    }
-    
-    return (
-        <ErrorBoundary onError={() => setHasError(true)}>
-            <SpiderAIApp {...props} />
-        </ErrorBoundary>
-    );
-}
-
-// Simple error boundary component
-class ErrorBoundary extends React.Component {
-    constructor(props) {
-        super(props);
-        this.state = { hasError: false };
-    }
-    
-    static getDerivedStateFromError(error) {
-        return { hasError: true };
-    }
-    
-    componentDidCatch(error, errorInfo) {
-        console.error('SpiderAI Error:', error, errorInfo);
-        this.props.onError?.();
-    }
-    
-    render() {
-        if (this.state.hasError) {
-            return this.props.fallback || <div>Something went wrong</div>;
-        }
-        return this.props.children;
-    }
-}
-
-
 // --- END Plus Menu Component ---
 const SpiderVFXApp = () => { /* ... (Remains Placeholder) ... */ return (<div className="flex-grow h-full flex flex-col items-center justify-center bg-black text-white p-8 pattern-vfx-grid overflow-y-auto"><div className="bg-black bg-opacity-80 p-10 rounded-lg text-center shadow-xl"><h1 className="text-4xl font-bold mb-4 text-[var(--spider-neon-blue)]">Spider VFX</h1><p className="text-lg text-gray-400 mb-8">Coming Soon!</p><div className="animate-pulse text-6xl">✨</div></div></div>);};
 
@@ -4250,6 +4203,7 @@ int main() {
         </>
     );
 }
+
 
 
 
