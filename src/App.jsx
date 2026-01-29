@@ -1347,7 +1347,6 @@ const SpiderNotebookApp = ({
     );
 };
 
-
 const SpiderAIApp = ({ 
     currentUser, 
     showModal, 
@@ -1359,223 +1358,1226 @@ const SpiderAIApp = ({
     uploadedImage, 
     setUploadedImage 
 }) => {
-    // ========== SIMPLIFIED STATE ==========
+    // ---------- State ----------
     const [message, setMessage] = useState('');
     const [chatHistory, setChatHistory] = useState([
-        { role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }
+        { 
+            role: 'assistant', 
+            content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', 
+            type: 'text',
+            ts: Date.now()
+        }
     ]);
     const [activeChatId, setActiveChatId] = useState(null);
     const [recentChats, setRecentChats] = useState([]);
     const [aspectRatio, setAspectRatio] = useState('1:1');
+    const [isLoading, setIsLoading] = useState(false);
+    const [abortController, setAbortController] = useState(null);
+    const [streamingMessage, setStreamingMessage] = useState(null);
+    const [isDeleting, setIsDeleting] = useState(false);
     const [sidebarOpen, setSidebarOpen] = useState(false);
-    
-    // ========== STREAMING STATE (SINGLE SOURCE) ==========
-    const [streamState, setStreamState] = useState({
-        isActive: false,
-        content: '',
-        streamId: null,
-        isContinuation: false,
-        mode: null
+    const [isMobile, setIsMobile] = useState(false);
+    const [userPreferences, setUserPreferences] = useState({
+        prefersExplanations: false,
+        prefersConcise: false,
+        preferredLanguage: 'english',
+        avoidCodeWhenPossible: false
     });
     
-    // ========== LOADING STATES ==========
-    const [loadingState, setLoadingState] = useState({
-        isLoading: false,
-        loadingType: null, // 'text', 'image', 'reasoning', 'file'
-        progress: 0,
-        estimatedTime: null
-    });
-    
-    // ========== VOICE STATE ==========
-    const [voiceState, setVoiceState] = useState({
-        isRecording: false,
-        recordingTime: 0,
-        isTranscribing: false,
-        mediaRecorder: null
-    });
-    
-    // ========== PROJECT STATE ==========
-    const [projectState, setProjectState] = useState({
-        isFullCodeMode: false,
-        generatedFiles: [],
-        metadata: { name: '', type: '', description: '', totalFiles: 0 },
-        activeFileIndex: 0,
-        isProjectView: false
-    });
-    
-    // ========== AI MODE STATE ==========
-    const [aiMode, setAiMode] = useState({
-        selected: 'chat',
-        userPreference: null, // learned from user behavior
-        confidence: 1.0
-    });
-    
-    // ========== REASONING STATE ==========
+    // ---------- Streaming State ----------
+    const [isStreaming, setIsStreaming] = useState(false);
+    const [streamedContent, setStreamedContent] = useState('');
+    const [showContinueButton, setShowContinueButton] = useState(false);
+    const [lastStreamId, setLastStreamId] = useState(null);
+    const [streamProgress, setStreamProgress] = useState(0);
     const [reasoningSteps, setReasoningSteps] = useState([]);
     
-    // ========== REFS ==========
+    // ---------- Full Code Mode State ----------
+    const [isFullCodeMode, setIsFullCodeMode] = useState(false);
+    const [generatedFiles, setGeneratedFiles] = useState([]);
+    const [projectMetadata, setProjectMetadata] = useState({
+        name: '',
+        type: '',
+        description: '',
+        totalFiles: 0
+    });
+    const [activeFileIndex, setActiveFileIndex] = useState(0);
+    const [isProjectView, setIsProjectView] = useState(false);
+    
+    // ---------- Voice Recording State ----------
+    const [isRecording, setIsRecording] = useState(false);
+    const [recordingTime, setRecordingTime] = useState(0);
+    const [mediaRecorder, setMediaRecorder] = useState(null);
+    const [audioBlob, setAudioBlob] = useState(null);
+    const [isTranscribing, setIsTranscribing] = useState(false);
+    
+    // ---------- AI Mode State ----------
+    const [selectedAIMode, setSelectedAIMode] = useState('chat');
+    const [aiModeConfidence, setAiModeConfidence] = useState(0);
+    const [isStepByStepReasoning, setIsStepByStepReasoning] = useState(false);
+    const [imageGenerationProgress, setImageGenerationProgress] = useState(0);
+
     const fileInputRef = useRef(null);
     const imageInputRef = useRef(null);
     const chatEndRef = useRef(null);
     const textareaRef = useRef(null);
-    const streamReaderRef = useRef(null);
+    const accumulatedTokensRef = useRef('');
+    const fileContentBufferRef = useRef('');
     const recordingTimerRef = useRef(null);
-    const safeAreaBottomRef = useRef(0);
+    const continueStreamIdRef = useRef(null);
+    const streamStartTimeRef = useRef(0);
+    const audioChunksRef = useRef([]);
+    const conversationContextRef = useRef({
+        lastTopics: [],
+        userPreferences: {},
+        modeHistory: []
+    });
+
+    const getAppId = () => typeof __app_id !== 'undefined' ? __app_id : 'default-m4-app';
+    const LOCAL_STORAGE_KEY = `spider_chat_history_${getAppId()}_${(currentUser?.email || 'anon')}`;
+    const PREFERENCES_KEY = `spider_preferences_${getAppId()}_${(currentUser?.email || 'anon')}`;
     
-    // ========== CONSTANTS ==========
-    const LOCAL_STORAGE_KEY = `spider_chat_history_${currentUser?.email || 'anon'}`;
-    const DB_NAME = 'SpiderAIChatsDB';
-    const STORE_NAME = 'chats';
-    
-    // ========== MOBILE DETECTION ==========
-    const [isMobile, setIsMobile] = useState(false);
-    
-    useEffect(() => {
-        const checkMobile = () => {
-            const mobile = window.innerWidth <= 768;
-            setIsMobile(mobile);
-            setSidebarOpen(false);
-            
-            // Calculate safe area for iOS
-            safeAreaBottomRef.current = 
-                parseInt(getComputedStyle(document.documentElement)
-                .getPropertyValue('--sat') || '0');
-        };
-        
-        checkMobile();
-        window.addEventListener('resize', checkMobile);
-        
-        // Detect iOS
-        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-        if (isIOS) {
-            document.documentElement.classList.add('ios-device');
-        }
-        
-        return () => window.removeEventListener('resize', checkMobile);
-    }, []);
-    
-    // ========== PERSISTENT USER ID ==========
+    // ---------- Persistent User ID ----------
     const getPersistentUserId = useCallback(() => {
-        const key = 'spider_user_id';
+        const key = `spider_user_id_${getAppId()}`;
         let userId = localStorage.getItem(key);
         if (!userId) {
             userId = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
             localStorage.setItem(key, userId);
         }
         return userId;
-    }, []);
-    
-    // ========== INTELLIGENT MODE DETECTION ==========
-    const detectUserIntent = useCallback((text, context = []) => {
-        const lowerText = text.toLowerCase();
-        const scores = {
-            chat: 1.0, // Default
-            reasoning: 0,
-            image_gen: 0,
-            image_edit: 0,
-            analyze_file: 0,
-            full_code: 0,
-            explain_only: 0
+    }, [getAppId()]);
+
+    // ---------- Load User Preferences ----------
+    useEffect(() => {
+        const loadPreferences = () => {
+            try {
+                const saved = localStorage.getItem(PREFERENCES_KEY);
+                if (saved) {
+                    const parsed = JSON.parse(saved);
+                    setUserPreferences(prev => ({ ...prev, ...parsed }));
+                    conversationContextRef.current.userPreferences = parsed;
+                }
+            } catch (e) {
+                console.warn('Failed to load preferences:', e);
+            }
         };
+        loadPreferences();
+    }, []);
+
+    // ---------- Save User Preferences ----------
+    const saveUserPreference = useCallback((key, value) => {
+        setUserPreferences(prev => {
+            const updated = { ...prev, [key]: value };
+            conversationContextRef.current.userPreferences = updated;
+            localStorage.setItem(PREFERENCES_KEY, JSON.stringify(updated));
+            return updated;
+        });
+    }, []);
+
+    // ---------- Enhanced Full Code Detection with Context Awareness ----------
+    const fullCodePatterns = useMemo(() => ({
+        strong: [
+            'write full code',
+            'give full code',
+            'provide full code',
+            'complete code',
+            'entire code',
+            'full implementation',
+            'complete implementation',
+            'entire application',
+            'complete project',
+            'entire project',
+            'full project',
+            'whole application',
+            'create a complete',
+            'build a complete',
+            'develop a complete',
+            'make a complete',
+            'generate a complete',
+            'with all files',
+            'with entire codebase',
+            'with complete source',
+            'including all dependencies',
+            'with package.json',
+            'with requirements.txt'
+        ],
         
-        // Learn from user preferences
-        if (aiMode.userPreference) {
-            scores[aiMode.userPreference] += 0.3;
-        }
+        medium: [
+            'full stack',
+            'complete app',
+            'entire app',
+            'full app',
+            'with frontend and backend',
+            'with database',
+            'with api',
+            'with all components',
+            'with all modules',
+            'with configuration',
+            'with setup',
+            'with installation',
+            'multi-file',
+            'multiple files',
+            'file structure',
+            'project structure',
+            'directory structure',
+            'folder structure'
+        ],
         
-        // Context awareness
-        const lastMessages = context.slice(-3);
-        const hadCode = lastMessages.some(msg => 
-            msg.type === 'code' || msg.content?.includes('```')
+        projectTypes: [
+            'todo app',
+            'calculator',
+            'weather app',
+            'chat application',
+            'e-commerce',
+            'blog platform',
+            'social media',
+            'dashboard',
+            'admin panel',
+            'portfolio website',
+            'rest api',
+            'crud application',
+            'fullstack',
+            'mern stack',
+            'mean stack',
+            'react app',
+            'vue app',
+            'angular app',
+            'node.js app',
+            'django app',
+            'flask app',
+            'mobile app',
+            'desktop app'
+        ],
+        
+        // Negative patterns (user doesn't want code)
+        negative: [
+            'don\'t generate code',
+            'no code needed',
+            'just explain',
+            'explanation only',
+            'no implementation',
+            'theory only',
+            'concept only',
+            'pseudocode only',
+            'high level only',
+            'without code'
+        ]
+    }), []);
+
+    // ---------- Enhanced Math Detection ----------
+    const mathPatterns = useMemo(() => ({
+        latexInline: [
+            /\$([^$]+?)\$/g,
+            /\$\\displaystyle\s*([^$]+?)\$/g,
+            /\\\(([^)]+?)\\\)/g,
+            /\\\[([\s\S]+?)\\\]/g,
+            /\\begin\{equation\}([\s\S]+?)\\end\{equation\}/g,
+            /\\begin\{align\}([\s\S]+?)\\end\{align\}/g,
+            /\\begin\{gather\}([\s\S]+?)\\end\{gather\}/g,
+            /\\boxed\{([^}]+?)\}/g
+        ],
+        
+        mathKeywords: [
+            'calculate',
+            'solve',
+            'equation',
+            'formula',
+            'theorem',
+            'derivative',
+            'integral',
+            'matrix',
+            'vector',
+            'function',
+            'limit',
+            'sum',
+            'product',
+            'sqrt',
+            'frac',
+            'sin',
+            'cos',
+            'tan',
+            'log',
+            'ln',
+            'exp',
+            'pi',
+            'theta',
+            'alpha',
+            'beta',
+            'gamma',
+            'delta',
+            'epsilon',
+            'sigma',
+            'omega',
+            'infty',
+            'rightarrow',
+            'leftarrow',
+            'Rightarrow',
+            'Leftarrow',
+            'approx',
+            'equiv',
+            'propto',
+            'partial',
+            'nabla',
+            'int',
+            'sum',
+            'prod',
+            'lim'
+        ]
+    }), []);
+
+    // ---------- Context-Aware Request Analysis ----------
+    const analyzeRequest = useCallback((text) => {
+        const analysis = {
+            isFullCode: false,
+            isMath: false,
+            isImageRequest: false,
+            isReasoningNeeded: false,
+            isEditContinuation: false,
+            shouldStream: false,
+            preferredResponseType: 'balanced', // 'code', 'explanation', 'balanced'
+            confidence: 0,
+            topics: [],
+            estimatedLength: 'short' // 'short', 'medium', 'long'
+        };
+
+        if (!text || typeof text !== 'string') return analysis;
+
+        const lowerText = text.toLowerCase();
+        
+        // Update conversation context
+        conversationContextRef.current.lastTopics = [
+            ...conversationContextRef.current.lastTopics.slice(-5),
+            lowerText.substring(0, 100)
+        ];
+
+        // Check for negative patterns first (user preferences override)
+        const hasNegativePattern = fullCodePatterns.negative.some(pattern => 
+            lowerText.includes(pattern)
         );
-        const hadImage = lastMessages.some(msg => 
-            msg.type === 'image' || msg.content?.includes('image')
+        
+        if (hasNegativePattern && conversationContextRef.current.userPreferences.avoidCodeWhenPossible) {
+            analysis.preferredResponseType = 'explanation';
+            analysis.confidence = 0.9;
+            return analysis;
+        }
+
+        // Check if this is likely an edit continuation
+        const lastMessage = chatHistory[chatHistory.length - 1];
+        analysis.isEditContinuation = lastMessage?.type === 'image' && 
+            (lowerText.includes('edit') || 
+             lowerText.includes('change') || 
+             lowerText.includes('adjust') ||
+             lowerText.includes('modify'));
+
+        // Full code detection with context awareness
+        let fullCodeScore = 0;
+        
+        // Strong patterns (2 points each)
+        fullCodePatterns.strong.forEach(pattern => {
+            if (lowerText.includes(pattern)) fullCodeScore += 2;
+        });
+        
+        // Medium patterns (1 point each)
+        fullCodePatterns.medium.forEach(pattern => {
+            if (lowerText.includes(pattern)) fullCodeScore += 1;
+        });
+        
+        // Project type mentions
+        fullCodePatterns.projectTypes.forEach(type => {
+            if (lowerText.includes(type)) fullCodeScore += 1;
+        });
+        
+        // File extensions
+        const fileExtensions = ['.js', '.jsx', '.ts', '.tsx', '.py', '.html', '.css', '.json', '.md', '.txt'];
+        fileExtensions.forEach(ext => {
+            if (lowerText.includes(ext)) fullCodeScore += 1;
+        });
+        
+        // File count mentions
+        const fileCountMatch = lowerText.match(/(\d+)\s*(files|file)/);
+        if (fileCountMatch && parseInt(fileCountMatch[1]) > 1) {
+            fullCodeScore += 2;
+        }
+        
+        // Structure keywords
+        if (lowerText.includes('structure') || lowerText.includes('architecture')) {
+            fullCodeScore += 1;
+        }
+        
+        // Check conversation history for code context
+        const recentMessages = chatHistory.slice(-3);
+        const hasRecentCode = recentMessages.some(msg => 
+            msg.content?.includes('```') || 
+            msg.type === 'code' ||
+            (msg.role === 'assistant' && msg.content?.toLowerCase().includes('code'))
         );
         
-        // User commands override
-        if (lowerText.includes('explain only') || lowerText.includes('just explain') || 
-            lowerText.includes('don\'t generate code')) {
-            scores.explain_only = 10;
-            scores.full_code = 0;
-            scores.chat = 5;
+        if (hasRecentCode) {
+            fullCodeScore += 1;
+        }
+
+        analysis.isFullCode = fullCodeScore >= 3;
+        analysis.confidence = Math.min(fullCodeScore / 10, 1);
+
+        // Math detection
+        analysis.isMath = detectMathRequest(text);
+
+        // Image generation detection
+        analysis.isImageRequest = detectImageGeneration(text);
+
+        // Reasoning detection
+        analysis.isReasoningNeeded = 
+            lowerText.includes('step by step') ||
+            lowerText.includes('explain your reasoning') ||
+            lowerText.includes('show your work') ||
+            lowerText.includes('how did you arrive') ||
+            analysis.isMath ||
+            selectedAIMode === 'reasoning';
+
+        // Estimate response length
+        if (text.length > 500 || analysis.isFullCode || analysis.isReasoningNeeded) {
+            analysis.estimatedLength = 'long';
+            analysis.shouldStream = true;
+        } else if (text.length > 150) {
+            analysis.estimatedLength = 'medium';
+            analysis.shouldStream = true;
+        }
+
+        // User preference override
+        if (conversationContextRef.current.userPreferences.prefersExplanations) {
+            analysis.preferredResponseType = 'explanation';
+        }
+
+        return analysis;
+    }, [chatHistory, fullCodePatterns, selectedAIMode]);
+
+    // ---------- Detect Math Request ----------
+    const detectMathRequest = useCallback((text) => {
+        if (!text) return false;
+        
+        const lowerText = text.toLowerCase();
+        
+        // Check for math keywords
+        const hasMathKeywords = mathPatterns.mathKeywords.some(keyword => 
+            lowerText.includes(keyword) || 
+            text.includes(`\\${keyword}`)
+        );
+        
+        // Check for LaTeX patterns
+        const hasLatex = mathPatterns.latexInline.some(pattern => {
+            pattern.lastIndex = 0; // Reset regex state
+            return pattern.test(text);
+        });
+        
+        // Check for common math phrases
+        const mathPhrases = [
+            'solve for',
+            'calculate',
+            'find the value',
+            'prove that',
+            'show that',
+            'derivative of',
+            'integral of',
+            'limit of',
+            'matrix',
+            'vector',
+            'equation'
+        ];
+        
+        const hasMathPhrases = mathPhrases.some(phrase => lowerText.includes(phrase));
+        
+        return hasMathKeywords || hasLatex || hasMathPhrases;
+    }, [mathPatterns]);
+
+    // ---------- Detect Image Generation ----------
+    const detectImageGeneration = useCallback((prompt) => {
+        if (!prompt) return false;
+        
+        const lowerPrompt = prompt.toLowerCase();
+        const imageTriggers = [
+            'generate image', 'create image', 'make image', 'draw', 'paint',
+            'picture of', 'photo of', 'image of', 'generate a picture',
+            'create a picture', 'make a picture', 'visualize', 'illustrate',
+            'show me an image', 'show me a picture', 'can you draw',
+            'can you create an image', 'can you generate an image',
+            'image generation', 'create art', 'generate art', 'digital art'
+        ];
+        
+        // Check if user explicitly wants an image
+        const wantsImage = imageTriggers.some(trigger => lowerPrompt.includes(trigger));
+        
+        // Check if user might be describing an image
+        const describesImage = 
+            (lowerPrompt.includes('a picture') || 
+             lowerPrompt.includes('an image') ||
+             lowerPrompt.includes('a drawing')) &&
+            !lowerPrompt.includes('don\'t generate') &&
+            !lowerPrompt.includes('no image');
+        
+        return wantsImage || describesImage;
+    }, []);
+
+    // ---------- Intelligent AI Mode Selection ----------
+    const selectAIMode = useCallback((text, analysis, hasFile, hasImage) => {
+        // Default mode
+        let mode = 'chat';
+        let confidence = 0.5;
+        
+        // Check for explicit mode requests
+        const lowerText = text.toLowerCase();
+        
+        if (lowerText.includes('pro mode') || lowerText.includes('spider pro')) {
+            return { mode: 'pro', confidence: 0.9 };
         }
         
-        if (lowerText.includes('reason step by step') || lowerText.includes('show your thinking')) {
-            scores.reasoning = 8;
+        if (lowerText.includes('reasoning mode') || lowerText.includes('step by step')) {
+            return { mode: 'reasoning', confidence: 0.8 };
         }
         
-        if (lowerText.includes('generate image') || lowerText.includes('create image') || 
-            lowerText.includes('draw a picture')) {
-            scores.image_gen = 7;
+        // Analysis-based selection
+        if (analysis.isMath) {
+            mode = 'reasoning';
+            confidence = 0.7;
+        } else if (analysis.isFullCode) {
+            mode = 'pro';
+            confidence = 0.6;
+        } else if (hasImage || analysis.isImageRequest) {
+            mode = 'pro'; // Pro mode for image tasks
+            confidence = 0.8;
+        } else if (hasFile) {
+            mode = 'reasoning'; // Reasoning for analysis
+            confidence = 0.7;
         }
         
-        if ((lowerText.includes('edit image') || lowerText.includes('modify image')) && hadImage) {
-            scores.image_edit = 9;
-        }
-        
-        if (lowerText.includes('full code') || lowerText.includes('complete project')) {
-            scores.full_code = 6;
-        }
-        
-        // Check for file analysis
-        if (lowerText.includes('analyze file') || lowerText.includes('read this file')) {
-            scores.analyze_file = 8;
-        }
-        
-        // Return highest scoring intent
-        let maxScore = 0;
-        let intent = 'chat';
-        
-        for (const [key, value] of Object.entries(scores)) {
-            if (value > maxScore) {
-                maxScore = value;
-                intent = key;
+        // Consider conversation context
+        const modeHistory = conversationContextRef.current.modeHistory;
+        if (modeHistory.length > 0) {
+            const lastMode = modeHistory[modeHistory.length - 1];
+            if (lastMode === mode) {
+                confidence += 0.1; // Higher confidence for consistent mode
             }
         }
         
-        return {
-            intent,
-            confidence: maxScore / 10,
-            scores
-        };
-    }, [aiMode.userPreference]);
-    
-    // ========== FIXED STREAMING SYSTEM ==========
-    const handleStreamResponse = useCallback(async (response, isContinue = false) => {
-        if (!response.body) throw new Error('No response body');
+        // Update mode history
+        conversationContextRef.current.modeHistory = [
+            ...modeHistory.slice(-4),
+            mode
+        ];
         
+        return { mode, confidence: Math.min(confidence, 1) };
+    }, []);
+
+    // ---------- Extract Project Metadata ----------
+    const extractProjectMetadata = useCallback((text) => {
+        const lowerText = text.toLowerCase();
+        const metadata = {
+            name: 'Untitled Project',
+            type: 'web',
+            description: 'Generated by Spider AI',
+            totalFiles: 0,
+            techStack: [],
+            hasFrontend: false,
+            hasBackend: false,
+            hasDatabase: false
+        };
+        
+        // Detect project type
+        if (lowerText.includes('react') || lowerText.includes('frontend')) {
+            metadata.type = 'react';
+            metadata.techStack.push('React');
+            metadata.hasFrontend = true;
+        }
+        if (lowerText.includes('node') || lowerText.includes('backend') || lowerText.includes('api')) {
+            metadata.type = metadata.type === 'react' ? 'mern' : 'node';
+            metadata.techStack.push('Node.js');
+            metadata.hasBackend = true;
+        }
+        if (lowerText.includes('mongodb') || lowerText.includes('database')) {
+            metadata.techStack.push('MongoDB');
+            metadata.hasDatabase = true;
+        }
+        if (lowerText.includes('python') || lowerText.includes('django') || lowerText.includes('flask')) {
+            metadata.type = 'python';
+            metadata.techStack.push('Python');
+            metadata.hasBackend = true;
+        }
+        
+        // Try to extract project name
+        const nameMatch = lowerText.match(/(?:create|build|make|generate)\s+(?:a|an)?\s+([a-z\s]+?)(?:\s+(?:app|application|project|website|platform))/);
+        if (nameMatch) {
+            metadata.name = nameMatch[1].trim().replace(/\b\w/g, l => l.toUpperCase());
+        }
+        
+        return metadata;
+    }, []);
+
+    // ---------- Parse Generated Code for Files ----------
+    const parseCodeForFiles = useCallback((text) => {
+        if (!text) return [];
+        
+        const files = [];
+        const lines = text.split('\n');
+        let currentFile = null;
+        let currentContent = [];
+        let inCodeBlock = false;
+        let codeBlockLanguage = '';
+        
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            
+            // Detect code block start
+            if (line.trim().startsWith('```')) {
+                if (!inCodeBlock) {
+                    // Start of code block
+                    inCodeBlock = true;
+                    codeBlockLanguage = line.trim().replace(/```/g, '').trim();
+                } else {
+                    // End of code block
+                    inCodeBlock = false;
+                    if (currentFile && currentContent.length > 0) {
+                        files.push({
+                            ...currentFile,
+                            content: currentContent.join('\n').trim(),
+                            language: getLanguageFromExtension(currentFile.name) || codeBlockLanguage || 'text'
+                        });
+                    }
+                    currentFile = null;
+                    currentContent = [];
+                }
+                continue;
+            }
+            
+            if (inCodeBlock && currentFile) {
+                currentContent.push(line);
+                continue;
+            }
+            
+            // Detect file headers
+            const fileHeaderMatch = line.match(/^(?:File|Filename|File name|## |# |📁|📄)\s*[:：]?\s*(.+?\.(?:js|jsx|ts|tsx|py|html|css|json|md|txt|yml|yaml|xml|env))$/i);
+            const pathMatch = line.match(/^([a-zA-Z0-9_\-./]+\.(?:js|jsx|ts|tsx|py|html|css|json|md|txt|yml|yaml|xml|env))$/);
+            
+            if (fileHeaderMatch || pathMatch) {
+                // Save previous file if exists
+                if (currentFile && currentContent.length > 0) {
+                    files.push({
+                        ...currentFile,
+                        content: currentContent.join('\n').trim(),
+                        language: getLanguageFromExtension(currentFile.name)
+                    });
+                }
+                
+                const fileName = (fileHeaderMatch?.[1] || pathMatch?.[1]).trim();
+                currentFile = {
+                    name: fileName,
+                    path: fileName.includes('/') ? fileName : `/${fileName}`,
+                    language: getLanguageFromExtension(fileName),
+                    size: 0,
+                    lastModified: Date.now()
+                };
+                currentContent = [];
+                continue;
+            }
+            
+            // Accumulate content for current file
+            if (currentFile) {
+                currentContent.push(line);
+            }
+        }
+        
+        // Save last file if we're still in a code block
+        if (currentFile && currentContent.length > 0) {
+            files.push({
+                ...currentFile,
+                content: currentContent.join('\n').trim(),
+                size: currentContent.join('\n').length,
+                language: getLanguageFromExtension(currentFile.name)
+            });
+        }
+        
+        return files;
+    }, []);
+
+    const getLanguageFromExtension = (filename) => {
+        const ext = filename.split('.').pop().toLowerCase();
+        const map = {
+            'js': 'javascript', 'jsx': 'javascript', 'ts': 'typescript', 'tsx': 'typescript',
+            'py': 'python', 'html': 'html', 'css': 'css', 'scss': 'scss', 'json': 'json',
+            'md': 'markdown', 'txt': 'text', 'yml': 'yaml', 'yaml': 'yaml', 'xml': 'xml',
+            'java': 'java', 'cpp': 'cpp', 'c': 'c', 'cs': 'csharp', 'php': 'php',
+            'rb': 'ruby', 'go': 'go', 'rs': 'rust', 'swift': 'swift', 'kt': 'kotlin'
+        };
+        return map[ext] || 'text';
+    };
+
+    // ---------- LaTeX Math Processing ----------
+    const processMathContent = useCallback((text) => {
+        if (!text) return [];
+        
+        const blocks = [];
+        let currentText = '';
+        let i = 0;
+        
+        while (i < text.length) {
+            // Check for inline math: $...$
+            if (text[i] === '$' && i + 1 < text.length && text[i + 1] !== '$') {
+                // Flush previous text
+                if (currentText.trim()) {
+                    blocks.push({ type: "text", content: currentText });
+                    currentText = '';
+                }
+                
+                // Find closing $
+                let j = i + 1;
+                while (j < text.length && text[j] !== '$') j++;
+                
+                if (j < text.length) {
+                    const latex = text.substring(i + 1, j);
+                    try {
+                        const html = katex.renderToString(latex, {
+                            throwOnError: false,
+                            displayMode: false
+                        });
+                        blocks.push({ type: "math-inline", content: latex, html });
+                    } catch (error) {
+                        blocks.push({ type: "text", content: `$${latex}$` });
+                    }
+                    i = j + 1;
+                    continue;
+                }
+            }
+            
+            // Check for display math: $$...$$
+            if (text.substr(i, 2) === '$$' && i + 2 < text.length) {
+                // Flush previous text
+                if (currentText.trim()) {
+                    blocks.push({ type: "text", content: currentText });
+                    currentText = '';
+                }
+                
+                // Find closing $$
+                let j = i + 2;
+                while (j < text.length - 1 && text.substr(j, 2) !== '$$') j++;
+                
+                if (j < text.length - 1) {
+                    const latex = text.substring(i + 2, j);
+                    try {
+                        const html = katex.renderToString(latex, {
+                            throwOnError: false,
+                            displayMode: true
+                        });
+                        blocks.push({ type: "math-display", content: latex, html });
+                    } catch (error) {
+                        blocks.push({ type: "text", content: `$$${latex}$$` });
+                    }
+                    i = j + 2;
+                    continue;
+                }
+            }
+            
+            // Add regular character
+            currentText += text[i];
+            i++;
+        }
+        
+        // Flush remaining text
+        if (currentText.trim()) {
+            blocks.push({ type: "text", content: currentText });
+        }
+        
+        return blocks;
+    }, []);
+
+    // ---------- IndexedDB Configuration ----------
+    const DB_NAME = 'SpiderAIChatsDB';
+    const DB_VERSION = 1;
+    const STORE_NAME = 'chats';
+
+    // ---------- Detect Mobile & Responsive ----------
+    useEffect(() => {
+        const checkMobile = () => {
+            const mobile = window.innerWidth <= 768;
+            setIsMobile(mobile);
+            if (mobile) {
+                setSidebarOpen(false);
+            }
+        };
+        
+        checkMobile();
+        window.addEventListener('resize', checkMobile);
+        
+        return () => window.removeEventListener('resize', checkMobile);
+    }, []);
+
+    // ---------- Auto-resize textarea ----------
+    useEffect(() => {
+        if (textareaRef.current) {
+            textareaRef.current.style.height = 'auto';
+            const newHeight = Math.min(textareaRef.current.scrollHeight, 120);
+            textareaRef.current.style.height = newHeight + 'px';
+            
+            // Adjust mobile padding if needed
+            if (isMobile && newHeight > 60) {
+                setTimeout(() => {
+                    textareaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }, 100);
+            }
+        }
+    }, [message, isMobile]);
+
+    // ---------- Enhanced Voice Recording with Audio Send ----------
+    const startRecording = useCallback(async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    sampleRate: 16000,
+                    channelCount: 1
+                } 
+            });
+            
+            const recorder = new MediaRecorder(stream, {
+                mimeType: 'audio/webm;codecs=opus',
+                audioBitsPerSecond: 128000
+            });
+            
+            audioChunksRef.current = [];
+            
+            recorder.ondataavailable = (e) => {
+                if (e.data.size > 0) {
+                    audioChunksRef.current.push(e.data);
+                }
+            };
+            
+            recorder.onstop = async () => {
+                const audioBlob = new Blob(audioChunksRef.current, { 
+                    type: 'audio/webm;codecs=opus' 
+                });
+                setAudioBlob(audioBlob);
+                
+                // Stop all tracks
+                stream.getTracks().forEach(track => track.stop());
+                
+                // Auto-transcribe if under 30 seconds
+                if (recordingTime <= 30) {
+                    await transcribeAudio(audioBlob);
+                } else {
+                    // For longer recordings, just set the blob
+                    setMessage(prev => prev + (prev ? ' ' : '') + '[Voice recording ready to send]');
+                }
+            };
+            
+            recorder.start(100); // Collect data every 100ms
+            setMediaRecorder(recorder);
+            setIsRecording(true);
+            setRecordingTime(0);
+            
+            // Start timer
+            recordingTimerRef.current = setInterval(() => {
+                setRecordingTime(prev => {
+                    if (prev >= 300) { // Auto-stop at 5 minutes
+                        stopRecording();
+                        return prev;
+                    }
+                    return prev + 1;
+                });
+            }, 1000);
+            
+        } catch (error) {
+            console.error('Error starting recording:', error);
+            showModal("Microphone Error", "Could not access microphone. Please check permissions.");
+        }
+    }, [showModal]);
+
+    const stopRecording = useCallback(() => {
+        if (mediaRecorder && mediaRecorder.state === 'recording') {
+            mediaRecorder.stop();
+            setIsRecording(false);
+            
+            if (recordingTimerRef.current) {
+                clearInterval(recordingTimerRef.current);
+                recordingTimerRef.current = null;
+            }
+        }
+    }, [mediaRecorder]);
+
+    const transcribeAudio = useCallback(async (audioBlob) => {
+        setIsTranscribing(true);
+        
+        try {
+            // Convert blob to base64
+            const reader = new FileReader();
+            
+            return new Promise((resolve, reject) => {
+                reader.onloadend = async () => {
+                    try {
+                        const base64Audio = reader.result.split(',')[1];
+                        
+                        // Call Whisper API
+                        const apiUrl = '/api/transcribe';
+                        const apiPayload = {
+                            audio: base64Audio,
+                            model: 'whisper-large',
+                            language: 'en',
+                            user_preference_id: getPersistentUserId()
+                        };
+                        
+                        const result = await callFastAPI(apiUrl, apiPayload, 'transcribe');
+                        
+                        if (result?.text) {
+                            setMessage(prev => prev + (prev ? ' ' : '') + result.text);
+                        } else {
+                            showModal("Transcription Error", "Could not transcribe audio.");
+                        }
+                        
+                        setIsTranscribing(false);
+                        resolve(result?.text);
+                    } catch (error) {
+                        setIsTranscribing(false);
+                        reject(error);
+                    }
+                };
+                
+                reader.onerror = (error) => {
+                    setIsTranscribing(false);
+                    reject(error);
+                };
+                
+                reader.readAsDataURL(audioBlob);
+            });
+            
+        } catch (error) {
+            console.error('Transcription error:', error);
+            showModal("Transcription Error", "Failed to transcribe audio.");
+            setIsTranscribing(false);
+        }
+    }, [callFastAPI, getPersistentUserId, showModal]);
+
+    // Clean up recording on unmount
+    useEffect(() => {
+        return () => {
+            if (recordingTimerRef.current) {
+                clearInterval(recordingTimerRef.current);
+            }
+            if (mediaRecorder) {
+                mediaRecorder.stream?.getTracks().forEach(track => track.stop());
+            }
+        };
+    }, [mediaRecorder]);
+
+    // ---------- Open Database ----------
+    const openDatabase = useCallback(() => {
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open(DB_NAME, DB_VERSION);
+            
+            request.onerror = () => {
+                reject(new Error(`Failed to open database: ${request.error}`));
+            };
+            
+            request.onsuccess = () => {
+                resolve(request.result);
+            };
+            
+            request.onupgradeneeded = (event) => {
+                const db = event.target.result;
+                
+                if (!db.objectStoreNames.contains(STORE_NAME)) {
+                    const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+                    store.createIndex('userId', 'userId', { unique: false });
+                    store.createIndex('timestamp', 'timestamp', { unique: false });
+                    store.createIndex('appId', 'appId', { unique: false });
+                }
+            };
+        });
+    }, []);
+
+    const getUserId = useCallback(() => {
+        return currentUser?.email || currentUser?.id || getPersistentUserId();
+    }, [currentUser, getPersistentUserId]);
+
+    // ---------- Load Recent Chats ----------
+    const loadRecentChats = useCallback(async () => {
+        try {
+            const db = await openDatabase();
+            const transaction = db.transaction([STORE_NAME], 'readonly');
+            const store = transaction.objectStore(STORE_NAME);
+            const index = store.index('userId');
+            
+            const userId = getUserId();
+            const range = IDBKeyRange.only(userId);
+            const request = index.getAll(range);
+            
+            return new Promise((resolve) => {
+                request.onsuccess = () => {
+                    const chats = request.result || [];
+                    const sortedChats = chats
+                        .sort((a, b) => b.timestamp - a.timestamp)
+                        .slice(0, 10)
+                        .map(chat => ({
+                            id: chat.id,
+                            title: chat.title || 'Untitled Chat',
+                            timestamp: chat.timestamp,
+                            mode: chat.mode || 'chat',
+                            aiMode: chat.aiMode || 'chat'
+                        }));
+                    
+                    setRecentChats(sortedChats);
+                    resolve(sortedChats);
+                    db.close();
+                };
+                
+                request.onerror = () => {
+                    console.error('Error loading recent chats:', request.error);
+                    setRecentChats([]);
+                    resolve([]);
+                    db.close();
+                };
+            });
+        } catch (error) {
+            console.error('Error in loadRecentChats:', error);
+            setRecentChats([]);
+            return [];
+        }
+    }, [openDatabase, getUserId]);
+
+    // ---------- Load Specific Chat ----------
+    const loadChatById = useCallback(async (chatId) => {
+        if (!chatId) return;
+        
+        try {
+            const db = await openDatabase();
+            const transaction = db.transaction([STORE_NAME], 'readonly');
+            const store = transaction.objectStore(STORE_NAME);
+            const request = store.get(chatId);
+            
+            return new Promise((resolve, reject) => {
+                request.onsuccess = () => {
+                    if (request.result) {
+                        const chat = request.result;
+                        try {
+                            const history = JSON.parse(chat.history || '[]');
+                            if (Array.isArray(history) && history.length > 0) {
+                                setChatHistory(history);
+                                setActiveChatId(chatId);
+                                setSelectedAIMode(chat.aiMode || 'chat');
+                                
+                                // Update conversation context
+                                conversationContextRef.current.lastTopics = 
+                                    history.slice(-3).map(msg => msg.content?.substring(0, 100) || '');
+                                    
+                                resolve(history);
+                            } else {
+                                throw new Error('Invalid chat history');
+                            }
+                        } catch (parseError) {
+                            console.error('Error parsing chat history:', parseError);
+                            reject(parseError);
+                        }
+                    } else {
+                        reject(new Error('Chat not found'));
+                    }
+                    db.close();
+                };
+                
+                request.onerror = () => {
+                    reject(request.error);
+                    db.close();
+                };
+            });
+        } catch (error) {
+            console.error('Error in loadChatById:', error);
+            throw error;
+        }
+    }, [openDatabase]);
+
+    // ---------- Save Chat History ----------
+    const saveChatHistory = useCallback(async (history, aiMode = selectedAIMode) => {
+        if (!Array.isArray(history) || history.length <= 1) return;
+        
+        try {
+            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(history));
+        } catch (e) {
+            console.warn('LocalStorage save failed:', e);
+        }
+        
+        const userId = getUserId();
+        const chatTitle = (history[1]?.content || 'New Chat')
+            .toString()
+            .substring(0, 50)
+            .trim() || 'New Chat';
+        
+        const chatData = {
+            id: activeChatId || `chat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            title: chatTitle,
+            history: JSON.stringify(history),
+            timestamp: Date.now(),
+            mode: history[1]?.type || 'chat',
+            aiMode: aiMode,
+            userId: userId,
+            appId: getAppId()
+        };
+        
+        try {
+            const db = await openDatabase();
+            const transaction = db.transaction([STORE_NAME], 'readwrite');
+            const store = transaction.objectStore(STORE_NAME);
+            
+            store.put(chatData);
+            
+            transaction.oncomplete = () => {
+                if (!activeChatId) {
+                    setActiveChatId(chatData.id);
+                }
+                loadRecentChats();
+                db.close();
+            };
+            
+            transaction.onerror = () => {
+                console.error('Error saving to IndexedDB:', transaction.error);
+                db.close();
+            };
+        } catch (error) {
+            console.error('Error saving chat:', error);
+        }
+    }, [activeChatId, openDatabase, getUserId, loadRecentChats, selectedAIMode]);
+
+    // ---------- Delete Chat ----------
+    const deleteChat = useCallback(async (chatId) => {
+        if (!chatId) return;
+        
+        setIsDeleting(true);
+        try {
+            const db = await openDatabase();
+            const transaction = db.transaction([STORE_NAME], 'readwrite');
+            const store = transaction.objectStore(STORE_NAME);
+            
+            store.delete(chatId);
+            
+            transaction.oncomplete = () => {
+                if (activeChatId === chatId) {
+                    handleNewChat();
+                }
+                loadRecentChats();
+                db.close();
+                setIsDeleting(false);
+            };
+            
+            transaction.onerror = () => {
+                console.error('Error deleting chat:', transaction.error);
+                db.close();
+                setIsDeleting(false);
+            };
+        } catch (error) {
+            console.error('Error in deleteChat:', error);
+            setIsDeleting(false);
+        }
+    }, [activeChatId, openDatabase, loadRecentChats]);
+
+    // ---------- Initialize ----------
+    useEffect(() => {
+        const initializeChats = async () => {
+            try {
+                await loadRecentChats();
+                
+                if (recentChats.length > 0) {
+                    try {
+                        await loadChatById(recentChats[0].id);
+                    } catch (error) {
+                        console.log('Starting new chat');
+                    }
+                }
+            } catch (error) {
+                console.error('Error initializing chats:', error);
+            }
+        };
+        
+        initializeChats();
+    }, [currentUser]);
+
+    // Auto-save chat history
+    useEffect(() => {
+        if (chatHistory.length > 1) {
+            const timeoutId = setTimeout(() => {
+                saveChatHistory(chatHistory);
+            }, 500);
+            
+            return () => clearTimeout(timeoutId);
+        }
+    }, [chatHistory, saveChatHistory]);
+
+    // Scroll to bottom when chat updates
+    useEffect(() => {
+        if (chatEndRef.current && !isLoading) {
+            setTimeout(() => {
+                chatEndRef.current?.scrollIntoView({ 
+                    behavior: 'smooth',
+                    block: 'end'
+                });
+            }, 100);
+        }
+    }, [chatHistory, streamingMessage, streamedContent, isLoading]);
+
+    // ---------- Fixed Streaming Handler ----------
+    const handleStreamResponse = useCallback(async (response, isContinue = false, initialContent = '') => {
+        if (!response.body) return;
+
         const reader = response.body.getReader();
         streamReaderRef.current = reader;
+        
         const decoder = new TextDecoder();
         let buffer = '';
+        let tokenCount = 0;
+        let totalTokens = 0;
+        streamStartTimeRef.current = Date.now();
         
-        // Initialize stream state
-        setStreamState(prev => ({
-            ...prev,
-            isActive: true,
-            content: isContinue ? prev.content : '',
-            isContinuation: isContinue,
-            mode: loadingState.loadingType
-        }));
+        // Initialize with existing content if continuing
+        accumulatedTokensRef.current = initialContent;
         
+        // Update UI immediately with existing content
+        setStreamedContent(initialContent);
+        setStreamProgress(0);
+
         try {
             while (true) {
                 const { done, value } = await reader.read();
                 
                 if (done) {
-                    // Check if we should show continue button
-                    const content = streamState.content;
+                    // Check if response ends abruptly
+                    const content = accumulatedTokensRef.current.trim();
+                    const lastChar = content.slice(-1);
                     const isCodeBlockOpen = (content.match(/```/g) || []).length % 2 !== 0;
-                    const endsAbruptly = !/[.!?。！？\n]/.test(content.slice(-1));
+                    const endsWithCompleteSentence = /[.!?]\s*$/.test(content);
                     
-                    if (isCodeBlockOpen || endsAbruptly) {
-                        setStreamState(prev => ({ ...prev, showContinue: true }));
+                    // Show continue button if code block is open or doesn't end properly
+                    if (content.length > 0 && (isCodeBlockOpen || !endsWithCompleteSentence)) {
+                        setShowContinueButton(true);
                     }
                     
+                    // Add the message to history if we have content
+                    if (accumulatedTokensRef.current && accumulatedTokensRef.current !== initialContent) {
+                        const assistantMessage = {
+                            role: 'assistant',
+                            content: accumulatedTokensRef.current,
+                            type: 'text',
+                            ts: Date.now(),
+                            isContinued: isContinue,
+                            aiMode: selectedAIMode,
+                            reasoningSteps: isStepByStepReasoning ? reasoningSteps : undefined
+                        };
+                        
+                        // Only add if we're not already showing it as streaming
+                        if (!isStreaming) {
+                            setChatHistory(prev => [...prev, assistantMessage]);
+                        }
+                    }
+                    
+                    setStreamProgress(100);
                     break;
                 }
                 
-                buffer += decoder.decode(value, { stream: true });
+                const chunk = decoder.decode(value, { stream: true });
+                buffer += chunk;
                 const lines = buffer.split('\n');
                 buffer = lines.pop() || '';
                 
@@ -1587,31 +2589,59 @@ const SpiderAIApp = ({
                         try {
                             const parsed = JSON.parse(data);
                             
-                            // Handle different response types
                             if (parsed.text) {
-                                setStreamState(prev => ({
-                                    ...prev,
-                                    content: prev.content + parsed.text
-                                }));
+                                tokenCount++;
+                                totalTokens++;
+                                const textToAdd = parsed.text;
                                 
-                                // Update reasoning steps if in reasoning mode
-                                if (loadingState.loadingType === 'reasoning' && parsed.text.includes('Step')) {
-                                    setReasoningSteps(prev => [...prev, parsed.text]);
+                                // Update progress
+                                const elapsed = Date.now() - streamStartTimeRef.current;
+                                const tokensPerSecond = (totalTokens / (elapsed / 1000)) || 1;
+                                const estimatedTotal = Math.min(totalTokens + (tokensPerSecond * 5), totalTokens * 3);
+                                const progress = Math.min((totalTokens / estimatedTotal) * 100, 95);
+                                setStreamProgress(progress);
+                                
+                                // Append to accumulated content
+                                accumulatedTokensRef.current += textToAdd;
+                                
+                                // Update State for UI
+                                setStreamedContent(accumulatedTokensRef.current);
+                                
+                                // Handle reasoning steps
+                                if (selectedAIMode === 'reasoning' || isStepByStepReasoning) {
+                                    const steps = accumulatedTokensRef.current.split('\n\n').filter(step => 
+                                        step.trim().length > 0 && 
+                                        (step.includes('Step') || step.includes('Reasoning') || step.includes(':'))
+                                    );
+                                    setReasoningSteps(steps);
+                                }
+                                
+                                // Handle Full Code Parsing
+                                if (isFullCodeMode) {
+                                    fileContentBufferRef.current += textToAdd;
+                                    if (tokenCount % 10 === 0) {
+                                        const files = parseCodeForFiles(fileContentBufferRef.current);
+                                        if (files.length > 0) {
+                                            setGeneratedFiles(files);
+                                            setProjectMetadata(prev => ({
+                                                ...prev,
+                                                totalFiles: files.length
+                                            }));
+                                        }
+                                    }
                                 }
                             }
                             
                             if (parsed.stream_id) {
-                                setStreamState(prev => ({ ...prev, streamId: parsed.stream_id }));
+                                setLastStreamId(parsed.stream_id);
+                                continueStreamIdRef.current = parsed.stream_id;
                             }
                             
-                            if (parsed.progress) {
-                                setLoadingState(prev => ({ 
-                                    ...prev, 
-                                    progress: parsed.progress 
-                                }));
+                            if (parsed.reasoning_steps) {
+                                setReasoningSteps(prev => [...prev, ...parsed.reasoning_steps]);
                             }
                             
-                        } catch (e) {
+                        } catch (e) { 
                             console.warn('Stream parse error:', e);
                         }
                     }
@@ -1620,38 +2650,64 @@ const SpiderAIApp = ({
         } catch (error) {
             if (error.name !== 'AbortError') {
                 console.error('Stream error:', error);
-                showModal("Stream Error", "Connection interrupted. Please try again.");
+                throw error;
             }
         } finally {
             reader.releaseLock();
             streamReaderRef.current = null;
+            
+            if (isFullCodeMode && fileContentBufferRef.current) {
+                const files = parseCodeForFiles(fileContentBufferRef.current);
+                if (files.length > 0) setGeneratedFiles(files);
+            }
+            
+            setStreamProgress(100);
         }
-    }, [loadingState.loadingType, showModal]);
-    
-    // ========== FIXED CONTINUE GENERATION ==========
+    }, [isFullCodeMode, parseCodeForFiles, isStreaming, selectedAIMode, isStepByStepReasoning]);
+
+    // ---------- Fixed Continue Generation ----------
     const handleContinueGeneration = useCallback(async () => {
-        if (!streamState.streamId) return;
+        if (!lastStreamId) return;
         
-        setLoadingState({ 
-            isLoading: true, 
-            loadingType: 'text',
-            progress: 0,
-            estimatedTime: null 
+        setIsLoading(true);
+        setIsStreaming(true);
+        setShowContinueButton(false);
+        
+        // Get the last AI message
+        const lastMsgIndex = chatHistory.length - 1;
+        const lastMsg = chatHistory[lastMsgIndex];
+        
+        // Capture its content
+        const previousContent = lastMsg.role === 'assistant' ? lastMsg.content : '';
+        
+        // Remove the last static message from history temporarily
+        if (lastMsg.role === 'assistant') {
+            setChatHistory(prev => prev.slice(0, -1));
+        }
+
+        // Set the Streaming UI to start with the OLD content
+        setStreamingMessage({
+            role: 'assistant',
+            content: previousContent,
+            type: 'text',
+            ts: Date.now(),
+            isStreaming: true,
+            isContinue: true
         });
-        
-        setStreamState(prev => ({ ...prev, showContinue: false }));
-        
+
         const apiUrl = '/api/generate/continue';
         const apiPayload = {
-            stream_id: streamState.streamId,
+            stream_id: continueStreamIdRef.current || lastStreamId,
             user_preference_id: getPersistentUserId(),
             firebase_token: currentUser?.firebaseToken || '',
             stream: true,
-            context: chatHistory.slice(-5) // Send last 5 messages for context
+            context: previousContent.substring(-500) // Send last 500 chars as context
         };
         
         try {
             const controller = new AbortController();
+            setAbortController(controller);
+            
             const response = await callFastAPI(apiUrl, apiPayload, 'chat', {
                 signal: controller.signal,
                 stream: true
@@ -1659,1419 +2715,2222 @@ const SpiderAIApp = ({
             
             if (!response.ok) throw new Error(response.statusText);
             
-            await handleStreamResponse(response, true);
+            await handleStreamResponse(response, true, previousContent);
             
         } catch (error) {
             console.error('Continue error:', error);
-            showModal("Continue Error", "Could not continue generation. Please try a new message.");
+            
+            // On error, restore the original message
+            setChatHistory(prev => [...prev, lastMsg]);
+            
+            showModal("Continue Error", "Failed to continue generation. Please try again.");
         } finally {
-            setLoadingState(prev => ({ ...prev, isLoading: false }));
+            setIsLoading(false);
+            setIsStreaming(false);
+            setStreamingMessage(null);
         }
-    }, [streamState.streamId, chatHistory, getPersistentUserId, currentUser, callFastAPI, handleStreamResponse, showModal]);
-    
-    // ========== STOP GENERATION ==========
+    }, [lastStreamId, chatHistory, getPersistentUserId, currentUser, callFastAPI, handleStreamResponse, showModal]);
+
+    // ---------- Stop Generation ----------
     const handleStopGeneration = useCallback(() => {
+        if (abortController) {
+            abortController.abort();
+            setAbortController(null);
+        }
         if (streamReaderRef.current) {
             streamReaderRef.current.cancel();
             streamReaderRef.current = null;
         }
         
+        setIsLoading(false);
+        setIsStreaming(false);
+        
         // Save whatever we've streamed so far
-        if (streamState.content.trim()) {
+        if (accumulatedTokensRef.current && accumulatedTokensRef.current.trim()) {
             const assistantMessage = {
                 role: 'assistant',
-                content: streamState.content,
+                content: accumulatedTokensRef.current,
                 type: 'text',
                 ts: Date.now(),
-                isPartial: true
+                isPartial: true,
+                aiMode: selectedAIMode
             };
             setChatHistory(prev => [...prev, assistantMessage]);
+            accumulatedTokensRef.current = '';
+            setStreamedContent('');
         }
         
-        setStreamState({
-            isActive: false,
-            content: '',
-            streamId: null,
-            isContinuation: false,
-            mode: null,
-            showContinue: false
-        });
-        
-        setLoadingState(prev => ({ ...prev, isLoading: false }));
-    }, [streamState.content]);
-    
-    // ========== FIXED VOICE RECORDING ==========
-    const startVoiceRecording = useCallback(async () => {
-        try {
-            // Check iOS permissions
-            if (isMobile && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    audio: {
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        sampleRate: 16000,
-                        channelCount: 1
-                    } 
-                });
-                
-                const recorder = new MediaRecorder(stream, {
-                    mimeType: 'audio/webm;codecs=opus'
-                });
-                
-                const chunks = [];
-                
-                recorder.ondataavailable = (e) => {
-                    if (e.data.size > 0) {
-                        chunks.push(e.data);
-                    }
-                };
-                
-                recorder.onstop = async () => {
-                    const audioBlob = new Blob(chunks, { type: 'audio/webm' });
-                    await sendVoiceToAPI(audioBlob);
-                    
-                    // Clean up
-                    stream.getTracks().forEach(track => track.stop());
-                };
-                
-                recorder.start();
-                
-                setVoiceState({
-                    isRecording: true,
-                    recordingTime: 0,
-                    isTranscribing: false,
-                    mediaRecorder: recorder
-                });
-                
-                // Start timer
-                recordingTimerRef.current = setInterval(() => {
-                    setVoiceState(prev => ({
-                        ...prev,
-                        recordingTime: prev.recordingTime + 1
-                    }));
-                }, 1000);
-                
-                // Auto stop after 30 seconds
-                setTimeout(() => {
-                    if (recorder.state === 'recording') {
-                        stopVoiceRecording();
-                    }
-                }, 30000);
-                
-            } else {
-                showModal("Microphone Error", "Voice recording not supported on this device.");
+        setStreamingMessage(null);
+        setStreamProgress(0);
+    }, [abortController, selectedAIMode]);
+
+    // Add cleanup effect
+    useEffect(() => {
+        return () => {
+            if (abortController) {
+                abortController.abort();
             }
-        } catch (error) {
-            console.error('Recording error:', error);
-            showModal("Permission Error", "Please allow microphone access to use voice input.");
-        }
-    }, [isMobile, showModal]);
-    
-    const stopVoiceRecording = useCallback(() => {
-        if (voiceState.mediaRecorder && voiceState.mediaRecorder.state === 'recording') {
-            voiceState.mediaRecorder.stop();
-            setVoiceState(prev => ({ ...prev, isRecording: false }));
-            
-            if (recordingTimerRef.current) {
-                clearInterval(recordingTimerRef.current);
-                recordingTimerRef.current = null;
+            if (streamReaderRef.current) {
+                streamReaderRef.current.cancel();
             }
-        }
-    }, [voiceState.mediaRecorder]);
-    
-    const sendVoiceToAPI = useCallback(async (audioBlob) => {
-        setVoiceState(prev => ({ ...prev, isTranscribing: true }));
-        
-        try {
-            // Convert to base64 for API
-            const reader = new FileReader();
-            reader.readAsDataURL(audioBlob);
-            
-            reader.onloadend = async () => {
-                const base64Audio = reader.result.split(',')[1];
-                
-                const apiUrl = '/api/transcribe';
-                const apiPayload = {
-                    audio: base64Audio,
-                    model: 'whisper-large',
-                    language: 'en',
-                    user_preference_id: getPersistentUserId()
-                };
-                
-                // Send audio to API for transcription
-                const result = await callFastAPI(apiUrl, apiPayload, 'transcribe');
-                
-                if (result?.text) {
-                    // Use the transcribed text as a message
-                    await handleSendMessage(result.text, true);
-                } else {
-                    showModal("Transcription Error", "Could not transcribe audio. Please try typing instead.");
-                }
-                
-                setVoiceState(prev => ({ ...prev, isTranscribing: false }));
-            };
-            
-        } catch (error) {
-            console.error('Voice API error:', error);
-            showModal("Voice Error", "Failed to process voice input.");
-            setVoiceState(prev => ({ ...prev, isTranscribing: false }));
-        }
-    }, [callFastAPI, getPersistentUserId, showModal]);
-    
-    // ========== INTELLIGENT SEND MESSAGE ==========
-    const handleSendMessage = useCallback(async (customMessage = null, isVoice = false) => {
-        const text = customMessage || message.trim();
-        if (!text && !uploadedFile && !uploadedImage) return;
-        
-        // Detect user intent
-        const intent = detectUserIntent(text, chatHistory);
-        
-        // Ask for confirmation if intent is uncertain
-        if (intent.confidence < 0.5 && !isVoice) {
-            const confirmed = await showConfirmationModal(intent);
-            if (!confirmed) return;
-        }
-        
-        // Update AI mode based on learned preference
-        if (intent.confidence > 0.8) {
-            setAiMode(prev => ({
-                ...prev,
-                userPreference: intent.intent
-            }));
-        }
-        
-        setLoadingState({
-            isLoading: true,
-            loadingType: intent.intent,
-            progress: 0,
-            estimatedTime: intent.intent === 'image_gen' ? 30 : null
-        });
-        
-        // Clear message if not voice
-        if (!isVoice) setMessage('');
-        
-        // Add user message to history
-        const userMessage = {
-            role: 'user',
-            content: text,
-            type: 'text',
-            ts: Date.now(),
-            intent: intent.intent,
-            confidence: intent.confidence
         };
-        
-        setChatHistory(prev => [...prev, userMessage]);
-        
-        // Handle based on intent
-        try {
-            switch (intent.intent) {
-                case 'image_gen':
-                    await handleImageGeneration(text);
-                    break;
-                    
-                case 'image_edit':
-                    await handleImageEdit(text);
-                    break;
-                    
-                case 'reasoning':
-                    await handleReasoning(text);
-                    break;
-                    
-                case 'full_code':
-                    await handleFullCode(text);
-                    break;
-                    
-                case 'explain_only':
-                    await handleExplainOnly(text);
-                    break;
-                    
-                case 'analyze_file':
-                    await handleFileAnalysis(text);
-                    break;
-                    
-                default:
-                    await handleChat(text);
-                    break;
-            }
-        } catch (error) {
-            console.error('Send error:', error);
-            showModal("Error", error.message || "Something went wrong");
-        } finally {
-            setLoadingState(prev => ({ ...prev, isLoading: false }));
-            setUploadedFile(null);
-            setUploadedImage(null);
-        }
-    }, [
-        message, uploadedFile, uploadedImage, chatHistory, 
-        detectUserIntent, showModal
-    ]);
-    
-    // ========== HANDLER FUNCTIONS ==========
-    const handleImageGeneration = async (prompt) => {
-        const apiUrl = '/api/generate/image';
-        const apiPayload = {
-            prompt,
-            aspect_ratio: aspectRatio,
-            user_preference_id: getPersistentUserId(),
-            quality: 'standard'
-        };
-        
-        // Show loading with progress
-        setLoadingState(prev => ({ 
-            ...prev, 
-            estimatedTime: 25,
-            progress: 10 
-        }));
-        
-        const result = await callFastAPI(apiUrl, apiPayload, 'image_gen');
-        
-        if (result?.image) {
-            const assistantMessage = {
-                role: 'assistant',
-                content: `Generated image: ${prompt}`,
-                type: 'image',
-                base64_image: result.image,
-                ts: Date.now()
-            };
-            setChatHistory(prev => [...prev, assistantMessage]);
-        }
-    };
-    
-    const handleImageEdit = async (prompt) => {
-        // Use uploaded image or last generated image
-        let base64Image = null;
-        
-        if (uploadedImage) {
-            base64Image = await fileToBase64(uploadedImage);
-        } else {
-            // Try to get last image from history
-            const lastImage = [...chatHistory].reverse().find(msg => 
-                msg.type === 'image'
-            );
-            if (lastImage?.base64_image) {
-                base64Image = lastImage.base64_image;
-            }
-        }
-        
-        if (!base64Image) {
-            showModal("Image Required", "Please upload an image first or generate one.");
-            return;
-        }
-        
-        const apiUrl = '/api/generate/image/edit';
-        const apiPayload = {
-            prompt,
-            image: base64Image,
-            strength: 0.7,
-            user_preference_id: getPersistentUserId()
-        };
-        
-        const result = await callFastAPI(apiUrl, apiPayload, 'image_edit');
-        
-        if (result?.image) {
-            const assistantMessage = {
-                role: 'assistant',
-                content: `Edited: ${prompt}`,
-                type: 'image',
-                base64_image: result.image,
-                ts: Date.now(),
-                is_edited: true
-            };
-            setChatHistory(prev => [...prev, assistantMessage]);
-        }
-    };
-    
-    const handleReasoning = async (prompt) => {
-        const apiUrl = '/api/generate/reasoning';
-        const apiPayload = {
-            prompt,
-            user_preference_id: getPersistentUserId(),
-            stream: true,
-            show_steps: true
-        };
-        
-        // Clear previous reasoning steps
-        setReasoningSteps([]);
-        
-        const response = await callFastAPI(apiUrl, apiPayload, 'reasoning', {
-            stream: true
-        });
-        
-        if (response.ok) {
-            await handleStreamResponse(response);
-        }
-    };
-    
-    const handleExplainOnly = async (prompt) => {
-        const apiUrl = '/api/generate/explain';
-        const apiPayload = {
-            prompt,
-            user_preference_id: getPersistentUserId(),
-            no_code: true, // Tell API not to generate code
-            explanation_level: 'detailed'
-        };
-        
-        const result = await callFastAPI(apiUrl, apiPayload, 'chat');
-        
-        if (result?.text) {
-            const assistantMessage = {
-                role: 'assistant',
-                content: result.text,
-                type: 'text',
-                ts: Date.now(),
-                is_explanation: true
-            };
-            setChatHistory(prev => [...prev, assistantMessage]);
-        }
-    };
-    
-    const handleFullCode = async (prompt) => {
-        setProjectState(prev => ({ 
-            ...prev, 
-            isFullCodeMode: true,
-            metadata: extractProjectMetadata(prompt)
-        }));
-        
-        const apiUrl = '/api/generate/code/project';
-        const apiPayload = {
-            prompt,
-            user_preference_id: getPersistentUserId(),
-            stream: true,
-            project_type: 'full'
-        };
-        
-        const response = await callFastAPI(apiUrl, apiPayload, 'code', {
-            stream: true
-        });
-        
-        if (response.ok) {
-            await handleStreamResponse(response);
-            
-            // Parse files from streamed content
-            const files = parseCodeForFiles(streamState.content);
-            if (files.length > 0) {
-                setProjectState(prev => ({
-                    ...prev,
-                    generatedFiles: files,
-                    isProjectView: true
-                }));
-            }
-        }
-    };
-    
-    const handleFileAnalysis = async (prompt) => {
-        if (!uploadedFile) {
-            showModal("File Required", "Please upload a file first.");
-            return;
-        }
-        
-        const fileContent = await uploadedFile.text();
-        const apiUrl = '/api/analyze/file';
-        const apiPayload = {
-            prompt,
-            file_content: fileContent,
-            file_name: uploadedFile.name,
-            file_type: uploadedFile.type,
-            user_preference_id: getPersistentUserId(),
-            stream: true
-        };
-        
-        const response = await callFastAPI(apiUrl, apiPayload, 'analyze', {
-            stream: true
-        });
-        
-        if (response.ok) {
-            await handleStreamResponse(response);
-        }
-    };
-    
-    const handleChat = async (prompt) => {
-        const apiUrl = '/api/generate/chat';
-        const apiPayload = {
-            prompt,
-            user_preference_id: getPersistentUserId(),
-            stream: true,
-            context: chatHistory.slice(-10) // Send context
-        };
-        
-        const response = await callFastAPI(apiUrl, apiPayload, 'chat', {
-            stream: true
-        });
-        
-        if (response.ok) {
-            await handleStreamResponse(response);
-        }
-    };
-    
-    // ========== HELPER FUNCTIONS ==========
-    const fileToBase64 = (file) => {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => {
-                const base64 = reader.result.split(',')[1];
-                resolve(base64);
-            };
-            reader.onerror = reject;
-            reader.readAsDataURL(file);
-        });
-    };
-    
-    const extractProjectMetadata = (text) => {
-        const lower = text.toLowerCase();
-        return {
-            name: extractProjectName(text) || 'Untitled Project',
-            type: lower.includes('react') ? 'react' : 
-                  lower.includes('python') ? 'python' : 'web',
-            description: 'Generated by Spider AI',
-            totalFiles: 0
-        };
-    };
-    
-    const extractProjectName = (text) => {
-        const match = text.match(/create\s+(?:a|an)?\s+([^.!?]+?)(?:\s+(?:app|project|website))/i);
-        return match ? match[1].trim() : null;
-    };
-    
-    const parseCodeForFiles = (content) => {
-        // Simplified parser
-        const files = [];
-        const regex = /(?:## |### |📁 |📄 )?([\w\-./]+\.(?:js|jsx|ts|tsx|py|html|css|json|md|txt))\b/g;
-        let match;
-        
-        while ((match = regex.exec(content)) !== null) {
-            files.push({
-                name: match[1],
-                content: '',
-                language: getLanguageFromExtension(match[1])
-            });
-        }
-        
-        return files;
-    };
-    
-    const getLanguageFromExtension = (filename) => {
-        const ext = filename.split('.').pop().toLowerCase();
-        const map = {
-            'js': 'javascript', 'jsx': 'javascript', 'ts': 'typescript', 'tsx': 'typescript',
-            'py': 'python', 'html': 'html', 'css': 'css', 'json': 'json',
-            'md': 'markdown', 'txt': 'text'
-        };
-        return map[ext] || 'text';
-    };
-    
-    const showConfirmationModal = (intent) => {
-        return new Promise((resolve) => {
-            const modalContent = (
-                <div className="confirmation-modal">
-                    <h3>Confirm Action</h3>
-                    <p>I detected you want to: <strong>{intent.intent.replace('_', ' ')}</strong></p>
-                    <p>Confidence: {Math.round(intent.confidence * 100)}%</p>
-                    <div className="modal-buttons">
-                        <button onClick={() => resolve(true)}>Yes, proceed</button>
-                        <button onClick={() => resolve(false)}>No, let me choose</button>
-                    </div>
-                </div>
-            );
-            
-            // You'll need to implement this using your showModal function
-            showModal("Confirm Action", modalContent);
-        });
-    };
-    
-    // ========== FILE UPLOAD HANDLERS ==========
+    }, [abortController]);
+
+    // ---------- File / Image Upload Handlers ----------
     const handleFileUpload = (event) => {
-        const file = event.target.files?.[0];
+        const file = event?.target?.files?.[0];
         if (!file) return;
-        
+
+        // Check if it is an image
         if (file.type.startsWith('image/')) {
-            setUploadedImage(file);
-            setMessage(`Edit this image: `);
+             setUploadedImage(file);
+             setUploadedFile(null);
+             setMessage("Analyze this image: ");
+             
+             // Suggest image mode
+             if (selectedAIMode !== 'pro' && selectedAIMode !== 'reasoning') {
+                 setSelectedAIMode('pro');
+                 showModal("Mode Changed", "Switched to Pro mode for better image analysis.");
+             }
         } else {
-            if (file.size > 10 * 1024 * 1024) {
-                showModal("File Too Large", "Maximum file size is 10MB");
+            // It's a document/code
+            if (file.size > 1024 * 1024 * 10) {
+                showModal("File Error", "File size exceeds 10MB limit.");
+                event.target.value = null;
                 return;
             }
             setUploadedFile(file);
-            setMessage(`Analyze ${file.name}: `);
+            setUploadedImage(null);
+            setMessage(`Analyze the contents of ${file.name}.`);
+            
+            // Suggest reasoning mode for analysis
+            if (selectedAIMode === 'chat') {
+                setSelectedAIMode('reasoning');
+                showModal("Mode Changed", "Switched to Reasoning mode for detailed file analysis.");
+            }
         }
-        event.target.value = '';
+        event.target.value = null;
     };
-    
+  
     const handleImageUpload = (event) => {
-        const file = event.target.files?.[0];
-        if (!file) return;
-        
+        const file = event?.target?.files?.[0];
+        if (!file) {
+            if (event) event.target.value = null;
+            return;
+        }
         if (!file.type.startsWith('image/')) {
-            showModal("Invalid File", "Please upload an image file");
+            showModal("File Error", "Please upload a valid image file.");
+            event.target.value = null;
             return;
         }
-        
-        if (file.size > 5 * 1024 * 1024) {
-            showModal("Image Too Large", "Maximum image size is 5MB");
+        if (file.size > 1024 * 1024 * 5) {
+            showModal("File Error", "Image size exceeds 5MB limit.");
+            event.target.value = null;
             return;
         }
-        
         setUploadedImage(file);
-        setMessage(`Edit this image: `);
-        event.target.value = '';
+        setUploadedFile(null);
+        setMessage("Transform or edit this image to: ");
+        
+        // Switch to pro mode for image editing
+        setSelectedAIMode('pro');
+        
+        event.target.value = null;
     };
-    
-    // ========== COMPONENTS ==========
-    const ReasoningDisplay = useMemo(() => {
-        return React.memo(({ steps }) => (
-            <div className="reasoning-container">
-                <div className="reasoning-header">
-                    <span className="reasoning-icon">🧠</span>
-                    <span className="reasoning-title">Step-by-Step Reasoning</span>
-                </div>
-                <div className="reasoning-steps">
-                    {steps.map((step, index) => (
-                        <div key={index} className="reasoning-step">
-                            <div className="step-number">Step {index + 1}</div>
-                            <div className="step-content">{step}</div>
-                        </div>
-                    ))}
-                </div>
-            </div>
-        ));
-    }, []);
-    
-    const LoadingIndicator = useMemo(() => {
-        return React.memo(({ type, progress, estimatedTime }) => {
-            const getLoadingText = () => {
-                switch(type) {
-                    case 'image_gen': return 'Generating image...';
-                    case 'reasoning': return 'Thinking step by step...';
-                    case 'file': return 'Analyzing file...';
-                    case 'code': return 'Writing code...';
-                    default: return 'Thinking...';
-                }
-            };
-            
-            return (
-                <div className="loading-indicator">
-                    <div className="loading-spinner"></div>
-                    <div className="loading-text">{getLoadingText()}</div>
-                    {progress > 0 && (
-                        <div className="loading-progress">
-                            <div className="progress-bar">
-                                <div 
-                                    className="progress-fill" 
-                                    style={{ width: `${progress}%` }}
-                                ></div>
-                            </div>
-                            <span className="progress-text">{progress}%</span>
-                        </div>
-                    )}
-                    {estimatedTime && (
-                        <div className="estimated-time">
-                            Estimated: {estimatedTime}s
-                        </div>
-                    )}
-                </div>
-            );
-        });
-    }, []);
-    
-    const VoiceButton = useMemo(() => {
-        return React.memo(({ state, onStart, onStop }) => {
-            const formatTime = (seconds) => {
-                const mins = Math.floor(seconds / 60);
-                const secs = seconds % 60;
-                return `${mins}:${secs.toString().padStart(2, '0')}`;
-            };
-            
-            if (state.isTranscribing) {
-                return (
-                    <button className="voice-button transcribing" disabled>
-                        <div className="spinner"></div>
-                    </button>
-                );
-            }
-            
-            if (state.isRecording) {
-                return (
-                    <div className="voice-recording-container">
-                        <button className="voice-button recording" onClick={onStop}>
-                            <div className="recording-indicator"></div>
-                            <span className="recording-time">{formatTime(state.recordingTime)}</span>
-                        </button>
-                    </div>
-                );
-            }
-            
-            return (
-                <button className="voice-button" onClick={onStart} title="Voice Input">
-                    <svg className="voice-icon" viewBox="0 0 24 24">
-                        <path d="M12 15C10.34 15 9 13.66 9 12V5C9 3.34 10.34 2 12 2C13.66 2 15 3.34 15 5V12C15 13.66 13.66 15 12 15ZM17.91 12C17.91 12 17 12 17 12C17 12 17 11.99 17 12C17 8.13 13.87 5 10 5C9.45 5 9 5.45 9 6C9 6.55 9.45 7 10 7C13.31 7 16 9.69 16 13V13.43C16 14.44 16.8 15.57 18 15.57C19.2 15.57 20 14.44 20 13.43V13C20 8.58 16.42 5 12 5C11.45 5 11 5.45 11 6C11 6.55 11.45 7 12 7C15.31 7 18 9.69 18 13V13.43C18 13.96 17.91 14.14 17.91 14.14C17.91 14.14 17.81 14.43 17.5 14.43C17.19 14.43 17 14.22 17 13.43V12Z"/>
-                    </svg>
-                </button>
-            );
-        });
-    }, []);
-    
+
+    // ---------- Enhanced PlusMenu with AI Modes ----------
     const PlusMenu = useMemo(() => {
-        return React.memo(({ onUploadFile, onUploadImage, onGenerateImage, onModeChange }) => {
+        return React.memo(({ setActiveAIMode: _setActiveAIMode, fileInputRef, imageInputRef }) => {
             const [open, setOpen] = useState(false);
             const menuRef = useRef(null);
-            
+
             useEffect(() => {
                 const handleClickOutside = (event) => {
                     if (menuRef.current && !menuRef.current.contains(event.target)) {
                         setOpen(false);
                     }
                 };
-                
-                document.addEventListener('mousedown', handleClickOutside);
-                return () => document.removeEventListener('mousedown', handleClickOutside);
-            }, []);
-            
-            const menuItems = [
-                { id: 'chat', label: 'Chat Mode', icon: '💬', action: () => onModeChange('chat') },
-                { id: 'reasoning', label: 'Reasoning', icon: '🧠', action: () => onModeChange('reasoning') },
-                { id: 'pro', label: 'Spider AI Pro', icon: '🚀', action: () => onModeChange('pro') },
-                { type: 'divider' },
-                { id: 'upload-file', label: 'Upload File', icon: '📄', action: onUploadFile },
-                { id: 'upload-image', label: 'Upload Image', icon: '🖼', action: onUploadImage },
-                { id: 'generate-image', label: 'Create Image', icon: '🎨', action: onGenerateImage }
-            ];
-            
+
+                if (open) {
+                    document.addEventListener('mousedown', handleClickOutside);
+                    document.addEventListener('touchstart', handleClickOutside);
+                }
+
+                return () => {
+                    document.removeEventListener('mousedown', handleClickOutside);
+                    document.removeEventListener('touchstart', handleClickOutside);
+                };
+            }, [open]);
+
+            const handleAIModeChange = (mode) => {
+                setSelectedAIMode(mode);
+                setOpen(false);
+                showModal(`Mode Changed`, `Switched to ${mode === 'pro' ? 'Spider AI Pro' : mode === 'reasoning' ? 'Reasoning Mode' : 'Chat Mode'}`);
+            };
+
+            const onUploadFile = (e) => {
+                e.stopPropagation();
+                setOpen(false);
+                if (typeof _setActiveAIMode === 'function') _setActiveAIMode('file_analysis');
+                setTimeout(() => fileInputRef.current?.click(), 50);
+            };
+
+            const onUploadImage = (e) => {
+                e.stopPropagation();
+                setOpen(false);
+                if (typeof _setActiveAIMode === 'function') _setActiveAIMode('image_edit');
+                setTimeout(() => imageInputRef.current?.click(), 50);
+            };
+
+            const onGenImage = (e) => {
+                e.stopPropagation();
+                setOpen(false);
+                if (typeof _setActiveAIMode === 'function') _setActiveAIMode('image_gen');
+                setSelectedAIMode('pro');
+                showModal("Image Generation", "Describe the image you want to generate. Pro mode activated for best results.");
+            };
+
+            const handleToggleMenu = (e) => {
+                e.stopPropagation();
+                setOpen(!open);
+            };
+
+            const getModeIcon = (mode) => {
+                switch(mode) {
+                    case 'chat': return '💬';
+                    case 'reasoning': return '🧠';
+                    case 'pro': return '🚀';
+                    default: return '💬';
+                }
+            };
+
             return (
-                <div className="plus-menu-container" ref={menuRef}>
+                <div className="relative" ref={menuRef}>
                     <button 
-                        className={`plus-button ${open ? 'open' : ''}`}
-                        onClick={() => setOpen(!open)}
+                        onClick={handleToggleMenu} 
+                        className="bg-[var(--spider-light)] text-white w-12 h-12 rounded-md flex items-center justify-center hover:opacity-90 transition touch-manipulation active:scale-95 shadow-lg"
                         aria-label="Open menu"
+                        aria-expanded={open}
                     >
                         {open ? '×' : '+'}
                     </button>
-                    
                     {open && (
-                        <div className="plus-menu-dropdown">
-                            {menuItems.map((item, index) => (
-                                item.type === 'divider' ? (
-                                    <div key={`divider-${index}`} className="menu-divider"></div>
-                                ) : (
-                                    <button
-                                        key={item.id}
-                                        className={`menu-item ${aiMode.selected === item.id ? 'active' : ''}`}
-                                        onClick={() => {
-                                            item.action();
-                                            setOpen(false);
-                                        }}
-                                    >
-                                        <span className="menu-icon">{item.icon}</span>
-                                        <span className="menu-label">{item.label}</span>
-                                    </button>
-                                )
-                            ))}
+                        <div className="absolute bottom-14 right-0 bg-[var(--spider-dark)] border-2 border-[var(--spider-light)] rounded-lg shadow-xl w-56 p-2 z-50">
+                            <div className="text-xs font-semibold text-[var(--spider-neon-blue)] px-3 py-2 border-b border-[var(--spider-light)] mb-2">
+                                AI Mode
+                            </div>
+                            <button 
+                                onClick={() => handleAIModeChange('chat')} 
+                                className={`w-full text-left px-4 py-3 rounded-md text-sm flex items-center touch-manipulation active:scale-95 transition-all duration-200 ${
+                                    selectedAIMode === 'chat' 
+                                        ? 'bg-[var(--spider-light)] text-white shadow-inner' 
+                                        : 'hover:bg-[var(--spider-med)] text-[var(--spider-text)]'
+                                    }`}
+                            >
+                                <span className="mr-3 text-lg">{getModeIcon('chat')}</span> 
+                                <div className="flex flex-col">
+                                    <span className="font-medium">Chat Mode</span>
+                                    <span className="text-xs text-[var(--spider-text-dim)]">Quick answers & conversations</span>
+                                </div>
+                            </button>
+                            <button 
+                                onClick={() => handleAIModeChange('reasoning')} 
+                                className={`w-full text-left px-4 py-3 rounded-md text-sm flex items-center touch-manipulation active:scale-95 transition-all duration-200 ${
+                                    selectedAIMode === 'reasoning' 
+                                        ? 'bg-[var(--spider-light)] text-white shadow-inner' 
+                                        : 'hover:bg-[var(--spider-med)] text-[var(--spider-text)]'
+                                    }`}
+                            >
+                                <span className="mr-3 text-lg">{getModeIcon('reasoning')}</span> 
+                                <div className="flex flex-col">
+                                    <span className="font-medium">Reasoning</span>
+                                    <span className="text-xs text-[var(--spider-text-dim)]">Step-by-step thinking & analysis</span>
+                                </div>
+                            </button>
+                            <button 
+                                onClick={() => handleAIModeChange('pro')} 
+                                className={`w-full text-left px-4 py-3 rounded-md text-sm flex items-center touch-manipulation active:scale-95 transition-all duration-200 ${
+                                    selectedAIMode === 'pro' 
+                                        ? 'bg-[var(--spider-light)] text-white shadow-inner' 
+                                        : 'hover:bg-[var(--spider-med)] text-[var(--spider-text)]'
+                                    }`}
+                            >
+                                <span className="mr-3 text-lg">{getModeIcon('pro')}</span> 
+                                <div className="flex flex-col">
+                                    <span className="font-medium">Spider AI Pro</span>
+                                    <span className="text-xs text-[var(--spider-text-dim)]">Advanced tasks, images & code</span>
+                                </div>
+                            </button>
+                            
+                            <div className="text-xs font-semibold text-[var(--spider-neon-blue)] px-3 py-2 border-t border-[var(--spider-light)] mt-3 mb-2">
+                                Tools
+                            </div>
+                            <button 
+                                onClick={onUploadFile} 
+                                className="w-full text-left px-4 py-3 hover:bg-[var(--spider-med)] rounded-md text-sm flex items-center touch-manipulation active:scale-95 transition-colors text-[var(--spider-text)]"
+                            >
+                                <span className="mr-3 text-lg">📄</span>
+                                <div className="flex flex-col">
+                                    <span className="font-medium">Upload File</span>
+                                    <span className="text-xs text-[var(--spider-text-dim)]">Analyze documents & code</span>
+                                </div>
+                            </button>
+                            <button 
+                                onClick={onUploadImage} 
+                                className="w-full text-left px-4 py-3 hover:bg-[var(--spider-med)] rounded-md text-sm flex items-center touch-manipulation active:scale-95 transition-colors text-[var(--spider-text)]"
+                            >
+                                <span className="mr-3 text-lg">🖼</span>
+                                <div className="flex flex-col">
+                                    <span className="font-medium">Upload Image</span>
+                                    <span className="text-xs text-[var(--spider-text-dim)]">Edit & analyze images</span>
+                                </div>
+                            </button>
+                            <button 
+                                onClick={onGenImage} 
+                                className="w-full text-left px-4 py-3 hover:bg-[var(--spider-med)] rounded-md text-sm flex items-center touch-manipulation active:scale-95 transition-colors text-[var(--spider-text)]"
+                            >
+                                <span className="mr-3 text-lg">🎨</span>
+                                <div className="flex flex-col">
+                                    <span className="font-medium">Create Image</span>
+                                    <span className="text-xs text-[var(--spider-text-dim)]">Generate images from text</span>
+                                </div>
+                            </button>
                         </div>
                     )}
                 </div>
             );
         });
-    }, [aiMode.selected]);
-    
-    // ========== RENDER ==========
-    return (
-        <div className={`spider-ai-app ${isMobile ? 'mobile' : ''} ${sidebarOpen ? 'sidebar-open' : ''}`}>
-            {/* Mobile Header */}
-            {isMobile && (
-                <div className="mobile-header">
+    }, [selectedAIMode, showModal]);
+
+    // ---------- Voice Recording Button ----------
+    const VoiceButton = useMemo(() => {
+        return React.memo(({ isRecording, recordingTime, isTranscribing, onStartRecording, onStopRecording }) => {
+            const formatTime = (seconds) => {
+                const mins = Math.floor(seconds / 60);
+                const secs = seconds % 60;
+                return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+            };
+
+            if (isTranscribing) {
+                return (
                     <button 
-                        className="menu-button"
-                        onClick={() => setSidebarOpen(!sidebarOpen)}
-                        aria-label="Menu"
+                        className="w-12 h-12 flex items-center justify-center bg-[var(--spider-light)] text-white rounded-md transition-all duration-200 shadow-lg"
+                        disabled
                     >
-                        <span className="menu-icon"></span>
+                        <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                     </button>
-                    <div className="header-title">
-                        <span className="ai-mode-indicator">
-                            {aiMode.selected === 'pro' ? '🚀 Pro' : 
-                             aiMode.selected === 'reasoning' ? '🧠 Reasoning' : '💬 Chat'}
+                );
+            }
+
+            if (isRecording) {
+                return (
+                    <div className="relative">
+                        <button 
+                            onClick={onStopRecording}
+                            className="w-12 h-12 flex items-center justify-center bg-red-500 text-white rounded-md hover:bg-red-600 transition-all duration-200 shadow-lg animate-pulse"
+                        >
+                            <div className="relative">
+                                <div className="absolute inset-0 bg-red-400 rounded-full animate-ping"></div>
+                                <svg className="w-6 h-6 relative" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
+                                </svg>
+                            </div>
+                        </button>
+                        <div className="absolute -top-10 left-1/2 transform -translate-x-1/2 bg-red-500 text-white text-xs px-3 py-1.5 rounded-lg whitespace-nowrap shadow-lg border border-red-300">
+                            {formatTime(recordingTime)}
+                            <div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-2 h-2 bg-red-500 rotate-45"></div>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <button 
+                    onClick={onStartRecording}
+                    className="w-12 h-12 flex items-center justify-center bg-[var(--spider-light)] text-white rounded-md hover:opacity-90 transition-all duration-200 hover:bg-[var(--spider-med)] shadow-lg active:scale-95"
+                    title="Voice Input"
+                >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
+                    </svg>
+                </button>
+            );
+        });
+    }, []);
+
+    // ---------- Optimized Content Processing ----------
+    const processContent = useCallback((text) => {
+        if (!text || typeof text !== "string") {
+            return [{ type: "text", content: text || "" }];
+        }
+
+        const blocks = [];
+        const lines = text.split('\n');
+        let currentBlock = { type: "text", content: "" };
+        let inCodeBlock = false;
+        let codeLanguage = "";
+        let codeContent = "";
+        let tableRows = [];
+
+        const flushCurrentBlock = () => {
+            if (currentBlock.content.trim()) {
+                blocks.push({ ...currentBlock });
+                currentBlock = { type: "text", content: "" };
+            }
+        };
+
+        const flushTable = () => {
+            if (tableRows.length >= 2) {
+                blocks.push({
+                    type: "table",
+                    content: tableRows.join('\n')
+                });
+                tableRows = [];
+            }
+        };
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+
+            // Handle code blocks
+            if (line.trim().startsWith('```')) {
+                if (!inCodeBlock) {
+                    flushCurrentBlock();
+                    flushTable();
+                    inCodeBlock = true;
+                    codeLanguage = line.trim().replace(/```/g, '').trim();
+                    codeContent = "";
+                } else {
+                    inCodeBlock = false;
+                    blocks.push({
+                        type: "code",
+                        language: codeLanguage || "text",
+                        content: codeContent.trim()
+                    });
+                }
+                continue;
+            }
+
+            if (inCodeBlock) {
+                codeContent += line + '\n';
+                continue;
+            }
+
+            // Handle tables
+            const trimmedLine = line.trim();
+            if (trimmedLine.includes('|') && 
+                !trimmedLine.includes('```') && 
+                !trimmedLine.startsWith('|--') &&
+                trimmedLine.match(/[^\s|:-]/)) {
+                
+                const isSeparator = trimmedLine.match(/^[\s|:-]+$/);
+                
+                if (!isSeparator || (isSeparator && tableRows.length > 0)) {
+                    tableRows.push(line);
+                }
+                
+                let j = i + 1;
+                while (j < lines.length && lines[j].trim().includes('|') && !lines[j].trim().startsWith('```')) {
+                    tableRows.push(lines[j]);
+                    j++;
+                }
+                
+                if (j > i + 1) {
+                    i = j - 1;
+                }
+                
+                if (tableRows.length >= 2) {
+                    flushCurrentBlock();
+                    flushTable();
+                    continue;
+                } else {
+                    tableRows.forEach(row => {
+                        currentBlock.content += row + '\n';
+                    });
+                    tableRows = [];
+                    continue;
+                }
+            } else {
+                if (tableRows.length > 0) {
+                    tableRows.forEach(row => {
+                        currentBlock.content += row + '\n';
+                    });
+                    tableRows = [];
+                }
+            }
+
+            // Regular text
+            if (line.trim() === '') {
+                flushCurrentBlock();
+                currentBlock.content += '\n';
+            } else {
+                currentBlock.content += line + '\n';
+            }
+        }
+
+        flushCurrentBlock();
+        flushTable();
+
+        if (inCodeBlock && codeContent.trim()) {
+            blocks.push({
+                type: "code",
+                language: codeLanguage || "text",
+                content: codeContent.trim()
+            });
+        }
+
+        return blocks;
+    }, []);
+
+    // ---------- Enhanced Chat Bubble with Math Support ----------
+    const ChatBubble = useMemo(() => {
+        return React.memo(({ message }) => {
+            const [contentBlocks, setContentBlocks] = useState([]);
+            const [mathBlocks, setMathBlocks] = useState([]);
+
+            useEffect(() => {
+                // Process LaTeX math first
+                const mathBlocks = processMathContent(message.content);
+                
+                // Then process regular content
+                const regularBlocks = processContent(message.content);
+                
+                // Combine both
+                const combined = [];
+                let regularIndex = 0;
+                let mathIndex = 0;
+                
+                // For now, just use regular blocks with math processing
+                const blocks = processContent(message.content);
+                setContentBlocks(blocks);
+                
+                // Apply syntax highlighting
+                if (typeof window !== "undefined" && window.Prism) {
+                    setTimeout(() => {
+                        window.Prism.highlightAll();
+                    }, 50);
+                }
+                
+                // Re-render KaTeX for any math in text blocks
+                setTimeout(() => {
+                    document.querySelectorAll('.math-content').forEach(element => {
+                        const latex = element.getAttribute('data-latex');
+                        const isDisplay = element.classList.contains('math-display');
+                        if (latex) {
+                            try {
+                                element.innerHTML = katex.renderToString(latex, {
+                                    throwOnError: false,
+                                    displayMode: isDisplay
+                                });
+                            } catch (error) {
+                                element.textContent = isDisplay ? `$$${latex}$$` : `$${latex}$`;
+                            }
+                        }
+                    });
+                }, 100);
+            }, [message.content, processContent, processMathContent]);
+
+            const handleCopyCode = (content) => {
+                navigator.clipboard.writeText(content);
+                showModal("Copied", "Code copied to clipboard!");
+            };
+
+            const renderTable = (tableText) => {
+                const rows = tableText.trim().split('\n').filter(r => r.trim());
+                if (rows.length < 2) return null;
+
+                const headers = rows[0].split('|').filter(c => c.trim()).map(c => c.trim());
+                const separator = rows[1];
+                const dataRows = rows.slice(2).filter(r => r.includes('|'));
+
+                const alignments = separator.split('|').filter(c => c.trim()).map(col => {
+                    if (col.startsWith(':') && col.endsWith(':')) return 'center';
+                    if (col.endsWith(':')) return 'right';
+                    return 'left';
+                });
+
+                return (
+                    <div className="overflow-x-auto my-4 rounded-lg border border-[var(--spider-light)] bg-[var(--spider-dark)] shadow-lg">
+                        <table className="min-w-full divide-y divide-[var(--spider-light)]">
+                            <thead>
+                                <tr className="bg-[var(--spider-med)]">
+                                    {headers.map((header, idx) => (
+                                        <th 
+                                            key={idx}
+                                            className={`px-4 py-3 text-left text-sm font-semibold text-white border-r border-[var(--spider-light)] last:border-r-0 ${
+                                                alignments[idx] === 'center' ? 'text-center' :
+                                                alignments[idx] === 'right' ? 'text-right' : 'text-left'
+                                            }`}
+                                        >
+                                            {header}
+                                        </th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-[var(--spider-light)]">
+                                {dataRows.map((row, rowIdx) => {
+                                    const cells = row.split('|').filter(c => c.trim()).map(c => c.trim());
+                                    return (
+                                        <tr 
+                                            key={rowIdx} 
+                                            className={`${
+                                                rowIdx % 2 === 0 
+                                                    ? 'bg-[var(--spider-dark)]' 
+                                                    : 'bg-[#0a2a2a]'
+                                            } hover:bg-[var(--spider-light)] transition-colors duration-150`}
+                                        >
+                                            {cells.map((cell, cellIdx) => (
+                                                <td 
+                                                    key={cellIdx}
+                                                    className={`px-4 py-3 text-sm text-white border-r border-[var(--spider-light)] last:border-r-0 ${
+                                                        alignments[cellIdx] === 'center' ? 'text-center' :
+                                                        alignments[cellIdx] === 'right' ? 'text-right' : 'text-left'
+                                                    }`}
+                                                >
+                                                    {cell}
+                                                </td>
+                                            ))}
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                );
+            };
+
+            const renderMathBlock = (block) => {
+                if (!block.html) {
+                    return (
+                        <div className={`my-3 ${block.type === 'math-display' || block.type === 'math-boxed' ? 'text-center' : ''}`}>
+                            <span className="text-gray-400">
+                                {block.type === 'math-display' ? `$$${block.content}$$` :
+                                 block.type === 'math-boxed' ? `\\boxed{${block.content}}` :
+                                 `$${block.content}$`}
+                            </span>
+                        </div>
+                    );
+                }
+
+                return (
+                    <div className={`my-3 ${block.type === 'math-display' || block.type === 'math-boxed' ? 'text-center' : ''}`}>
+                        <div 
+                            className={`inline-block ${block.type === 'math-boxed' ? 'border-2 border-green-500 p-3 rounded-lg bg-black/30' : ''}`}
+                            dangerouslySetInnerHTML={{ __html: block.html }}
+                        />
+                    </div>
+                );
+            };
+
+            const bubbleClass = message.role === "user"
+                ? "bg-[#00e5ff] text-black ml-auto shadow-lg"
+                : "bg-[#004745] text-white mr-auto shadow-lg";
+
+            const isReasoningMode = message.aiMode === 'reasoning' || message.reasoningSteps;
+
+            return (
+                <div
+                    className={`flex w-full ${
+                        message.role === "user" ? "justify-end" : "justify-start"
+                    } mb-5 px-2 sm:px-4`}
+                >
+                    <div
+                        className={`px-5 py-4 rounded-2xl max-w-[95%] sm:max-w-4xl ${bubbleClass} ${
+                            isReasoningMode ? 'border-l-4 border-[var(--spider-neon-blue)]' : ''
+                        }`}
+                    >
+                        {message.type === "image" && message.base64_image && (
+                            <div className="w-full rounded-xl overflow-hidden bg-black mb-4 border-2 border-[var(--spider-light)]">
+                                <img
+                                    src={`data:image/jpeg;base64,${message.base64_image}`}
+                                    alt="AI Generated"
+                                    className="w-full h-auto max-h-96 object-contain"
+                                    onError={(e) => {
+                                        e.target.style.display = 'none';
+                                        e.target.parentElement.innerHTML = 
+                                            '<div class="p-6 text-center text-gray-400">Image failed to load</div>';
+                                    }}
+                                />
+                                <div className="p-3 bg-black/50 text-xs text-gray-300">
+                                    {message.is_generated ? 'Generated Image' : 
+                                     message.is_edited ? 'Edited Image' : 'Image'}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Reasoning Steps Display */}
+                        {isReasoningMode && message.reasoningSteps && message.reasoningSteps.length > 0 && (
+                            <div className="mb-4 p-4 bg-black/30 rounded-lg border border-[var(--spider-light)]">
+                                <div className="flex items-center mb-3">
+                                    <span className="text-lg mr-2">🧠</span>
+                                    <h4 className="text-sm font-semibold text-[var(--spider-neon-blue)]">Reasoning Steps</h4>
+                                </div>
+                                <div className="space-y-3">
+                                    {message.reasoningSteps.map((step, idx) => (
+                                        <div key={idx} className="flex">
+                                            <div className="flex-shrink-0 w-6 h-6 bg-[var(--spider-light)] text-white rounded-full flex items-center justify-center text-xs mr-3">
+                                                {idx + 1}
+                                            </div>
+                                            <div className="flex-1 text-sm text-gray-200">
+                                                {step}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="space-y-4">
+                            {contentBlocks.map((block, index) => {
+                                if (block.type === "code") {
+                                    return (
+                                        <div
+                                            key={index}
+                                            className="rounded-lg overflow-hidden relative group border-2 border-[var(--spider-light)]"
+                                            style={{ background: "#0f0f0f" }}
+                                        >
+                                            <div className="flex justify-between items-center px-4 py-2 bg-[var(--spider-dark)] border-b border-[var(--spider-light)]">
+                                                <div className="flex items-center space-x-2">
+                                                    <span className="text-xs text-gray-400">{block.language}</span>
+                                                    <span className="text-xs text-gray-500">•</span>
+                                                    <span className="text-xs text-gray-400">{block.content.length} chars</span>
+                                                </div>
+                                                <button
+                                                    onClick={() => handleCopyCode(block.content)}
+                                                    className="w-8 h-8 flex items-center justify-center rounded bg-[var(--spider-light)] hover:bg-[var(--spider-med)] transition-colors touch-manipulation active:scale-95"
+                                                    title="Copy code"
+                                                >
+                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                                    </svg>
+                                                </button>
+                                            </div>
+                                            <pre className="overflow-x-auto p-4 m-0 text-sm" style={{ background: "#0f0f0f", lineHeight: "1.5", color: "white" }}>
+                                                <code className={`language-${block.language}`}>
+                                                    {block.content}
+                                                </code>
+                                            </pre>
+                                        </div>
+                                    );
+                                }
+
+                                if (block.type === "table") {
+                                    return (
+                                        <div key={index}>
+                                            {renderTable(block.content)}
+                                        </div>
+                                    );
+                                }
+
+                                if (block.type === "text") {
+                                    // Process math in text blocks
+                                    const text = block.content;
+                                    const parts = [];
+                                    let lastIndex = 0;
+                                    
+                                    // Find inline math: $...$
+                                    const inlineMathRegex = /\$([^$]+?)\$/g;
+                                    let match;
+                                    
+                                    while ((match = inlineMathRegex.exec(text)) !== null) {
+                                        // Add text before math
+                                        if (match.index > lastIndex) {
+                                            parts.push({
+                                                type: 'text',
+                                                content: text.substring(lastIndex, match.index)
+                                            });
+                                        }
+                                        
+                                        // Add math
+                                        const latex = match[1];
+                                        try {
+                                            const html = katex.renderToString(latex, {
+                                                throwOnError: false,
+                                                displayMode: false
+                                            });
+                                            parts.push({
+                                                type: 'math-inline',
+                                                html,
+                                                latex
+                                            });
+                                        } catch (error) {
+                                            parts.push({
+                                                type: 'text',
+                                                content: `$${latex}$`
+                                            });
+                                        }
+                                        
+                                        lastIndex = match.index + match[0].length;
+                                    }
+                                    
+                                    // Add remaining text
+                                    if (lastIndex < text.length) {
+                                        parts.push({
+                                            type: 'text',
+                                            content: text.substring(lastIndex)
+                                        });
+                                    }
+                                    
+                                    return (
+                                        <div
+                                            key={index}
+                                            className="whitespace-pre-wrap break-words text-sm sm:text-base leading-relaxed"
+                                        >
+                                            {parts.map((part, partIndex) => {
+                                                if (part.type === 'text') {
+                                                    return <span key={partIndex}>{part.content}</span>;
+                                                } else if (part.type === 'math-inline') {
+                                                    return (
+                                                        <span 
+                                                            key={partIndex} 
+                                                            className="math-content math-inline"
+                                                            dangerouslySetInnerHTML={{ __html: part.html }}
+                                                        />
+                                                    );
+                                                }
+                                                return null;
+                                            })}
+                                        </div>
+                                    );
+                                }
+
+                                return null;
+                            })}
+                        </div>
+
+                        {/* Message metadata */}
+                        <div className="mt-3 pt-3 border-t border-white/10 text-xs text-white/60 flex justify-between items-center">
+                            <span>
+                                {message.role === 'assistant' ? 'Spider AI' : 'You'}
+                                {message.aiMode && message.role === 'assistant' && (
+                                    <span className="ml-2 px-2 py-0.5 rounded bg-black/30">
+                                        {message.aiMode === 'pro' ? '🚀 Pro' : 
+                                         message.aiMode === 'reasoning' ? '🧠 Reasoning' : '💬 Chat'}
+                                    </span>
+                                )}
+                            </span>
+                            <span>
+                                {new Date(message.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            );
+        });
+    }, [processContent, processMathContent, showModal]);
+
+    // Helper function for mode display
+    const getModeText = () => {
+        if (selectedAIMode === 'reasoning') return "Reasoning Mode";
+        if (selectedAIMode === 'pro') return "Spider AI Pro";
+        if (isFullCodeMode) return "Full Code Project";
+        if (uploadedFile) return "File Analysis";
+        if (uploadedImage) return "Image Edit";
+        if (activeAIMode === 'image_gen') return "Create Image";
+        if (activeAIMode === 'image_edit') return "Edit Image";
+        return "Chat Mode";
+    };
+
+    // ---------- New Chat Handler ----------
+    const handleNewChat = () => {
+        setUploadedFile(null);
+        setUploadedImage(null);
+        setActiveAIMode && setActiveAIMode('chat');
+        setSelectedAIMode('chat');
+        setActiveChatId(null);
+        setLastStreamId(null);
+        setShowContinueButton(false);
+        setIsFullCodeMode(false);
+        setGeneratedFiles([]);
+        setIsProjectView(false);
+        setProjectMetadata({
+            name: '',
+            type: '',
+            description: '',
+            totalFiles: 0
+        });
+        accumulatedTokensRef.current = '';
+        setStreamedContent('');
+        fileContentBufferRef.current = '';
+        continueStreamIdRef.current = null;
+        setReasoningSteps([]);
+        setIsStepByStepReasoning(false);
+        setStreamProgress(0);
+        const welcome = [{ 
+            role: 'assistant', 
+            content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', 
+            type: 'text',
+            ts: Date.now()
+        }];
+        setChatHistory(welcome);
+        try { 
+            localStorage.removeItem(LOCAL_STORAGE_KEY); 
+        } catch (e) { 
+            console.warn("Error clearing localStorage:", e);
+        }
+    };
+
+    // ---------- Enhanced Send Message ----------
+    const handleSendMessage = async () => {
+        const hasContent = message.trim() || uploadedFile || uploadedImage || audioBlob;
+        if (!hasContent) return;
+
+        console.log('Sending message:', {
+            persistentId: getPersistentUserId(),
+            hasAudio: !!audioBlob,
+            hasFile: !!uploadedFile,
+            hasImage: !!uploadedImage,
+            messageLength: message.length,
+            aiMode: selectedAIMode
+        });
+
+        // VALIDATE AND TRIM LARGE PROMPTS
+        const MAX_PROMPT_LENGTH = 4000;
+        const processedMessage = message.length > MAX_PROMPT_LENGTH 
+            ? message.substring(0, MAX_PROMPT_LENGTH) + "...[truncated due to length]"
+            : message;
+        
+        setIsLoading(true);
+        const controller = new AbortController();
+        setAbortController(controller);
+
+        const fileCopy = uploadedFile;
+        const imageCopy = uploadedImage;
+        const audioCopy = audioBlob;
+        
+        // Analyze the request
+        const analysis = analyzeRequest(processedMessage);
+        
+        // Intelligent mode selection
+        const modeSelection = selectAIMode(processedMessage, analysis, !!fileCopy, !!imageCopy);
+        const selectedMode = modeSelection.mode;
+        setAiModeConfidence(modeSelection.confidence);
+        
+        if (selectedMode !== selectedAIMode) {
+            setSelectedAIMode(selectedMode);
+            showModal("AI Mode Adjusted", `Switched to ${selectedMode === 'pro' ? 'Spider AI Pro' : selectedMode === 'reasoning' ? 'Reasoning Mode' : 'Chat Mode'} for this task.`);
+        }
+        
+        // Check for step-by-step reasoning
+        setIsStepByStepReasoning(analysis.isReasoningNeeded || selectedMode === 'reasoning');
+
+        // Auto-detect full code requests with context awareness
+        const isFullCodeRequest = analysis.isFullCode && !analysis.isImageRequest;
+        if (isFullCodeRequest && !fileCopy && !imageCopy) {
+            setIsFullCodeMode(true);
+            const metadata = extractProjectMetadata(processedMessage);
+            setProjectMetadata(metadata);
+        }
+
+        const userMessage = {
+            role: 'user',
+            content: processedMessage,
+            type: selectedMode,
+            fileName: fileCopy ? fileCopy.name : undefined,
+            imageName: imageCopy ? imageCopy.name : undefined,
+            audioNote: audioCopy ? true : undefined,
+            ts: Date.now(),
+            isFullCodeRequest: isFullCodeRequest,
+            aiMode: selectedMode,
+            wasTruncated: message.length > MAX_PROMPT_LENGTH,
+            analysis: analysis
+        };
+
+        setChatHistory(prev => [...prev, userMessage]);
+        setMessage('');
+        setAudioBlob(null); // Clear audio after sending
+
+        // Reset streaming state
+        accumulatedTokensRef.current = '';
+        setStreamedContent('');
+        setShowContinueButton(false);
+        setLastStreamId(null);
+        fileContentBufferRef.current = '';
+        continueStreamIdRef.current = null;
+        setReasoningSteps([]);
+        setStreamProgress(0);
+        setImageGenerationProgress(0);
+
+        try {
+            // VOICE MESSAGE WITH AUDIO
+            if (audioCopy && processedMessage.includes('[Voice recording ready to send]')) {
+                console.log('Sending voice message with audio');
+                
+                // Convert audio blob to base64
+                const reader = new FileReader();
+                const base64Audio = await new Promise((resolve, reject) => {
+                    reader.onloadend = () => {
+                        const result = reader.result;
+                        if (result && result.includes(',')) {
+                            resolve(result.split(',')[1]);
+                        } else {
+                            reject(new Error('Invalid audio data'));
+                        }
+                    };
+                    reader.onerror = reject;
+                    reader.readAsDataURL(audioCopy);
+                });
+
+                const apiUrl = '/api/generate/text';
+                const apiPayload = {
+                    prompt: "Process this voice message",
+                    mode: "voice",
+                    audio: base64Audio,
+                    user_preference_id: getPersistentUserId(),
+                    firebase_token: currentUser?.firebaseToken || '',
+                    stream: true,
+                    ai_mode: selectedMode
+                };
+                
+                setIsStreaming(true);
+                const initialStreamMessage = {
+                    role: 'assistant',
+                    content: '🎤 Processing voice message...',
+                    type: 'text',
+                    ts: Date.now(),
+                    isStreaming: true
+                };
+                setStreamingMessage(initialStreamMessage);
+                
+                const response = await callFastAPI(apiUrl, apiPayload, 'voice', {
+                    signal: controller.signal,
+                    stream: true,
+                    timeout: 60000
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+
+                await handleStreamResponse(response);
+            }
+            // FILE ANALYSIS
+            else if (fileCopy) {
+                let fileContent;
+                
+                if (fileCopy.type.startsWith('text/') || 
+                    fileCopy.name.match(/\.(txt|py|js|jsx|ts|tsx|html|css|md|json|xml|yml|yaml)$/i)) {
+                    fileContent = await fileCopy.text();
+                } else {
+                    fileContent = await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                            try {
+                                const base64 = reader.result.split(",")[1];
+                                resolve(base64);
+                            } catch (e) {
+                                reject(e);
+                            }
+                        };
+                        reader.onerror = (err) => reject(err);
+                        reader.readAsDataURL(fileCopy);
+                    });
+                }
+
+                // Handle large files
+                if (fileContent.length > 1000000) {
+                    console.warn('Large file detected, truncating analysis');
+                    fileContent = fileContent.substring(0, 1000000) + "...[file truncated]";
+                }
+
+                const apiUrl = '/api/generate/text';
+                const apiPayload = {
+                    prompt: processedMessage || `Analyze the contents of ${fileCopy.name}`,
+                    mode: "analyze_file",
+                    filename: fileCopy.name,
+                    file_content: fileContent,
+                    file_type: fileCopy.type,
+                    user_preference_id: getPersistentUserId(),
+                    firebase_token: currentUser?.firebaseToken || '',
+                    stream: true,
+                    ai_mode: selectedMode,
+                    step_by_step: analysis.isReasoningNeeded
+                };
+                
+                setIsStreaming(true);
+                const initialStreamMessage = {
+                    role: 'assistant',
+                    content: `📄 Analyzing ${fileCopy.name}...`,
+                    type: 'text',
+                    ts: Date.now(),
+                    isStreaming: true
+                };
+                setStreamingMessage(initialStreamMessage);
+                
+                const response = await callFastAPI(apiUrl, apiPayload, 'analyze_file', {
+                    signal: controller.signal,
+                    stream: true,
+                    timeout: 60000
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+
+                await handleStreamResponse(response);
+            }
+            // IMAGE EDIT
+            else if (imageCopy || analysis.isEditContinuation) {
+                console.log('Processing image edit request...');
+                
+                let base64Image = null;
+                
+                if (imageCopy) {
+                    base64Image = await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                            try {
+                                const result = reader.result;
+                                if (result && result.includes(',')) {
+                                    const b = result.split(",")[1];
+                                    if (b && b.length > 100 && /^[A-Za-z0-9+/=]+$/.test(b.replace(/\s/g, ''))) {
+                                        resolve(b);
+                                    } else {
+                                        reject(new Error('Invalid base64 data'));
+                                    }
+                                } else {
+                                    reject(new Error('No valid base64 found'));
+                                }
+                            } catch (e) {
+                                reject(e);
+                            }
+                        };
+                        reader.onerror = (err) => {
+                            console.error('FileReader error:', err);
+                            reject(err);
+                        };
+                        reader.readAsDataURL(imageCopy);
+                    });
+                } else if (analysis.isEditContinuation) {
+                    // Try to get last edited image from localStorage
+                    const lastImage = localStorage.getItem('last_edited_image');
+                    if (lastImage && lastImage.length > 100) {
+                        base64Image = lastImage;
+                        console.log('Using last edited image for continuation');
+                    }
+                }
+
+                const imagePrompt = processedMessage.length > 1000 
+                    ? processedMessage.substring(0, 1000) + "...[prompt truncated for image editing]"
+                    : processedMessage;
+
+                const apiUrl = '/api/generate/text';
+                const apiPayload = {
+                    prompt: imagePrompt,
+                    mode: "image_edit",
+                    image: base64Image,
+                    strength: 0.7,
+                    user_preference_id: getPersistentUserId(),
+                    firebase_token: currentUser?.firebaseToken || '',
+                    stream: false,
+                    ai_mode: selectedMode,
+                    is_edit_continuation: analysis.isEditContinuation,
+                    max_tokens: 800
+                };
+                
+                // Show loading progress for image generation
+                setImageGenerationProgress(10);
+                const progressInterval = setInterval(() => {
+                    setImageGenerationProgress(prev => {
+                        if (prev >= 90) return 90;
+                        return prev + 10;
+                    });
+                }, 1000);
+                
+                try {
+                    const result = await callFastAPI(apiUrl, apiPayload, 'image_edit', {
+                        signal: controller.signal,
+                        timeout: 45000
+                    });
+
+                    clearInterval(progressInterval);
+                    setImageGenerationProgress(100);
+
+                    if (result?.base64_image || result?.image) {
+                        const imageData = result.base64_image || result.image;
+                        const assistantMessage = {
+                            role: 'assistant',
+                            content: imagePrompt.includes('edit') ? `Edited: ${imagePrompt}` : '',
+                            type: 'image',
+                            base64_image: imageData,
+                            ts: Date.now(),
+                            is_edited: true
+                        };
+                        setChatHistory(prev => [...prev, assistantMessage]);
+                        localStorage.setItem('last_edited_image', imageData);
+                        
+                        // Show success message
+                        setTimeout(() => {
+                            showModal("Image Edited", "Your image has been successfully edited!");
+                        }, 500);
+                    } else {
+                        throw new Error('No image data in response');
+                    }
+                } catch (apiError) {
+                    clearInterval(progressInterval);
+                    throw apiError;
+                }
+            }
+            // IMAGE GENERATION
+            else if (analysis.isImageRequest || activeAIMode === 'image_gen') {
+                // Ask for confirmation if not in pro mode
+                if (selectedMode !== 'pro') {
+                    const confirm = window.confirm(
+                        "Image generation works best in Pro mode. Switch to Pro mode for this task?"
+                    );
+                    if (confirm) {
+                        setSelectedAIMode('pro');
+                    }
+                }
+
+                const imageGenPrompt = processedMessage.length > 1000 
+                    ? processedMessage.substring(0, 1000) + "...[prompt truncated for image generation]"
+                    : processedMessage;
+
+                const apiUrl = '/api/generate/text';
+                const apiPayload = { 
+                    prompt: imageGenPrompt, 
+                    mode: 'image_gen',
+                    aspect_ratio: aspectRatio,
+                    user_preference_id: getPersistentUserId(),
+                    firebase_token: currentUser?.firebaseToken || '',
+                    stream: false,
+                    ai_mode: 'pro', // Always use pro for image gen
+                    max_tokens: 400
+                };
+                
+                // Show loading progress
+                setImageGenerationProgress(10);
+                const progressInterval = setInterval(() => {
+                    setImageGenerationProgress(prev => {
+                        if (prev >= 90) return 90;
+                        return prev + 15;
+                    });
+                }, 800);
+                
+                try {
+                    const result = await callFastAPI(apiUrl, apiPayload, 'image_gen', {
+                        timeout: 45000
+                    });
+
+                    clearInterval(progressInterval);
+                    setImageGenerationProgress(100);
+
+                    if (result?.base64_image || result?.image) {
+                        const imageData = result.base64_image || result.image;
+                        const assistantMessage = {
+                            role: 'assistant',
+                            content: '',
+                            type: 'image',
+                            base64_image: imageData,
+                            ts: Date.now(),
+                            is_generated: true
+                        };
+                        setChatHistory(prev => [...prev, assistantMessage]);
+                        localStorage.setItem('last_edited_image', imageData);
+                        
+                        setTimeout(() => {
+                            showModal("Image Generated", "Your image has been successfully generated!");
+                        }, 500);
+                    } else {
+                        throw new Error('No image data received');
+                    }
+                } catch (apiError) {
+                    clearInterval(progressInterval);
+                    throw apiError;
+                }
+            }
+            // FULL CODE MODE
+            else if (isFullCodeRequest) {
+                // Ask for confirmation if user prefers explanations
+                if (userPreferences.avoidCodeWhenPossible) {
+                    const confirm = window.confirm(
+                        "You usually prefer explanations over code. Generate full code anyway?"
+                    );
+                    if (!confirm) {
+                        // Update user preference
+                        saveUserPreference('avoidCodeWhenPossible', true);
+                        analysis.preferredResponseType = 'explanation';
+                    }
+                }
+
+                const apiUrl = '/api/generate/text';
+                const apiPayload = { 
+                    prompt: processedMessage, 
+                    mode: "chat",
+                    user_preference_id: getPersistentUserId(),
+                    firebase_token: currentUser?.firebaseToken || '',
+                    stream: true,
+                    full_code_mode: true,
+                    project_type: projectMetadata.type,
+                    ai_mode: selectedMode,
+                    max_tokens: 4000,
+                    response_type: analysis.preferredResponseType
+                };
+                
+                setIsStreaming(true);
+                const initialStreamMessage = {
+                    role: 'assistant',
+                    content: `🚀 Generating complete project: ${projectMetadata.name}...`,
+                    type: 'text',
+                    ts: Date.now(),
+                    isStreaming: true
+                };
+                setStreamingMessage(initialStreamMessage);
+                
+                const response = await callFastAPI(apiUrl, apiPayload, 'chat', {
+                    signal: controller.signal,
+                    stream: true,
+                    timeout: 90000
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+
+                await handleStreamResponse(response);
+
+                if (generatedFiles.length > 0) {
+                    setTimeout(() => {
+                        setIsProjectView(true);
+                        showModal("Project Generated", 
+                            `Successfully generated ${generatedFiles.length} files for "${projectMetadata.name}".`
+                        );
+                    }, 500);
+                }
+            }
+            // REASONING & PRO MODES
+            else if (selectedMode === 'reasoning' || selectedMode === 'pro') {
+                const reasoningPrompt = processedMessage.length > 3000 
+                    ? processedMessage.substring(0, 3000) + "...[prompt truncated for reasoning]"
+                    : processedMessage;
+
+                const apiUrl = '/api/generate/text';
+                const apiPayload = { 
+                    prompt: reasoningPrompt, 
+                    mode: selectedMode,
+                    user_preference_id: getPersistentUserId(),
+                    firebase_token: currentUser?.firebaseToken || '',
+                    stream: true,
+                    ai_mode: selectedMode,
+                    max_tokens: 2000,
+                    step_by_step: selectedMode === 'reasoning',
+                    response_type: analysis.preferredResponseType
+                };
+                
+                setIsStreaming(true);
+                const initialStreamMessage = {
+                    role: 'assistant',
+                    content: selectedMode === 'pro' 
+                        ? '🚀 Spider AI Pro is analyzing...' 
+                        : '🧠 Reasoning step by step...',
+                    type: 'text',
+                    ts: Date.now(),
+                    isStreaming: true
+                };
+                setStreamingMessage(initialStreamMessage);
+                
+                const response = await callFastAPI(apiUrl, apiPayload, selectedMode, {
+                    signal: controller.signal,
+                    stream: true,
+                    timeout: 60000
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+
+                await handleStreamResponse(response);
+            }
+            // NORMAL CHAT WITH STREAMING DECISION
+            else {
+                const shouldStream = analysis.shouldStream || 
+                                   processedMessage.length > 500 ||
+                                   analysis.isMath ||
+                                   selectedMode !== 'chat';
+
+                if (shouldStream) {
+                    const apiUrl = '/api/generate/text';
+                    const apiPayload = { 
+                        prompt: processedMessage, 
+                        mode: selectedMode,
+                        user_preference_id: getPersistentUserId(),
+                        firebase_token: currentUser?.firebaseToken || '',
+                        stream: true,
+                        ai_mode: selectedMode,
+                        max_tokens: processedMessage.length > 2000 ? 2000 : undefined,
+                        response_type: analysis.preferredResponseType
+                    };
+                    
+                    setIsStreaming(true);
+                    const initialStreamMessage = {
+                        role: 'assistant',
+                        content: '',
+                        type: 'text',
+                        ts: Date.now(),
+                        isStreaming: true
+                    };
+                    setStreamingMessage(initialStreamMessage);
+                    
+                    const response = await callFastAPI(apiUrl, apiPayload, selectedMode, {
+                        signal: controller.signal,
+                        stream: true,
+                        timeout: 45000
+                    });
+
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(`HTTP ${response.status}: ${errorText}`);
+                    }
+
+                    await handleStreamResponse(response);
+                } else {
+                    const apiUrl = '/api/generate/text';
+                    const apiPayload = { 
+                        prompt: processedMessage, 
+                        mode: selectedMode,
+                        user_preference_id: getPersistentUserId(),
+                        firebase_token: currentUser?.firebaseToken || '',
+                        stream: false,
+                        ai_mode: selectedMode,
+                        max_tokens: 1500,
+                        response_type: analysis.preferredResponseType
+                    };
+                    
+                    const result = await callFastAPI(apiUrl, apiPayload, selectedMode, {
+                        signal: controller.signal,
+                        stream: false,
+                        timeout: 30000
+                    });
+
+                    if (result?.text) {
+                        // Fast typing animation
+                        const words = result.text.split(' ');
+                        let currentText = '';
+                        let wordIndex = 0;
+                        
+                        const typeNextWord = () => {
+                            if (wordIndex < words.length) {
+                                const wordsToAdd = words.slice(wordIndex, wordIndex + 2 + Math.floor(Math.random() * 3));
+                                currentText += (currentText ? ' ' : '') + wordsToAdd.join(' ');
+                                wordIndex += wordsToAdd.length;
+                                
+                                setStreamingMessage(prev => ({
+                                    ...prev,
+                                    content: currentText
+                                }));
+                                
+                                setTimeout(typeNextWord, 10 + Math.random() * 20);
+                            } else {
+                                const assistantMessage = {
+                                    role: 'assistant',
+                                    content: result.text,
+                                    type: 'text',
+                                    ts: Date.now()
+                                };
+                                setChatHistory(prev => [...prev, assistantMessage]);
+                                setStreamingMessage(null);
+                            }
+                        };
+                        
+                        setStreamingMessage({
+                            role: 'assistant',
+                            content: '',
+                            type: 'text',
+                            ts: Date.now(),
+                            isStreaming: true
+                        });
+                        
+                        typeNextWord();
+                    } else {
+                        const assistantMessage = {
+                            role: 'assistant',
+                            content: result?.text || '',
+                            type: 'text',
+                            ts: Date.now()
+                        };
+                        setChatHistory(prev => [...prev, assistantMessage]);
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('API ERROR:', error);
+            
+            let errorMessage = 'Something went wrong. Please try again.';
+            let errorType = 'error';
+            
+            if (error.name === 'AbortError') {
+                errorMessage = 'Request was cancelled.';
+                errorType = 'info';
+            } else if (error.message.includes('timeout')) {
+                errorMessage = 'Request timed out. The prompt might be too long. Please try a shorter version.';
+                errorType = 'warning';
+            } else if (error.message.includes('413')) {
+                errorMessage = 'Request too large. Please shorten your prompt or try splitting it into smaller parts.';
+                errorType = 'warning';
+            } else if (error.message.includes('429')) {
+                errorMessage = 'Too many requests. Please wait a moment and try again.';
+                errorType = 'warning';
+            } else if (error.message.includes('500')) {
+                errorMessage = 'Server error. Please try again in a few moments.';
+                errorType = 'error';
+            } else {
+                errorMessage = `Error: ${error.message || 'Unknown error'}`;
+            }
+            
+            const assistantError = {
+                role: 'assistant',
+                content: errorMessage,
+                type: 'text',
+                ts: Date.now(),
+                isError: true,
+                errorType: errorType
+            };
+            setChatHistory(prev => [...prev, assistantError]);
+            
+            // Show modal for important errors
+            if (errorType === 'error' || errorType === 'warning') {
+                showModal(errorType === 'error' ? "Error" : "Warning", errorMessage);
+            }
+        } finally {
+            // Clean up
+            setAbortController(null);
+            setUploadedFile(null);
+            setUploadedImage(null);
+            setIsLoading(false);
+            setIsStreaming(false);
+            setStreamingMessage(null);
+            setImageGenerationProgress(0);
+            
+            // Clear streaming content
+            setStreamedContent('');
+            accumulatedTokensRef.current = '';
+        }
+    };
+
+    // ---------- Download Project ----------
+    const downloadProjectAsZip = useCallback(async () => {
+        if (generatedFiles.length === 0) {
+            showModal("No Files", "No generated files to download.");
+            return;
+        }
+        
+        try {
+            const projectData = {
+                name: projectMetadata.name || 'spider-project',
+                files: generatedFiles,
+                metadata: projectMetadata,
+                generatedAt: new Date().toISOString()
+            };
+            
+            const blob = new Blob([JSON.stringify(projectData, null, 2)], {
+                type: 'application/json'
+            });
+            
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${projectMetadata.name || 'project'}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            showModal("Project Downloaded", `Project "${projectMetadata.name}" has been downloaded.`);
+        } catch (error) {
+            console.error('Download error:', error);
+            showModal("Download Error", "Failed to download project.");
+        }
+    }, [generatedFiles, projectMetadata, showModal]);
+
+    // ---------- Project View Components ----------
+    const ProjectFileTree = useMemo(() => {
+        return React.memo(({ files, activeIndex, onSelectFile }) => {
+            if (!files || files.length === 0) return null;
+            
+            const getFileIcon = (fileName) => {
+                const ext = fileName.split('.').pop().toLowerCase();
+                const icons = {
+                    'js': '📜', 'jsx': '⚛️', 'ts': '📘', 'tsx': '⚛️',
+                    'py': '🐍', 'html': '🌐', 'css': '🎨', 'json': '📦',
+                    'md': '📝', 'txt': '📄', 'java': '☕', 'cpp': '⚡',
+                    'c': '🔧', 'cs': '🔷', 'php': '🐘', 'rb': '💎',
+                    'go': '🐹', 'rs': '🦀', 'swift': '🐦', 'kt': '⚪'
+                };
+                return icons[ext] || '📄';
+            };
+            
+            return (
+                <div className="bg-[var(--spider-dark)] rounded-lg border-2 border-[var(--spider-light)] p-4 shadow-lg">
+                    <div className="flex items-center justify-between mb-4">
+                        <h4 className="text-sm font-semibold text-white flex items-center">
+                            <span className="mr-2">📁</span>
+                            Project Files
+                        </h4>
+                        <span className="text-xs px-3 py-1 bg-[var(--spider-light)] text-white rounded-full">
+                            {files.length} file{files.length !== 1 ? 's' : ''}
                         </span>
                     </div>
-                    <button 
-                        className="new-chat-button"
-                        onClick={handleNewChat}
-                        aria-label="New chat"
-                    >
-                        <span className="new-chat-icon"></span>
-                    </button>
+                    
+                    <div className="space-y-1 max-h-80 overflow-y-auto">
+                        {files.map((file, index) => (
+                            <button
+                                key={index}
+                                onClick={() => onSelectFile(index)}
+                                className={`w-full text-left px-4 py-3 text-sm rounded-lg flex items-center space-x-3 transition-all duration-200 ${
+                                    activeIndex === index
+                                        ? 'bg-[var(--spider-light)] text-white shadow-inner'
+                                        : 'text-[var(--spider-text)] hover:bg-[var(--spider-med)] hover:text-white'
+                                }`}
+                            >
+                                <span className="text-lg">{getFileIcon(file.name)}</span>
+                                <div className="flex-1 min-w-0">
+                                    <div className="font-medium truncate">{file.name}</div>
+                                    <div className="text-xs text-gray-400 mt-1">
+                                        {file.language} • {(file.content.length / 1024).toFixed(1)} KB
+                                    </div>
+                                </div>
+                                {activeIndex === index && (
+                                    <span className="text-xs bg-[var(--spider-neon-blue)] text-black px-2 py-1 rounded-full">
+                                        Viewing
+                                    </span>
+                                )}
+                            </button>
+                        ))}
+                    </div>
                 </div>
-            )}
+            );
+        });
+    }, []);
+
+    const FileViewer = useMemo(() => {
+        return React.memo(({ file }) => {
+            if (!file) return null;
             
-            {/* Sidebar */}
-            <div className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
-                <div className="sidebar-content">
+            const handleCopyFile = () => {
+                navigator.clipboard.writeText(file.content);
+                showModal("Copied", "File content copied to clipboard!");
+            };
+            
+            const handleDownloadFile = () => {
+                const blob = new Blob([file.content], { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = file.name;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            };
+            
+            return (
+                <div className="bg-[var(--spider-dark)] rounded-lg border-2 border-[var(--spider-light)] p-4 shadow-lg">
+                    <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center space-x-3">
+                            <div className="w-10 h-10 bg-[var(--spider-light)] rounded-lg flex items-center justify-center">
+                                <span className="text-lg">
+                                    {file.name.endsWith('.js') ? '📜' :
+                                     file.name.endsWith('.py') ? '🐍' :
+                                     file.name.endsWith('.html') ? '🌐' :
+                                     file.name.endsWith('.css') ? '🎨' :
+                                     file.name.endsWith('.json') ? '📦' : '📄'}
+                                </span>
+                            </div>
+                            <div>
+                                <h4 className="text-sm font-semibold text-white truncate max-w-xs">{file.name}</h4>
+                                <div className="flex items-center space-x-2 mt-1">
+                                    <span className="text-xs text-[var(--spider-text-dim)] bg-[var(--spider-med)] px-2 py-1 rounded">
+                                        {file.language}
+                                    </span>
+                                    <span className="text-xs text-gray-400">
+                                        {(file.content.length / 1024).toFixed(1)} KB
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex space-x-2">
+                            <button
+                                onClick={handleCopyFile}
+                                className="text-xs bg-[var(--spider-light)] text-white px-4 py-2 rounded-lg hover:bg-[var(--spider-med)] transition-colors flex items-center space-x-2"
+                            >
+                                <span>📋</span>
+                                <span>Copy</span>
+                            </button>
+                            <button
+                                onClick={handleDownloadFile}
+                                className="text-xs bg-[var(--spider-neon-blue)] text-black px-4 py-2 rounded-lg hover:opacity-90 transition-colors flex items-center space-x-2"
+                            >
+                                <span>⬇️</span>
+                                <span>Download</span>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div className="bg-black rounded-lg overflow-hidden border border-gray-800">
+                        <div className="px-4 py-2 bg-gray-900 border-b border-gray-800 flex justify-between items-center">
+                            <div className="text-sm text-gray-400">File Content</div>
+                            <div className="text-xs text-gray-500">
+                                Lines: {file.content.split('\n').length}
+                            </div>
+                        </div>
+                        <pre className="text-sm p-4 overflow-x-auto max-h-[500px]">
+                            <code className={`language-${file.language}`}>
+                                {file.content}
+                            </code>
+                        </pre>
+                    </div>
+                </div>
+            );
+        });
+    }, [showModal]);
+
+    // ---------- Main JSX ----------
+    return (
+        <div className="flex flex-row h-full w-full bg-[var(--spider-dark)] text-[var(--spider-text)] overflow-hidden relative">
+            {/* Desktop Sidebar */}
+            {!isMobile && (
+                <div className="hidden md:flex flex-col bg-[var(--spider-med)] w-64 p-4 border-r-2 border-[var(--spider-light)] flex-shrink-0 space-y-4 overflow-y-auto">
                     <button 
-                        className="new-chat-sidebar"
-                        onClick={handleNewChat}
+                        onClick={handleNewChat} 
+                        className="w-full bg-[var(--spider-neon-blue)] text-black text-sm font-semibold py-3 px-4 rounded-lg hover:opacity-90 transition-all duration-200 flex items-center space-x-2 justify-center active:scale-95 shadow-lg"
+                        disabled={isDeleting}
                     >
-                        <span className="plus-icon">+</span>
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
+                        </svg>
                         <span>New Chat</span>
                     </button>
-                    
-                    <div className="recent-chats">
-                        <h3>Recent Chats</h3>
-                        {recentChats.map(chat => (
-                            <div key={chat.id} className="chat-item">
+
+                    <div className="flex-grow pt-4 border-t border-[var(--spider-light)] overflow-y-auto">
+                        <h3 className="text-xs font-semibold uppercase text-[var(--spider-text-dim)] mb-3 px-1">
+                            Recent Chats
+                        </h3>
+                        <div className="space-y-2">
+                            {recentChats.length > 0 ? (
+                                recentChats.map((chat) => (
+                                    <div key={chat.id} className="flex items-center group">
+                                        <button 
+                                            onClick={() => loadChatById(chat.id)} 
+                                            className={`flex-grow text-left px-3 py-3 text-sm rounded-lg hover:bg-[var(--spider-light)] truncate transition-all duration-200 active:scale-95 ${
+                                                activeChatId === chat.id 
+                                                    ? 'bg-[var(--spider-light)] text-white font-medium shadow-inner' 
+                                                    : 'text-[var(--spider-text)] hover:text-white'
+                                                }`}
+                                            disabled={isDeleting}
+                                        >
+                                            <div className="truncate font-medium">{chat.title}</div>
+                                            <div className="text-xs text-[var(--spider-text-dim)] mt-1 flex items-center space-x-2">
+                                                <span>{new Date(chat.timestamp).toLocaleDateString()}</span>
+                                                <span>•</span>
+                                                <span className={`px-2 py-0.5 rounded ${
+                                                    chat.aiMode === 'pro' ? 'bg-purple-900/30 text-purple-300' :
+                                                    chat.aiMode === 'reasoning' ? 'bg-blue-900/30 text-blue-300' :
+                                                    'bg-gray-800 text-gray-300'
+                                                }`}>
+                                                    {chat.aiMode || chat.mode}
+                                                </span>
+                                            </div>
+                                        </button>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (window.confirm('Are you sure you want to delete this chat?')) {
+                                                    deleteChat(chat.id);
+                                                }
+                                            }}
+                                            className="ml-2 text-red-400 hover:text-red-300 opacity-0 group-hover:opacity-100 transition-opacity p-2 active:scale-95"
+                                            title="Delete chat"
+                                            disabled={isDeleting}
+                                        >
+                                            {isDeleting ? (
+                                                <div className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin"></div>
+                                            ) : (
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                                </svg>
+                                            )}
+                                        </button>
+                                    </div>
+                                ))
+                            ) : (
+                                <div className="text-center py-8 text-[var(--spider-text-dim)] text-sm">
+                                    <div className="text-3xl mb-2">💬</div>
+                                    <p>No recent chats</p>
+                                    <p className="text-xs mt-2">Start a new conversation!</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Main Chat Area */}
+            <div className="flex flex-col flex-1 h-full min-h-0 w-full">
+                {/* Mobile Header */}
+                {isMobile && (
+                    <div className="flex items-center justify-between p-4 bg-[var(--spider-med)] border-b-2 border-[var(--spider-light)] flex-shrink-0">
+                        <button 
+                            onClick={() => setSidebarOpen(!sidebarOpen)}
+                            className="text-white p-2 touch-manipulation active:scale-95 bg-[var(--spider-light)] rounded-lg"
+                            aria-label="Open menu"
+                        >
+                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                            </svg>
+                        </button>
+                        <span className="text-sm font-semibold text-[var(--spider-neon-blue)] truncate px-2 text-center flex-1">
+                            {getModeText()}
+                        </span>
+                        <button 
+                            onClick={handleNewChat}
+                            className="text-white p-2 touch-manipulation active:scale-95 bg-[var(--spider-light)] rounded-lg"
+                            aria-label="New chat"
+                        >
+                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
+                            </svg>
+                        </button>
+                    </div>
+                )}
+
+                {/* Mobile Sidebar */}
+                {isMobile && sidebarOpen && (
+                    <div className="fixed inset-0 z-50">
+                        <div 
+                            className="fixed inset-0 bg-black bg-opacity-70"
+                            onClick={() => setSidebarOpen(false)}
+                        />
+                        <div className="fixed left-0 top-0 h-full w-72 bg-[var(--spider-med)] z-50 overflow-y-auto p-4 shadow-2xl">
+                            <div className="flex justify-between items-center mb-6">
+                                <h2 className="text-white font-semibold text-lg flex items-center">
+                                    <span className="mr-2">💬</span>
+                                    Chat History
+                                </h2>
                                 <button 
-                                    className="chat-title"
-                                    onClick={() => loadChatById(chat.id)}
-                                >
-                                    {chat.title}
-                                </button>
-                                <button 
-                                    className="delete-chat"
-                                    onClick={() => deleteChat(chat.id)}
-                                    aria-label="Delete chat"
+                                    onClick={() => setSidebarOpen(false)}
+                                    className="text-white hover:text-gray-300 text-2xl p-1 bg-[var(--spider-light)] rounded-lg w-10 h-10 flex items-center justify-center"
                                 >
                                     ×
                                 </button>
                             </div>
-                        ))}
-                    </div>
-                </div>
-            </div>
-            
-            {/* Main Content */}
-            <div className="main-content">
-                {/* Chat History */}
-                <div className="chat-history" ref={chatEndRef}>
-                    {chatHistory.map((msg, index) => (
-                        <div 
-                            key={`msg-${index}-${msg.ts}`} 
-                            className={`message ${msg.role}`}
-                        >
-                            <div className="message-content">
-                                {msg.type === 'image' && msg.base64_image && (
-                                    <div className="image-message">
-                                        <img 
-                                            src={`data:image/jpeg;base64,${msg.base64_image}`} 
-                                            alt="Generated content"
-                                            loading="lazy"
-                                        />
-                                    </div>
-                                )}
-                                {msg.type === 'text' && (
-                                    <div className="text-message">
-                                        {msg.content}
+                            
+                            <button 
+                                onClick={handleNewChat} 
+                                className="w-full bg-[var(--spider-neon-blue)] text-black text-sm font-semibold py-4 px-4 rounded-lg hover:opacity-90 transition-all duration-200 flex items-center space-x-2 justify-center mb-6 shadow-lg"
+                            >
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
+                                </svg>
+                                <span>New Chat</span>
+                            </button>
+
+                            <div className="space-y-2">
+                                {recentChats.length > 0 ? (
+                                    recentChats.map((chat) => (
+                                        <button 
+                                            key={chat.id}
+                                            onClick={() => {
+                                                loadChatById(chat.id);
+                                                setSidebarOpen(false);
+                                            }} 
+                                            className={`w-full text-left px-4 py-3 text-sm rounded-lg hover:bg-[var(--spider-light)] truncate transition-all duration-200 ${
+                                                activeChatId === chat.id 
+                                                    ? 'bg-[var(--spider-light)] text-white font-medium shadow-inner' 
+                                                    : 'text-[var(--spider-text)] hover:text-white'
+                                                }`}
+                                        >
+                                            <div className="truncate font-medium">{chat.title}</div>
+                                            <div className="text-xs text-[var(--spider-text-dim)] mt-1">
+                                                {new Date(chat.timestamp).toLocaleDateString()}
+                                            </div>
+                                        </button>
+                                    ))
+                                ) : (
+                                    <div className="text-center py-10 text-[var(--spider-text-dim)] text-sm">
+                                        <div className="text-4xl mb-3">💬</div>
+                                        <p>No recent chats</p>
+                                        <p className="text-xs mt-2">Start a new conversation!</p>
                                     </div>
                                 )}
                             </div>
                         </div>
-                    ))}
-                    
-                    {/* Streaming Message */}
-                    {streamState.isActive && (
-                        <div className="message assistant streaming">
-                            <div className="message-content">
-                                <pre className="streaming-content">
-                                    {streamState.content}
-                                </pre>
-                                <div className="streaming-controls">
-                                    <div className="streaming-status">
-                                        <div className="typing-indicator">
-                                            <span></span><span></span><span></span>
+                    </div>
+                )}
+
+                {/* Project View */}
+                {isProjectView ? (
+                    <div className="flex-grow overflow-y-auto p-4">
+                        <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
+                            <div className="lg:col-span-1 space-y-4">
+                                <ProjectFileTree 
+                                    files={generatedFiles}
+                                    activeIndex={activeFileIndex}
+                                    onSelectFile={setActiveFileIndex}
+                                />
+                                
+                                <div className="bg-[var(--spider-dark)] rounded-lg border-2 border-[var(--spider-light)] p-4 shadow-lg">
+                                    <h4 className="text-sm font-semibold text-white mb-4 flex items-center">
+                                        <span className="mr-2">📋</span>
+                                        Project Info
+                                    </h4>
+                                    <div className="space-y-3 text-sm">
+                                        <div className="flex justify-between items-center py-2 border-b border-gray-800">
+                                            <span className="text-[var(--spider-text-dim)]">Name:</span>
+                                            <span className="text-white font-medium">{projectMetadata.name}</span>
                                         </div>
-                                        <span className="status-text">
-                                            {streamState.mode === 'reasoning' ? 'Reasoning...' : 'Typing...'}
-                                        </span>
+                                        <div className="flex justify-between items-center py-2 border-b border-gray-800">
+                                            <span className="text-[var(--spider-text-dim)]">Type:</span>
+                                            <span className="text-white font-medium">{projectMetadata.type}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center py-2 border-b border-gray-800">
+                                            <span className="text-[var(--spider-text-dim)]">Files:</span>
+                                            <span className="text-white font-medium">{generatedFiles.length}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center py-2 border-b border-gray-800">
+                                            <span className="text-[var(--spider-text-dim)]">Tech Stack:</span>
+                                            <span className="text-white font-medium">
+                                                {projectMetadata.techStack.join(', ') || 'N/A'}
+                                            </span>
+                                        </div>
                                     </div>
-                                    <button 
-                                        className="stop-button"
-                                        onClick={handleStopGeneration}
+                                    <button
+                                        onClick={downloadProjectAsZip}
+                                        className="w-full mt-4 bg-[var(--spider-neon-blue)] text-black font-semibold py-3 px-4 rounded-lg hover:opacity-90 transition-all duration-200 flex items-center justify-center space-x-2"
                                     >
-                                        Stop
+                                        <span>⬇️</span>
+                                        <span>Download Project</span>
                                     </button>
                                 </div>
                             </div>
-                        </div>
-                    )}
-                    
-                    {/* Reasoning Display */}
-                    {reasoningSteps.length > 0 && (
-                        <div className="reasoning-display-container">
-                            <ReasoningDisplay steps={reasoningSteps} />
-                        </div>
-                    )}
-                    
-                    {/* Continue Button */}
-                    {streamState.showContinue && !loadingState.isLoading && (
-                        <div className="continue-prompt">
-                            <div className="continue-text">
-                                Response seems incomplete. Continue?
+                            
+                            <div className="lg:col-span-2">
+                                {generatedFiles[activeFileIndex] ? (
+                                    <FileViewer file={generatedFiles[activeFileIndex]} />
+                                ) : (
+                                    <div className="bg-[var(--spider-dark)] rounded-lg border-2 border-[var(--spider-light)] p-10 text-center">
+                                        <div className="text-6xl mb-6">📁</div>
+                                        <h3 className="text-xl font-semibold text-white mb-3">Select a File</h3>
+                                        <p className="text-[var(--spider-text-dim)] mb-6">
+                                            Choose a file from the sidebar to view its contents
+                                        </p>
+                                        <div className="text-sm text-gray-500">
+                                            {generatedFiles.length} files available
+                                        </div>
+                                    </div>
+                                )}
                             </div>
-                            <button 
-                                className="continue-button"
-                                onClick={handleContinueGeneration}
-                            >
-                                Continue Generation
-                            </button>
                         </div>
-                    )}
-                </div>
-                
+                    </div>
+                ) : (
+                    <div className="flex-grow overflow-y-auto p-3 sm:p-4 space-y-5 pb-32 sm:pb-4">
+                        {chatHistory.map((msg, index) => (
+                            <ChatBubble key={`${msg.ts}_${index}_${msg.role}`} message={msg} />
+                        ))}
+                        
+                        {/* Streaming Message */}
+                        {(streamingMessage || isStreaming) && (
+                            <div className="flex justify-start mb-5 px-2 sm:px-4">
+                                <div className="bg-[var(--spider-med)] text-white p-5 rounded-2xl max-w-[95%] shadow-xl border-2 border-[var(--spider-light)]">
+                                    <pre className="whitespace-pre-wrap font-sans text-sm sm:text-base break-words leading-relaxed mb-4">
+                                        {streamedContent || streamingMessage?.content || ''}
+                                    </pre>
+                                    
+                                    {/* Progress Bar */}
+                                    {(streamProgress > 0 && streamProgress < 100) && (
+                                        <div className="mb-4">
+                                            <div className="flex justify-between text-xs text-gray-400 mb-1">
+                                                <span>Generating...</span>
+                                                <span>{Math.round(streamProgress)}%</span>
+                                            </div>
+                                            <div className="w-full bg-gray-800 rounded-full h-2">
+                                                <div 
+                                                    className="bg-[var(--spider-neon-blue)] h-2 rounded-full transition-all duration-300"
+                                                    style={{ width: `${streamProgress}%` }}
+                                                ></div>
+                                            </div>
+                                        </div>
+                                    )}
+                                    
+                                    {/* Image Generation Progress */}
+                                    {(imageGenerationProgress > 0 && imageGenerationProgress < 100) && (
+                                        <div className="mb-4">
+                                            <div className="flex justify-between text-xs text-gray-400 mb-1">
+                                                <span>Generating image...</span>
+                                                <span>{Math.round(imageGenerationProgress)}%</span>
+                                            </div>
+                                            <div className="w-full bg-gray-800 rounded-full h-2">
+                                                <div 
+                                                    className="bg-green-500 h-2 rounded-full transition-all duration-300"
+                                                    style={{ width: `${imageGenerationProgress}%` }}
+                                                ></div>
+                                            </div>
+                                        </div>
+                                    )}
+                                    
+                                    {/* Reasoning Steps Display */}
+                                    {isStepByStepReasoning && reasoningSteps.length > 0 && (
+                                        <div className="mb-4 p-4 bg-black/30 rounded-lg border border-[var(--spider-light)]">
+                                            <div className="flex items-center mb-3">
+                                                <span className="text-lg mr-2">🧠</span>
+                                                <h4 className="text-sm font-semibold text-[var(--spider-neon-blue)]">Current Reasoning</h4>
+                                            </div>
+                                            <div className="space-y-3">
+                                                {reasoningSteps.map((step, idx) => (
+                                                    <div key={idx} className="flex">
+                                                        <div className="flex-shrink-0 w-6 h-6 bg-[var(--spider-light)] text-white rounded-full flex items-center justify-center text-xs mr-3">
+                                                            {idx + 1}
+                                                        </div>
+                                                        <div className="flex-1 text-sm text-gray-200">
+                                                            {step}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                    
+                                    <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-700">
+                                        <div className="flex items-center space-x-3">
+                                            <div className="flex space-x-1">
+                                                <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce"></div>
+                                                <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                                                <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                                            </div>
+                                            <span className="text-xs text-gray-400">
+                                                {isStreaming ? 'AI is thinking...' : 'AI is typing...'}
+                                            </span>
+                                        </div>
+                                        <button 
+                                            onClick={handleStopGeneration}
+                                            className="bg-red-500 hover:bg-red-600 text-white text-xs px-4 py-2 rounded-lg transition-colors flex items-center space-x-2"
+                                        >
+                                            <span>⏹️</span>
+                                            <span>Stop</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                        
+                        {/* Continue Button */}
+                        {showContinueButton && !isLoading && (
+                            <div className="flex justify-start mb-5 px-2 sm:px-4">
+                                <div className="bg-[var(--spider-dark)] p-4 rounded-lg border-2 border-[var(--spider-light)] shadow-lg">
+                                    <div className="flex items-center justify-between space-x-4">
+                                        <div className="flex items-center space-x-3">
+                                            <div className="w-8 h-8 bg-yellow-500/20 rounded-full flex items-center justify-center">
+                                                <span className="text-yellow-400">⚠️</span>
+                                            </div>
+                                            <div>
+                                                <div className="text-sm font-medium text-white">
+                                                    {isFullCodeMode 
+                                                        ? 'Project generation incomplete' 
+                                                        : 'Response seems incomplete'}
+                                                </div>
+                                                <div className="text-xs text-gray-400">
+                                                    {isFullCodeMode 
+                                                        ? 'Continue generating the remaining files?' 
+                                                        : 'Continue generating the response?'}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <button 
+                                            onClick={handleContinueGeneration}
+                                            className="bg-[var(--spider-neon-blue)] text-black text-sm font-semibold px-5 py-2.5 rounded-lg hover:opacity-90 transition-all duration-200 flex items-center space-x-2 min-w-[100px] justify-center"
+                                        >
+                                            <span>▶️</span>
+                                            <span>Continue</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                        
+                        <div ref={chatEndRef} />
+                    </div>
+                )}
+
+                {/* Hidden file inputs */}
+                <input 
+                    type="file" 
+                    ref={fileInputRef} 
+                    onChange={handleFileUpload} 
+                    className="hidden" 
+                    accept=".txt,.md,.js,.jsx,.ts,.tsx,.py,.html,.css,.json,.xml,.yml,.yaml,.java,.cpp,.c,.cs,.php,.rb,.go,.rs,.swift,.kt" 
+                />
+                <input 
+                    type="file" 
+                    ref={imageInputRef} 
+                    onChange={handleImageUpload} 
+                    className="hidden" 
+                    accept="image/*" 
+                />
+
                 {/* Input Area */}
-                <div className="input-area" style={{ 
-                    paddingBottom: isMobile ? `${safeAreaBottomRef.current}px` : '0' 
-                }}>
-                    {/* Upload Indicators */}
-                    {(uploadedFile || uploadedImage) && (
-                        <div className="upload-indicator">
-                            <div className="upload-info">
-                                <span className="upload-icon">
-                                    {uploadedFile ? '📄' : '🖼'}
-                                </span>
-                                <span className="upload-name">
-                                    {uploadedFile?.name || uploadedImage?.name}
-                                </span>
+                <div className={`bg-[var(--spider-med)] border-t-2 border-[var(--spider-light)] flex-shrink-0 w-full ${
+                    isMobile ? 'fixed bottom-0 left-0 right-0 p-4 pb-6' : 'p-5'
+                } shadow-2xl`}>
+                    <div className="max-w-5xl mx-auto">
+                        {!isMobile && (
+                            <div className="flex justify-between items-center mb-4">
+                                <div className="flex items-center space-x-3">
+                                    <span className="text-sm font-semibold text-[var(--spider-neon-blue)] flex items-center">
+                                        <span className="mr-2 text-lg">
+                                            {selectedAIMode === 'pro' ? '🚀' : 
+                                             selectedAIMode === 'reasoning' ? '🧠' : '💬'}
+                                        </span>
+                                        {getModeText()}
+                                        {isFullCodeMode && (
+                                            <span className="ml-3 text-xs px-3 py-1 bg-[var(--spider-neon-blue)] text-black rounded-full font-bold">
+                                                FULL CODE MODE
+                                            </span>
+                                        )}
+                                        {aiModeConfidence > 0.7 && (
+                                            <span className="ml-2 text-xs px-2 py-0.5 bg-green-900/30 text-green-300 rounded-full">
+                                                {Math.round(aiModeConfidence * 100)}% confidence
+                                            </span>
+                                        )}
+                                    </span>
+                                </div>
+                                {activeAIMode === 'image_gen' && (
+                                    <div className="flex items-center space-x-2">
+                                        <span className="text-xs text-gray-400">Aspect Ratio:</span>
+                                        <select 
+                                            value={aspectRatio} 
+                                            onChange={(e) => setAspectRatio(e.target.value)} 
+                                            className="bg-[var(--spider-light)] text-white px-3 py-1.5 rounded-lg text-sm focus:outline-none border border-gray-700"
+                                        >
+                                            <option value="1:1">1:1 Square</option>
+                                            <option value="16:9">16:9 Landscape</option>
+                                            <option value="9:16">9:16 Portrait</option>
+                                            <option value="4:3">4:3 Standard</option>
+                                        </select>
+                                    </div>
+                                )}
                             </div>
+                        )}
+
+                        {(uploadedFile || uploadedImage || audioBlob) && (
+                            <div className="mb-4 p-3 bg-[var(--spider-dark)] rounded-lg flex justify-between items-center border-2 border-green-800 shadow-lg">
+                                <div className="flex items-center space-x-3">
+                                    {audioBlob ? (
+                                        <>
+                                            <div className="w-10 h-10 bg-purple-600 rounded-lg flex items-center justify-center">
+                                                <span className="text-lg">🎤</span>
+                                            </div>
+                                            <div>
+                                                <div className="text-sm font-medium text-white">Voice Recording</div>
+                                                <div className="text-xs text-gray-400">Ready to send</div>
+                                            </div>
+                                        </>
+                                    ) : uploadedFile ? (
+                                        <>
+                                            <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
+                                                <span className="text-lg">📄</span>
+                                            </div>
+                                            <div>
+                                                <div className="text-sm font-medium text-white">{uploadedFile.name}</div>
+                                                <div className="text-xs text-gray-400">
+                                                    {(uploadedFile.size / 1024).toFixed(1)} KB • {uploadedFile.type}
+                                                </div>
+                                            </div>
+                                        </>
+                                    ) : uploadedImage ? (
+                                        <>
+                                            <div className="w-10 h-10 bg-green-600 rounded-lg flex items-center justify-center">
+                                                <span className="text-lg">🖼</span>
+                                            </div>
+                                            <div>
+                                                <div className="text-sm font-medium text-white">{uploadedImage.name}</div>
+                                                <div className="text-xs text-gray-400">
+                                                    {(uploadedImage.size / 1024).toFixed(1)} KB • Image
+                                                </div>
+                                            </div>
+                                        </>
+                                    ) : ''}
+                                </div>
+                                <button 
+                                    onClick={() => { 
+                                        setUploadedFile(null); 
+                                        setUploadedImage(null); 
+                                        setAudioBlob(null);
+                                    }} 
+                                    className="text-red-400 hover:text-red-300 ml-3 font-bold flex-shrink-0 p-2 bg-red-900/20 rounded-lg hover:bg-red-900/30 transition-colors"
+                                >
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                        )}
+
+                        <div className="flex items-end w-full space-x-3">
+                            <div className="flex-1 bg-[var(--spider-light)] rounded-xl p-4 min-h-[56px] border-2 border-[var(--spider-light)] shadow-inner">
+                                <textarea 
+                                    ref={textareaRef}
+                                    placeholder={
+                                        isFullCodeMode ? "Describe your complete project (e.g., 'Build a React todo app with backend')..." :
+                                        uploadedImage ? "Describe how to edit this image (e.g., 'Change background to sunset')..." : 
+                                        uploadedFile ? `Analyze "${uploadedFile?.name}" (e.g., 'Find bugs in this code')...` : 
+                                        audioBlob ? "Add text to accompany your voice message..." :
+                                        `Message Spider AI ${selectedAIMode === 'pro' ? 'Pro 🚀' : selectedAIMode === 'reasoning' ? '(Reasoning 🧠)' : '💬'}... (Try: 'solve x² + 2x - 3 = 0' or 'create an image of a cat')`
+                                    } 
+                                    className="w-full bg-transparent text-white focus:outline-none resize-none text-sm sm:text-base max-h-40 overflow-y-auto placeholder-gray-400"
+                                    value={message} 
+                                    onChange={(e) => setMessage(e.target.value)} 
+                                    onKeyDown={(e) => { 
+                                        if (e.key === 'Enter' && !e.shiftKey) { 
+                                            e.preventDefault(); 
+                                            handleSendMessage(); 
+                                        } 
+                                    }} 
+                                    rows={1}
+                                    disabled={isLoading}
+                                />
+                            </div>
+
+                            <VoiceButton 
+                                isRecording={isRecording}
+                                recordingTime={recordingTime}
+                                isTranscribing={isTranscribing}
+                                onStartRecording={startRecording}
+                                onStopRecording={stopRecording}
+                            />
+
+                            <PlusMenu 
+                                setActiveAIMode={setActiveAIMode} 
+                                fileInputRef={fileInputRef} 
+                                imageInputRef={imageInputRef} 
+                            />
+
                             <button 
-                                className="remove-upload"
-                                onClick={() => {
-                                    setUploadedFile(null);
-                                    setUploadedImage(null);
-                                }}
+                                onClick={handleSendMessage} 
+                                className="bg-[var(--spider-neon-blue)] text-black font-semibold px-6 py-4 rounded-xl hover:opacity-90 transition-all duration-200 flex-shrink-0 h-14 flex items-center justify-center min-w-[60px] shadow-xl hover:shadow-2xl active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed" 
+                                disabled={(!message.trim() && !uploadedFile && !uploadedImage && !audioBlob) || isLoading}
                             >
-                                ×
+                                {isLoading ? (
+                                    <div className="w-6 h-6 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
+                                ) : (
+                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
+                                    </svg>
+                                )}
                             </button>
                         </div>
-                    )}
-                    
-                    {/* Loading Indicator */}
-                    {loadingState.isLoading && (
-                        <div className="loading-indicator-wrapper">
-                            <LoadingIndicator 
-                                type={loadingState.loadingType}
-                                progress={loadingState.progress}
-                                estimatedTime={loadingState.estimatedTime}
-                            />
-                        </div>
-                    )}
-                    
-                    {/* Input Controls */}
-                    <div className="input-controls">
-                        <VoiceButton 
-                            state={voiceState}
-                            onStart={startVoiceRecording}
-                            onStop={stopVoiceRecording}
-                        />
                         
-                        <div className="text-input-container">
-                            <textarea
-                                ref={textareaRef}
-                                value={message}
-                                onChange={(e) => setMessage(e.target.value)}
-                                placeholder={
-                                    uploadedImage ? "Describe how to edit this image..." :
-                                    uploadedFile ? `Analyze "${uploadedFile.name}"...` :
-                                    "Message Spider AI..."
-                                }
-                                rows={1}
-                                disabled={loadingState.isLoading}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter' && !e.shiftKey) {
-                                        e.preventDefault();
-                                        handleSendMessage();
-                                    }
-                                }}
-                            />
-                        </div>
-                        
-                        <PlusMenu 
-                            onUploadFile={() => fileInputRef.current?.click()}
-                            onUploadImage={() => imageInputRef.current?.click()}
-                            onGenerateImage={() => {
-                                setActiveAIMode('image_gen');
-                                setMessage('Generate an image of: ');
-                            }}
-                            onModeChange={(mode) => setAiMode(prev => ({ ...prev, selected: mode }))}
-                        />
-                        
-                        <button 
-                            className="send-button"
-                            onClick={() => handleSendMessage()}
-                            disabled={(!message.trim() && !uploadedFile && !uploadedImage) || loadingState.isLoading}
-                            aria-label="Send message"
-                        >
-                            {loadingState.isLoading ? (
-                                <div className="send-spinner"></div>
-                            ) : (
-                                <svg className="send-icon" viewBox="0 0 24 24">
-                                    <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
-                                </svg>
-                            )}
-                        </button>
+                        {/* Mobile keyboard spacer */}
+                        {isMobile && <div className="h-6" />}
                     </div>
                 </div>
+
+                {isMobile && <div className="h-28" />}
             </div>
-            
-            {/* Hidden Inputs */}
-            <input 
-                type="file" 
-                ref={fileInputRef}
-                onChange={handleFileUpload}
-                accept=".txt,.md,.js,.html,.css,.json,.py"
-                className="hidden-input"
-            />
-            <input 
-                type="file" 
-                ref={imageInputRef}
-                onChange={handleImageUpload}
-                accept="image/*"
-                className="hidden-input"
-            />
-            
-            {/* CSS Styles */}
-            <style jsx>{`
-                /* Reset and base styles */
-                .spider-ai-app {
-                    display: flex;
-                    height: 100vh;
-                    background: var(--spider-dark);
-                    color: var(--spider-text);
-                }
-                
-                /* Mobile specific */
-                .spider-ai-app.mobile {
-                    flex-direction: column;
-                }
-                
-                .mobile-header {
-                    display: flex;
-                    align-items: center;
-                    justify-content: space-between;
-                    padding: 12px 16px;
-                    background: var(--spider-med);
-                    border-bottom: 1px solid var(--spider-light);
-                    min-height: 60px;
-                }
-                
-                .menu-button, .new-chat-button {
-                    width: 44px;
-                    height: 44px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    background: var(--spider-light);
-                    border: none;
-                    border-radius: 8px;
-                    color: white;
-                    cursor: pointer;
-                    touch-action: manipulation;
-                }
-                
-                .header-title {
-                    font-weight: 600;
-                    font-size: 16px;
-                }
-                
-                /* Sidebar */
-                .sidebar {
-                    width: 280px;
-                    background: var(--spider-med);
-                    border-right: 1px solid var(--spider-light);
-                    display: flex;
-                    flex-direction: column;
-                }
-                
-                .spider-ai-app.mobile .sidebar {
-                    position: fixed;
-                    left: -280px;
-                    top: 0;
-                    bottom: 0;
-                    z-index: 1000;
-                    transition: left 0.3s ease;
-                }
-                
-                .spider-ai-app.mobile .sidebar.open {
-                    left: 0;
-                }
-                
-                .sidebar-content {
-                    padding: 20px;
-                    overflow-y: auto;
-                    flex: 1;
-                }
-                
-                .new-chat-sidebar {
-                    width: 100%;
-                    padding: 12px;
-                    background: var(--spider-neon-blue);
-                    color: black;
-                    border: none;
-                    border-radius: 8px;
-                    font-weight: 600;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    gap: 8px;
-                    margin-bottom: 20px;
-                    cursor: pointer;
-                }
-                
-                /* Main content */
-                .main-content {
-                    flex: 1;
-                    display: flex;
-                    flex-direction: column;
-                    overflow: hidden;
-                }
-                
-                .chat-history {
-                    flex: 1;
-                    overflow-y: auto;
-                    padding: 20px;
-                    padding-bottom: 100px;
-                }
-                
-                .message {
-                    margin-bottom: 16px;
-                    max-width: 85%;
-                }
-                
-                .message.user {
-                    margin-left: auto;
-                    background: var(--spider-neon-blue);
-                    color: black;
-                    border-radius: 18px 18px 4px 18px;
-                    padding: 12px 16px;
-                }
-                
-                .message.assistant {
-                    background: var(--spider-med);
-                    border-radius: 18px 18px 18px 4px;
-                    padding: 12px 16px;
-                    border: 1px solid var(--spider-light);
-                }
-                
-                .message.streaming {
-                    border-color: var(--spider-neon-blue);
-                }
-                
-                .streaming-controls {
-                    display: flex;
-                    align-items: center;
-                    justify-content: space-between;
-                    margin-top: 12px;
-                    padding-top: 12px;
-                    border-top: 1px solid var(--spider-light);
-                }
-                
-                .typing-indicator {
-                    display: flex;
-                    gap: 4px;
-                }
-                
-                .typing-indicator span {
-                    width: 6px;
-                    height: 6px;
-                    background: var(--spider-neon-blue);
-                    border-radius: 50%;
-                    animation: bounce 1.4s infinite ease-in-out;
-                }
-                
-                .typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
-                .typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
-                
-                @keyframes bounce {
-                    0%, 80%, 100% { transform: scale(0); }
-                    40% { transform: scale(1); }
-                }
-                
-                .stop-button {
-                    background: #ef4444;
-                    color: white;
-                    border: none;
-                    padding: 6px 12px;
-                    border-radius: 6px;
-                    font-size: 12px;
-                    cursor: pointer;
-                }
-                
-                /* Input area */
-                .input-area {
-                    background: var(--spider-med);
-                    border-top: 1px solid var(--spider-light);
-                    padding: 16px;
-                }
-                
-                .input-controls {
-                    display: flex;
-                    align-items: flex-end;
-                    gap: 12px;
-                }
-                
-                .text-input-container {
-                    flex: 1;
-                    background: var(--spider-light);
-                    border-radius: 12px;
-                    border: 1px solid var(--spider-light);
-                    padding: 12px;
-                }
-                
-                .text-input-container textarea {
-                    width: 100%;
-                    background: transparent;
-                    border: none;
-                    color: white;
-                    font-size: 16px;
-                    resize: none;
-                    outline: none;
-                    min-height: 24px;
-                    max-height: 120px;
-                    line-height: 1.5;
-                }
-                
-                .text-input-container textarea:disabled {
-                    opacity: 0.5;
-                }
-                
-                .voice-button {
-                    width: 44px;
-                    height: 44px;
-                    background: var(--spider-light);
-                    border: none;
-                    border-radius: 8px;
-                    color: white;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    cursor: pointer;
-                    flex-shrink: 0;
-                }
-                
-                .voice-button.recording {
-                    background: #ef4444;
-                    animation: pulse 2s infinite;
-                }
-                
-                @keyframes pulse {
-                    0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
-                    70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
-                    100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
-                }
-                
-                .plus-button {
-                    width: 44px;
-                    height: 44px;
-                    background: var(--spider-light);
-                    border: none;
-                    border-radius: 8px;
-                    color: white;
-                    font-size: 24px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    cursor: pointer;
-                    flex-shrink: 0;
-                }
-                
-                .plus-menu-dropdown {
-                    position: absolute;
-                    bottom: 60px;
-                    right: 0;
-                    background: var(--spider-dark);
-                    border: 1px solid var(--spider-light);
-                    border-radius: 12px;
-                    padding: 8px;
-                    min-width: 200px;
-                    z-index: 1000;
-                }
-                
-                .menu-item {
-                    width: 100%;
-                    padding: 12px;
-                    text-align: left;
-                    background: transparent;
-                    border: none;
-                    color: var(--spider-text);
-                    display: flex;
-                    align-items: center;
-                    gap: 12px;
-                    border-radius: 8px;
-                    cursor: pointer;
-                }
-                
-                .menu-item:hover {
-                    background: var(--spider-light);
-                }
-                
-                .menu-item.active {
-                    background: var(--spider-light);
-                    color: white;
-                }
-                
-                .send-button {
-                    width: 44px;
-                    height: 44px;
-                    background: var(--spider-neon-blue);
-                    border: none;
-                    border-radius: 8px;
-                    color: black;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    cursor: pointer;
-                    flex-shrink: 0;
-                }
-                
-                .send-button:disabled {
-                    opacity: 0.5;
-                    cursor: not-allowed;
-                }
-                
-                /* Loading indicator */
-                .loading-indicator {
-                    padding: 16px;
-                    text-align: center;
-                }
-                
-                .loading-spinner {
-                    width: 40px;
-                    height: 40px;
-                    border: 3px solid var(--spider-light);
-                    border-top-color: var(--spider-neon-blue);
-                    border-radius: 50%;
-                    animation: spin 1s linear infinite;
-                    margin: 0 auto 12px;
-                }
-                
-                @keyframes spin {
-                    to { transform: rotate(360deg); }
-                }
-                
-                .progress-bar {
-                    height: 6px;
-                    background: var(--spider-light);
-                    border-radius: 3px;
-                    overflow: hidden;
-                    margin: 8px 0;
-                }
-                
-                .progress-fill {
-                    height: 100%;
-                    background: var(--spider-neon-blue);
-                    transition: width 0.3s ease;
-                }
-                
-                /* Reasoning display */
-                .reasoning-container {
-                    background: rgba(0, 71, 69, 0.3);
-                    border: 1px solid var(--spider-light);
-                    border-radius: 12px;
-                    padding: 16px;
-                    margin: 16px 0;
-                }
-                
-                .reasoning-header {
-                    display: flex;
-                    align-items: center;
-                    gap: 8px;
-                    margin-bottom: 12px;
-                    font-weight: 600;
-                }
-                
-                .reasoning-step {
-                    background: rgba(0, 0, 0, 0.2);
-                    border-radius: 8px;
-                    padding: 12px;
-                    margin-bottom: 8px;
-                }
-                
-                .step-number {
-                    font-weight: 600;
-                    color: var(--spider-neon-blue);
-                    margin-bottom: 4px;
-                }
-                
-                /* Continue prompt */
-                .continue-prompt {
-                    background: var(--spider-dark);
-                    border: 1px solid var(--spider-light);
-                    border-radius: 12px;
-                    padding: 16px;
-                    margin: 16px 0;
-                    display: flex;
-                    align-items: center;
-                    justify-content: space-between;
-                }
-                
-                .continue-button {
-                    background: var(--spider-neon-blue);
-                    color: black;
-                    border: none;
-                    padding: 8px 16px;
-                    border-radius: 6px;
-                    font-weight: 600;
-                    cursor: pointer;
-                }
-                
-                /* Upload indicator */
-                .upload-indicator {
-                    background: rgba(0, 71, 69, 0.3);
-                    border: 1px solid var(--spider-light);
-                    border-radius: 8px;
-                    padding: 12px;
-                    margin-bottom: 12px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: space-between;
-                }
-                
-                .upload-info {
-                    display: flex;
-                    align-items: center;
-                    gap: 8px;
-                }
-                
-                .remove-upload {
-                    background: transparent;
-                    border: none;
-                    color: #ef4444;
-                    font-size: 20px;
-                    cursor: pointer;
-                    width: 32px;
-                    height: 32px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                }
-                
-                /* iOS specific */
-                .ios-device .input-area {
-                    padding-bottom: env(safe-area-inset-bottom);
-                }
-                
-                .ios-device textarea {
-                    font-size: 16px; /* Prevent zoom */
-                }
-                
-                /* Hidden inputs */
-                .hidden-input {
-                    display: none;
-                }
-                
-                /* Responsive */
-                @media (max-width: 768px) {
-                    .message {
-                        max-width: 90%;
-                    }
-                    
-                    .input-controls {
-                        gap: 8px;
-                    }
-                    
-                    .voice-button,
-                    .plus-button,
-                    .send-button {
-                        width: 48px;
-                        height: 48px;
-                    }
-                }
-            `}</style>
         </div>
     );
 };
@@ -4203,8 +6062,6 @@ int main() {
         </>
     );
 }
-
-
 
 
 
