@@ -752,6 +752,9 @@ let activePrompt = prompt;
     //////////////////////
     // IMAGE GENERATION (LUCID ORIGIN)
     //////////////////////
+  //////////////////////
+    // IMAGE GENERATION (LUCID ORIGIN) - FIXED
+    //////////////////////
     if (mode === "image_gen") {
       let width = 1024;
       let height = 1024;
@@ -788,7 +791,9 @@ let activePrompt = prompt;
 
         const extraHeaders = {
             ...cors,
-            "X-Ai-Expanded-Prompt": enhancedPrompt.substring(0, 500)
+            // 🔥 CRITICAL FIX: Remove newlines (\r\n) from the header prompt. 
+            // Headers cannot contain newlines, or the server will crash with "Invalid header value".
+            "X-Ai-Expanded-Prompt": enhancedPrompt.substring(0, 500).replace(/[\r\n]+/g, ' ')
         };
 
         if (response instanceof ReadableStream) {
@@ -821,7 +826,11 @@ let activePrompt = prompt;
             // CRITICAL FIX: SAVE GENERATED IMAGE TO KV FOR NEXT TURN
             context.waitUntil(saveLastImage(env, imgMemKey, base64Image));
 
-            const binaryString = atob(base64Image);
+            // 🔥 CRITICAL FIX: Sanitize Base64 string before decoding.
+            // Removes newlines/spaces that AI models sometimes accidentally inject.
+            const cleanB64 = base64Image.replace(/[\r\n\s]+/g, '');
+            const binaryString = atob(cleanB64);
+
             const len = binaryString.length;
             const bytes = new Uint8Array(len);
             for (let i = 0; i < len; i++) {
@@ -851,7 +860,6 @@ let activePrompt = prompt;
         });
       }
     }
-
     //////////////////////
     // NORMAL CHAT
     //////////////////////
