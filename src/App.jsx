@@ -3356,326 +3356,274 @@ useEffect(() => {
     };
 
     // ---------- Enhanced Send Message with AI Modes ----------
-   // ---------- NEW CONSTANTS ----------
+
+  // ============================================================
+// 🧠 ADVANCED INTENT ENGINE v2.5 (IMAGE / CODE / CHAT ROUTER)
+// ============================================================
+
+function normalizeText(t) {
+    return t
+        .toLowerCase()
+        .replace(/[^\w\s]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+function detectUserIntent(prompt) {
+
+    const t = normalizeText(prompt);
+
+    let score = {
+        image_edit: 0,
+        image_gen: 0,
+        code_edit: 0,
+        code_gen: 0,
+        chat: 0
+    };
+
+    const imageEditWords = [
+        "edit image","change background","remove background",
+        "remove object","blur background","replace background",
+        "enhance image","retouch","resize image","fix image"
+    ];
+
+    const imageGenWords = [
+        "generate image","create image","draw","art of",
+        "wallpaper","illustration","portrait","character design",
+        "8k","highly detailed","masterpiece",
+        "cinematic lighting","digital art"
+    ];
+
+    const codeEditWords = [
+        "edit code","fix code","modify code",
+        "optimize","refactor","bug"
+    ];
+
+    const codeGenWords = [
+        "build app","create app","write code",
+        "generate code","full project","complete project"
+    ];
+
+    imageEditWords.forEach(w => { if (t.includes(w)) score.image_edit += 4; });
+    imageGenWords.forEach(w => { if (t.includes(w)) score.image_gen += 4; });
+    codeEditWords.forEach(w => { if (t.includes(w)) score.code_edit += 4; });
+    codeGenWords.forEach(w => { if (t.includes(w)) score.code_gen += 4; });
+
+    if (prompt.includes("```")) {
+        score.code_edit += 8;
+        score.code_gen += 8;
+    }
+
+    if (prompt.length > 200 && t.includes("wallpaper")) {
+        score.image_gen += 6;
+    }
+
+    return Object.entries(score)
+        .sort((a,b)=>b[1]-a[1])[0][0];
+}
+
+
+// =======================================
+// IMAGE PROMPT SAFE COMPRESSOR
+// =======================================
+
+function compressImagePrompt(prompt){
+    return prompt
+        .replace(/\n/g," ")
+        .replace(/\s+/g," ")
+        .slice(0,3500);
+}
+
+
+
+// ============================================================
+// 🚀 FULL SEND MESSAGE HANDLER (FINAL)
+// ============================================================
+
 const handleSendMessage = async () => {
-    // 1. EARLY EXIT
-    if (!message.trim() && !uploadedFile && !uploadedImage) return;
 
-    // 2. PRE-PROCESS MESSAGE (MASSIVE LIMIT FOR CHAT/CODE)
-    // We allow 4 million characters so you can paste 10k+ lines of code safely.
-    const MAX_CHAT_LENGTH = 4000000; 
-    const processedMessage = message.length > MAX_CHAT_LENGTH 
-        ? message.substring(0, MAX_CHAT_LENGTH) + "...[truncated]"
-        : message;
+try{
 
-    // 3. INTELLIGENT ROUTING
-    const determineIntent = () => {
-        const lowerMsg = processedMessage.toLowerCase();
-        
-        // --- Signal Detection ---
-        const hasFile = !!uploadedFile;
-        const hasImage = !!uploadedImage;
-        
-        // A. Detect Code Intent (Keywords + Syntax)
-        // We do this EARLY to stop "edit code" from triggering "edit image"
-        // We only check the first 5000 chars for keywords to save performance on huge messages
-        const promptStart = lowerMsg.substring(0, 5000); 
-        const codeKeywords = ['function ', 'const ', 'var ', 'let ', 'import ', 'export ', 'return ', 'class ', '<div>', 'react', 'api', 'fix the code', 'edit the code', 'rewrite', 'syntax'];
-        
-        const looksLikeCode = detectFullCodeRequest(processedMessage) || 
-                              codeKeywords.some(k => promptStart.includes(k));
+if (!message.trim() && !uploadedFile && !uploadedImage) return;
 
-        const isImageGen = detectImageGeneration(processedMessage);
-        
-        // B. Check for "Edit Continuation" (Strict Logic)
-        const lastMsgWasImage = chatHistory.length > 0 && (
-            chatHistory[chatHistory.length - 1].type === 'image' || 
-            chatHistory[chatHistory.length - 1].base64_image
-        );
-        
-        const editKeywords = ['edit', 'change', 'modify', 'fix', 'adjust', 'remove', 'add', 'background', 'color'];
-        
-        // Only consider Image Edit if: Last was image + Edit Keyword + NOT looking like code
-        const isEditIntent = lastMsgWasImage && 
-                             editKeywords.some(k => promptStart.includes(k)) && 
-                             !looksLikeCode; 
+const processedMessage = message;
 
-        // --- Priority Routing Logic ---
+// -------- INTENT --------
+const intent = detectUserIntent(processedMessage);
 
-        // Priority 1: User explicitly uploaded an image (Strongest signal)
-        if (hasImage) return 'image_edit';
+// -------- MODE --------
+let mode = "chat";
 
-        // Priority 2: Code Requests (MUST override context-aware image editing)
-        if (looksLikeCode) return 'chat';
+if (uploadedFile) mode = "analyze_file";
+else if (uploadedImage && intent === "image_edit") mode = "image_edit";
+else if (intent === "image_gen") mode = "image_gen";
+else mode = "chat";
 
-        // Priority 3: Implicit Image Editing (e.g., "make it blue")
-        if (isEditIntent && !hasFile) return 'image_edit';
+// -------- HARD SAFETY --------
+if (processedMessage.includes("```")) {
+    mode = "chat";
+}
 
-        // Priority 4: File Analysis
-        if (hasFile) return 'analyze_file';
+console.log("INTENT:", intent, "MODE:", mode);
 
-        // Priority 5: Image Generation
-        if (isImageGen) return 'image_gen';
 
-        // Priority 6: Default Chat
-        return 'chat';
-    };
+// -------- PUSH USER MSG --------
+setChatHistory(prev => [...prev,{
+    role:"user",
+    content:processedMessage,
+    type:mode,
+    ts:Date.now()
+}]);
 
-    const computedMode = determineIntent();
-    
-    // Set flags based on computed mode
-    const isFullCodeRequest = computedMode === 'chat' && detectFullCodeRequest(processedMessage);
-    
-    console.log('Routing Decision:', {
-        computedMode,
-        originalLength: message.length,
-        isFullCode: isFullCodeRequest
+setMessage("");
+setIsLoading(true);
+
+
+// ==================================================
+// 🖼 IMAGE GENERATION
+// ==================================================
+
+if(mode === "image_gen"){
+
+const imagePrompt = compressImagePrompt(processedMessage);
+
+const result = await callFastAPI("/api/generate/text",{
+    prompt:imagePrompt,
+    mode:"image_gen",
+    aspect_ratio:aspectRatio,
+    stream:false,
+    ai_mode:selectedAIMode,
+    max_tokens:500
+},mode);
+
+if(!result?.base64_image){
+    throw new Error("Image generation failed");
+}
+
+setChatHistory(prev=>[...prev,{
+    role:"assistant",
+    type:"image",
+    base64_image:result.base64_image,
+    ts:Date.now(),
+    is_generated:true
+}]);
+
+localStorage.setItem("last_edited_image",result.base64_image);
+
+}
+
+
+// ==================================================
+// 🖌 IMAGE EDIT
+// ==================================================
+
+else if(mode === "image_edit"){
+
+let base64Image=null;
+
+if(uploadedImage){
+    base64Image = await new Promise((res,rej)=>{
+        const r=new FileReader();
+        r.onload=()=>res(r.result.split(",")[1]);
+        r.onerror=rej;
+        r.readAsDataURL(uploadedImage);
     });
+}
+else{
+    base64Image = localStorage.getItem("last_edited_image");
+}
 
-    // 4. SETUP STATE
-    setIsLoading(true);
-    const controller = new AbortController();
-    setAbortController(controller);
+if(!base64Image) throw new Error("No image to edit");
 
-    if (isFullCodeRequest) {
-        setIsFullCodeMode(true);
-        setProjectMetadata(extractProjectMetadata(processedMessage));
-    }
+const result = await callFastAPI("/api/generate/text",{
+    prompt:compressImagePrompt(processedMessage),
+    mode:"image_edit",
+    image:base64Image,
+    strength:0.7,
+    stream:false,
+    ai_mode:selectedAIMode
+},mode);
 
-    // 5. UPDATE UI (Shows the FULL message to the user)
-    const userMessage = {
-        role: 'user',
-        content: processedMessage, // Full 4,000,000 char message stored here
-        type: computedMode,
-        fileName: uploadedFile ? uploadedFile.name : undefined,
-        imageName: uploadedImage ? uploadedImage.name : undefined,
-        ts: Date.now(),
-        isFullCodeRequest: isFullCodeRequest,
-        aiMode: selectedAIMode
-    };
+if(!result?.base64_image){
+    throw new Error("Image edit failed");
+}
 
-    setChatHistory(prev => [...prev, userMessage]);
-    setMessage('');
+setChatHistory(prev=>[...prev,{
+    role:"assistant",
+    type:"image",
+    base64_image:result.base64_image,
+    ts:Date.now(),
+    is_edited:true
+}]);
 
-    // Reset streaming variables
-    accumulatedTokensRef.current = '';
-    setStreamedContent('');
-    setShowContinueButton(false);
-    setLastStreamId(null);
-    fileContentBufferRef.current = '';
+localStorage.setItem("last_edited_image",result.base64_image);
 
-    try {
-        // ==========================================
-        //  MODE HANDLERS
-        // ==========================================
+}
 
-        // --- HANDLER: IMAGE GENERATION ---
-        if (computedMode === "image_gen") {
-            // SAFEGUARD: Image models CANNOT handle 4,000,000 chars. 
-            // We create a specific slice just for the API call.
-            // This does NOT affect the chat history (which keeps the full text).
-            const IMAGE_PROMPT_LIMIT = 850; 
-            const safeImagePrompt = processedMessage.length > IMAGE_PROMPT_LIMIT
-                ? processedMessage.substring(0, IMAGE_PROMPT_LIMIT) 
-                : processedMessage;
-            
-            console.log(`Truncating prompt for Image Gen API only: ${safeImagePrompt.length} chars`);
 
-            const apiUrl = '/api/generate/text';
-            const apiPayload = { 
-                prompt: safeImagePrompt, // Sending safe version
-                mode: 'image_gen',
-                aspect_ratio: aspectRatio,
-                user_preference_id: getPersistentUserId(),
-                firebase_token: currentUser?.firebaseToken || '',
-                stream: false,
-                ai_mode: selectedAIMode,
-                max_tokens: 400
-            };
-            
-            const result = await callFastAPI(apiUrl, apiPayload, computedMode, { timeout: 45000 });
+// ==================================================
+// 💬 CHAT / CODE / NORMAL TEXT
+// ==================================================
 
-            if (result?.base64_image) {
-                setChatHistory(prev => [...prev, {
-                    role: 'assistant',
-                    content: '', // No text needed, image speaks for itself
-                    type: 'image',
-                    base64_image: result.base64_image,
-                    ts: Date.now(),
-                    is_generated: true
-                }]);
-                localStorage.setItem('last_edited_image', result.base64_image);
-            } else {
-                throw new Error('Image generation failed to return data');
-            }
-        }
+else{
 
-        // --- HANDLER: IMAGE EDIT ---
-        else if (computedMode === "image_edit") {
-            let base64Image = null;
-            
-            if (uploadedImage) {
-                base64Image = await convertFileToBase64(uploadedImage); 
-            } else {
-                const lastImgMsg = [...chatHistory].reverse().find(m => m.type === 'image' || m.base64_image);
-                if (lastImgMsg) base64Image = lastImgMsg.base64_image;
-            }
+const response = await callFastAPI("/api/generate/text",{
+    prompt:processedMessage,
+    mode:"chat",
+    stream:true,
+    ai_mode:selectedAIMode,
+    max_tokens:2000
+},mode);
 
-            if (!base64Image) throw new Error("No image found to edit");
+if(!response.ok){
+    const t=await response.text();
+    throw new Error(t);
+}
 
-            // SAFEGUARD: Same truncate logic for editing
-            const safeEditPrompt = processedMessage.length > 850
-                ? processedMessage.substring(0, 850)
-                : processedMessage;
+await handleStreamResponse(response);
 
-            const apiUrl = '/api/generate/text';
-            const apiPayload = {
-                prompt: safeEditPrompt, // Sending safe version
-                mode: "image_edit",
-                image: base64Image,
-                strength: 0.7,
-                user_preference_id: getPersistentUserId(),
-                firebase_token: currentUser?.firebaseToken || '',
-                stream: false,
-                ai_mode: selectedAIMode,
-                is_edit_continuation: !uploadedImage 
-            };
-            
-            const result = await callFastAPI(apiUrl, apiPayload, computedMode, { signal: controller.signal, timeout: 60000 });
+if(accumulatedTokensRef.current){
 
-            if (result?.base64_image || result?.image) {
-                setChatHistory(prev => [...prev, {
-                    role: 'assistant',
-                    content: `Edited: ${safeEditPrompt}`,
-                    type: 'image',
-                    base64_image: result.base64_image || result.image,
-                    ts: Date.now(),
-                    is_edited: true
-                }]);
-                localStorage.setItem('last_edited_image', result.base64_image || result.image);
-            }
-        }
+setChatHistory(prev=>[...prev,{
+    role:"assistant",
+    content:accumulatedTokensRef.current,
+    type:"text",
+    ts:Date.now()
+}]);
 
-        // --- HANDLER: FILE ANALYSIS ---
-        else if (computedMode === "analyze_file" && uploadedFile) {
-            let fileContent = await readFileContent(uploadedFile);
-            
-            // Truncate MASSIVE files just for the initial analysis payload to avoid HTTP 413
-            // You can adjust this limit based on your specific backend server capabilities
-            const MAX_FILE_SIZE = 2000000; // 2MB Text Limit
-            if (fileContent.length > MAX_FILE_SIZE) {
-                fileContent = fileContent.substring(0, MAX_FILE_SIZE) + "...[file truncated]";
-            }
+}
 
-            const apiUrl = '/api/generate/text';
-            const apiPayload = {
-                prompt: processedMessage, // Full Prompt
-                mode: "analyze_file",
-                filename: uploadedFile.name,
-                file_content: fileContent,
-                file_type: uploadedFile.type,
-                user_preference_id: getPersistentUserId(),
-                firebase_token: currentUser?.firebaseToken || '',
-                stream: true,
-                ai_mode: selectedAIMode
-            };
-            
-            setIsStreaming(true);
-            setStreamingMessage({ role: 'assistant', content: '', type: 'text', ts: Date.now(), isStreaming: true });
-            
-            const response = await callFastAPI(apiUrl, apiPayload, computedMode, { signal: controller.signal, stream: true });
-            if (!response.ok) throw new Error(await response.text());
-            
-            await handleStreamResponse(response);
-            
-            if (accumulatedTokensRef.current) {
-                setChatHistory(prev => [...prev, {
-                    role: 'assistant', 
-                    content: accumulatedTokensRef.current, 
-                    type: 'text', 
-                    ts: Date.now()
-                }]);
-            }
-        }
+}
 
-        // --- HANDLER: DEFAULT CHAT / FULL CODE ---
-        else {
-            // Decide whether to stream
-            const shouldStream = isFullCodeRequest || 
-                                 processedMessage.length > 1000 || 
-                                 selectedAIMode === 'reasoning';
 
-            const apiUrl = '/api/generate/text';
-            const apiPayload = { 
-                prompt: processedMessage, // WE SEND THE FULL 4,000,000 CHARS HERE
-                mode: computedMode, // 'chat'
-                user_preference_id: getPersistentUserId(),
-                firebase_token: currentUser?.firebaseToken || '',
-                stream: shouldStream,
-                full_code_mode: isFullCodeRequest,
-                project_type: isFullCodeRequest ? projectMetadata.type : undefined,
-                ai_mode: selectedAIMode
-            };
+}catch(err){
 
-            if (shouldStream) {
-                setIsStreaming(true);
-                setStreamingMessage({ 
-                    role: 'assistant', 
-                    content: isFullCodeRequest ? 'Generating project structure...' : '', 
-                    type: 'text', 
-                    ts: Date.now(), 
-                    isStreaming: true 
-                });
-                
-                // Increased timeout for massive prompts
-                const response = await callFastAPI(apiUrl, apiPayload, computedMode, { signal: controller.signal, stream: true, timeout: 120000 });
-                if (!response.ok) throw new Error(await response.text());
-                
-                await handleStreamResponse(response);
-                
-                if (accumulatedTokensRef.current) {
-                    setChatHistory(prev => [...prev, {
-                        role: 'assistant',
-                        content: accumulatedTokensRef.current,
-                        type: 'text',
-                        ts: Date.now(),
-                        isFullCode: isFullCodeRequest,
-                        files: isFullCodeRequest && generatedFiles.length > 0 ? generatedFiles : undefined
-                    }]);
-                    
-                    if (isFullCodeRequest && generatedFiles.length > 0) {
-                        setTimeout(() => { setIsProjectView(true); showModal("Success", "Project generated."); }, 500);
-                    }
-                }
-            } else {
-                // Non-streaming standard chat
-                const result = await callFastAPI(apiUrl, apiPayload, computedMode, { signal: controller.signal });
-                if (result?.text) {
-                    typeText(result.text, () => {
-                        setChatHistory(prev => [...prev, { role: 'assistant', content: result.text, type: 'text', ts: Date.now() }]);
-                        setStreamingMessage(null);
-                    });
-                }
-            }
-        }
+console.error(err);
 
-    } catch (error) {
-        console.error('API ERROR:', error);
-        let errorMessage = 'Something went wrong.';
-        if (error.name === 'AbortError') errorMessage = 'Request cancelled.';
-        
-        setChatHistory(prev => [...prev, { role: 'assistant', content: errorMessage, type: 'text', ts: Date.now(), isError: true }]);
-    } finally {
-        setAbortController(null);
-        setUploadedFile(null);
-        setUploadedImage(null);
-        setIsLoading(false);
-        setIsStreaming(false);
-        setStreamingMessage(null);
-        setStreamedContent('');
-        accumulatedTokensRef.current = '';
-    }
+setChatHistory(prev=>[...prev,{
+    role:"assistant",
+    content:"Error: "+err.message,
+    type:"text",
+    ts:Date.now(),
+    isError:true
+}]);
+
+}
+
+finally{
+
+setIsLoading(false);
+setUploadedFile(null);
+setUploadedImage(null);
+accumulatedTokensRef.current="";
+setStreamedContent("");
+
+}
+
 };
+
+  
+  
   // ---------- Download Project ----------
     const downloadProjectAsZip = useCallback(async () => {
         if (generatedFiles.length === 0) {
@@ -5321,6 +5269,7 @@ int main() {
         </>
     );
 }
+
 
 
 
