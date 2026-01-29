@@ -2390,6 +2390,7 @@ const SpiderAIApp = ({
 
 // ---------- Fixed Streaming Handler with Code Block Continuation ----------
 // ---------- Fixed Streaming Handler (Seamless Merging) ---------
+// ---------- Fixed Streaming Handler (Safe State Updates) ---------
 const handleStreamResponse = useCallback(async (response, isContinue = false, initialContent = '') => {
     if (!response.body) return;
 
@@ -2398,12 +2399,9 @@ const handleStreamResponse = useCallback(async (response, isContinue = false, in
     
     const decoder = new TextDecoder();
     let buffer = '';
-    let tokenCount = 0;
     
-    // Initialize with existing content if continuing
+    // Initialize with existing content
     accumulatedTokensRef.current = initialContent;
-    
-    // Update UI immediately with existing content
     setStreamedContent(initialContent);
 
     try {
@@ -2411,27 +2409,19 @@ const handleStreamResponse = useCallback(async (response, isContinue = false, in
             const { done, value } = await reader.read();
             
             if (done) {
-                // Check if response ends abruptly (not ending in punctuation or code block)
-                const content = accumulatedTokensRef.current.trim();
-                const lastChar = content.slice(-1);
-                const isCodeBlockOpen = (content.match(/```/g) || []).length % 2 !== 0;
-                
-                // Show continue button if code block is open or doesn't end in sentence terminator
-                if (content.length > 0 && (isCodeBlockOpen || !['.', '!', '?', '}', '`'].includes(lastChar))) {
-                    setShowContinueButton(true);
-                }
-                
-                // IMPORTANT: When streaming completes, add the message to history
+                // Handle end of stream
                 if (accumulatedTokensRef.current) {
+                    const finalContent = accumulatedTokensRef.current;
                     const assistantMessage = {
                         role: 'assistant',
-                        content: accumulatedTokensRef.current,
+                        content: finalContent,
                         type: 'text',
                         ts: Date.now(),
                         isContinued: isContinue
                     };
                     
-                    // Add to history if we're in a normal streaming state
+                    // Only add to history if we are in a true streaming mode
+                    // (Chat mode handles its own history update via typeText)
                     if (isStreaming) {
                         setChatHistory(prev => [...prev, assistantMessage]);
                     }
@@ -2452,25 +2442,26 @@ const handleStreamResponse = useCallback(async (response, isContinue = false, in
                     try {
                         const parsed = JSON.parse(data);
                         if (parsed.text) {
-                            tokenCount++;
-                            const textToAdd = parsed.text;
+                            accumulatedTokensRef.current += parsed.text;
                             
-                            // Append to the MASTER Ref
-                            accumulatedTokensRef.current += textToAdd;
-                            
-                            // Update State for UI
+                            // 1. Update Content State
                             setStreamedContent(accumulatedTokensRef.current);
                             
-                            // Update streaming message if exists
-                            setStreamingMessage(prev => prev ? {
-                                ...prev,
-                                content: accumulatedTokensRef.current
-                            } : null);
+                            // 2. Update Message Object State (Robust Fix)
+                            setStreamingMessage(prev => ({
+                                role: 'assistant',
+                                type: 'text',
+                                ts: Date.now(),
+                                isStreaming: true,
+                                ...prev, // Keep existing fields
+                                content: accumulatedTokensRef.current // Force update content
+                            }));
                             
-                            // Handle Full Code Parsing
+                            // Full Code Logic
                             if (isFullCodeMode) {
-                                fileContentBufferRef.current += textToAdd;
-                                if (tokenCount % 20 === 0) {
+                                fileContentBufferRef.current += parsed.text;
+                                // Parse periodically
+                                if (accumulatedTokensRef.current.length % 100 === 0) {
                                     const files = parseCodeForFiles(fileContentBufferRef.current);
                                     if (files.length > 0) setGeneratedFiles(files);
                                 }
@@ -2492,15 +2483,13 @@ const handleStreamResponse = useCallback(async (response, isContinue = false, in
     } finally {
         reader.releaseLock();
         streamReaderRef.current = null;
-        
         if (isFullCodeMode && fileContentBufferRef.current) {
             const files = parseCodeForFiles(fileContentBufferRef.current);
             if (files.length > 0) setGeneratedFiles(files);
         }
     }
 }, [isFullCodeMode, parseCodeForFiles, isStreaming]);
-
-// ---------- Fixed Continue Generation ----------
+  // ---------- Fixed Continue Generation ----------
 const handleContinueGeneration = useCallback(async () => {
     if (!lastStreamId) return;
     
@@ -3360,15 +3349,10 @@ const handleSendMessage = async () => {
     // 1. INPUT VALIDATION
     if (!message.trim() && !uploadedFile && !uploadedImage) return;
 
-    console.log('Sending message:', {
-        persistentId: getPersistentUserId(),
-        currentUser: currentUser,
-        messageLength: message.length,
-        aiMode: selectedAIMode
-    });
+    // Log for debugging
+    console.log('Sending:', { length: message.length, mode: selectedAIMode });
 
     const processedMessage = message; 
-
     setIsLoading(true);
     const controller = new AbortController();
     setAbortController(controller);
@@ -3376,21 +3360,15 @@ const handleSendMessage = async () => {
     const fileCopy = uploadedFile;
     const imageCopy = uploadedImage;
     
-    // Default to the mode selected in the UI
+    // Determine Mode
     let mode = activeAIMode || selectedAIMode;
 
-    // --- LOGIC: CODE vs IMAGE GEN vs IMAGE EDIT vs CHAT ---
     const hasCodeConstructs = (text) => {
-        const codeKeywords = [
-            /\bconst\b/, /\blet\b/, /\bvar\b/, /\bval\b/, 
-            /\bimport\b/, /\bvoid\b/, /\bfunction\b/, 
-            /\breturn\b/, /\bclass\b/, /\b=>\b/, 
-            /\bpublic\b/, /\bprivate\b/, /\bdef\b/, 
-            /\bif\b\s*\(/, /\bfor\b\s*\(/, /\bwhile\b\s*\(/
-        ];
+        const codeKeywords = [/\bconst\b/, /\bfunction\b/, /\bclass\b/, /\bimport\b/, /\bdef\b/, /\bif\b\s*\(/];
         return codeKeywords.some(regex => regex.test(text));
     };
 
+    // --- MODE SELECTION LOGIC ---
     if (fileCopy) {
         mode = "analyze_file";
     } 
@@ -3398,35 +3376,29 @@ const handleSendMessage = async () => {
         mode = "image_edit";
     } 
     else {
-        // TEXT ONLY LOGIC
         if (hasCodeConstructs(processedMessage)) {
-            // Check for Full Code Project Intent
             const isFullCodeRequest = detectFullCodeRequest(processedMessage);
             if (isFullCodeRequest) {
                 setIsFullCodeMode(true);
                 setProjectMetadata(extractProjectMetadata(processedMessage));
             }
-            mode = selectedAIMode; // Keep 'chat', 'pro', or 'reasoning'
+            mode = selectedAIMode; // Keep Pro/Chat/Reasoning selection
         } 
-        else {
-            // Check for Image Gen Intent
-            if (detectImageGeneration(processedMessage)) {
-                mode = 'image_gen';
-            } else {
-                mode = selectedAIMode; // Normal Chat
-            }
+        else if (detectImageGeneration(processedMessage)) {
+            mode = 'image_gen';
+        } else {
+            mode = selectedAIMode; // Default to Chat/Pro
         }
     }
 
-    // Safety fallback
+    // Safety Fallback
     if (mode === 'image_edit' && !imageCopy) {
         mode = detectImageGeneration(processedMessage) ? 'image_gen' : selectedAIMode;
     }
 
-    // ----------------------------------------------
-
     const isFullCodeRequest = detectFullCodeRequest(processedMessage) && hasCodeConstructs(processedMessage);
 
+    // Add User Message to History
     const userMessage = {
         role: 'user',
         content: processedMessage,
@@ -3435,94 +3407,57 @@ const handleSendMessage = async () => {
         imageName: imageCopy ? imageCopy.name : undefined,
         ts: Date.now(),
         isFullCodeRequest: isFullCodeRequest,
-        aiMode: selectedAIMode,
-        wasTruncated: false
+        aiMode: selectedAIMode
     };
-
     setChatHistory(prev => [...prev, userMessage]);
     setMessage('');
 
-    // Reset streaming state
+    // Clear previous stream data
     accumulatedTokensRef.current = '';
     setStreamedContent('');
     setShowContinueButton(false);
     setLastStreamId(null);
     fileContentBufferRef.current = '';
-    continueStreamIdRef.current = null;
 
-    // =================================================================================
-    // 🔥 STREAMING DECISION LOGIC (UPDATED AS REQUESTED)
-    // =================================================================================
-    
-    // Helper to detect if user is asking for code (even simple snippets)
-    const isCodeRequest = (text) => {
-        const lower = text.toLowerCase();
-        const codeWords = ['code', 'function', 'script', 'html', 'css', 'javascript', 'python', 'java', 'react', 'fix', 'debug', 'program', 'snippet'];
-        return codeWords.some(w => lower.includes(w));
-    };
-
+    // --- STREAMING DECISION ---
     const shouldStream = 
-        // 1. ALWAYS STREAM FOR HEAVY MODES
-        selectedAIMode === 'pro' || 
+        mode === 'stream' ||
         selectedAIMode === 'reasoning' || 
+        selectedAIMode === 'pro' || 
         mode === "analyze_file" ||
         isFullCodeRequest ||
-
-        // 2. CHAT MODE TRIGGERS (Only stream if...)
         (mode === 'chat' && (
-            processedMessage.toLowerCase().includes('step by step') ||  // User asks for steps
-            processedMessage.toLowerCase().includes('stream') ||        // Explicit request
-            isCodeRequest(processedMessage) ||                          // Asking for code
-            detectMathRequest(processedMessage)                         // Math is better streamed
+            processedMessage.toLowerCase().includes('step by step') || 
+            processedMessage.toLowerCase().includes('stream') ||
+            detectMathRequest(processedMessage)
         ));
-        // NOTE: If mode is 'chat' and none of the above are true (e.g. "Hi"), shouldStream is false.
 
     try {
-        // 1. FILE ANALYSIS
-        if (mode === "analyze_file" && fileCopy) {
-            let fileContent;
-            
-            if (fileCopy.type.startsWith('text/') || 
-                fileCopy.name.match(/\.(txt|py|js|html|css|md|json|c|cpp|h|java|xml)$/)) {
-                fileContent = await fileCopy.text();
-            } else {
-                fileContent = await new Promise((resolve, reject) => {
-                    const reader = new FileReader();
-                    reader.onload = () => {
-                        try {
-                            const base64 = reader.result.split(",")[1];
-                            resolve(base64);
-                        } catch (e) {
-                            reject(e);
-                        }
-                    };
-                    reader.onerror = (err) => reject(err);
-                    reader.readAsDataURL(fileCopy);
-                });
-            }
-
-            const apiUrl = '/api/generate/text';
-            const apiPayload = {
-                prompt: processedMessage || `Analyze the contents of ${fileCopy.name}`,
-                mode: "analyze_file",
-                filename: fileCopy.name,
-                file_content: fileContent,
-                file_type: fileCopy.type,
-                user_preference_id: getPersistentUserId(),
-                firebase_token: currentUser?.firebaseToken || '',
-                stream: true,
-                ai_mode: selectedAIMode
-            };
-            
+        // A. REAL STREAMING (Pro / Reasoning / Files)
+        if (shouldStream) {
             setIsStreaming(true);
             setStreamingMessage({
                 role: 'assistant',
-                content: '',
+                content: isFullCodeRequest ? 'Generating project...' : 'Thinking...',
                 type: 'text',
                 ts: Date.now(),
                 isStreaming: true
             });
-            
+
+            const apiUrl = '/api/generate/text';
+            const apiPayload = { 
+                prompt: processedMessage, 
+                mode: mode === 'analyze_file' ? 'analyze_file' : (isFullCodeRequest ? 'chat' : mode),
+                user_preference_id: getPersistentUserId(),
+                firebase_token: currentUser?.firebaseToken || '',
+                stream: true,
+                ai_mode: selectedAIMode,
+                file_content: fileCopy ? await (fileCopy.text ? fileCopy.text() : Promise.resolve('')) : undefined,
+                filename: fileCopy?.name,
+                full_code_mode: isFullCodeRequest,
+                project_type: projectMetadata?.type
+            };
+
             const response = await callFastAPI(apiUrl, apiPayload, mode, {
                 signal: controller.signal,
                 stream: true,
@@ -3531,176 +3466,95 @@ const handleSendMessage = async () => {
 
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             await handleStreamResponse(response);
-            
+
+            // Finalize Stream
             if (accumulatedTokensRef.current) {
                 setChatHistory(prev => [...prev, {
                     role: 'assistant',
                     content: accumulatedTokensRef.current,
                     type: 'text',
-                    ts: Date.now()
-                }]);
-            }
-        }
-        // 2. IMAGE EDIT
-        else if (mode === "image_edit" && imageCopy) {
-            let base64Image = null;
-            
-            base64Image = await new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = () => {
-                    try {
-                        const result = reader.result;
-                        if (result && result.includes(',')) {
-                            const b = result.split(",")[1];
-                            resolve(b);
-                        } else {
-                            reject(new Error('No valid base64 found'));
-                        }
-                    } catch (e) {
-                        reject(e);
-                    }
-                };
-                reader.onerror = (err) => reject(err);
-                reader.readAsDataURL(imageCopy);
-            });
-            
-            const apiUrl = '/api/generate/text';
-            const apiPayload = {
-                prompt: processedMessage, 
-                mode: "image_edit",
-                image: base64Image,
-                strength: 0.7,
-                user_preference_id: getPersistentUserId(),
-                firebase_token: currentUser?.firebaseToken || '',
-                stream: false,
-                ai_mode: selectedAIMode,
-                is_edit_continuation: false,
-                max_tokens: 20000 
-            };
-            
-            const result = await callFastAPI(apiUrl, apiPayload, mode, {
-                signal: controller.signal,
-                timeout: 0 
-            });
-
-            if (result.error || result.detail) throw new Error(result.error || result.detail);
-
-            const imgData = result.base64_image || result.image || result.url;
-            
-            if (imgData) {
-                setChatHistory(prev => [...prev, {
-                    role: 'assistant',
-                    content: processedMessage.includes('edit') ? `Edited: ${processedMessage}` : '',
-                    type: 'image',
-                    base64_image: imgData,
                     ts: Date.now(),
-                    is_edited: true
+                    isFullCode: isFullCodeRequest,
+                    files: isFullCodeRequest && generatedFiles.length > 0 ? generatedFiles : undefined
                 }]);
-                localStorage.setItem('last_edited_image', imgData);
-            } else {
-                throw new Error(`Server returned no image.`);
-            }
-        }
-        // 3. IMAGE GENERATION
-        else if (mode === "image_gen") {
-            const apiUrl = '/api/generate/text';
-            const apiPayload = { 
-                prompt: processedMessage, 
-                mode: 'image_gen',
-                aspect_ratio: aspectRatio,
-                user_preference_id: getPersistentUserId(),
-                firebase_token: currentUser?.firebaseToken || '',
-                stream: false,
-                ai_mode: selectedAIMode,
-                max_tokens: 20000 
-            };
-            
-            const result = await callFastAPI(apiUrl, apiPayload, mode, {
-                timeout: 0 
-            });
-
-            if (result.error || result.detail) throw new Error(`Generation Failed: ${result.error || result.detail}`);
-
-            const imgData = result.base64_image || result.image || result.url || result.data?.[0]?.url;
-
-            if (imgData) {
-                setChatHistory(prev => [...prev, {
-                    role: 'assistant',
-                    content: '',
-                    type: 'image',
-                    base64_image: imgData,
-                    ts: Date.now(),
-                    is_generated: true
-                }]);
-                localStorage.setItem('last_edited_image', imgData);
-            } else {
-                throw new Error(`No image data received.`);
-            }
-        }
-        // 4. CHAT / CODE / PRO / REASONING
-        else {
-            const isCodeMode = isFullCodeRequest;
-            const apiUrl = '/api/generate/text';
-            const apiPayload = { 
-                prompt: processedMessage, 
-                mode: isCodeMode ? "chat" : mode, 
-                user_preference_id: getPersistentUserId(),
-                firebase_token: currentUser?.firebaseToken || '',
-                stream: shouldStream,
-                full_code_mode: isCodeMode,
-                project_type: projectMetadata?.type,
-                ai_mode: selectedAIMode,
-                max_tokens: 20000
-            };
-            
-            // STREAMING PATH
-            if (shouldStream) {
-                setIsStreaming(true);
-                setStreamingMessage({
-                    role: 'assistant',
-                    content: isCodeMode ? `Generating project...` : '',
-                    type: 'text',
-                    ts: Date.now(),
-                    isStreaming: true
-                });
                 
-                const response = await callFastAPI(apiUrl, apiPayload, mode, {
-                    signal: controller.signal,
-                    stream: true,
-                    timeout: 0 
-                });
+                if (isFullCodeRequest && generatedFiles.length > 0) {
+                    setTimeout(() => {
+                        setIsProjectView(true);
+                        showModal("Project Generated", `Generated ${generatedFiles.length} files.`);
+                    }, 500);
+                }
+            }
+        } 
+        // B. STANDARD CHAT (No Stream - Typing Animation)
+        else if (mode === 'chat' || mode === 'image_gen' || mode === 'image_edit') {
+            
+            // Handle Images separately first
+            if (mode === 'image_gen' || mode === 'image_edit') {
+                const apiUrl = '/api/generate/text';
+                
+                // Process Image Data if editing
+                let base64Image = null;
+                if (mode === 'image_edit' && imageCopy) {
+                     base64Image = await new Promise((resolve) => {
+                        const reader = new FileReader();
+                        reader.onload = () => resolve(reader.result.split(',')[1]);
+                        reader.readAsDataURL(imageCopy);
+                     });
+                }
 
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                await handleStreamResponse(response);
+                const apiPayload = {
+                    prompt: processedMessage,
+                    mode: mode,
+                    image: base64Image,
+                    aspect_ratio: aspectRatio,
+                    user_preference_id: getPersistentUserId(),
+                    firebase_token: currentUser?.firebaseToken || '',
+                    stream: false,
+                    ai_mode: selectedAIMode
+                };
 
-                if (accumulatedTokensRef.current) {
+                const result = await callFastAPI(apiUrl, apiPayload, mode, { timeout: 0 });
+                if (result.error) throw new Error(result.error);
+
+                const imgData = result.base64_image || result.image || result.url;
+                if (imgData) {
                     setChatHistory(prev => [...prev, {
                         role: 'assistant',
-                        content: accumulatedTokensRef.current,
-                        type: 'text',
+                        content: mode === 'image_edit' ? `Edited: ${processedMessage}` : '',
+                        type: 'image',
+                        base64_image: imgData,
                         ts: Date.now(),
-                        isFullCode: isCodeMode,
-                        files: isCodeMode && generatedFiles.length > 0 ? generatedFiles : undefined
+                        is_generated: true
                     }]);
-                    
-                    if (isCodeMode && generatedFiles.length > 0) {
-                        setTimeout(() => {
-                            setIsProjectView(true);
-                            showModal("Project Generated", `Generated ${generatedFiles.length} files.`);
-                        }, 500);
-                    }
+                } else {
+                    throw new Error("No image returned.");
                 }
             } 
-            // NON-STREAMING PATH (Standard Chat)
+            // Standard Text Chat
             else {
-                const result = await callFastAPI(apiUrl, apiPayload, mode, {
-                    signal: controller.signal,
+                const apiUrl = '/api/generate/text';
+                const apiPayload = { 
+                    prompt: processedMessage, 
+                    mode: 'chat',
+                    user_preference_id: getPersistentUserId(),
+                    firebase_token: currentUser?.firebaseToken || '',
                     stream: false,
-                    timeout: 0 
-                });
+                    ai_mode: selectedAIMode
+                };
+
+                const result = await callFastAPI(apiUrl, apiPayload, mode, { signal: controller.signal });
 
                 if (result?.text) {
-                    // Use fast typing animation for non-streamed chat responses
+                    // 🔥 UI FIX: Initialize the streaming message container with empty content
+                    // This ensures the "Typing..." UI has a valid object to update
+                    setStreamingMessage({
+                        role: 'assistant',
+                        content: '',
+                        type: 'text',
+                        ts: Date.now()
+                    });
+
                     typeText(result.text, () => {
                         setChatHistory(prev => [...prev, {
                             role: 'assistant',
@@ -3711,41 +3565,28 @@ const handleSendMessage = async () => {
                         setStreamingMessage(null);
                     });
                 } else {
-                    setChatHistory(prev => [...prev, {
-                        role: 'assistant',
-                        content: result?.text || '',
-                        type: 'text',
-                        ts: Date.now()
-                    }]);
+                    throw new Error("Empty response from AI");
                 }
             }
         }
     } catch (error) {
-        console.error('API ERROR:', error);
-        
-        let errorMessage = 'Something went wrong.';
-        if (error.name === 'AbortError') {
-            errorMessage = 'Request cancelled.';
-        } else {
-            errorMessage = error.message || 'Unknown error';
+        if (error.name !== 'AbortError') {
+            console.error('API Error:', error);
+            setChatHistory(prev => [...prev, {
+                role: 'assistant',
+                content: `Error: ${error.message || 'Unknown error'}`,
+                type: 'text',
+                ts: Date.now(),
+                isError: true
+            }]);
         }
-        
-        setChatHistory(prev => [...prev, {
-            role: 'assistant',
-            content: `Error: ${errorMessage}`,
-            type: 'text',
-            ts: Date.now(),
-            isError: true
-        }]);
     } finally {
-        setAbortController(null);
-        setUploadedFile(null);
-        setUploadedImage(null);
         setIsLoading(false);
         setIsStreaming(false);
         setStreamingMessage(null);
-        setStreamedContent('');
-        accumulatedTokensRef.current = '';
+        setAbortController(null);
+        setUploadedFile(null);
+        setUploadedImage(null);
     }
 };
   // ---------- Download Project ----------
@@ -5489,6 +5330,7 @@ int main() {
         </>
     );
 }
+
 
 
 
