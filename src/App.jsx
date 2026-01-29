@@ -2405,9 +2405,7 @@ const SpiderAIApp = ({
     }, []);
 
 // ---------- Fixed Streaming Handler with Code Block Continuation ----------
-// ---------- Fixed Streaming Handler (Seamless Merging) ---------
-// ---------- Fixed Streaming Handler (Safe State Updates) ---------
-// ---------- Fixed Streaming Handler (Safe State + Continue Check) ---------
+// ---------- Fixed Streaming Handler (Smart Continue Detection) ---------
 const handleStreamResponse = useCallback(async (response, isContinue = false, initialContent = '') => {
     if (!response.body) return;
 
@@ -2426,24 +2424,27 @@ const handleStreamResponse = useCallback(async (response, isContinue = false, in
             const { done, value } = await reader.read();
             
             if (done) {
-                // --- FIX: DETECT INCOMPLETE OUTPUT FOR CONTINUE BUTTON ---
+                // --- FIX: SMARTER CONTINUE DETECTION ---
                 const finalContent = accumulatedTokensRef.current.trim();
                 const lastChar = finalContent.slice(-1);
                 
-                // Count code block markers (```)
-                // If odd number, a code block is open
+                // 1. Check for broken code blocks (Odd number of ```)
+                // This is the most important check for "chunks"
                 const codeBlockCount = (finalContent.match(/```/g) || []).length;
                 const isCodeBlockOpen = codeBlockCount % 2 !== 0;
 
-                // Condition: If code block is open OR doesn't end in punctuation/closing bracket
-                // AND we have content (don't show on empty)
-                const isIncomplete = finalContent.length > 0 && (
-                    isCodeBlockOpen || 
-                    !['.', '!', '?', '}', ']', '`', '"', "'"].includes(lastChar)
-                );
+                // 2. Check length ("only when code is high")
+                // We ignores short messages (like "Hello!" or "Sure.") even if they lack punctuation
+                const isSubstantialContent = finalContent.length > 1000;
+
+                // 3. Check for abrupt ending (No punctuation)
+                const hasAbruptEnding = !['.', '!', '?', '}', ']', '`', '"', "'", ';', '>'].includes(lastChar);
+
+                // 🔥 LOGIC: Only show button if Code Block is open OR (Content is Long AND Cut off)
+                const isIncomplete = isCodeBlockOpen || (isSubstantialContent && hasAbruptEnding);
 
                 if (isIncomplete) {
-                    console.log("Stream ended abruptly. Showing Continue button.");
+                    console.log("Stream looks incomplete. Showing Continue.");
                     setShowContinueButton(true);
                 }
 
@@ -2457,6 +2458,7 @@ const handleStreamResponse = useCallback(async (response, isContinue = false, in
                         isContinued: isContinue
                     };
                     
+                    // Only add to history if we are in a true streaming mode
                     if (isStreaming) {
                         setChatHistory(prev => [...prev, assistantMessage]);
                     }
@@ -2480,7 +2482,6 @@ const handleStreamResponse = useCallback(async (response, isContinue = false, in
                             accumulatedTokensRef.current += parsed.text;
                             setStreamedContent(accumulatedTokensRef.current);
                             
-                            // Safe State Update
                             setStreamingMessage(prev => ({
                                 role: 'assistant',
                                 type: 'text',
@@ -2489,6 +2490,15 @@ const handleStreamResponse = useCallback(async (response, isContinue = false, in
                                 ...prev, 
                                 content: accumulatedTokensRef.current 
                             }));
+
+                            // Full Code parsing logic
+                            if (isFullCodeMode) {
+                                fileContentBufferRef.current += parsed.text;
+                                if (accumulatedTokensRef.current.length % 200 === 0) {
+                                    const files = parseCodeForFiles(fileContentBufferRef.current);
+                                    if (files.length > 0) setGeneratedFiles(files);
+                                }
+                            }
                         }
                         if (parsed.stream_id) {
                             setLastStreamId(parsed.stream_id);
@@ -2503,8 +2513,12 @@ const handleStreamResponse = useCallback(async (response, isContinue = false, in
     } finally {
         reader.releaseLock();
         streamReaderRef.current = null;
+        if (isFullCodeMode && fileContentBufferRef.current) {
+            const files = parseCodeForFiles(fileContentBufferRef.current);
+            if (files.length > 0) setGeneratedFiles(files);
+        }
     }
-}, [isStreaming]);
+}, [isStreaming, isFullCodeMode, parseCodeForFiles]);
   // ---------- Fixed Continue Generation ----------
 const handleContinueGeneration = useCallback(async () => {
     if (!lastStreamId) return;
@@ -5349,6 +5363,7 @@ int main() {
         </>
     );
 }
+
 
 
 
