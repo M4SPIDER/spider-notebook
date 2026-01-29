@@ -2353,10 +2353,26 @@ const SpiderAIApp = ({
     }, [chatHistory, saveChatHistory]);
 
     // Scroll to bottom when chat updates
-    useEffect(() => {
-        chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [chatHistory, streamingMessage, streamedContent]);
+// --- SMART SCROLL HANDLING (Fixes Jumping) ---
+    const isAutoScrollEnabled = useRef(true);
 
+    // 1. Detect if user scrolled up to read previous messages
+    const handleScroll = (e) => {
+        const { scrollTop, scrollHeight, clientHeight } = e.target;
+        // If user is within 50px of the bottom, enable auto-scroll. Otherwise, disable it.
+        const isAtBottom = scrollHeight - scrollTop - clientHeight < 50; 
+        isAutoScrollEnabled.current = isAtBottom;
+    };
+
+    // 2. Only scroll if the user was ALREADY at the bottom
+    useEffect(() => {
+        if (isAutoScrollEnabled.current) {
+            requestAnimationFrame(() => {
+                chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+            });
+        }
+    }, [chatHistory, streamingMessage, streamedContent]);
+  
     // ---------- Fast Typing Animation ----------
     const typeText = useCallback((text, onComplete) => {
         if (!text) {
@@ -2391,6 +2407,7 @@ const SpiderAIApp = ({
 // ---------- Fixed Streaming Handler with Code Block Continuation ----------
 // ---------- Fixed Streaming Handler (Seamless Merging) ---------
 // ---------- Fixed Streaming Handler (Safe State Updates) ---------
+// ---------- Fixed Streaming Handler (Safe State + Continue Check) ---------
 const handleStreamResponse = useCallback(async (response, isContinue = false, initialContent = '') => {
     if (!response.body) return;
 
@@ -2400,7 +2417,7 @@ const handleStreamResponse = useCallback(async (response, isContinue = false, in
     const decoder = new TextDecoder();
     let buffer = '';
     
-    // Initialize with existing content
+    // Initialize
     accumulatedTokensRef.current = initialContent;
     setStreamedContent(initialContent);
 
@@ -2409,9 +2426,29 @@ const handleStreamResponse = useCallback(async (response, isContinue = false, in
             const { done, value } = await reader.read();
             
             if (done) {
-                // Handle end of stream
-                if (accumulatedTokensRef.current) {
-                    const finalContent = accumulatedTokensRef.current;
+                // --- FIX: DETECT INCOMPLETE OUTPUT FOR CONTINUE BUTTON ---
+                const finalContent = accumulatedTokensRef.current.trim();
+                const lastChar = finalContent.slice(-1);
+                
+                // Count code block markers (```)
+                // If odd number, a code block is open
+                const codeBlockCount = (finalContent.match(/```/g) || []).length;
+                const isCodeBlockOpen = codeBlockCount % 2 !== 0;
+
+                // Condition: If code block is open OR doesn't end in punctuation/closing bracket
+                // AND we have content (don't show on empty)
+                const isIncomplete = finalContent.length > 0 && (
+                    isCodeBlockOpen || 
+                    !['.', '!', '?', '}', ']', '`', '"', "'"].includes(lastChar)
+                );
+
+                if (isIncomplete) {
+                    console.log("Stream ended abruptly. Showing Continue button.");
+                    setShowContinueButton(true);
+                }
+
+                // Finalize History
+                if (finalContent) {
                     const assistantMessage = {
                         role: 'assistant',
                         content: finalContent,
@@ -2420,8 +2457,6 @@ const handleStreamResponse = useCallback(async (response, isContinue = false, in
                         isContinued: isContinue
                     };
                     
-                    // Only add to history if we are in a true streaming mode
-                    // (Chat mode handles its own history update via typeText)
                     if (isStreaming) {
                         setChatHistory(prev => [...prev, assistantMessage]);
                     }
@@ -2443,52 +2478,33 @@ const handleStreamResponse = useCallback(async (response, isContinue = false, in
                         const parsed = JSON.parse(data);
                         if (parsed.text) {
                             accumulatedTokensRef.current += parsed.text;
-                            
-                            // 1. Update Content State
                             setStreamedContent(accumulatedTokensRef.current);
                             
-                            // 2. Update Message Object State (Robust Fix)
+                            // Safe State Update
                             setStreamingMessage(prev => ({
                                 role: 'assistant',
                                 type: 'text',
                                 ts: Date.now(),
                                 isStreaming: true,
-                                ...prev, // Keep existing fields
-                                content: accumulatedTokensRef.current // Force update content
+                                ...prev, 
+                                content: accumulatedTokensRef.current 
                             }));
-                            
-                            // Full Code Logic
-                            if (isFullCodeMode) {
-                                fileContentBufferRef.current += parsed.text;
-                                // Parse periodically
-                                if (accumulatedTokensRef.current.length % 100 === 0) {
-                                    const files = parseCodeForFiles(fileContentBufferRef.current);
-                                    if (files.length > 0) setGeneratedFiles(files);
-                                }
-                            }
                         }
                         if (parsed.stream_id) {
                             setLastStreamId(parsed.stream_id);
                             continueStreamIdRef.current = parsed.stream_id;
                         }
-                    } catch (e) { console.warn(e); }
+                    } catch (e) { }
                 }
             }
         }
     } catch (error) {
-        if (error.name !== 'AbortError') {
-            console.error('Stream error:', error);
-            throw error;
-        }
+        if (error.name !== 'AbortError') throw error;
     } finally {
         reader.releaseLock();
         streamReaderRef.current = null;
-        if (isFullCodeMode && fileContentBufferRef.current) {
-            const files = parseCodeForFiles(fileContentBufferRef.current);
-            if (files.length > 0) setGeneratedFiles(files);
-        }
     }
-}, [isFullCodeMode, parseCodeForFiles, isStreaming]);
+}, [isStreaming]);
   // ---------- Fixed Continue Generation ----------
 const handleContinueGeneration = useCallback(async () => {
     if (!lastStreamId) return;
@@ -3909,7 +3925,10 @@ const handleSendMessage = async () => {
                         </div>
                     </div>
                 ) : (
-                    <div className="flex-grow overflow-y-auto p-2 sm:p-4 space-y-4 pb-28 sm:pb-4">
+                    <div 
+    className="flex-grow overflow-y-auto p-2 sm:p-4 space-y-4 pb-28 sm:pb-4"
+    onScroll={handleScroll} 
+>
                         {chatHistory.map((msg, index) => (
                             <ChatBubble key={`${msg.ts}_${index}`} message={msg} />
                         ))}
@@ -5330,6 +5349,7 @@ int main() {
         </>
     );
 }
+
 
 
 
