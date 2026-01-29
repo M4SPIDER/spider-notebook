@@ -4537,123 +4537,86 @@ export default function App() {
 
 const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat", options = {}) => {
 
-    
-
     // ==========================================================
-
     // 🔥 THE REAL FIX: Pass options.signal and return raw 'res' for streams
-
     // ==========================================================
-
-    
 
     let fetchOptions = {
-
         method: "POST",
-
-headers: {
-
+        headers: {
             "Content-Type": "application/json"
-
         },
-
         // Stringify the entire payload (includes file_content, images, etc.)
-
         body: JSON.stringify(payload),
-
         // Allows the frontend to cancel the request via handleStopGeneration
-
         signal: options.signal 
-
     };
 
-
     try {
-
         // Use the new fetchOptions, sending to the /ai worker endpoint
-
         const res = await fetch("/ai", fetchOptions);
 
-
-        // ---------------- STREAMING HANDLER (NEW) ----------------
-
+        // ---------------- STREAMING HANDLER ----------------
         // If the frontend explicitly passed { stream: true } in the options,
-
         // we return the raw Response object so res.body.getReader() works.
-
         if (options.stream) {
-
             return res; 
-
         }
-
 
         const contentType = res.headers.get("content-type") || "";
 
-
-        // ---------------- IMAGE RESPONSE (PNG) ----------------
-
+        // ---------------- 1. RAW IMAGE RESPONSE (BLOB) ----------------
+        // If the server returns a raw file (image/png, image/jpeg)
         if (contentType.includes("image/")) {
-
             const blob = await res.blob();
-
-
             const base64 = await new Promise((resolve) => {
-
                 const reader = new FileReader();
-
                 reader.onloadend = () => resolve(reader.result.split(",")[1]);
-
                 reader.readAsDataURL(blob);
-
             });
 
-
             return {
-
                 text: payload.prompt || "",
-
                 base64_image: base64,
-
                 model_used: "SDXL"
-
             };
-
-}
-
-
-        // ---------------- TEXT RESPONSE ----------------
-
-        const rawText = await res.text();
-
-
-        if (!rawText || rawText.trim() === "") {
-
-            return { error: "Empty response from Spider AI." };
-
         }
 
+        // ---------------- 2. TEXT / JSON RESPONSE ----------------
+        const rawText = await res.text();
 
-        // Spider AI 2.0 returns plain text for non-streaming requests
+        if (!rawText || rawText.trim() === "") {
+            return { error: "Empty response from Spider AI." };
+        }
 
-        return {
+        // 🔥 CRITICAL FIX: Try to parse JSON. 
+        // If the API sends { "base64_image": "..." }, we must parse it!
+        try {
+            const jsonResponse = JSON.parse(rawText);
+            
+            // Normalize the response to help handleSendMessage find the image
+            if (jsonResponse.base64_image || jsonResponse.image || jsonResponse.url || jsonResponse.b64_json) {
+                return {
+                    ...jsonResponse,
+                    base64_image: jsonResponse.base64_image || jsonResponse.image || jsonResponse.b64_json || jsonResponse.url
+                };
+            }
 
-            text: rawText,
-
-            raw: rawText
-
-        };
-
+            return jsonResponse; // Return the parsed object
+        } catch (e) {
+            // If it fails to parse, it really is just plain text (String)
+            return {
+                text: rawText,
+                raw: rawText
+            };
+        }
 
     } catch (err) {
-
         // Return error object instead of throwing to avoid breaking the UI flow
-
+        console.error("CallFastAPI Error:", err);
         return { error: err.message };
-
-}
-
-}, []); 
+    }
+}, []);
   // --- WebSocket Handlers (NEW) ---
     // Helper function to append plain text to terminal output
     const appendToTerminal = (text, type = 'stdout') => {
@@ -5379,6 +5342,7 @@ int main() {
         </>
     );
 }
+
 
 
 
