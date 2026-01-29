@@ -1347,7 +1347,6 @@ const SpiderNotebookApp = ({
     );
 };
 
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 
 const SpiderAIApp = ({ 
     currentUser, 
@@ -4251,6 +4250,7 @@ int main() {
         </>
     );
 }
+
 
 
 
