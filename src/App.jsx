@@ -719,122 +719,6 @@ const SpiderNotebookPanel = ({ handleOpenProject, handleOpenFileClick, handleNew
 // --- THIS IS THE START OF THE REFACTORED COMPONENT ---
 // Spider Notebook App (Main IDE View)
 // Spider Notebook App (Main IDE View) - WITH ALL ICONS RESTORED
-// [INSERT BEFORE LINE 407]
-
-// --- 1. SMART PREVIEW ENGINE (Handles React/Tailwind/Mobile) ---
-const CanvasPreview = ({ code, language }) => {
-    const srcDoc = React.useMemo(() => {
-        if (!code) return '';
-        const lang = language?.toLowerCase() || '';
-        const isReact = ['react', 'jsx', 'tsx', 'javascript', 'js'].includes(lang) && 
-                       (code.includes('import React') || code.includes('export default') || code.includes('className='));
-        const isHtml = ['html', 'xml'].includes(lang);
-
-        if (isReact) {
-            const cleanCode = code
-                .replace(/import\s+.*?from\s+['"].*?['"];?/g, '')
-                .replace(/export\s+default\s+/g, '')
-                .replace(/export\s+/g, '');
-
-            return `
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <meta charset="UTF-8" />
-                    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-                    <script src="https://cdn.tailwindcss.com"></script>
-                    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
-                    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-                    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-                    <style>
-                        body { background-color: #ffffff; margin: 0; padding: 0; font-family: sans-serif; height: 100vh; overflow-y: auto; }
-                        #root { width: 100%; min-height: 100%; padding: 1rem; box-sizing: border-box; }
-                    </style>
-                </head>
-                <body>
-                    <div id="root"></div>
-                    <script type="text/babel">
-                        class ErrorBoundary extends React.Component {
-                            constructor(props) { super(props); this.state = { hasError: false, error: null }; }
-                            static getDerivedStateFromError(error) { return { hasError: true, error }; }
-                            render() {
-                                if (this.state.hasError) return <div className="p-4 text-red-500 bg-red-50">Error: {this.state.error.message}</div>;
-                                return this.props.children;
-                            }
-                        }
-                        ${cleanCode}
-                        const root = ReactDOM.createRoot(document.getElementById('root'));
-                        try {
-                            if (typeof App !== 'undefined') root.render(<ErrorBoundary><App /></ErrorBoundary>);
-                            else if (typeof Component !== 'undefined') root.render(<ErrorBoundary><Component /></ErrorBoundary>);
-                            else root.render(<div className="text-gray-500 p-4">Component loaded. (Ensure main component is named 'App')</div>);
-                        } catch (err) {
-                            root.render(<div className="text-red-500 p-4">Mount Error: {err.message}</div>);
-                        }
-                    </script>
-                </body>
-                </html>`;
-        }
-        if (isHtml) {
-            return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1.0"/><script src="https://cdn.tailwindcss.com"></script><style>body{margin:0;padding:1rem;font-family:sans-serif;}</style></head><body>${code}</body></html>`;
-        }
-        if (lang === 'svg') {
-            return `<!DOCTYPE html><html><body style="margin:0;display:flex;justify-content:center;align-items:center;height:100vh;background:#fff;">${code}</body></html>`;
-        }
-        return '';
-    }, [code, language]);
-
-    if (!srcDoc) return null;
-
-    return (
-        <div className="w-full h-64 sm:h-80 md:h-96 bg-white rounded-b-lg border-t border-gray-200 overflow-hidden relative group">
-            <iframe srcDoc={srcDoc} className="w-full h-full border-none" title="Canvas" sandbox="allow-scripts allow-modals allow-same-origin" />
-        </div>
-    );
-};
-
-// --- 2. CODE BLOCK WRAPPER (Handles Tabs) ---
-const CodeBlockWithPreview = ({ block, handleCopyCode }) => {
-    const lang = block.language?.toLowerCase();
-    const isPreviewable = ['html', 'xml', 'svg', 'javascript', 'jsx', 'tsx', 'react'].includes(lang);
-    const [activeTab, setActiveTab] = React.useState(isPreviewable ? 'preview' : 'code');
-
-    return (
-        <div className="rounded-lg overflow-hidden border border-[var(--spider-light)] bg-[#0f0f0f] mb-3">
-            <div className="flex items-center justify-between px-3 py-2 bg-[var(--spider-med)] border-b border-[var(--spider-light)]">
-                <div className="flex items-center space-x-3">
-                    <span className="text-xs font-mono text-[var(--spider-text-dim)] uppercase">{block.language || 'text'}</span>
-                    {isPreviewable && (
-                        <div className="flex bg-[var(--spider-dark)] rounded p-0.5 border border-[var(--spider-light)]">
-                            <button onClick={() => setActiveTab('code')} className={`px-3 py-1 text-xs rounded ${activeTab === 'code' ? 'bg-[var(--spider-light)] text-white' : 'text-gray-400'}`}>Code</button>
-                            <button onClick={() => setActiveTab('preview')} className={`px-3 py-1 text-xs rounded ${activeTab === 'preview' ? 'bg-[var(--spider-neon-blue)] text-black' : 'text-gray-400'}`}>Canvas</button>
-                        </div>
-                    )}
-                </div>
-                <button onClick={() => handleCopyCode(block.content)} className="text-[var(--spider-text-dim)] hover:text-white p-1">
-                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-                </button>
-            </div>
-            {activeTab === 'code' ? (
-                <pre className="overflow-x-auto p-4 m-0 text-sm max-h-[500px]" style={{ lineHeight: "1.5", color: "white" }}><code className={`language-${block.language}`}>{block.content}</code></pre>
-            ) : (
-                <CanvasPreview code={block.content} language={block.language} />
-            )}
-        </div>
-    );
-};
-
-// --- 3. IMAGE LIGHTBOX (Full Screen Zoom) ---
-const ImageLightbox = ({ imageUrl, onClose }) => {
-    if (!imageUrl) return null;
-    return (
-        <div className="fixed inset-0 z-[100] bg-black bg-opacity-95 flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
-            <button className="absolute top-4 right-4 text-white text-4xl hover:text-red-500 z-[110]" onClick={onClose}>&times;</button>
-            <img src={imageUrl} alt="Preview" className="max-w-full max-h-[90vh] object-contain rounded shadow-2xl" onClick={(e) => e.stopPropagation()} />
-        </div>
-    );
-};
-
 const SpiderNotebookApp = ({ 
     openFiles, activeFileId, fileContents, projectFiles, terminalOutput, activeTerminalTab, 
     aiQuery, handleFileClick, handleCloseTab, handleCodeChange, handleSave, handleRunEngine, 
@@ -1513,8 +1397,6 @@ const SpiderAIApp = ({
     const [mediaRecorder, setMediaRecorder] = useState(null);
     const [audioChunks, setAudioChunks] = useState([]);
     const [isTranscribing, setIsTranscribing] = useState(false);
-  // [INSERT AT LINE 418]
-    const [previewImage, setPreviewImage] = useState(null);
     
     // ---------- AI Mode State ----------
     const [selectedAIMode, setSelectedAIMode] = useState('chat'); // chat, reasoning, pro
@@ -3159,147 +3041,123 @@ useEffect(() => {
     }, []);
 
     // ---------- Enhanced Chat Bubble with Math Support ----------
-  // --- 3. UPDATED CHAT BUBBLE (With Canvas + Better Math) ---
-// --- FIXED CHAT BUBBLE ---
-// --- FIXED CHAT BUBBLE ---
-const ChatBubble = useMemo(() => {
-    return React.memo(({ message, onImageClick }) => {
-        const [contentBlocks, setContentBlocks] = useState([]);
+    const ChatBubble = useMemo(() => {
+        return React.memo(({ message }) => {
+            const [contentBlocks, setContentBlocks] = useState([]);
+            const [mathBlocks, setMathBlocks] = useState([]);
+            const [combinedBlocks, setCombinedBlocks] = useState([]);
 
-        useEffect(() => {
-            // 1. Process content safely
-            const text = message.content || "";
-            // Use existing processor or fallback to simple split
-            const blocks = typeof processContent === 'function' ? processContent(text) : [{ type: 'text', content: text }];
-            setContentBlocks(blocks);
+            useEffect(() => {
+                // Process LaTeX math first
+                const mathBlocks = processMathContent(message.content);
+                
+                // Then process regular content
+                const regularBlocks = processContent(message.content);
+                
+                // Combine both
+                const combined = [];
+                let regularIndex = 0;
+                let mathIndex = 0;
+                
+                // For now, just use regular blocks with math processing
+                const blocks = processContent(message.content);
+                setContentBlocks(blocks);
+                
+                // Apply syntax highlighting
+                if (typeof window !== "undefined" && window.Prism) {
+                    setTimeout(() => {
+                        window.Prism.highlightAll();
+                    }, 50);
+                }
+                
+                // Re-render KaTeX for any math in text blocks
+                setTimeout(() => {
+                    document.querySelectorAll('.math-content').forEach(element => {
+                        const latex = element.getAttribute('data-latex');
+                        const isDisplay = element.classList.contains('math-display');
+                        if (latex) {
+                            try {
+                                element.innerHTML = katex.renderToString(latex, {
+                                    throwOnError: false,
+                                    displayMode: isDisplay
+                                });
+                            } catch (error) {
+                                element.textContent = isDisplay ? `$$${latex}$$` : `$${latex}$`;
+                            }
+                        }
+                    });
+                }, 100);
+            }, [message.content, processContent, processMathContent]);
 
-            // 2. Trigger Prism syntax highlighting
-            if (typeof window !== "undefined" && window.Prism) {
-                setTimeout(() => window.Prism.highlightAll(), 50);
-            }
+            const handleCopyCode = (content) => {
+                navigator.clipboard.writeText(content);
+            };
 
-            // 3. Trigger Math rendering (KaTeX)
-            setTimeout(() => {
-                document.querySelectorAll('.math-content').forEach(element => {
-                    const latex = element.getAttribute('data-latex');
-                    if (latex && window.katex) {
-                        try {
-                            element.innerHTML = window.katex.renderToString(latex, {
-                                throwOnError: false,
-                                displayMode: element.classList.contains('math-display')
-                            });
-                        } catch (e) { /* ignore errors */ }
-                    }
+            const renderTable = (tableText) => {
+                const rows = tableText.trim().split('\n').filter(r => r.trim());
+                if (rows.length < 2) return null;
+
+                const headers = rows[0].split('|').filter(c => c.trim()).map(c => c.trim());
+                const separator = rows[1];
+                const dataRows = rows.slice(2).filter(r => r.includes('|'));
+
+                const alignments = separator.split('|').filter(c => c.trim()).map(col => {
+                    if (col.startsWith(':') && col.endsWith(':')) return 'center';
+                    if (col.endsWith(':')) return 'right';
+                    return 'left';
                 });
-            }, 100);
-        }, [message.content, processContent, processMathContent]);
 
-        const handleCopyCode = (content) => {
-            navigator.clipboard.writeText(content);
-        };
-
-        const renderTable = (tableText) => {
-            const rows = tableText.trim().split('\n').filter(r => r.trim());
-            if (rows.length < 2) return null;
-            const headers = rows[0].split('|').filter(c => c.trim()).map(c => c.trim());
-            const dataRows = rows.slice(2).filter(r => r.includes('|'));
-
-            return (
-                <div className="overflow-x-auto my-3 rounded-lg border border-[var(--spider-light)] bg-[var(--spider-dark)] shadow-md">
-                    <table className="min-w-full divide-y divide-[var(--spider-light)] text-sm">
-                        <thead className="bg-[var(--spider-med)]">
-                            <tr>
-                                {headers.map((h, i) => (
-                                    <th key={i} className="px-4 py-3 text-left font-semibold text-white border-r border-[var(--spider-light)] last:border-0">
-                                        {h}
-                                    </th>
-                                ))}
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-[var(--spider-light)]">
-                            {dataRows.map((row, i) => (
-                                <tr key={i} className="hover:bg-[var(--spider-light)] transition-colors">
-                                    {row.split('|').filter(c => c.trim()).map((cell, j) => (
-                                        <td key={j} className="px-4 py-2 text-gray-300 border-r border-[var(--spider-light)] last:border-0">
-                                            {cell.trim()}
-                                        </td>
+                return (
+                    <div className="overflow-x-auto my-3 rounded-lg border border-[var(--spider-light)] bg-[var(--spider-dark)]">
+                        <table className="min-w-full divide-y divide-[var(--spider-light)]">
+                            <thead>
+                                <tr className="bg-[var(--spider-med)]">
+                                    {headers.map((header, idx) => (
+                                        <th 
+                                            key={idx}
+                                            className={`px-4 py-3 text-left text-sm font-semibold text-white border-r border-[var(--spider-light)] last:border-r-0 ${
+                                                alignments[idx] === 'center' ? 'text-center' :
+                                                alignments[idx] === 'right' ? 'text-right' : 'text-left'
+                                            }`}
+                                        >
+                                            {header}
+                                        </th>
                                     ))}
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            );
-        };
-
-        const bubbleClass = message.role === "user" ? "bg-[#00e5ff] text-black ml-auto" : "bg-[#004745] text-white mr-auto";
-
-        return (
-            <div className={`flex w-full ${message.role === "user" ? "justify-end" : "justify-start"} mb-6 px-2 group`}>
-                <div className={`px-5 py-4 rounded-2xl max-w-[95%] sm:max-w-4xl shadow-md ${bubbleClass}`}>
-                    
-                    {/* Image Handling */}
-                    {message.type === "image" && message.base64_image && (
-                        <div 
-                            className="w-full rounded-xl overflow-hidden bg-black mb-3 cursor-zoom-in border border-gray-600/50 hover:border-[var(--spider-neon-blue)] transition-colors"
-                            onClick={() => onImageClick && onImageClick(`data:image/jpeg;base64,${message.base64_image}`)}
-                        >
-                            <img src={`data:image/jpeg;base64,${message.base64_image}`} alt="AI Generated" className="w-full h-auto max-h-96 object-contain" />
-                        </div>
-                    )}
-
-                    <div className="space-y-4">
-                        {contentBlocks.map((block, index) => {
-                            
-                            // 1. Code Blocks (With Canvas Preview)
-                            if (block.type === "code") {
-                                return (
-                                    <CodeBlockWithPreview 
-                                        key={index} 
-                                        block={block} 
-                                        handleCopyCode={handleCopyCode} 
-                                    />
-                                );
-                            }
-
-                            // 2. Table Blocks
-                            if (block.type === "table") {
-                                return <div key={index}>{renderTable(block.content)}</div>;
-                            }
-
-                            // 3. Text Blocks (With Math Parsing)
-                            if (block.type === "text") {
-                                // Split text by math delimiters ($$ or $)
-                                const parts = block.content.split(/(\$\$[\s\S]+?\$\$|\$[^$]+?\$)/g);
-                                
-                                return (
-                                    <div key={index} className="whitespace-pre-wrap break-words text-sm sm:text-base leading-7">
-                                        {parts.map((part, i) => {
-                                            if (part.startsWith('$$') && part.endsWith('$$')) {
-                                                // Display Math (Block level)
-                                                const latex = part.slice(2, -2);
-                                                return <div key={i} className="math-content math-display my-4 py-2 text-center overflow-x-auto" data-latex={latex}></div>;
-                                            } else if (part.startsWith('$') && part.endsWith('$')) {
-                                                // Inline Math
-                                                const latex = part.slice(1, -1);
-                                                return <span key={i} className="math-content math-inline px-1" data-latex={latex}></span>;
-                                            } else {
-                                                // Regular Text
-                                                return <span key={i}>{part}</span>;
-                                            }
-                                        })}
-                                    </div>
-                                );
-                            }
-                            return null;
-                        })}
+                            </thead>
+                            <tbody className="divide-y divide-[var(--spider-light)]">
+                                {dataRows.map((row, rowIdx) => {
+                                    const cells = row.split('|').filter(c => c.trim()).map(c => c.trim());
+                                    return (
+                                        <tr 
+                                            key={rowIdx} 
+                                            className={`${
+                                                rowIdx % 2 === 0 
+                                                    ? 'bg-[var(--spider-dark)]' 
+                                                    : 'bg-[#0a2a2a]'
+                                            } hover:bg-[var(--spider-light)] transition-colors`}
+                                        >
+                                            {cells.map((cell, cellIdx) => (
+                                                <td 
+                                                    key={cellIdx}
+                                                    className={`px-4 py-3 text-sm text-white border-r border-[var(--spider-light)] last:border-r-0 ${
+                                                        alignments[cellIdx] === 'center' ? 'text-center' :
+                                                        alignments[cellIdx] === 'right' ? 'text-right' : 'text-left'
+                                                    }`}
+                                                >
+                                                    {cell}
+                                                </td>
+                                            ))}
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
                     </div>
-                </div>
-            </div>
-        );
-    });
-}, [processContent, processMathContent]);
-  const renderMathBlock = (block) => {
+                );
+            };
+
+            const renderMathBlock = (block) => {
                 if (!block.html) {
                     return (
                         <div className={`my-2 ${block.type === 'math-display' || block.type === 'math-boxed' ? 'text-center' : ''}`}>
@@ -3840,77 +3698,39 @@ const handleSendMessage = async () => {
             );
         });
     }, []);
-// --- UPDATED FILE VIEWER (With Preview Toggle) ---
+
     const FileViewer = useMemo(() => {
         return React.memo(({ file }) => {
             if (!file) return null;
             
-            // 1. Detect if file is previewable
-            const isPreviewable = ['html', 'js', 'jsx', 'tsx', 'svg'].includes(file.language);
-            const [viewMode, setViewMode] = useState(isPreviewable ? 'preview' : 'code');
-
-            // 2. Reset view mode when file changes
-            useEffect(() => {
-                setViewMode(isPreviewable ? 'preview' : 'code');
-            }, [file.name, isPreviewable]);
-
             const handleCopyFile = () => {
                 navigator.clipboard.writeText(file.content);
                 showModal("Copied", "File content copied to clipboard!");
             };
             
             return (
-                <div className="bg-[var(--spider-dark)] rounded-lg border border-[var(--spider-light)] p-4 flex flex-col h-full min-h-[500px]">
-                    <div className="flex items-center justify-between mb-3 bg-[var(--spider-med)] p-2 rounded-t-lg border-b border-[var(--spider-light)]">
-                        <div className="flex items-center space-x-3">
+                <div className="bg-[var(--spider-dark)] rounded-lg border border-[var(--spider-light)] p-4">
+                    <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center space-x-2">
                             <h4 className="text-sm font-semibold text-white truncate">{file.name}</h4>
-                            
-                            {/* Toggle Buttons (Only if previewable) */}
-                            {isPreviewable && (
-                                <div className="flex bg-[var(--spider-dark)] rounded-md p-0.5 border border-[var(--spider-light)]">
-                                    <button 
-                                        onClick={() => setViewMode('code')} 
-                                        className={`px-3 py-1 text-xs font-medium rounded transition-all ${viewMode === 'code' ? 'bg-[var(--spider-light)] text-white' : 'text-gray-400 hover:text-white'}`}
-                                    >
-                                        Code
-                                    </button>
-                                    <button 
-                                        onClick={() => setViewMode('preview')} 
-                                        className={`px-3 py-1 text-xs font-medium rounded transition-all ${viewMode === 'preview' ? 'bg-[var(--spider-neon-blue)] text-black font-bold' : 'text-gray-400 hover:text-white'}`}
-                                    >
-                                        Preview
-                                    </button>
-                                </div>
-                            )}
-                            
-                            {!isPreviewable && (
-                                <span className="text-xs text-[var(--spider-text-dim)] bg-[var(--spider-dark)] px-2 py-1 rounded border border-[var(--spider-light)]">
-                                    {file.language}
-                                </span>
-                            )}
+                            <span className="text-xs text-[var(--spider-text-dim)] bg-[var(--spider-med)] px-2 py-1 rounded">
+                                {file.language}
+                            </span>
                         </div>
                         <button
                             onClick={handleCopyFile}
-                            className="text-xs bg-[var(--spider-light)] text-white px-3 py-1.5 rounded hover:opacity-90 transition-colors flex items-center"
+                            className="text-xs bg-[var(--spider-light)] text-white px-3 py-1.5 rounded hover:opacity-90 transition-colors"
                         >
                             Copy
                         </button>
                     </div>
                     
-                    <div className="bg-black rounded-b-lg overflow-hidden flex-grow relative">
-                        {/* CONDITIONAL RENDER: Preview vs Code */}
-                        {viewMode === 'preview' && isPreviewable ? (
-                            <div className="w-full h-full bg-white">
-                                {/* Using the CanvasPreview component defined earlier */}
-                                <CanvasPreview code={file.content} language={file.language} />
-                            </div>
-                        ) : (
-                            <pre className="text-sm p-4 overflow-auto h-full w-full text-gray-300 font-mono">
-                                <code className={`language-${file.language}`}>
-                                    {file.content}
-                                </code>
-                            </pre>
-                        )}
+                    <div className="bg-black rounded-lg overflow-hidden">
+                        <pre className="text-sm p-4 overflow-x-auto max-h-96">
+                            <code className={`language-${file.language}`}>
+                                {file.content}
+                            </code>
+                        </pre>
                     </div>
                 </div>
             );
@@ -4073,7 +3893,7 @@ const handleSendMessage = async () => {
                     </div>
                 )}
 
-                {/* Project View (WITH NEW FileViewer) */}
+                {/* Project View */}
                 {isProjectView ? (
                     <div className="flex-grow overflow-y-auto p-4">
                         <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -4081,7 +3901,7 @@ const handleSendMessage = async () => {
                                 <ProjectFileTree 
                                     files={generatedFiles}
                                     activeIndex={activeFileIndex}
-                                    onSelectFile={setActiveFileId} 
+                                    onSelectFile={setActiveFileIndex}
                                 />
                                 
                                 <div className="mt-4 bg-[var(--spider-dark)] rounded-lg border border-[var(--spider-light)] p-3">
@@ -4120,15 +3940,11 @@ const handleSendMessage = async () => {
                     </div>
                 ) : (
                     <div 
-                        className="flex-grow overflow-y-auto p-2 sm:p-4 space-y-4 pb-28 sm:pb-4"
-                        onScroll={handleScroll} 
-                    >
+    className="flex-grow overflow-y-auto p-2 sm:p-4 space-y-4 pb-28 sm:pb-4"
+    onScroll={handleScroll} 
+>
                         {chatHistory.map((msg, index) => (
-                            <ChatBubble 
-                                key={`${msg.ts}_${index}`} 
-                                message={msg} 
-                                onImageClick={setPreviewImage} /* Added prop for lightbox */
-                            />
+                            <ChatBubble key={`${msg.ts}_${index}`} message={msg} />
                         ))}
                         
                         {/* Streaming Message */}
@@ -4321,13 +4137,9 @@ const handleSendMessage = async () => {
 
                 {isMobile && <div className="h-24" />}
             </div>
-            
-            {/* Added Lightbox for Full Screen Images */}
-            <ImageLightbox imageUrl={previewImage} onClose={() => setPreviewImage(null)} />
         </div>
     );
 };
-  
 // --- END Plus Menu Component ---
 const SpiderVFXApp = () => { /* ... (Remains Placeholder) ... */ return (<div className="flex-grow h-full flex flex-col items-center justify-center bg-black text-white p-8 pattern-vfx-grid overflow-y-auto"><div className="bg-black bg-opacity-80 p-10 rounded-lg text-center shadow-xl"><h1 className="text-4xl font-bold mb-4 text-[var(--spider-neon-blue)]">Spider VFX</h1><p className="text-lg text-gray-400 mb-8">Coming Soon!</p><div className="animate-pulse text-6xl">✨</div></div></div>);};
 
@@ -5551,40 +5363,3 @@ int main() {
         </>
     );
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
