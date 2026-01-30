@@ -4092,8 +4092,12 @@ const handleSendMessage = async () => {
     onScroll={handleScroll} 
 >
                         {chatHistory.map((msg, index) => (
-                            <ChatBubble key={`${msg.ts}_${index}`} message={msg} />
-                        ))}
+    <ChatBubble 
+        key={`${msg.ts}_${index}`} 
+        message={msg} 
+        onOpenCanvas={handleOpenCanvas} // <--- ADD THIS LINE
+    />
+))}
                         
                         {/* Streaming Message */}
                         {(streamingMessage || isStreaming) && (
@@ -5520,6 +5524,7 @@ int main() {
         </>
     );
 }
+
 
 
 
