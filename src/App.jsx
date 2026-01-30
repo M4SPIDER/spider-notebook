@@ -1347,164 +1347,6 @@ const SpiderNotebookApp = ({
     );
 };
 
-// ---------- Canvas Preview Component ----------
-// ---------- Canvas Preview Component (FIXED) ----------
-const CanvasPreview = ({ code, language, isOpen, onClose }) => {
-    const [device, setDevice] = useState('desktop'); 
-    const [rotation, setRotation] = useState('portrait');
-
-    const devices = {
-        desktop: { width: '100%', height: '100%', label: 'Desktop 🖥️' },
-        mobile: { width: '375px', height: '100%', label: 'iPhone SE 📱' },
-        tablet: { width: '768px', height: '100%', label: 'iPad Mini 📲' }
-    };
-
-    const srcDoc = useMemo(() => {
-        if (!code) return '';
-
-        // --- INTELLIGENT MODE DETECTION ---
-        // 1. Check if "javascript" code is actually React/JSX
-        const isReact = 
-            language === 'jsx' || 
-            language === 'react' || 
-            language === 'tsx' ||
-            (language === 'javascript' && (code.includes('import React') || code.includes('export default') || code.includes('return <')));
-
-        // --- MODE A: REACT / JSX ---
-        if (isReact) {
-            // 1. Clean Imports/Exports (Browsers can't handle them in raw strings)
-            let cleanCode = code
-                .replace(/import\s+.*?from\s+['"].*?['"];?/g, '') // Remove imports
-                .replace(/export\s+default\s+/g, '')               // Remove export default
-                .replace(/export\s+/g, '');                        // Remove named exports
-
-            return `
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <meta charset="UTF-8" />
-                    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-                    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-                    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-                    <script src="https://cdn.tailwindcss.com"></script>
-                    <style>
-                        body { margin: 0; padding: 0; background: #fff; font-family: sans-serif; }
-                        /* Fix for common full-screen React apps */
-                        #root { height: 100vh; width: 100vw; overflow: auto; }
-                    </style>
-                </head>
-                <body>
-                    <div id="root"></div>
-                    <script type="text/babel">
-                        // 2. Pre-define Globals (So 'useState' works without import)
-                        const { useState, useEffect, useRef, useMemo, useCallback } = React;
-                        const { createRoot } = ReactDOM;
-
-                        // 3. User Code Injection
-                        try {
-                            ${cleanCode}
-
-                            // 4. Smart Rendering
-                            const root = createRoot(document.getElementById('root'));
-                            
-                            // Try to find the component
-                            if (typeof App !== 'undefined') { root.render(<App />); }
-                            else if (typeof Main !== 'undefined') { root.render(<Main />); }
-                            else if (typeof Game !== 'undefined') { root.render(<Game />); }
-                            else {
-                                // Fallback: If user didn't name it "App", assume the last defined function is the component
-                                root.render(
-                                    <div className="flex h-screen items-center justify-center bg-red-50 text-red-600 p-4 text-center">
-                                        <div>
-                                            <h3 className="font-bold text-lg">Preview Error</h3>
-                                            <p>Could not find a component named <strong>App</strong>.</p>
-                                            <p className="text-sm mt-2 opacity-80">Please rename your main function to <code>App</code>.</p>
-                                        </div>
-                                    </div>
-                                );
-                            }
-                        } catch (err) {
-                            document.body.innerHTML = \`<div style="color:red; padding:20px; font-weight:bold;">Runtime Error: \${err.message}</div>\`;
-                            console.error(err);
-                        }
-                    </script>
-                </body>
-                </html>
-            `;
-        }
-
-        // --- MODE B: STANDARD HTML/JS/CSS ---
-        return `
-            <!DOCTYPE html>
-            <html>
-                <head>
-                    <style>body { margin: 0; padding: 0; } ${language === 'css' ? code : ''}</style>
-                </head>
-                <body>
-                    ${language === 'html' ? code : '<div id="app"></div>'}
-                    <script>
-                        try {
-                            ${language === 'javascript' ? code : ''}
-                        } catch (e) {
-                            document.body.innerHTML = '<div style="color:red; padding:20px;">JS Error: ' + e.message + '</div>';
-                        }
-                    </script>
-                </body>
-            </html>
-        `;
-    }, [code, language]);
-
-    if (!isOpen) return null;
-
-    return (
-        <div className="flex flex-col h-full bg-[#0f0f0f] border-l border-[var(--spider-light)] w-full md:w-1/2 lg:w-[45%] transition-all duration-300 shadow-2xl z-40 absolute md:relative right-0 top-0 bottom-0">
-            {/* Header */}
-            <div className="flex items-center justify-between p-3 border-b border-[var(--spider-light)] bg-[var(--spider-med)]">
-                <div className="flex items-center space-x-2">
-                    <span className="text-sm font-bold text-white">✨ Preview</span>
-                    <select 
-                        value={device} 
-                        onChange={(e) => setDevice(e.target.value)}
-                        className="bg-[var(--spider-dark)] text-xs text-white p-1 rounded border border-[var(--spider-light)] outline-none"
-                    >
-                        {Object.entries(devices).map(([key, val]) => (
-                            <option key={key} value={key}>{val.label}</option>
-                        ))}
-                    </select>
-                    <button 
-                        onClick={() => setRotation(r => r === 'portrait' ? 'landscape' : 'portrait')}
-                        className="p-1 hover:bg-[var(--spider-light)] rounded text-white"
-                        title="Rotate"
-                    >
-                        🔄
-                    </button>
-                </div>
-                <button onClick={onClose} className="text-gray-400 hover:text-white px-2 text-xl">×</button>
-            </div>
-
-            {/* Iframe Container */}
-            <div className="flex-1 bg-[#1a1a1a] relative overflow-hidden flex items-center justify-center p-4">
-                <div 
-                    style={{
-                        width: rotation === 'landscape' && device !== 'desktop' ? devices[device].height : devices[device].width,
-                        height: rotation === 'landscape' && device !== 'desktop' ? devices[device].width : devices[device].height,
-                        transition: 'all 0.3s ease',
-                        background: 'white',
-                        boxShadow: '0 0 40px rgba(0,0,0,0.5)'
-                    }}
-                    className="bg-white relative"
-                >
-                    <iframe 
-                        srcDoc={srcDoc}
-                        title="preview"
-                        className="w-full h-full border-0 block"
-                        sandbox="allow-scripts allow-same-origin allow-modals allow-forms"
-                    />
-                </div>
-            </div>
-        </div>
-    );
-};
 const SpiderAIApp = ({ 
     currentUser, 
     showModal, 
@@ -1555,15 +1397,6 @@ const SpiderAIApp = ({
     const [mediaRecorder, setMediaRecorder] = useState(null);
     const [audioChunks, setAudioChunks] = useState([]);
     const [isTranscribing, setIsTranscribing] = useState(false);
-
-  // ... existing states ...
-const [showCanvas, setShowCanvas] = useState(false);
-    const [canvasData, setCanvasData] = useState({ code: '', language: '' });
-
-    const handleOpenCanvas = useCallback((code, language) => {
-        setCanvasData({ code, language });
-        setShowCanvas(true);
-    }, []);
     
     // ---------- AI Mode State ----------
     const [selectedAIMode, setSelectedAIMode] = useState('chat'); // chat, reasoning, pro
@@ -3209,11 +3042,11 @@ useEffect(() => {
 
     // ---------- Enhanced Chat Bubble with Math Support ----------
     const ChatBubble = useMemo(() => {
-        // REPLACE THIS LINE BELOW to accept 'onOpenCanvas'
-        return React.memo(({ message, onOpenCanvas }) => { 
+        return React.memo(({ message }) => {
             const [contentBlocks, setContentBlocks] = useState([]);
             const [mathBlocks, setMathBlocks] = useState([]);
             const [combinedBlocks, setCombinedBlocks] = useState([]);
+
             useEffect(() => {
                 // Process LaTeX math first
                 const mathBlocks = processMathContent(message.content);
@@ -3377,47 +3210,34 @@ useEffect(() => {
 
                         <div className="space-y-3">
                             {contentBlocks.map((block, index) => {
-                             if (block.type === "code") {
-    const isWebCode = ['html', 'javascript', 'js', 'jsx', 'react', 'tsx'].includes(block.language?.toLowerCase());
+                                if (block.type === "code") {
+                                    return (
+                                        <div
+                                            key={index}
+                                            className="rounded-lg overflow-hidden relative group"
+                                            style={{ background: "#0f0f0f" }}
+                                        >
+                                            <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                                                <button
+                                                    onClick={() => handleCopyCode(block.content)}
+                                                    className="w-8 h-8 flex items-center justify-center rounded bg-gray-800 hover:bg-gray-700 transition-colors touch-manipulation"
+                                                    title="Copy code"
+                                                >
+                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                                    </svg>
+                                                </button>
+                                            </div>
+                                            <pre className="overflow-x-auto p-4 m-0 text-sm" style={{ background: "#0f0f0f", lineHeight: "1.5", color: "white" }}>
+                                                <code className={`language-${block.language}`}>
+                                                    {block.content}
+                                                </code>
+                                            </pre>
+                                        </div>
+                                    );
+                                }
 
-    return (
-        <div key={index} className="rounded-lg overflow-hidden relative group" style={{ background: "#0f0f0f" }}>
-            
-            {/* Header / Buttons Container */}
-            <div className="absolute top-2 right-2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                
-                {/* --- NEW: PREVIEW BUTTON --- */}
-                {isWebCode && (
-                    <button
-                        onClick={() => onOpenCanvas && onOpenCanvas(block.content, block.language)}
-                        className="flex items-center space-x-1 px-2 h-8 rounded bg-[var(--spider-neon-blue)] text-black hover:opacity-90 transition-colors touch-manipulation text-xs font-bold"
-                        title="Open in Canvas"
-                    >
-                        <span>👁️ Preview</span>
-                    </button>
-                )}
-
-                {/* Existing Copy Button */}
-                <button
-                    onClick={() => handleCopyCode(block.content)}
-                    className="w-8 h-8 flex items-center justify-center rounded bg-gray-800 hover:bg-gray-700 transition-colors touch-manipulation"
-                    title="Copy code"
-                >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                    </svg>
-                </button>
-            </div>
-
-            <pre className="overflow-x-auto p-4 m-0 text-sm" style={{ background: "#0f0f0f", lineHeight: "1.5", color: "white" }}>
-                <code className={`language-${block.language}`}>
-                    {block.content}
-                </code>
-            </pre>
-        </div>
-    );
-}
                                 if (block.type === "table") {
                                     return (
                                         <div key={index}>
@@ -3920,8 +3740,7 @@ const handleSendMessage = async () => {
     // ---------- Main JSX ----------
     return (
         <div className="flex flex-row h-full w-full bg-[var(--spider-dark)] text-[var(--spider-text)] overflow-hidden relative">
-            
-            {/* 1. Desktop Sidebar (Unchanged) */}
+            {/* Desktop Sidebar */}
             {!isMobile && (
                 <div className="hidden md:flex flex-col bg-[var(--spider-med)] w-64 p-4 border-r border-[var(--spider-light)] flex-shrink-0 space-y-4 overflow-y-auto">
                     <button 
@@ -3986,9 +3805,8 @@ const handleSendMessage = async () => {
                 </div>
             )}
 
-            {/* 2. Main Chat Area (Wrapped to allow side-by-side with Canvas) */}
-            <div className="flex flex-col flex-1 h-full min-h-0 w-full relative">
-                
+            {/* Main Chat Area */}
+            <div className="flex flex-col flex-1 h-full min-h-0 w-full">
                 {/* Mobile Header */}
                 {isMobile && (
                     <div className="flex items-center justify-between p-3 bg-[var(--spider-med)] border-b border-[var(--spider-light)] flex-shrink-0">
@@ -4074,6 +3892,7 @@ const handleSendMessage = async () => {
                         </div>
                     </div>
                 )}
+
                 {/* Project View */}
                 {isProjectView ? (
                     <div className="flex-grow overflow-y-auto p-4">
@@ -4125,12 +3944,8 @@ const handleSendMessage = async () => {
     onScroll={handleScroll} 
 >
                         {chatHistory.map((msg, index) => (
-    <ChatBubble 
-        key={`${msg.ts}_${index}`} 
-        message={msg} 
-        onOpenCanvas={handleOpenCanvas} // <--- ADD THIS LINE
-    />
-))}
+                            <ChatBubble key={`${msg.ts}_${index}`} message={msg} />
+                        ))}
                         
                         {/* Streaming Message */}
                         {(streamingMessage || isStreaming) && (
@@ -4303,7 +4118,7 @@ const handleSendMessage = async () => {
                                 imageInputRef={imageInputRef} 
                             />
 
-                          <button 
+                            <button 
                                 onClick={handleSendMessage} 
                                 className="bg-[var(--spider-neon-blue)] text-black font-semibold px-5 py-3 rounded-xl hover:opacity-90 transition duration-200 flex-shrink-0 h-12 flex items-center justify-center min-w-[52px] shadow-lg" 
                                 disabled={(!message.trim() && !uploadedFile && !uploadedImage) || isLoading}
@@ -4320,20 +4135,12 @@ const handleSendMessage = async () => {
                     </div>
                 </div>
 
-   {isMobile && <div className="h-24" />}
-
+                {isMobile && <div className="h-24" />}
             </div>
-
-            <CanvasPreview
-                isOpen={showCanvas}
-                code={canvasData.code}
-                language={canvasData.language}
-                onClose={() => setShowCanvas(false)}
-            />
-
         </div>
     );
 };
+
 // --- END Plus Menu Component ---
 const SpiderVFXApp = () => { /* ... (Remains Placeholder) ... */ return (<div className="flex-grow h-full flex flex-col items-center justify-center bg-black text-white p-8 pattern-vfx-grid overflow-y-auto"><div className="bg-black bg-opacity-80 p-10 rounded-lg text-center shadow-xl"><h1 className="text-4xl font-bold mb-4 text-[var(--spider-neon-blue)]">Spider VFX</h1><p className="text-lg text-gray-400 mb-8">Coming Soon!</p><div className="animate-pulse text-6xl">✨</div></div></div>);};
 
@@ -5557,6 +5364,7 @@ int main() {
         </>
     );
 }
+
 
 
 
