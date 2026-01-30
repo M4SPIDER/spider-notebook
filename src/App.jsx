@@ -3160,54 +3160,130 @@ useEffect(() => {
 
     // ---------- Enhanced Chat Bubble with Math Support ----------
   // --- 3. UPDATED CHAT BUBBLE (With Canvas + Better Math) ---
+// --- FIXED CHAT BUBBLE ---
 const ChatBubble = useMemo(() => {
     return React.memo(({ message, onImageClick }) => {
         const [contentBlocks, setContentBlocks] = useState([]);
 
         useEffect(() => {
-            // 1. Better Math Processing (Matches ChatGPT/Gemini style)
-            // This function splits text by $$...$$ for display math and $...$ for inline math
-            const processComplexContent = (text) => {
-                if (!text) return [];
-                // First, try to process using your existing math/content processors
-                // If those functions exist in your parent scope, use them. 
-                // Otherwise, here is a robust fallback logic:
-                
-                const blocks = processContent(text); // Use your existing text splitter
-                return blocks;
-            };
-
-            const blocks = processComplexContent(message.content);
+            // Process content safely
+            const text = message.content || "";
+            // Use existing processor or fallback to simple split
+            const blocks = typeof processContent === 'function' ? processContent(text) : [{ type: 'text', content: text }];
             setContentBlocks(blocks);
 
-            // 2. Syntax Highlighting (Prism)
+            // Trigger Prism highlight
             if (typeof window !== "undefined" && window.Prism) {
                 setTimeout(() => window.Prism.highlightAll(), 50);
             }
 
-            // 3. Render Math (KaTeX) - The "Math Engine" Visualizer
+            // Trigger Math rendering
             setTimeout(() => {
                 document.querySelectorAll('.math-content').forEach(element => {
                     const latex = element.getAttribute('data-latex');
-                    const isDisplay = element.classList.contains('math-display');
-                    if (latex) {
+                    if (latex && window.katex) {
                         try {
-                            element.innerHTML = katex.renderToString(latex, {
+                            element.innerHTML = window.katex.renderToString(latex, {
                                 throwOnError: false,
-                                displayMode: isDisplay,
-                                fleqn: false, // Center equations like ChatGPT
-                                output: 'html', // Use HTML output for better accessibility/compatibility
-                                trust: true
+                                displayMode: element.classList.contains('math-display')
                             });
-                        } catch (error) {
-                            element.textContent = isDisplay ? `$$${latex}$$` : `$${latex}$`;
-                        }
+                        } catch (e) { /* ignore */ }
                     }
                 });
             }, 100);
-
         }, [message.content, processContent, processMathContent]);
 
+        const handleCopyCode = (content) => {
+            navigator.clipboard.writeText(content);
+        };
+
+        const renderTable = (tableText) => {
+            const rows = tableText.trim().split('\n').filter(r => r.trim());
+            if (rows.length < 2) return null;
+            const headers = rows[0].split('|').filter(c => c.trim()).map(c => c.trim());
+            const dataRows = rows.slice(2).filter(r => r.includes('|'));
+
+            return (
+                <div className="overflow-x-auto my-3 rounded-lg border border-[var(--spider-light)] bg-[var(--spider-dark)]">
+                    <table className="min-w-full divide-y divide-[var(--spider-light)] text-sm">
+                        <thead className="bg-[var(--spider-med)]">
+                            <tr>
+                                {headers.map((h, i) => <th key={i} className="px-4 py-2 text-left text-white font-semibold">{h}</th>)}
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[var(--spider-light)]">
+                            {dataRows.map((row, i) => (
+                                <tr key={i} className="hover:bg-[var(--spider-light)]">
+                                    {row.split('|').filter(c => c.trim()).map((cell, j) => (
+                                        <td key={j} className="px-4 py-2 text-gray-300">{cell.trim()}</td>
+                                    ))}
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            );
+        };
+
+        const bubbleClass = message.role === "user" ? "bg-[#00e5ff] text-black ml-auto" : "bg-[#004745] text-white mr-auto";
+
+        return (
+            <div className={`flex w-full ${message.role === "user" ? "justify-end" : "justify-start"} mb-6 px-2`}>
+                <div className={`px-5 py-4 rounded-2xl max-w-[95%] sm:max-w-4xl shadow-md ${bubbleClass}`}>
+                    
+                    {/* Image Display */}
+                    {message.type === "image" && message.base64_image && (
+                        <div 
+                            className="w-full rounded-xl overflow-hidden bg-black mb-3 cursor-zoom-in border border-gray-600/50"
+                            onClick={() => onImageClick && onImageClick(`data:image/jpeg;base64,${message.base64_image}`)}
+                        >
+                            <img src={`data:image/jpeg;base64,${message.base64_image}`} alt="AI Generated" className="w-full h-auto max-h-96 object-contain" />
+                        </div>
+                    )}
+
+                    <div className="space-y-4">
+                        {contentBlocks.map((block, index) => {
+                            if (block.type === "code") {
+                                return (
+                                    <CodeBlockWithPreview 
+                                        key={index} 
+                                        block={block} 
+                                        handleCopyCode={handleCopyCode} 
+                                    />
+                                );
+                            }
+
+                            if (block.type === "table") {
+                                return <div key={index}>{renderTable(block.content)}</div>;
+                            }
+
+                            if (block.type === "text") {
+                                // Math Parsing Logic for Text Blocks
+                                const parts = block.content.split(/(\$\$[\s\S]+?\$\$|\$[^$]+?\$)/g);
+                                return (
+                                    <div key={index} className="whitespace-pre-wrap break-words text-sm sm:text-base leading-7">
+                                        {parts.map((part, i) => {
+                                            if (part.startsWith('$$') && part.endsWith('$$')) {
+                                                const latex = part.slice(2, -2);
+                                                return <div key={i} className="math-content math-display my-2 text-center" data-latex={latex}></div>;
+                                            } else if (part.startsWith('$') && part.endsWith('$')) {
+                                                const latex = part.slice(1, -1);
+                                                return <span key={i} className="math-content math-inline px-1" data-latex={latex}></span>;
+                                            } else {
+                                                return <span key={i}>{part}</span>;
+                                            }
+                                        })}
+                                    </div>
+                                );
+                            }
+                            return null;
+                        })}
+                    </div>
+                </div>
+            </div>
+        );
+    });
+}, [processContent, processMathContent]);
         const handleCopyCode = (content) => navigator.clipboard.writeText(content);
 
         // Your existing Table Renderer
@@ -5553,6 +5629,7 @@ int main() {
         </>
     );
 }
+
 
 
 
