@@ -3161,23 +3161,24 @@ useEffect(() => {
     // ---------- Enhanced Chat Bubble with Math Support ----------
   // --- 3. UPDATED CHAT BUBBLE (With Canvas + Better Math) ---
 // --- FIXED CHAT BUBBLE ---
+// --- FIXED CHAT BUBBLE ---
 const ChatBubble = useMemo(() => {
     return React.memo(({ message, onImageClick }) => {
         const [contentBlocks, setContentBlocks] = useState([]);
 
         useEffect(() => {
-            // Process content safely
+            // 1. Process content safely
             const text = message.content || "";
             // Use existing processor or fallback to simple split
             const blocks = typeof processContent === 'function' ? processContent(text) : [{ type: 'text', content: text }];
             setContentBlocks(blocks);
 
-            // Trigger Prism highlight
+            // 2. Trigger Prism syntax highlighting
             if (typeof window !== "undefined" && window.Prism) {
                 setTimeout(() => window.Prism.highlightAll(), 50);
             }
 
-            // Trigger Math rendering
+            // 3. Trigger Math rendering (KaTeX)
             setTimeout(() => {
                 document.querySelectorAll('.math-content').forEach(element => {
                     const latex = element.getAttribute('data-latex');
@@ -3187,7 +3188,7 @@ const ChatBubble = useMemo(() => {
                                 throwOnError: false,
                                 displayMode: element.classList.contains('math-display')
                             });
-                        } catch (e) { /* ignore */ }
+                        } catch (e) { /* ignore errors */ }
                     }
                 });
             }, 100);
@@ -3204,108 +3205,24 @@ const ChatBubble = useMemo(() => {
             const dataRows = rows.slice(2).filter(r => r.includes('|'));
 
             return (
-                <div className="overflow-x-auto my-3 rounded-lg border border-[var(--spider-light)] bg-[var(--spider-dark)]">
+                <div className="overflow-x-auto my-3 rounded-lg border border-[var(--spider-light)] bg-[var(--spider-dark)] shadow-md">
                     <table className="min-w-full divide-y divide-[var(--spider-light)] text-sm">
                         <thead className="bg-[var(--spider-med)]">
                             <tr>
-                                {headers.map((h, i) => <th key={i} className="px-4 py-2 text-left text-white font-semibold">{h}</th>)}
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-[var(--spider-light)]">
-                            {dataRows.map((row, i) => (
-                                <tr key={i} className="hover:bg-[var(--spider-light)]">
-                                    {row.split('|').filter(c => c.trim()).map((cell, j) => (
-                                        <td key={j} className="px-4 py-2 text-gray-300">{cell.trim()}</td>
-                                    ))}
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            );
-        };
-
-        const bubbleClass = message.role === "user" ? "bg-[#00e5ff] text-black ml-auto" : "bg-[#004745] text-white mr-auto";
-
-        return (
-            <div className={`flex w-full ${message.role === "user" ? "justify-end" : "justify-start"} mb-6 px-2`}>
-                <div className={`px-5 py-4 rounded-2xl max-w-[95%] sm:max-w-4xl shadow-md ${bubbleClass}`}>
-                    
-                    {/* Image Display */}
-                    {message.type === "image" && message.base64_image && (
-                        <div 
-                            className="w-full rounded-xl overflow-hidden bg-black mb-3 cursor-zoom-in border border-gray-600/50"
-                            onClick={() => onImageClick && onImageClick(`data:image/jpeg;base64,${message.base64_image}`)}
-                        >
-                            <img src={`data:image/jpeg;base64,${message.base64_image}`} alt="AI Generated" className="w-full h-auto max-h-96 object-contain" />
-                        </div>
-                    )}
-
-                    <div className="space-y-4">
-                        {contentBlocks.map((block, index) => {
-                            if (block.type === "code") {
-                                return (
-                                    <CodeBlockWithPreview 
-                                        key={index} 
-                                        block={block} 
-                                        handleCopyCode={handleCopyCode} 
-                                    />
-                                );
-                            }
-
-                            if (block.type === "table") {
-                                return <div key={index}>{renderTable(block.content)}</div>;
-                            }
-
-                            if (block.type === "text") {
-                                // Math Parsing Logic for Text Blocks
-                                const parts = block.content.split(/(\$\$[\s\S]+?\$\$|\$[^$]+?\$)/g);
-                                return (
-                                    <div key={index} className="whitespace-pre-wrap break-words text-sm sm:text-base leading-7">
-                                        {parts.map((part, i) => {
-                                            if (part.startsWith('$$') && part.endsWith('$$')) {
-                                                const latex = part.slice(2, -2);
-                                                return <div key={i} className="math-content math-display my-2 text-center" data-latex={latex}></div>;
-                                            } else if (part.startsWith('$') && part.endsWith('$')) {
-                                                const latex = part.slice(1, -1);
-                                                return <span key={i} className="math-content math-inline px-1" data-latex={latex}></span>;
-                                            } else {
-                                                return <span key={i}>{part}</span>;
-                                            }
-                                        })}
-                                    </div>
-                                );
-                            }
-                            return null;
-                        })}
-                    </div>
-                </div>
-            </div>
-        );
-    });
-}, [processContent, processMathContent]);
-        const handleCopyCode = (content) => navigator.clipboard.writeText(content);
-
-        // Your existing Table Renderer
-        const renderTable = (tableText) => {
-            const rows = tableText.trim().split('\n').filter(r => r.trim());
-            if (rows.length < 2) return null;
-            const headers = rows[0].split('|').filter(c => c.trim()).map(c => c.trim());
-            const dataRows = rows.slice(2).filter(r => r.includes('|'));
-
-            return (
-                <div className="overflow-x-auto my-3 rounded-lg border border-[var(--spider-light)] bg-[var(--spider-dark)] shadow-md">
-                    <table className="min-w-full divide-y divide-[var(--spider-light)] text-sm">
-                        <thead>
-                            <tr className="bg-[var(--spider-med)]">
-                                {headers.map((h, i) => <th key={i} className="px-4 py-3 text-left font-semibold text-white border-r border-[var(--spider-light)] last:border-0">{h}</th>)}
+                                {headers.map((h, i) => (
+                                    <th key={i} className="px-4 py-3 text-left font-semibold text-white border-r border-[var(--spider-light)] last:border-0">
+                                        {h}
+                                    </th>
+                                ))}
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-[var(--spider-light)]">
                             {dataRows.map((row, i) => (
                                 <tr key={i} className="hover:bg-[var(--spider-light)] transition-colors">
                                     {row.split('|').filter(c => c.trim()).map((cell, j) => (
-                                        <td key={j} className="px-4 py-2 text-gray-300 border-r border-[var(--spider-light)] last:border-0">{cell.trim()}</td>
+                                        <td key={j} className="px-4 py-2 text-gray-300 border-r border-[var(--spider-light)] last:border-0">
+                                            {cell.trim()}
+                                        </td>
                                     ))}
                                 </tr>
                             ))}
@@ -3334,26 +3251,32 @@ const ChatBubble = useMemo(() => {
                     <div className="space-y-4">
                         {contentBlocks.map((block, index) => {
                             
-                            // --- NEW: Use CodeBlockWithPreview for "code" types ---
+                            // 1. Code Blocks (With Canvas Preview)
                             if (block.type === "code") {
-                                return <CodeBlockWithPreview key={index} block={block} handleCopyCode={handleCopyCode} />;
+                                return (
+                                    <CodeBlockWithPreview 
+                                        key={index} 
+                                        block={block} 
+                                        handleCopyCode={handleCopyCode} 
+                                    />
+                                );
                             }
 
+                            // 2. Table Blocks
                             if (block.type === "table") {
                                 return <div key={index}>{renderTable(block.content)}</div>;
                             }
 
-                            // --- IMPROVED MATH & TEXT RENDERING ---
+                            // 3. Text Blocks (With Math Parsing)
                             if (block.type === "text") {
-                                // We parse the text block for inline math here if not already handled by processContent
-                                // This ensures mixed content like "The value is $x=5$" renders correctly
+                                // Split text by math delimiters ($$ or $)
                                 const parts = block.content.split(/(\$\$[\s\S]+?\$\$|\$[^$]+?\$)/g);
                                 
                                 return (
                                     <div key={index} className="whitespace-pre-wrap break-words text-sm sm:text-base leading-7">
                                         {parts.map((part, i) => {
                                             if (part.startsWith('$$') && part.endsWith('$$')) {
-                                                // Display Math
+                                                // Display Math (Block level)
                                                 const latex = part.slice(2, -2);
                                                 return <div key={i} className="math-content math-display my-4 py-2 text-center overflow-x-auto" data-latex={latex}></div>;
                                             } else if (part.startsWith('$') && part.endsWith('$')) {
@@ -3376,7 +3299,6 @@ const ChatBubble = useMemo(() => {
         );
     });
 }, [processContent, processMathContent]);
-  
   const renderMathBlock = (block) => {
                 if (!block.html) {
                     return (
@@ -5629,6 +5551,7 @@ int main() {
         </>
     );
 }
+
 
 
 
