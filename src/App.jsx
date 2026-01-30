@@ -3176,7 +3176,6 @@ useEffect(() => {
 
     // ---------- Enhanced Chat Bubble with Math Support ----------
     const ChatBubble = useMemo(() => {
-const ChatBubble = useMemo(() => {
         // REPLACE THIS LINE BELOW to accept 'onOpenCanvas'
         return React.memo(({ message, onOpenCanvas }) => { 
             const [contentBlocks, setContentBlocks] = useState([]);
@@ -4267,7 +4266,7 @@ const handleSendMessage = async () => {
                                 imageInputRef={imageInputRef} 
                             />
 
-                            <button 
+                          <button 
                                 onClick={handleSendMessage} 
                                 className="bg-[var(--spider-neon-blue)] text-black font-semibold px-5 py-3 rounded-xl hover:opacity-90 transition duration-200 flex-shrink-0 h-12 flex items-center justify-center min-w-[52px] shadow-lg" 
                                 disabled={(!message.trim() && !uploadedFile && !uploadedImage) || isLoading}
@@ -4279,11 +4278,15 @@ const handleSendMessage = async () => {
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
                                     </svg>
                                 )}
-                            </button>Mobile && <div className="h-24" />}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                {isMobile && <div className="h-24" />}
             </div> {/* Closes the "Main Chat Area" div */}
 
             {/* 3. NEW: Canvas Preview Component (Right Side) */}
-            {/* This sits next to the chat area inside the main flex-row container */}
             <CanvasPreview 
                 isOpen={showCanvas} 
                 code={canvasData.code} 
@@ -4293,12 +4296,7 @@ const handleSendMessage = async () => {
 
         </div> {/* Closes the main "flex-row" container */}
     );
-}; // Closes the SpiderAIApp component
-                        </div>
-                    </div>
-                </div>
-
-      
+}; 
 // --- END Plus Menu Component ---
 const SpiderVFXApp = () => { /* ... (Remains Placeholder) ... */ return (<div className="flex-grow h-full flex flex-col items-center justify-center bg-black text-white p-8 pattern-vfx-grid overflow-y-auto"><div className="bg-black bg-opacity-80 p-10 rounded-lg text-center shadow-xl"><h1 className="text-4xl font-bold mb-4 text-[var(--spider-neon-blue)]">Spider VFX</h1><p className="text-lg text-gray-400 mb-8">Coming Soon!</p><div className="animate-pulse text-6xl">✨</div></div></div>);};
 
@@ -5522,6 +5520,7 @@ int main() {
         </>
     );
 }
+
 
 
 
