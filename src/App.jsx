@@ -1348,42 +1348,36 @@ const SpiderNotebookApp = ({
 };
 
 // ---------- Canvas Preview Component ----------
+// ---------- Canvas Preview Component (FIXED) ----------
 const CanvasPreview = ({ code, language, isOpen, onClose }) => {
-    const [device, setDevice] = useState('desktop'); // desktop, mobile, tablet
-    const [rotation, setRotation] = useState('portrait'); // portrait, landscape
-    const [scale, setScale] = useState(1);
+    const [device, setDevice] = useState('desktop'); 
+    const [rotation, setRotation] = useState('portrait');
 
-    // device dimensions
     const devices = {
         desktop: { width: '100%', height: '100%', label: 'Desktop 🖥️' },
         mobile: { width: '375px', height: '100%', label: 'iPhone SE 📱' },
         tablet: { width: '768px', height: '100%', label: 'iPad Mini 📲' }
     };
 
-    // Generate safe HTML for the iframe
     const srcDoc = useMemo(() => {
         if (!code) return '';
 
-        // 1. HTML/CSS/JS Mode
-        if (language === 'html' || language === 'css' || language === 'javascript') {
-            return `
-                <!DOCTYPE html>
-                <html>
-                    <head>
-                        <style>body { margin: 0; padding: 0; font-family: sans-serif; } ${language === 'css' ? code : ''}</style>
-                    </head>
-                    <body>
-                        ${language === 'html' ? code : '<div id="app"></div>'}
-                        <script>
-                            ${language === 'javascript' ? code : ''}
-                        </script>
-                    </body>
-                </html>
-            `;
-        }
+        // --- INTELLIGENT MODE DETECTION ---
+        // 1. Check if "javascript" code is actually React/JSX
+        const isReact = 
+            language === 'jsx' || 
+            language === 'react' || 
+            language === 'tsx' ||
+            (language === 'javascript' && (code.includes('import React') || code.includes('export default') || code.includes('return <')));
 
-        // 2. React/JSX Mode (Uses Babel Standalone)
-        if (language === 'jsx' || language === 'react' || language === 'tsx') {
+        // --- MODE A: REACT / JSX ---
+        if (isReact) {
+            // 1. Clean Imports/Exports (Browsers can't handle them in raw strings)
+            let cleanCode = code
+                .replace(/import\s+.*?from\s+['"].*?['"];?/g, '') // Remove imports
+                .replace(/export\s+default\s+/g, '')               // Remove export default
+                .replace(/export\s+/g, '');                        // Remove named exports
+
             return `
                 <!DOCTYPE html>
                 <html>
@@ -1393,41 +1387,81 @@ const CanvasPreview = ({ code, language, isOpen, onClose }) => {
                     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
                     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
                     <script src="https://cdn.tailwindcss.com"></script>
-                    <style>body { margin: 0; padding: 0; background: #fff; }</style>
+                    <style>
+                        body { margin: 0; padding: 0; background: #fff; font-family: sans-serif; }
+                        /* Fix for common full-screen React apps */
+                        #root { height: 100vh; width: 100vw; overflow: auto; }
+                    </style>
                 </head>
                 <body>
                     <div id="root"></div>
                     <script type="text/babel">
-                        ${code}
-                        
-                        // Try to render the App component if it exists, otherwise assume the last defined component
+                        // 2. Pre-define Globals (So 'useState' works without import)
+                        const { useState, useEffect, useRef, useMemo, useCallback } = React;
+                        const { createRoot } = ReactDOM;
+
+                        // 3. User Code Injection
                         try {
-                            const root = ReactDOM.createRoot(document.getElementById('root'));
-                            if (typeof App !== 'undefined') {
-                                root.render(<App />);
-                            } else {
-                                // Fallback: try to find a component name from the code
-                                root.render(<div className="p-4 text-red-500">Could not auto-detect "App" component. Please name your main component "App".</div>);
+                            ${cleanCode}
+
+                            // 4. Smart Rendering
+                            const root = createRoot(document.getElementById('root'));
+                            
+                            // Try to find the component
+                            if (typeof App !== 'undefined') { root.render(<App />); }
+                            else if (typeof Main !== 'undefined') { root.render(<Main />); }
+                            else if (typeof Game !== 'undefined') { root.render(<Game />); }
+                            else {
+                                // Fallback: If user didn't name it "App", assume the last defined function is the component
+                                root.render(
+                                    <div className="flex h-screen items-center justify-center bg-red-50 text-red-600 p-4 text-center">
+                                        <div>
+                                            <h3 className="font-bold text-lg">Preview Error</h3>
+                                            <p>Could not find a component named <strong>App</strong>.</p>
+                                            <p className="text-sm mt-2 opacity-80">Please rename your main function to <code>App</code>.</p>
+                                        </div>
+                                    </div>
+                                );
                             }
                         } catch (err) {
-                            document.body.innerHTML = '<div style="color:red; padding:20px;">Runtime Error: ' + err.message + '</div>';
+                            document.body.innerHTML = \`<div style="color:red; padding:20px; font-weight:bold;">Runtime Error: \${err.message}</div>\`;
+                            console.error(err);
                         }
                     </script>
                 </body>
                 </html>
             `;
         }
-        return '';
+
+        // --- MODE B: STANDARD HTML/JS/CSS ---
+        return `
+            <!DOCTYPE html>
+            <html>
+                <head>
+                    <style>body { margin: 0; padding: 0; } ${language === 'css' ? code : ''}</style>
+                </head>
+                <body>
+                    ${language === 'html' ? code : '<div id="app"></div>'}
+                    <script>
+                        try {
+                            ${language === 'javascript' ? code : ''}
+                        } catch (e) {
+                            document.body.innerHTML = '<div style="color:red; padding:20px;">JS Error: ' + e.message + '</div>';
+                        }
+                    </script>
+                </body>
+            </html>
+        `;
     }, [code, language]);
 
     if (!isOpen) return null;
 
     return (
         <div className="flex flex-col h-full bg-[#0f0f0f] border-l border-[var(--spider-light)] w-full md:w-1/2 lg:w-[45%] transition-all duration-300 shadow-2xl z-40 absolute md:relative right-0 top-0 bottom-0">
-            {/* --- Canvas Header / Toolbar --- */}
+            {/* Header */}
             <div className="flex items-center justify-between p-3 border-b border-[var(--spider-light)] bg-[var(--spider-med)]">
                 <div className="flex items-center space-x-2">
-                    <span className="text-sm font-bold text-white">✨ Canvas</span>
+                    <span className="text-sm font-bold text-white">✨ Preview</span>
                     <select 
                         value={device} 
                         onChange={(e) => setDevice(e.target.value)}
@@ -1440,38 +1474,37 @@ const CanvasPreview = ({ code, language, isOpen, onClose }) => {
                     <button 
                         onClick={() => setRotation(r => r === 'portrait' ? 'landscape' : 'portrait')}
                         className="p-1 hover:bg-[var(--spider-light)] rounded text-white"
-                        title="Rotate Device"
+                        title="Rotate"
                     >
                         🔄
                     </button>
                 </div>
-                <button onClick={onClose} className="text-gray-400 hover:text-white px-2">✕</button>
+                <button onClick={onClose} className="text-gray-400 hover:text-white px-2 text-xl">×</button>
             </div>
 
-            {/* --- Iframe Container --- */}
-            <div className="flex-1 bg-[#222] relative overflow-hidden flex items-center justify-center p-4">
+            {/* Iframe Container */}
+            <div className="flex-1 bg-[#1a1a1a] relative overflow-hidden flex items-center justify-center p-4">
                 <div 
                     style={{
                         width: rotation === 'landscape' && device !== 'desktop' ? devices[device].height : devices[device].width,
                         height: rotation === 'landscape' && device !== 'desktop' ? devices[device].width : devices[device].height,
-                        transition: 'width 0.3s, height 0.3s',
+                        transition: 'all 0.3s ease',
                         background: 'white',
-                        boxShadow: '0 0 20px rgba(0,0,0,0.5)'
+                        boxShadow: '0 0 40px rgba(0,0,0,0.5)'
                     }}
-                    className="rounded-md overflow-hidden bg-white"
+                    className="bg-white relative"
                 >
                     <iframe 
                         srcDoc={srcDoc}
                         title="preview"
-                        className="w-full h-full border-0"
-                        sandbox="allow-scripts allow-same-origin allow-modals"
+                        className="w-full h-full border-0 block"
+                        sandbox="allow-scripts allow-same-origin allow-modals allow-forms"
                     />
                 </div>
             </div>
         </div>
     );
 };
-
 const SpiderAIApp = ({ 
     currentUser, 
     showModal, 
@@ -5524,6 +5557,7 @@ int main() {
         </>
     );
 }
+
 
 
 
