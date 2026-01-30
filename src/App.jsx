@@ -1524,17 +1524,13 @@ const SpiderAIApp = ({
     const [isTranscribing, setIsTranscribing] = useState(false);
 
   // ... existing states ...
-const [isMobile, setIsMobile] = useState(false);
-
-// ---------- CANVAS STATE (Add This) ----------
 const [showCanvas, setShowCanvas] = useState(false);
-const [canvasData, setCanvasData] = useState({ code: '', language: '' });
+    const [canvasData, setCanvasData] = useState({ code: '', language: '' });
 
-// Helper to open canvas
-const handleOpenCanvas = useCallback((code, language) => {
-    setCanvasData({ code, language });
-    setShowCanvas(true);
-}, []);
+    const handleOpenCanvas = useCallback((code, language) => {
+        setCanvasData({ code, language });
+        setShowCanvas(true);
+    }, []);
     
     // ---------- AI Mode State ----------
     const [selectedAIMode, setSelectedAIMode] = useState('chat'); // chat, reasoning, pro
@@ -5525,4 +5521,5 @@ int main() {
         </>
     );
 }
+
 
