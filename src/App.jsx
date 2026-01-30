@@ -4285,9 +4285,8 @@ const handleSendMessage = async () => {
 
    {isMobile && <div className="h-24" />}
 
-            </div> {/* Closes the "Main Chat Area" div */}
+            </div>
 
-            {/* 3. NEW: Canvas Preview Component (Right Side) */}
             <CanvasPreview
                 isOpen={showCanvas}
                 code={canvasData.code}
@@ -4295,7 +4294,7 @@ const handleSendMessage = async () => {
                 onClose={() => setShowCanvas(false)}
             />
 
-        </div> {/* Closes the main "flex-row" container */}
+        </div>
     );
 };
 // --- END Plus Menu Component ---
@@ -5521,6 +5520,7 @@ int main() {
         </>
     );
 }
+
 
 
 
