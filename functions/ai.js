@@ -140,7 +140,7 @@ const SEARCH_TRIGGER_WORDS = [
   "price", "stock", "score", "weather", "search for", "google", "find info",
   "movie", "film", "cinema", "release", "cast", "trailer", "review", "ott",
   "when is", "coming out", "streaming", "watch", "showtime", "box office",
-  "who won", "game result", "match", "upcoming", "future", "schedule", "events"
+  "who won", "game result", "match", "upcoming", "future", "schedule", "events","search"
 ];
 
 function shouldTriggerSearch(text) {
