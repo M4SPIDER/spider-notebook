@@ -509,9 +509,9 @@ export async function onRequest(context) {
                 // Instead of pushing the entire history, we only push the "Tail" (End)
                 // =========================================================================
                 if (fullResponseText.length > 0) {
-                      // Keep ~4000 chars (approx 1000 tokens) of context.
+                      // Keep ~300 chars (approx 75 tokens) of context.
                       // This allows Mistral to know where it is, without being overloaded by 5000 lines.
-                      const MAX_CONTEXT_CHARS = 4000;
+                      const MAX_CONTEXT_CHARS = 300;
                       let effectiveHistory = fullResponseText;
                       
                       if (fullResponseText.length > MAX_CONTEXT_CHARS) {
