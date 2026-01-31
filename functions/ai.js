@@ -511,7 +511,7 @@ export async function onRequest(context) {
                 if (fullResponseText.length > 0) {
                       // Keep ~300 chars (approx 75 tokens) of context.
                       // This allows Mistral to know where it is, without being overloaded by 5000 lines.
-                      const MAX_CONTEXT_CHARS = 300;
+                      const MAX_CONTEXT_CHARS = 300000;
                       let effectiveHistory = fullResponseText;
                       
                       if (fullResponseText.length > MAX_CONTEXT_CHARS) {
@@ -529,7 +529,7 @@ export async function onRequest(context) {
                 let aiResponse;
                 const aiPayload = {
                       messages: currentMessages,
-                      max_tokens: 4096, 
+                      max_tokens: 32768 , 
                       temperature: 0.2, 
                       stream: true
                 };
