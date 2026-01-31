@@ -1,6 +1,7 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.64)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.65)
+ * FIXED: NO CUT-OFFS (Auto-Looping + 10k Line Limit)
  * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN (GEN) + FLUX (EDIT) + ASR + IMG MEMORY
  * Author: M4 Spider
  * =========================================================
@@ -10,25 +11,24 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.64";
+const VERSION = "9.9.65";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
 const AI_MEMORY_USER_KEY_PREFIX = "spider_ai_mem:";
 const AI_RETRY_LIMIT = 2;
 const AI_RETRY_DELAY_BASE = 1500;
-// OPTIMIZED: Increased to 1000 to prevent "half-baked" code in Pro mode
-const AI_MAX_OUTPUT_LINES = 1000;
+
+// FIXED: Increased to 10000 to prevent "half-baked" code. 
+// This effectively removes the line limit brake.
+const AI_MAX_OUTPUT_LINES = 10000;
 
 // MODELS
 // SWAPPED: Standard is now GPT-OSS 120B, Pro is Mistral 24B
 const MODEL_STD_CHAT = "@cf/openai/gpt-oss-120b";
 const MODEL_PRO_CHAT = "@cf/mistralai/mistral-small-3.1-24b-instruct";
 const MODEL_ASR = "@cf/openai/whisper-large-v3-turbo";
-
-// FIX: Renamed to avoid duplicates and support both models as requested
 const MODEL_GEN_LUCID = "@cf/leonardo/lucid-origin";
-// SPEED FIX: Switched to 'flux-1-schnell' for faster editing
 const MODEL_EDIT_FLUX = "@cf/black-forest-labs/flux-2-dev"; 
 
 //////////////////////////////
@@ -36,7 +36,7 @@ const MODEL_EDIT_FLUX = "@cf/black-forest-labs/flux-2-dev";
 //////////////////////////////
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-// FIX 1: Robust Markdown Cleaner (Protects Code Blocks)
+// Robust Markdown Cleaner (Protects Code Blocks)
 function cleanAiResponse(text) {
   if (!text) return "";
 
@@ -76,7 +76,6 @@ function extractText(resp) {
 // HELPER: Base64 to Array (Required for Image/Audio Input)
 const base64ToArray = (b64) => {
   try {
-    // FIX: Android/Mobile often adds newlines/spaces in base64 strings
     const cleanBase64 = (b64.includes(',') ? b64.split(',').pop() : b64).replace(/[\r\n\s]/g, '');
     const binaryString = atob(cleanBase64);
     const len = binaryString.length;
@@ -92,7 +91,6 @@ const base64ToArray = (b64) => {
 
 const base64ToUint8Array = (base64) => {
     try {
-        // FIX: Android/Mobile often adds newlines/spaces in base64 strings
         const cleanBase64 = (base64.includes(',') ? base64.split(',').pop() : base64).replace(/[\r\n\s]/g, '');
         const binaryString = atob(cleanBase64);
         const bytes = new Uint8Array(binaryString.length);
@@ -114,7 +112,6 @@ async function streamToBase64(stream) {
         if (done) break;
         chunks.push(value);
     }
-    // Concatenate chunks
     const totalLength = chunks.reduce((acc, c) => acc + c.length, 0);
     const result = new Uint8Array(totalLength);
     let offset = 0;
@@ -122,8 +119,6 @@ async function streamToBase64(stream) {
         result.set(chunk, offset);
         offset += chunk.length;
     }
-    
-    // Convert to Base64 manually to avoid stack overflow on large images
     let binary = '';
     const len = result.byteLength;
     for (let i = 0; i < len; i++) {
@@ -203,7 +198,6 @@ function buildTeluguRegex(words) {
   const pattern = sorted.map(w => w.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&")).join("|");
   return new RegExp(pattern, "iu");
 }
-// Fixed Regex initialization
 const TELUGU_TRIGGER_REGEX = buildTeluguRegex(TELUGU_TRIGGER_WORDS);
 
 function shouldTriggerTelugu(message) {
@@ -286,7 +280,6 @@ async function getLastImage(env, key) {
 
 async function saveLastImage(env, key, base64) {
   if (!env.CHAT_KV || !base64) return;
-  // Expire image memory in 24 hours to handle "edit more" sessions without bloating storage
   await env.CHAT_KV.put(key, base64, {
     expirationTtl: 86400 
   });
@@ -334,24 +327,26 @@ export async function onRequest(context) {
       file_content,
       filename,
       stream_id,
-      image: base64ImageInput // CRITICAL: Extract image for editing
+      image: base64ImageInput 
     } = payload;
 
     const memKey = AI_MEMORY_USER_KEY_PREFIX + user_preference_id;
-    const imgMemKey = memKey + "_img"; // DEDICATED KEY FOR LAST IMAGE
+    const imgMemKey = memKey + "_img";
 
-    // Handle Continue requests (FIX: Enhanced detection for manual buttons)
-let activePrompt = prompt;
-    let isContinue = false; // TRACK CONTINUATION
-    // FIX: Broader check for continue/more actions
-    if ((!activePrompt || activePrompt.trim().toLowerCase() === "continue" || activePrompt.trim().toLowerCase() === "more") && stream_id) {
-        activePrompt = "The previous code/text was incomplete. Please CONTINUE generating EXACTLY from where you left off. Do not restart. Do not add introductory text. Just output the remaining code/text .";
-        isContinue = true;
-    }
+    // Handle Continue requests
+    let activePrompt = prompt;
+    let isContinue = false;
+    
+    // FIX: Broader check for continue/more actions
+    if ((!activePrompt || activePrompt.trim().toLowerCase() === "continue" || activePrompt.trim().toLowerCase() === "more") && stream_id) {
+        activePrompt = "The previous code/text was incomplete. Please CONTINUE generating EXACTLY from where you left off. Do not restart. Do not add introductory text. Just output the remaining code/text.";
+        isContinue = true;
+    }
 
-    const cleanPrompt = (activePrompt || "").trim().toLowerCase();
+    const cleanPrompt = (activePrompt || "").trim().toLowerCase();
+    
     // -----------------------------------------------------------------
-    // FORCE FILE MODE (CRITICAL FIX)
+    // FORCE FILE MODE
     // -----------------------------------------------------------------
     if (file_content && typeof file_content === "string" && file_content.trim().length > 0) {
         mode = "analyze_file";
@@ -363,7 +358,7 @@ let activePrompt = prompt;
     const IMAGE_TRIGGERS = [
       "generate image", "create image", "make an image", "draw a",
       "generate a picture", "create a picture", "imagine this", "draw this",
-      "create a image", "generate an image", "make a picture", "create an image" // FIX: Added variations
+      "create a image", "generate an image", "make a picture", "create an image"
     ];
 
     if (mode === "chat" && IMAGE_TRIGGERS.some(t => cleanPrompt.includes(t))) {
@@ -371,46 +366,35 @@ let activePrompt = prompt;
     }
 
     // -----------------------------------------------------------------
-    // AUTO-CODE / STREAM MODE DETECTOR (NEW)
+    // AUTO-CODE / STREAM MODE DETECTOR
     // -----------------------------------------------------------------
-    // If user asks for code, force Mistral/Pro mode for better coding performance
     const CODE_TRIGGERS = [
         "write code", "code for", "function", "debug", "script", "html", "css", 
         "javascript", "python", "java", "react", "fix this code", "algorithm",
         "write a program", "compile", "error", "exception"
     ];
     
-    // Switch to pro_chat (Stream) if code detected, even if originally "chat"
     if (mode === "chat" && CODE_TRIGGERS.some(t => cleanPrompt.includes(t))) {
         mode = "pro_chat";
     }
 
     // -----------------------------------------------------------------
-    // AUTO-EDIT MODE DETECTOR (NEW)
+    // AUTO-EDIT MODE DETECTOR
     // -----------------------------------------------------------------
-    // Automatically switch to edit mode if user asks to "add", "change", etc.
     const EDIT_TRIGGERS = [
         "change", "modify", "edit", "add", "remove", "replace", "make it", "turn it", "fix",
         "background", "color", "style", "look", "zoom", "pan", "insert", "delete"
     ];
     
-    // STRICT FIX: Check triggers regardless of 'chat' mode, to correct frontend 'chat' fallback
     if (mode === "chat" && EDIT_TRIGGERS.some(t => cleanPrompt.includes(t))) {
         const lastImageCheck = await getLastImage(env, imgMemKey);
-        
-        // IF we have an image history, AUTO-SWITCH.
         if (lastImageCheck) {
             mode = "image_edit";
-            // Pre-fill to avoid double fetching
             if (!base64ImageInput) {
                 base64ImageInput = lastImageCheck;
             }
         } 
-        // OPTIONAL: Even if no image found, if intent is extremely clear (like "edit this"),
-        // we could force mode to avoid "chat" response. 
-        // For now, we rely on the history check to be safe.
     }
-    // -----------------------------------------------------------------
 
     // -- Language Detection --
     const isTelugu = shouldTriggerTelugu(cleanPrompt);
@@ -421,7 +405,7 @@ let activePrompt = prompt;
     }
 
     // -----------------------------------------------------------------
-    // GLOBAL SEARCH TRIGGER (UNIVERSAL FOR ALL MODES)
+    // GLOBAL SEARCH TRIGGER
     // -----------------------------------------------------------------
     let searchContext = "";
     if (shouldTriggerSearch(cleanPrompt)) {
@@ -431,19 +415,18 @@ let activePrompt = prompt;
        }
     }
 
-    // Fetch memory
     let memory = await getMemory(env, memKey);
 
-    //////////////////////
+    // //////////////////////
     // DELETE MEMORY MODE
-    //////////////////////
+    // //////////////////////
     if (
         mode === "delete_memory" ||
         mode === "delete_all" ||
         cleanPrompt === "delete all"
     ) {
       const success = await deleteMemory(env, memKey);
-      await deleteMemory(env, imgMemKey); // Also clear image cache
+      await deleteMemory(env, imgMemKey); 
       const msg = success ? "Memory wiped successfully 🧹" : "No KV found or empty.";
 
       if (cleanPrompt === "delete all") {
@@ -456,19 +439,17 @@ let activePrompt = prompt;
       );
     }
 
-    //////////////////////
-    // ASR / TRANSCRIBE MODE (NEW)
-    //////////////////////
+    // //////////////////////
+    // ASR / TRANSCRIBE MODE
+    // //////////////////////
     if (mode === "transcribe") {
         if (!payload.audio) {
             return new Response(JSON.stringify({ error: "No audio data provided" }), { headers: cors });
         }
-
         const audioArray = base64ToArray(payload.audio);
         if (!audioArray) {
              return new Response(JSON.stringify({ error: "Invalid audio format" }), { headers: cors });
         }
-
         try {
             const inputArgs = { audio: audioArray };
             const response = await runAi(env, MODEL_ASR, inputArgs);
@@ -483,9 +464,9 @@ let activePrompt = prompt;
         }
     }
 
-    //////////////////////
+    // //////////////////////
     // STREAM MODE (CHAT + PRO MODE + FILE ANALYZER + REASONING)
-    //////////////////////
+    // //////////////////////
     if (
         (mode === "stream" ||
          mode === "pro_chat" ||
@@ -503,7 +484,7 @@ let activePrompt = prompt;
         async start(controller) {
           try {
             let currentLoop = 0;
-            const MAX_LOOPS = 30;
+            const MAX_LOOPS = 50; // Increased loop limit for massive files
             let isFullyDone = false;
             let fullResponseText = "";
 
@@ -515,7 +496,10 @@ let activePrompt = prompt;
               currentPrompt += `\n\n${searchContext}\n[INSTRUCTION: Use the above search results to answer the user request. You have up-to-date knowledge. REMEMBER: DO NOT use **bold** or # headers.]`;
             }
 
-            memory.push({ role: "user", content: currentPrompt, ts: Date.now() });
+            // Only add initial prompt to memory once
+            if (!isContinue) {
+                memory.push({ role: "user", content: currentPrompt, ts: Date.now() });
+            }
 
             while (currentLoop < MAX_LOOPS && !isFullyDone) {
                 currentLoop++;
@@ -524,19 +508,23 @@ let activePrompt = prompt;
                     ...memory.map(m => ({ role: m.role, content: m.content }))
                 ];
 
+                // SMART CONTINUATION LOGIC
                 if (fullResponseText.length > 0) {
+                      // We push what we have so far so the AI knows context
                       currentMessages.push({ role: "assistant", content: fullResponseText });
+                      // We command it to continue
                       currentMessages.push({
                           role: "user",
-                          content: "You stopped mid-stream. IMMEDIATELY CONTINUE the code/text from the very last character. DO NOT repeat the last line. DO NOT use markdown code block starts if continuing inside one. Just output the remaining characters."
+                          content: "You hit the token limit. IMMEDIATELY CONTINUE the code/text EXACTLY from the last character. Do not repeat lines. Just output the rest."
                       });
                 }
 
                 let aiResponse;
                 const aiPayload = {
                       messages: currentMessages,
-                      max_tokens: 4096,
-                      temperature: 0.7,
+                      max_tokens: 4096, 
+                      // FIXED: Lower temperature for precision coding to avoid ramblings
+                      temperature: 0.2, 
                       stream: true
                 };
 
@@ -552,10 +540,7 @@ let activePrompt = prompt;
                           const fallbackModel = MODEL_STD_CHAT;
                           const fallbackPayload = {
                              instructions: finalSystemPrompt,
-                             input: currentMessages
-                                  .filter(m => m.role !== 'system')
-                                  .map(m => `${m.role === 'user'?'User':'Assistant'}: ${m.content}`)
-                                  .join("\n\n") + "\n\nAssistant:",
+                             input: currentMessages.map(m => `${m.role}: ${m.content}`).join("\n"),
                              max_tokens: 4096
                           };
                           const finalRes = await env.SPY_AI.run(fallbackModel, fallbackPayload);
@@ -582,7 +567,7 @@ let activePrompt = prompt;
 
                 const decoder = new TextDecoder();
                 let buffer = "";
-                let loopBuffer = "";
+                let loopBuffer = ""; // Tracks text generated ONLY in this specific loop
                 let loopLineCount = 0;
                 let streamEndedNaturally = true;
 
@@ -606,22 +591,23 @@ let activePrompt = prompt;
                         const textChunk = json.response || json.token || json.text;
 
                         if (textChunk) {
-                          // FIX 2: AGGRESSIVE SANITIZER for Stream (Prevents UI Breaking)
-                          // Removes ** and # completely to stop partial markdown matches from breaking UI
+                          // SANITIZER (Keeps code safe, removes intrusive bolding)
                           const safeChunk = textChunk
-                              .replace(/^\s{0,3}#{1,6}\s+/gm, "") // headers at start of line
-                              .replace(/\*\*/g, "") // bold markers
-                              .replace(/#/g, ""); // stray hashes
+                              .replace(/^\s{0,3}#{1,6}\s+/gm, "") 
+                              .replace(/\*\*/g, "") 
+                              .replace(/#/g, ""); 
 
                           controller.enqueue(
                             encoder.encode(`data: ${JSON.stringify({ text: safeChunk, stream_id: activeStreamId })}\n\n`)
                           );
 
                           loopBuffer += textChunk;
+                          // Fast line counting
                           for (let i = 0; i < textChunk.length; i++) {
                               if (textChunk[i] === '\n') loopLineCount++;
                           }
 
+                          // Force break only if we exceed the new HIGHER limit (10k)
                           if (loopLineCount >= AI_MAX_OUTPUT_LINES) {
                               streamEndedNaturally = false;
                               break;
@@ -637,10 +623,26 @@ let activePrompt = prompt;
                 }
 
                 fullResponseText += loopBuffer;
+
                 if (streamEndedNaturally) {
-                    isFullyDone = true;
+                    // CRITICAL FIX: DETECT TOKEN EXHAUSTION
+                    // If the model stopped "naturally" but generated a massive amount of text (> 12k chars),
+                    // it likely stopped because it hit the 4096 token limit, NOT because it was finished.
+                    // We FORCE it to continue in this case.
+                    if (loopBuffer.length > 12000) {
+                        isFullyDone = false; // Force another loop
+                    } else {
+                        // Logic check: If it ends abruptly without code closure, try one more loop
+                        const trimmed = fullResponseText.trim();
+                        // If in coding mode and no closing backticks, likely cut off.
+                        if (mode === "pro_chat" && !trimmed.endsWith("```") && !trimmed.endsWith("}") && loopBuffer.length > 500) {
+                             isFullyDone = false;
+                        } else {
+                             isFullyDone = true;
+                        }
+                    }
                 }
-            } // End While
+            } // End While Loop
 
             memory.push({ role: "assistant", content: cleanAiResponse(fullResponseText), ts: Date.now() });
             const memoryToSave = memory.slice(-AI_MEMORY_TRIM_TARGET);
@@ -671,34 +673,25 @@ let activePrompt = prompt;
       });
     }
 
-    //////////////////////
-    // IMAGE EDITING (FLUX 1 SCHNELL)
-    //////////////////////
- // //////////////////////
-    // IMAGE EDITING (FLUX 1 SCHNELL) -> FALLBACK TO LUCID (GEN) ON FAILURE
+    // //////////////////////
+    // IMAGE EDITING (FLUX 1 SCHNELL) -> FALLBACK TO LUCID
     // //////////////////////
     if (mode === "image_edit") {
-        // 1. Fetch Image
         if (!base64ImageInput) {
             base64ImageInput = await getLastImage(env, imgMemKey);
         }
-        // If we still have no image, we can't "edit", so we just force generation immediately.
         if (!base64ImageInput) {
-             // Fallback to GEN mode logic immediately if no input image found
              try {
                 const response = await runAi(env, MODEL_GEN_LUCID, { prompt: activePrompt, width: 1024, height: 1024 });
-                // ... (Handle Gen Response Logic below) ...
-                // To keep code clean, we will let the "Catch" block handle the Gen logic to avoid duplication.
                 throw new Error("No Input Image - Switching to Gen");
-             } catch(e) { /* Let the main catch block handle it */ }
+             } catch(e) { /* Let catch block handle */ }
         }
 
-        // Prepare Flux Input
         const imageBytes = base64ToUint8Array(base64ImageInput);
         const imageBlob = new Blob([imageBytes], { type: 'image/png' });
 
         const form = new FormData();
-        const safePrompt = activePrompt.replace(/[\r\n]+/g, ' '); // Sanitize headers
+        const safePrompt = activePrompt.replace(/[\r\n]+/g, ' '); 
         form.append('prompt', safePrompt);
         form.append('image', imageBlob, 'input.png');
         form.append('input_image_0', imageBlob);
@@ -710,9 +703,6 @@ let activePrompt = prompt;
         });
 
         try {
-            // =========================================================
-            // ATTEMPT 1: EDIT WITH FLUX
-            // =========================================================
             memory.push({ role: "user", content: `[Image Edit Request]: ${activePrompt}` });
             await saveMemory(env, memKey, memory.slice(-AI_MEMORY_TRIM_TARGET));
 
@@ -723,7 +713,6 @@ let activePrompt = prompt;
                 }
             });
 
-            // CHECK FLUX SUCCESS
             if (fluxResponse instanceof ReadableStream) {
                 const [stream1, stream2] = fluxResponse.tee();
                 context.waitUntil(async function() {
@@ -743,26 +732,16 @@ let activePrompt = prompt;
                 await saveMemory(env, memKey, memory.slice(-AI_MEMORY_TRIM_TARGET));
                 return new Response(base64ToUint8Array(resultBase64), { headers: { ...cors, "Content-Type": "image/png" } });
             }
-
-            // If we get here, Flux returned success status but no data. Treat as error.
             throw new Error("Flux returned no image data");
 
         } catch (fluxError) {
-            // =========================================================
-            // ATTEMPT 2: FALLBACK TO GENERATION (LUCID)
-            // This runs ONLY if Flux fails, blocks, crashes, or errors.
-            // =========================================================
-            // console.log("Edit failed/blocked. Switching to Lucid Gen...", fluxError.message);
-
             try {
-                // Generate a fresh image using the prompt
                 const genResponse = await runAi(
                     env,
                     MODEL_GEN_LUCID,
                     { prompt: activePrompt, width: 1024, height: 1024 }
                 );
 
-                // Handle Lucid Stream
                 if (genResponse instanceof ReadableStream) {
                     const [gStream1, gStream2] = genResponse.tee();
                     context.waitUntil(async function() {
@@ -771,29 +750,20 @@ let activePrompt = prompt;
                     return new Response(gStream1, { headers: { ...cors, "Content-Type": "image/png" } });
                 }
 
-                // Handle Lucid JSON
                 let genBase64 = genResponse?.image || genResponse?.result?.image || (Array.isArray(genResponse) && genResponse[0]?.image);
 
                 if (genBase64) {
                     context.waitUntil(saveLastImage(env, imgMemKey, genBase64));
-                    
-                    // Sanitize Base64
                     const cleanB64 = genBase64.replace(/[\r\n\s]+/g, '');
                     const binaryString = atob(cleanB64);
                     const bytes = new Uint8Array(binaryString.length);
                     for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
-
-                    // Update memory to let user know we generated instead
                     memory.push({ role: "assistant", content: "I created a new image for you based on that request! 🎨" });
                     context.waitUntil(saveMemory(env, memKey, memory.slice(-AI_MEMORY_TRIM_TARGET)));
-
                     return new Response(bytes.buffer, { headers: { ...cors, "Content-Type": "image/png" } });
                 }
-                
                 throw new Error("Fallback Generation also failed.");
-
             } catch (fallbackError) {
-                // Both Edit AND Gen failed
                 return new Response(JSON.stringify({
                     error: "Image Request Failed",
                     message: `Edit failed (${fluxError.message}) AND Gen failed (${fallbackError.message})`
@@ -802,64 +772,44 @@ let activePrompt = prompt;
         }
     }
 
-    //////////////////////
+    // //////////////////////
     // IMAGE GENERATION (LUCID ORIGIN)
-    //////////////////////
-  //////////////////////
-    // IMAGE GENERATION (LUCID ORIGIN) - FIXED
-    //////////////////////
+    // //////////////////////
     if (mode === "image_gen") {
       let width = 1024;
       let height = 1024;
-
       if (aspect_ratio === "16:9") { width = 1280; height = 720; }
       else if (aspect_ratio === "9:16") { width = 720; height = 1280; }
-      else if (aspect_ratio === "4:3")  { width = 1152; height = 864; }
-      else if (aspect_ratio === "3:4")  { width = 864; height = 1152; }
       else { width = 1024; height = 1024; }
 
       let enhancedPrompt = activePrompt;
-
       try {
         memory.push({ role: "user", content: activePrompt, ts: Date.now() });
-        memory.push({
-           role: "assistant",
-           content: `Generating image: "${enhancedPrompt}"`,
-           ts: Date.now()
-        });
+        memory.push({ role: "assistant", content: `Generating image: "${enhancedPrompt}"`, ts: Date.now() });
         const memoryToSave = memory.slice(-AI_MEMORY_TRIM_TARGET);
         context.waitUntil(saveMemory(env, memKey, memoryToSave));
       } catch (memErr) {}
 
       try {
-        const response = await runAi(
-          env,
-          MODEL_GEN_LUCID,
-          {
+        const response = await runAi(env, MODEL_GEN_LUCID, {
             prompt: enhancedPrompt,
             width: width,
             height: height
-          }
-        );
+        });
 
         const extraHeaders = {
             ...cors,
-            // 🔥 CRITICAL FIX: Remove newlines (\r\n) from the header prompt. 
-            // Headers cannot contain newlines, or the server will crash with "Invalid header value".
             "X-Ai-Expanded-Prompt": enhancedPrompt.substring(0, 500).replace(/[\r\n]+/g, ' ')
         };
 
         if (response instanceof ReadableStream) {
-          // CRITICAL FIX: TEE THE STREAM TO SAVE HISTORY
           const [stream1, stream2] = response.tee();
-          
           context.waitUntil(async function() {
               try {
                   const base64 = await streamToBase64(stream2);
                   await saveLastImage(env, imgMemKey, base64);
               } catch(e) { console.error("Failed to save gen stream", e); }
           }());
-
           return new Response(stream1, {
             headers: { ...extraHeaders, "Content-Type": "image/png" }
           });
@@ -876,14 +826,9 @@ let activePrompt = prompt;
 
         if (base64Image) {
           try {
-            // CRITICAL FIX: SAVE GENERATED IMAGE TO KV FOR NEXT TURN
             context.waitUntil(saveLastImage(env, imgMemKey, base64Image));
-
-            // 🔥 CRITICAL FIX: Sanitize Base64 string before decoding.
-            // Removes newlines/spaces that AI models sometimes accidentally inject.
             const cleanB64 = base64Image.replace(/[\r\n\s]+/g, '');
             const binaryString = atob(cleanB64);
-
             const len = binaryString.length;
             const bytes = new Uint8Array(len);
             for (let i = 0; i < len; i++) {
@@ -896,14 +841,12 @@ let activePrompt = prompt;
              throw new Error("Base64 decode failed: " + decErr.message);
           }
         }
-
         return new Response(JSON.stringify({
           error: "Image Generation Failed - Unknown Format",
           debug_response: response
         }), {
            headers: { ...cors, "Content-Type": "application/json" }
         });
-
       } catch (genError) {
         return new Response(JSON.stringify({
           error: "Image API Error",
@@ -913,10 +856,10 @@ let activePrompt = prompt;
         });
       }
     }
-    //////////////////////
-    // NORMAL CHAT
-    //////////////////////
 
+    // //////////////////////
+    // NORMAL CHAT
+    // //////////////////////
     let finalUserPrompt = activePrompt;
     if (searchContext) {
       finalUserPrompt += `\n\n${searchContext}\n[INSTRUCTION: Use the above search results to answer the user request. You have up-to-date knowledge. REMEMBER: DO NOT use **bold** or # headers.]`;
@@ -947,7 +890,7 @@ let activePrompt = prompt;
       : {
           messages,
           max_tokens: 4096,
-          temperature: 0.7
+          temperature: 0.5
       };
 
     const aiRes = await runAi(
