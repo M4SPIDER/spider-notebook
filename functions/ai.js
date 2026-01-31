@@ -18,7 +18,7 @@ const AI_MEMORY_USER_KEY_PREFIX = "spider_ai_mem:";
 const AI_RETRY_LIMIT = 2;
 const AI_RETRY_DELAY_BASE = 1500;
 // OPTIMIZED: Increased to 1000 to prevent "half-baked" code in Pro mode
-const AI_MAX_OUTPUT_LINES = 1000000000;
+const AI_MAX_OUTPUT_LINES = 100000000000;
 
 // MODELS
 // SWAPPED: Standard is now GPT-OSS 120B, Pro is Mistral 24B
@@ -536,7 +536,7 @@ let activePrompt = prompt;
                 const aiPayload = {
                       messages: currentMessages,
                       max_tokens: 128000,
-                      temperature: 0.2,
+                      temperature: 0.7,
                       stream: true
                 };
 
@@ -946,7 +946,7 @@ let activePrompt = prompt;
       }
       : {
           messages,
-          max_tokens: 128000 tokens,
+          max_tokens: 128000,
           temperature: 0.7
       };
 
