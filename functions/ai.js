@@ -1,7 +1,7 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.65)
- * FIXED: NO CUT-OFFS (Auto-Looping + 10k Line Limit)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.66)
+ * FIXED: LOOP DETECTION LOGIC (Catches 2k/4k token limits)
  * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN (GEN) + FLUX (EDIT) + ASR + IMG MEMORY
  * Author: M4 Spider
  * =========================================================
@@ -11,7 +11,7 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.65";
+const VERSION = "9.9.66";
 
 const AI_MEMORY_TRIM_TARGET = 25;
 const AI_MEMORY_TTL_DAYS = 30;
@@ -19,12 +19,10 @@ const AI_MEMORY_USER_KEY_PREFIX = "spider_ai_mem:";
 const AI_RETRY_LIMIT = 2;
 const AI_RETRY_DELAY_BASE = 1500;
 
-// FIXED: Increased to 10000 to prevent "half-baked" code. 
-// This effectively removes the line limit brake.
+// FIXED: High limit to allow infinite-looping construction
 const AI_MAX_OUTPUT_LINES = 10000;
 
 // MODELS
-// SWAPPED: Standard is now GPT-OSS 120B, Pro is Mistral 24B
 const MODEL_STD_CHAT = "@cf/openai/gpt-oss-120b";
 const MODEL_PRO_CHAT = "@cf/mistralai/mistral-small-3.1-24b-instruct";
 const MODEL_ASR = "@cf/openai/whisper-large-v3-turbo";
@@ -148,7 +146,7 @@ async function runTavilySearch(env, query) {
   if (!env.TAVILY_API_KEY) return null;
 
   try {
-    const response = await fetch("https://api.tavily.com/search", {
+    const response = await fetch("[https://api.tavily.com/search](https://api.tavily.com/search)", {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
@@ -594,7 +592,7 @@ export async function onRequest(context) {
                           // SANITIZER (Keeps code safe, removes intrusive bolding)
                           const safeChunk = textChunk
                               .replace(/^\s{0,3}#{1,6}\s+/gm, "") 
-                              .replace(/\*\*/g, "") 
+                              .replace(/\*\*(.*?)\*\*/g, "$1") 
                               .replace(/#/g, ""); 
 
                           controller.enqueue(
@@ -625,21 +623,29 @@ export async function onRequest(context) {
                 fullResponseText += loopBuffer;
 
                 if (streamEndedNaturally) {
-                    // CRITICAL FIX: DETECT TOKEN EXHAUSTION
-                    // If the model stopped "naturally" but generated a massive amount of text (> 12k chars),
-                    // it likely stopped because it hit the 4096 token limit, NOT because it was finished.
-                    // We FORCE it to continue in this case.
-                    if (loopBuffer.length > 12000) {
-                        isFullyDone = false; // Force another loop
+                    // CRITICAL FIX: DETECT TOKEN EXHAUSTION MORE AGGRESSIVELY
+                    // Cloudflare output limits are often ~2500-4096 tokens. 
+                    // 1 token approx 4 chars. 4096 * 4 = ~16k chars.
+                    // However, it can cut off earlier (e.g. 2k tokens = 8k chars).
+                    // We lower the threshold to 6000 (approx 1500 tokens) to be safe.
+                    
+                    const bufferLen = loopBuffer.length;
+                    const trimmed = fullResponseText.trim();
+                    
+                    // Heuristic: Did it end with a code block closure?
+                    // NOTE: We do NOT check for "}" anymore as it causes false positives on function closures.
+                    const codeClosed = trimmed.endsWith("```") || trimmed.endsWith("```\n");
+                    
+                    if (bufferLen > 6000) {
+                        // High volume generated, likely hit a limit. Force Loop.
+                        isFullyDone = false; 
+                    } else if (mode === "pro_chat" && !codeClosed && bufferLen > 500) {
+                        // It didn't hit the hard char limit, BUT it looks like broken code (no closing backticks).
+                        // Force continue.
+                        isFullyDone = false;
                     } else {
-                        // Logic check: If it ends abruptly without code closure, try one more loop
-                        const trimmed = fullResponseText.trim();
-                        // If in coding mode and no closing backticks, likely cut off.
-                        if (mode === "pro_chat" && !trimmed.endsWith("```") && !trimmed.endsWith("}") && loopBuffer.length > 500) {
-                             isFullyDone = false;
-                        } else {
-                             isFullyDone = true;
-                        }
+                        // Seems complete.
+                        isFullyDone = true;
                     }
                 }
             } // End While Loop
