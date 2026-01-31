@@ -535,9 +535,9 @@ let activePrompt = prompt;
                 let aiResponse;
                 const aiPayload = {
                       messages: currentMessages,
-                      // OPTIMIZED: Increased max_tokens and lowered temperature for Pro Mode
-                      max_tokens: 32768, // Mistral Small 32k Context Limit
-                      temperature: 0.2,  // Lowered for precise coding
+                      // OPTIMIZED: User requested full 128k context window
+                      max_tokens: 128000, 
+                      temperature: 0.2, 
                       stream: true
                 };
 
