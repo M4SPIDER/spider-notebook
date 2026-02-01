@@ -18,7 +18,7 @@ const AI_MEMORY_USER_KEY_PREFIX = "spider_ai_mem:";
 const AI_RETRY_LIMIT = 2;
 const AI_RETRY_DELAY_BASE = 1500;
 // OPTIMIZED: Increased to 1000 to prevent "half-baked" code in Pro mode
-const AI_MAX_OUTPUT_LINES = 100000000000;
+const AI_MAX_OUTPUT_LINES = 1000;
 
 // MODELS
 // SWAPPED: Standard is now GPT-OSS 120B, Pro is Mistral 24B
@@ -535,7 +535,7 @@ let activePrompt = prompt;
                 let aiResponse;
                 const aiPayload = {
                       messages: currentMessages,
-                      max_tokens: 128000,
+                      max_tokens: 4096,
                       temperature: 0.7,
                       stream: true
                 };
@@ -556,7 +556,7 @@ let activePrompt = prompt;
                                   .filter(m => m.role !== 'system')
                                   .map(m => `${m.role === 'user'?'User':'Assistant'}: ${m.content}`)
                                   .join("\n\n") + "\n\nAssistant:",
-                             max_tokens: 128000
+                             max_tokens: 4096
                           };
                           const finalRes = await env.SPY_AI.run(fallbackModel, fallbackPayload);
                           aiResponse = { isStatic: true, text: extractText(finalRes) };
@@ -942,11 +942,11 @@ let activePrompt = prompt;
                 return `${role}: ${m.content}`;
               })
               .join("\n\n") + "\n\nAssistant:",
-          max_tokens: 128000
+          max_tokens: 4096
       }
       : {
           messages,
-          max_tokens: 128000,
+          max_tokens: 4096,
           temperature: 0.7
       };
 
