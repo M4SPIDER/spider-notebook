@@ -2404,8 +2404,7 @@ const SpiderAIApp = ({
         typeNextWord();
     }, []);
 
-// ---------- Fixed Streaming Handler with Code Block Continuation ----------
-// ---------- Fixed Streaming Handler (Smart Continue Detection) ---------
+// ---------- Fixed Streaming Handler with Code Block Continuation -----
 const handleStreamResponse = useCallback(async (response, isContinue = false, initialContent = '') => {
     if (!response.body) return;
 
@@ -2424,44 +2423,26 @@ const handleStreamResponse = useCallback(async (response, isContinue = false, in
             const { done, value } = await reader.read();
             
             if (done) {
-                // --- FIX: SMARTER CONTINUE DETECTION ---
+                // Process remaining buffer
+                if (buffer.trim()) processLine(buffer);
+
+                // --- 🚨 SMART CONTINUE DETECTION ---
                 const finalContent = accumulatedTokensRef.current.trim();
                 const lastChar = finalContent.slice(-1);
                 
-                // 1. Check for broken code blocks (Odd number of ```)
-                // This is the most important check for "chunks"
+                // 1. Check for broken code blocks (Odd number of ``` means one is open)
                 const codeBlockCount = (finalContent.match(/```/g) || []).length;
                 const isCodeBlockOpen = codeBlockCount % 2 !== 0;
 
-                // 2. Check length ("only when code is high")
-                // We ignores short messages (like "Hello!" or "Sure.") even if they lack punctuation
-                const isSubstantialContent = finalContent.length > 1000;
-
-                // 3. Check for abrupt ending (No punctuation)
+                // 2. Check for abrupt text ending (No punctuation)
+                // We ignore short messages to prevent "Continue" on simple greetings
+                const isSubstantial = finalContent.length > 50; 
                 const hasAbruptEnding = !['.', '!', '?', '}', ']', '`', '"', "'", ';', '>'].includes(lastChar);
 
-                // 🔥 LOGIC: Only show button if Code Block is open OR (Content is Long AND Cut off)
-                const isIncomplete = isCodeBlockOpen || (isSubstantialContent && hasAbruptEnding);
-
-                if (isIncomplete) {
+                // 3. Show button if either condition is met
+                if (isCodeBlockOpen || (isSubstantial && hasAbruptEnding)) {
                     console.log("Stream looks incomplete. Showing Continue.");
                     setShowContinueButton(true);
-                }
-
-                // Finalize History
-                if (finalContent) {
-                    const assistantMessage = {
-                        role: 'assistant',
-                        content: finalContent,
-                        type: 'text',
-                        ts: Date.now(),
-                        isContinued: isContinue
-                    };
-                    
-                    // Only add to history if we are in a true streaming mode
-                    if (isStreaming) {
-                        setChatHistory(prev => [...prev, assistantMessage]);
-                    }
                 }
                 break;
             }
@@ -2469,47 +2450,12 @@ const handleStreamResponse = useCallback(async (response, isContinue = false, in
             const chunk = decoder.decode(value, { stream: true });
             buffer += chunk;
             const lines = buffer.split('\n');
-            buffer = lines.pop() || '';
+            buffer = lines.pop() || ''; 
             
-            for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                    const data = line.slice(6);
-                    if (data === '[DONE]') break;
-                    
-                    try {
-                        const parsed = JSON.parse(data);
-                        if (parsed.text) {
-                            accumulatedTokensRef.current += parsed.text;
-                            setStreamedContent(accumulatedTokensRef.current);
-                            
-                            setStreamingMessage(prev => ({
-                                role: 'assistant',
-                                type: 'text',
-                                ts: Date.now(),
-                                isStreaming: true,
-                                ...prev, 
-                                content: accumulatedTokensRef.current 
-                            }));
-
-                            // Full Code parsing logic
-                            if (isFullCodeMode) {
-                                fileContentBufferRef.current += parsed.text;
-                                if (accumulatedTokensRef.current.length % 200 === 0) {
-                                    const files = parseCodeForFiles(fileContentBufferRef.current);
-                                    if (files.length > 0) setGeneratedFiles(files);
-                                }
-                            }
-                        }
-                        if (parsed.stream_id) {
-                            setLastStreamId(parsed.stream_id);
-                            continueStreamIdRef.current = parsed.stream_id;
-                        }
-                    } catch (e) { }
-                }
-            }
+            for (const line of lines) processLine(line);
         }
     } catch (error) {
-        if (error.name !== 'AbortError') throw error;
+        if (error.name !== 'AbortError') console.error("Stream Error:", error);
     } finally {
         reader.releaseLock();
         streamReaderRef.current = null;
@@ -2518,8 +2464,44 @@ const handleStreamResponse = useCallback(async (response, isContinue = false, in
             if (files.length > 0) setGeneratedFiles(files);
         }
     }
+
+    function processLine(line) {
+        const trimmedLine = line.trim();
+        if (!trimmedLine) return;
+
+        if (trimmedLine.startsWith('data:')) {
+            const dataStr = trimmedLine.slice(5).trim();
+            if (dataStr === '[DONE]') return;
+            try {
+                const parsed = JSON.parse(dataStr);
+                if (parsed.text) {
+                    accumulatedTokensRef.current += parsed.text;
+                    setStreamedContent(accumulatedTokensRef.current);
+                    
+                    setStreamingMessage(prev => ({
+                        role: 'assistant', type: 'text', ts: Date.now(), isStreaming: true,
+                        ...prev, content: accumulatedTokensRef.current 
+                    }));
+
+                    if (isFullCodeMode) {
+                        fileContentBufferRef.current += parsed.text;
+                        if (accumulatedTokensRef.current.length % 500 === 0) {
+                            const files = parseCodeForFiles(fileContentBufferRef.current);
+                            if (files.length > 0) setGeneratedFiles(files);
+                        }
+                    }
+                }
+                // Save Stream ID for the Continue button
+                if (parsed.stream_id) {
+                    setLastStreamId(parsed.stream_id);
+                    continueStreamIdRef.current = parsed.stream_id;
+                }
+            } catch (e) { }
+        }
+    }
 }, [isStreaming, isFullCodeMode, parseCodeForFiles]);
-  // ---------- Fixed Continue Generation ----------
+
+// ---------- Fixed Continue Generation ----------
 const handleContinueGeneration = useCallback(async () => {
     if (!lastStreamId) return;
     
@@ -2527,23 +2509,19 @@ const handleContinueGeneration = useCallback(async () => {
     setIsStreaming(true);
     setShowContinueButton(false);
     
-    // 1. Get the last AI message
+    // Grab the last message content to append to
     const lastMsgIndex = chatHistory.length - 1;
     const lastMsg = chatHistory[lastMsgIndex];
-    
-    // 2. Capture its content as the "Base"
     const previousContent = lastMsg.role === 'assistant' ? lastMsg.content : '';
     
-    // 3. Temporarily remove the last static message from history
-    //    because we are about to re-render it as a "streaming" message
+    // Remove static message, switch to streaming UI
     if (lastMsg.role === 'assistant') {
         setChatHistory(prev => prev.slice(0, -1));
     }
 
-    // 4. Set the Streaming UI to start with the OLD content
     setStreamingMessage({
         role: 'assistant',
-        content: previousContent, // Start with old content
+        content: previousContent,
         type: 'text',
         ts: Date.now(),
         isStreaming: true,
@@ -2569,30 +2547,12 @@ const handleContinueGeneration = useCallback(async () => {
         
         if (!response.ok) throw new Error(response.statusText);
         
-        // 5. Pass previousContent to the handler to append to it
+        // Pass previousContent so it appends, doesn't overwrite
         await handleStreamResponse(response, true, previousContent);
-        
-        // The message is now added in handleStreamResponse when done
-        // No need to add it here again
         
     } catch (error) {
         console.error('Continue error:', error);
-        
-        // On error, restore the original message or save partial progress
-        if (accumulatedTokensRef.current && accumulatedTokensRef.current !== previousContent) {
-            // We have some new content, save it as partial
-            const assistantMessage = {
-                role: 'assistant',
-                content: accumulatedTokensRef.current,
-                type: 'text',
-                ts: Date.now(),
-                isPartial: true
-            };
-            setChatHistory(prev => [...prev, assistantMessage]);
-        } else {
-            // No new content, restore original message
-            setChatHistory(prev => [...prev, lastMsg]);
-        }
+        setChatHistory(prev => [...prev, lastMsg]);
     } finally {
         setIsLoading(false);
         setIsStreaming(false);
@@ -2600,7 +2560,7 @@ const handleContinueGeneration = useCallback(async () => {
     }
 }, [lastStreamId, chatHistory, getPersistentUserId, currentUser, callFastAPI, handleStreamResponse]);
 
-// ---------- Stop Generation ----------
+// ---------- Smart Stop Handler (Allows Resuming) ----------
 const handleStopGeneration = useCallback(() => {
     if (abortController) {
         abortController.abort();
@@ -2621,21 +2581,28 @@ const handleStopGeneration = useCallback(() => {
             content: accumulatedTokensRef.current,
             type: 'text',
             ts: Date.now(),
-            isPartial: true
+            isPartial: true // Mark as partial so we know it was cut off
         };
         setChatHistory(prev => [...prev, assistantMessage]);
+        
+        // 3. SHOW CONTINUE BUTTON (The Fix)
+        // If we have a stream ID, let the user resume even if they stopped it manually
+        if (lastStreamId || continueStreamIdRef.current) {
+            console.log("User stopped stream. Enabling resume.");
+            setShowContinueButton(true);
+        }
+
         accumulatedTokensRef.current = '';
         setStreamedContent('');
     }
     
     setStreamingMessage(null);
-}, [abortController]);
+}, [abortController, lastStreamId]);
 
 // Add this useEffect to handle cleanup and finalization
 useEffect(() => {
     // When streaming stops naturally (not via stop button)
     if (!isStreaming && !isLoading && streamingMessage === null) {
-        // Check if we have accumulated content that hasn't been saved yet
         if (accumulatedTokensRef.current && accumulatedTokensRef.current.trim()) {
             const lastMessage = chatHistory[chatHistory.length - 1];
             
@@ -2656,7 +2623,7 @@ useEffect(() => {
         }
     }
 }, [isStreaming, isLoading, streamingMessage, chatHistory]);
-    // ---------- Auto-detect Image Generation ----------
+  // ---------- Auto-detect Image Generation ----------
     const detectImageGeneration = (prompt) => {
         const lowerPrompt = prompt.toLowerCase();
         const imageTriggers = [
@@ -5390,6 +5357,7 @@ int main() {
         </>
     );
 }
+
 
 
 
