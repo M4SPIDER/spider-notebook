@@ -3375,6 +3375,7 @@ useEffect(() => {
     };
 
     // ---------- Enhanced Send Message with AI Modes ----------
+// ---------- Enhanced Send Message (Vision + Smart Stream Logic) ----------
 const handleSendMessage = async () => {
     // 1. INPUT VALIDATION
     if (!message.trim() && !uploadedFile && !uploadedImage) return;
@@ -3403,21 +3404,22 @@ const handleSendMessage = async () => {
         mode = "analyze_file";
     } 
     else if (imageCopy) {
-        mode = "image_edit";
+        mode = "image_edit"; 
     } 
     else {
+        // ... (existing code detection logic) ...
         if (hasCodeConstructs(processedMessage)) {
-            const isFullCodeRequest = detectFullCodeRequest(processedMessage);
+             const isFullCodeRequest = detectFullCodeRequest(processedMessage);
             if (isFullCodeRequest) {
                 setIsFullCodeMode(true);
                 setProjectMetadata(extractProjectMetadata(processedMessage));
             }
-            mode = selectedAIMode; // Keep Pro/Chat/Reasoning selection
+            mode = selectedAIMode; 
         } 
         else if (detectImageGeneration(processedMessage)) {
             mode = 'image_gen';
         } else {
-            mode = selectedAIMode; // Default to Chat/Pro
+            mode = selectedAIMode;
         }
     }
 
@@ -3449,22 +3451,25 @@ const handleSendMessage = async () => {
     setLastStreamId(null);
     fileContentBufferRef.current = '';
 
-    // --- STREAMING DECISION ---
+    // --- STREAMING DECISION (REFINED) ---
+    // Only stream if explicitly needed or in specific modes
     const shouldStream = 
         mode === 'stream' ||
         selectedAIMode === 'reasoning' || 
         selectedAIMode === 'pro' || 
         mode === "analyze_file" ||
         isFullCodeRequest ||
+        // Smart Chat Logic: Stream ONLY if prompt implies complex output
         (mode === 'chat' && (
             processedMessage.toLowerCase().includes('step by step') || 
             processedMessage.toLowerCase().includes('stream') ||
+            processedMessage.toLowerCase().includes('code') || // Added: trigger on "code"
             detectMathRequest(processedMessage)
-        ));
+        )); 
 
     try {
-        // A. REAL STREAMING (Pro / Reasoning / Files)
-        if (shouldStream) {
+        // A. STREAMING RESPONSE (Pro / Reasoning / Complex Chat)
+        if (shouldStream && mode !== 'image_gen' && mode !== 'image_edit') {
             setIsStreaming(true);
             setStreamingMessage({
                 role: 'assistant',
@@ -3516,37 +3521,37 @@ const handleSendMessage = async () => {
                 }
             }
         } 
-        // B. STANDARD CHAT (No Stream - Typing Animation)
+        // B. STANDARD RESPONSE (Simple Chat / Image Gen / Edit)
         else if (mode === 'chat' || mode === 'image_gen' || mode === 'image_edit') {
             
-            // Handle Images separately first
+            const apiUrl = '/api/generate/text';
+            
+            // PREPARE IMAGE DATA
+            let base64Image = null;
+            if (mode === 'image_edit' && imageCopy) {
+                base64Image = imageCopy.content; 
+            }
+
+            const apiPayload = {
+                prompt: processedMessage,
+                mode: mode,
+                image: base64Image,
+                aspect_ratio: aspectRatio,
+                user_preference_id: getPersistentUserId(),
+                firebase_token: currentUser?.firebaseToken || '',
+                stream: false,
+                ai_mode: selectedAIMode
+            };
+
+            const result = await callFastAPI(apiUrl, apiPayload, mode, { 
+                signal: controller.signal,
+                stream: false
+            });
+
+            if (result.error) throw new Error(result.error);
+
+            // Handle Image Response
             if (mode === 'image_gen' || mode === 'image_edit') {
-                const apiUrl = '/api/generate/text';
-                
-                // Process Image Data if editing
-                let base64Image = null;
-                if (mode === 'image_edit' && imageCopy) {
-                     base64Image = await new Promise((resolve) => {
-                        const reader = new FileReader();
-                        reader.onload = () => resolve(reader.result.split(',')[1]);
-                        reader.readAsDataURL(imageCopy);
-                     });
-                }
-
-                const apiPayload = {
-                    prompt: processedMessage,
-                    mode: mode,
-                    image: base64Image,
-                    aspect_ratio: aspectRatio,
-                    user_preference_id: getPersistentUserId(),
-                    firebase_token: currentUser?.firebaseToken || '',
-                    stream: false,
-                    ai_mode: selectedAIMode
-                };
-
-                const result = await callFastAPI(apiUrl, apiPayload, mode, { timeout: 0 });
-                if (result.error) throw new Error(result.error);
-
                 const imgData = result.base64_image || result.image || result.url;
                 if (imgData) {
                     setChatHistory(prev => [...prev, {
@@ -3561,42 +3566,26 @@ const handleSendMessage = async () => {
                     throw new Error("No image returned.");
                 }
             } 
-            // Standard Text Chat
-            else {
-                const apiUrl = '/api/generate/text';
-                const apiPayload = { 
-                    prompt: processedMessage, 
-                    mode: 'chat',
-                    user_preference_id: getPersistentUserId(),
-                    firebase_token: currentUser?.firebaseToken || '',
-                    stream: false,
-                    ai_mode: selectedAIMode
-                };
+            // Handle Text Response (with Typing Animation)
+            else if (result?.text) {
+                setStreamingMessage({
+                    role: 'assistant',
+                    content: '',
+                    type: 'text',
+                    ts: Date.now()
+                });
 
-                const result = await callFastAPI(apiUrl, apiPayload, mode, { signal: controller.signal });
-
-                if (result?.text) {
-                    // 🔥 UI FIX: Initialize the streaming message container with empty content
-                    // This ensures the "Typing..." UI has a valid object to update
-                    setStreamingMessage({
+                typeText(result.text, () => {
+                    setChatHistory(prev => [...prev, {
                         role: 'assistant',
-                        content: '',
+                        content: result.text,
                         type: 'text',
                         ts: Date.now()
-                    });
-
-                    typeText(result.text, () => {
-                        setChatHistory(prev => [...prev, {
-                            role: 'assistant',
-                            content: result.text,
-                            type: 'text',
-                            ts: Date.now()
-                        }]);
-                        setStreamingMessage(null);
-                    });
-                } else {
-                    throw new Error("Empty response from AI");
-                }
+                    }]);
+                    setStreamingMessage(null);
+                });
+            } else {
+                throw new Error("Empty response from AI");
             }
         }
     } catch (error) {
@@ -5364,6 +5353,7 @@ int main() {
         </>
     );
 }
+
 
 
 
