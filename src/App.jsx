@@ -2701,28 +2701,70 @@ useEffect(() => {
         event.target.value = null;
     };
   
+    // ---------- Universal Image Handler (Client-Side Resize & Base64) ----------
     const handleImageUpload = (event) => {
         const file = event?.target?.files?.[0];
         if (!file) {
             if (event) event.target.value = null;
             return;
         }
+
         if (!file.type.startsWith('image/')) {
             showModal("File Error", "Please upload a valid image file.");
             event.target.value = null;
             return;
         }
-        if (file.size > 1024 * 1024 * 5) {
-            showModal("File Error", "Image size exceeds 5MB limit.");
-            event.target.value = null;
-            return;
-        }
-        setUploadedImage(file);
-        setUploadedFile(null);
-        setMessage("Transform or edit this image to: ");
+
+        // 1. Read the file
+        const reader = new FileReader();
+        reader.onload = (readerEvent) => {
+            const img = new Image();
+            img.onload = () => {
+                // 2. Setup Canvas for Resizing (Max 1024px to prevent API timeouts)
+                const canvas = document.createElement('canvas');
+                let width = img.width;
+                let height = img.height;
+                const MAX_SIZE = 1024;
+
+                // Maintain aspect ratio
+                if (width > height) {
+                    if (width > MAX_SIZE) {
+                        height *= MAX_SIZE / width;
+                        width = MAX_SIZE;
+                    }
+                } else {
+                    if (height > MAX_SIZE) {
+                        width *= MAX_SIZE / height;
+                        height = MAX_SIZE;
+                    }
+                }
+
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+
+                // 3. Convert to clean Base64 string
+                const mimeType = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+                const resizedDataUrl = canvas.toDataURL(mimeType, 0.85); // 0.85 quality compression
+                const rawBase64 = resizedDataUrl.split(',')[1];
+
+                // 4. Save structured object to state
+                setUploadedImage({
+                    name: file.name,
+                    type: 'image',
+                    content: rawBase64,   // This goes to the API
+                    preview: resizedDataUrl // This is shown in the UI
+                });
+
+                setUploadedFile(null); // Clear any conflicting text file
+                setMessage("Analyze this image: "); // Auto-fill prompt
+            };
+            img.src = readerEvent.target.result;
+        };
+        reader.readAsDataURL(file);
         event.target.value = null;
     };
-
     // ---------- Enhanced PlusMenu with AI Modes ----------
     const PlusMenu = useMemo(() => {
         return React.memo(({ setActiveAIMode: _setActiveAIMode, fileInputRef, imageInputRef }) => {
@@ -5353,6 +5395,7 @@ int main() {
         </>
     );
 }
+
 
 
 
