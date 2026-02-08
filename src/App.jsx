@@ -3389,7 +3389,7 @@ const handleSendMessage = async () => {
     // 1. INPUT VALIDATION
     if (!message.trim() && !uploadedFile && !uploadedImage) return;
 
-    const processedMessage = message; 
+    const processedMessage = message;
     setIsLoading(true);
     const controller = new AbortController();
     setAbortController(controller);
@@ -3399,13 +3399,13 @@ const handleSendMessage = async () => {
     const msgLower = processedMessage.toLowerCase();
 
     // --- 2. INTENT DETECTION & ROUTING ---
-    
+
     // A. Detect "Code" Requests (Text Stream)
     const isFullCodeRequest = detectFullCodeRequest(processedMessage);
     const isComplexTask = (
-        msgLower.includes('step by step') || 
+        msgLower.includes('step by step') ||
         msgLower.includes('stream') ||
-        msgLower.includes('code') || 
+        msgLower.includes('code') ||
         msgLower.includes('function') ||
         msgLower.includes('script') ||
         detectMathRequest(processedMessage)
@@ -3415,18 +3415,18 @@ const handleSendMessage = async () => {
     // We look for explicit image commands
     const imageKeywords = ['generate image', 'create image', 'draw', 'create a picture', 'generate a picture', 'make an image'];
     const hasImageKeyword = imageKeywords.some(keyword => msgLower.includes(keyword));
-    
+
     // Critical: Distinguish "Make an image" from "Write code to make an image"
     const isExplicitImageRequest = hasImageKeyword && !isComplexTask && !isFullCodeRequest;
 
-    let uiMode = activeAIMode || selectedAIMode; 
+    let uiMode = activeAIMode || selectedAIMode;
 
     // C. ROUTING LOGIC
     let forceTextProcessing = false;
     let forceImageProcessing = false;
 
     if (isExplicitImageRequest) {
-        // PRIORITY 1: User asked for an image. 
+        // PRIORITY 1: User asked for an image.
         // Force routing to Image Gen (Path B), ignoring Pro/Stream settings.
         forceImageProcessing = true;
         uiMode = 'image_gen'; // Override mode to trigger image backend
@@ -3435,11 +3435,11 @@ const handleSendMessage = async () => {
         // Force routing to Text Stream (Path A).
         const isProMode = selectedAIMode === 'pro';
         forceTextProcessing = isProMode || isFullCodeRequest || isComplexTask;
-        
+
         if (forceTextProcessing) {
-             // Ensure we don't accidentally get stuck in image UI if we want code
+            // Ensure we don't accidentally get stuck in image UI if we want code
             if (uiMode === 'image_gen' || uiMode === 'image_edit') {
-                uiMode = 'chat'; 
+                uiMode = 'chat';
             }
         }
     }
@@ -3462,7 +3462,7 @@ const handleSendMessage = async () => {
     };
     setChatHistory(prev => [...prev, userMessage]);
     setMessage('');
-    
+
     accumulatedTokensRef.current = '';
     setStreamedContent('');
     setShowContinueButton(false);
@@ -3473,14 +3473,14 @@ const handleSendMessage = async () => {
     let initialStatusText = 'Thinking...';
     if (forceImageProcessing) initialStatusText = 'Generating image...';
     else if (isFullCodeRequest) initialStatusText = 'Analyzing requirements...';
-    
+
     setStreamingMessage({
         role: 'assistant',
-        content: initialStatusText, 
+        content: initialStatusText,
         type: 'text',
         ts: Date.now(),
         isStreaming: true,
-        isThinking: true 
+        isThinking: true
     });
 
     try {
@@ -3491,11 +3491,11 @@ const handleSendMessage = async () => {
         // 1. Not an image request
         // 2. AND (Pro mode OR Code request OR Reasoning mode)
         if (
-            !forceImageProcessing && ( // <--- CRITICAL CHECK
-                uiMode === 'stream' || 
-                uiMode === 'reasoning' || 
-                uiMode === 'pro' || 
-                uiMode === 'analyze_file' || 
+            !forceImageProcessing && (
+                uiMode === 'stream' ||
+                uiMode === 'reasoning' ||
+                uiMode === 'pro' ||
+                uiMode === 'analyze_file' ||
                 forceTextProcessing
             )
         ) {
@@ -3506,13 +3506,13 @@ const handleSendMessage = async () => {
             else if (isFullCodeRequest || isComplexTask) effectiveAIMode = 'reasoning';
 
             const apiUrl = '/api/generate/text';
-            const apiPayload = { 
-                prompt: processedMessage, 
-                mode: uiMode === 'analyze_file' ? 'analyze_file' : 'chat', 
+            const apiPayload = {
+                prompt: processedMessage,
+                mode: uiMode === 'analyze_file' ? 'analyze_file' : 'chat',
                 user_preference_id: getPersistentUserId(),
                 firebase_token: currentUser?.firebaseToken || '',
-                stream: true, 
-                ai_mode: effectiveAIMode, 
+                stream: true,
+                ai_mode: effectiveAIMode,
                 file_content: fileCopy ? await (fileCopy.text ? fileCopy.text() : Promise.resolve('')) : undefined,
                 filename: fileCopy?.name,
                 image: imageCopy ? imageCopy.content : undefined,
@@ -3523,7 +3523,7 @@ const handleSendMessage = async () => {
             const response = await callFastAPI(apiUrl, apiPayload, uiMode, {
                 signal: controller.signal,
                 stream: true,
-                timeout: 0 
+                timeout: 0
             });
 
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -3538,7 +3538,7 @@ const handleSendMessage = async () => {
                     isFullCode: isFullCodeRequest,
                     files: isFullCodeRequest && generatedFiles.length > 0 ? generatedFiles : undefined
                 }]);
-                
+
                 if (isFullCodeRequest && generatedFiles.length > 0) {
                     setTimeout(() => {
                         setIsProjectView(true);
@@ -3546,8 +3546,8 @@ const handleSendMessage = async () => {
                     }, 500);
                 }
             }
-        } 
-        
+        }
+
         // ============================================================
         //  PATH B: IMAGE GENERATION & STANDARD CHAT (Fallback)
         // ============================================================
@@ -3556,26 +3556,26 @@ const handleSendMessage = async () => {
         // 2. OR User is in standard chat mode and didn't ask for complex code
         else {
             const apiUrl = '/api/generate/text';
-            
+
             let base64Image = null;
-            if (uiMode === 'image_edit' && imageCopy) {
-                base64Image = imageCopy.content; 
+            if (imageCopy) {
+                base64Image = imageCopy.content;
             }
 
             const apiPayload = {
                 prompt: processedMessage,
                 // If we forced image processing, tell the backend explicit 'image_gen'
-                mode: forceImageProcessing ? 'image_gen' : uiMode, 
+                mode: forceImageProcessing ? 'image_gen' : uiMode,
                 image: base64Image,
                 aspect_ratio: aspectRatio,
                 user_preference_id: getPersistentUserId(),
                 firebase_token: currentUser?.firebaseToken || '',
-                stream: false, 
-                // Force 'chat' mode here so it uses GPT/DALL-E logic, not Mistral
-                ai_mode: 'chat' 
+                stream: false,
+                // Use the selected AI mode for image generation
+                ai_mode: selectedAIMode
             };
 
-            const result = await callFastAPI(apiUrl, apiPayload, uiMode, { 
+            const result = await callFastAPI(apiUrl, apiPayload, uiMode, {
                 signal: controller.signal,
                 stream: false
             });
@@ -3586,7 +3586,7 @@ const handleSendMessage = async () => {
             if (uiMode === 'image_gen' || uiMode === 'image_edit' || forceImageProcessing) {
                 const imgData = result.base64_image || result.image || result.url;
                 if (imgData) {
-                    setStreamingMessage(null); 
+                    setStreamingMessage(null);
                     setChatHistory(prev => [...prev, {
                         role: 'assistant',
                         content: uiMode === 'image_edit' ? `Edited: ${processedMessage}` : '',
@@ -3599,8 +3599,8 @@ const handleSendMessage = async () => {
                     // Fallback: Sometimes the model refuses to generate an image and replies with text
                     // (e.g., "I cannot generate that image due to policy...")
                     if (result.text) {
-                         setStreamingMessage(null);
-                         setChatHistory(prev => [...prev, {
+                        setStreamingMessage(null);
+                        setChatHistory(prev => [...prev, {
                             role: 'assistant',
                             content: result.text,
                             type: 'text',
@@ -3610,7 +3610,7 @@ const handleSendMessage = async () => {
                         throw new Error("No image returned.");
                     }
                 }
-            } 
+            }
             // 2. Handle Text Result (Standard Chat)
             else if (result?.text) {
                 setStreamingMessage({ role: 'assistant', content: '', type: 'text', ts: Date.now() });
