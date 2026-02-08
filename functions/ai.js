@@ -1,7 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.65)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.66)
  * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN (GEN) + FLUX (EDIT) + ASR + VISION (MISTRAL)
+ * UPDATES: Session Memory + Dynamic 128k Context
  * Author: M4 Spider
  * =========================================================
  */
@@ -10,14 +11,17 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.65";
+const VERSION = "9.9.66";
 
-const AI_MEMORY_TRIM_TARGET = 25;
+// CONTEXT MANAGEMENT
+// 128k tokens * 4 chars/token = ~512,000 chars. 
+// We reserve buffer for output and system prompts.
+const MAX_CONTEXT_TOKENS = 120000; 
+const EST_CHARS_PER_TOKEN = 4;
 const AI_MEMORY_TTL_DAYS = 30;
 const AI_MEMORY_USER_KEY_PREFIX = "spider_ai_mem:";
 const AI_RETRY_LIMIT = 2;
 const AI_RETRY_DELAY_BASE = 1500;
-// OPTIMIZED: Increased to 1000 to prevent "half-baked" code in Pro mode
 const AI_MAX_OUTPUT_LINES = 1000;
 
 // MODELS
@@ -130,6 +134,42 @@ async function streamToBase64(stream) {
         binary += String.fromCharCode(result[i]);
     }
     return btoa(binary);
+}
+
+// HELPER: Dynamic Context Trimmer (128k Support)
+function trimMemoryByContext(memory, maxTokens = MAX_CONTEXT_TOKENS) {
+    if (!memory || memory.length === 0) return [];
+    
+    let currentEstTokens = 0;
+    const trimmed = [];
+    
+    // Iterate backwards from the most recent message
+    for (let i = memory.length - 1; i >= 0; i--) {
+        const msg = memory[i];
+        
+        // Estimate tokens: Handle string or object content (multimodal)
+        let contentStr = "";
+        if (typeof msg.content === 'string') {
+            contentStr = msg.content;
+        } else if (Array.isArray(msg.content)) {
+            // Estimate size of array content (text + image metadata)
+            contentStr = JSON.stringify(msg.content);
+        } else {
+            contentStr = JSON.stringify(msg.content || "");
+        }
+
+        const estTokens = Math.ceil(contentStr.length / EST_CHARS_PER_TOKEN);
+        
+        // If adding this message exceeds limit, stop adding older messages
+        if (currentEstTokens + estTokens > maxTokens) {
+            break;
+        }
+        
+        currentEstTokens += estTokens;
+        trimmed.unshift(msg);
+    }
+    
+    return trimmed;
 }
 
 //////////////////////////////
@@ -329,6 +369,7 @@ export async function onRequest(context) {
       prompt = "",
       mode = "chat",
       user_preference_id = "anon",
+      session_id, // NEW: Session ID for segregated memory
       aspect_ratio = "1:1",
       stream = false,
       file_content,
@@ -337,7 +378,13 @@ export async function onRequest(context) {
       image: base64ImageInput // CRITICAL: Extract image for editing
     } = payload;
 
-    const memKey = AI_MEMORY_USER_KEY_PREFIX + user_preference_id;
+    // NEW: Session-Based Memory Key Construction
+    // If session_id is provided, keys are specific to that session.
+    // Falls back to user_preference_id for backward compatibility/global user memory.
+    const memKey = session_id 
+        ? `${AI_MEMORY_USER_KEY_PREFIX}${user_preference_id}:${session_id}`
+        : `${AI_MEMORY_USER_KEY_PREFIX}${user_preference_id}`;
+    
     const imgMemKey = memKey + "_img"; // DEDICATED KEY FOR LAST IMAGE
 
     // Handle Continue requests (FIX: Enhanced detection for manual buttons)
@@ -712,7 +759,9 @@ let activePrompt = prompt;
             } // End While
 
             memory.push({ role: "assistant", content: cleanAiResponse(fullResponseText), ts: Date.now() });
-            const memoryToSave = memory.slice(-AI_MEMORY_TRIM_TARGET);
+            
+            // DYNAMIC CONTEXT TRIMMER
+            const memoryToSave = trimMemoryByContext(memory);
             context.waitUntil(saveMemory(env, memKey, memoryToSave));
 
             controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
@@ -783,7 +832,10 @@ let activePrompt = prompt;
             // ATTEMPT 1: EDIT WITH FLUX
             // =========================================================
             memory.push({ role: "user", content: `[Image Edit Request]: ${activePrompt}` });
-            await saveMemory(env, memKey, memory.slice(-AI_MEMORY_TRIM_TARGET));
+            
+            // DYNAMIC CONTEXT TRIMMER
+            const memToSave = trimMemoryByContext(memory);
+            await saveMemory(env, memKey, memToSave);
 
             const fluxResponse = await runAi(env, MODEL_EDIT_FLUX, {
                 multipart: {
@@ -809,7 +861,11 @@ let activePrompt = prompt;
             if (resultBase64) {
                 context.waitUntil(saveLastImage(env, imgMemKey, resultBase64));
                 memory.push({ role: "assistant", content: "Image edited successfully! 🎨" });
-                await saveMemory(env, memKey, memory.slice(-AI_MEMORY_TRIM_TARGET));
+                
+                // DYNAMIC CONTEXT TRIMMER
+                const memToSaveAssistant = trimMemoryByContext(memory);
+                await saveMemory(env, memKey, memToSaveAssistant);
+                
                 return new Response(base64ToUint8Array(resultBase64), { headers: { ...cors, "Content-Type": "image/png" } });
             }
 
@@ -854,7 +910,10 @@ let activePrompt = prompt;
 
                     // Update memory to let user know we generated instead
                     memory.push({ role: "assistant", content: "I created a new image for you based on that request! 🎨" });
-                    context.waitUntil(saveMemory(env, memKey, memory.slice(-AI_MEMORY_TRIM_TARGET)));
+                    
+                    // DYNAMIC CONTEXT TRIMMER
+                    const memToSaveAssistant = trimMemoryByContext(memory);
+                    context.waitUntil(saveMemory(env, memKey, memToSaveAssistant));
 
                     return new Response(bytes.buffer, { headers: { ...cors, "Content-Type": "image/png" } });
                 }
@@ -896,7 +955,9 @@ let activePrompt = prompt;
            content: `Generating image: "${enhancedPrompt}"`,
            ts: Date.now()
         });
-        const memoryToSave = memory.slice(-AI_MEMORY_TRIM_TARGET);
+        
+        // DYNAMIC CONTEXT TRIMMER
+        const memoryToSave = trimMemoryByContext(memory);
         context.waitUntil(saveMemory(env, memKey, memoryToSave));
       } catch (memErr) {}
 
@@ -992,7 +1053,9 @@ let activePrompt = prompt;
     }
 
     memory.push({ role: "user", content: finalUserPrompt, ts: Date.now() });
-    memory = memory.slice(-AI_MEMORY_TRIM_TARGET);
+    
+    // DYNAMIC CONTEXT TRIMMER (PRE-RUN - Optional to prevent huge prompts, but usually we trim AFTER adding response)
+    memory = trimMemoryByContext(memory);
 
     const messages = [
       { role: "system", content: finalSystemPrompt },
@@ -1028,7 +1091,10 @@ let activePrompt = prompt;
     const output = cleanAiResponse(extractText(aiRes));
 
     memory.push({ role: "assistant", content: output, ts: Date.now() });
-    await saveMemory(env, memKey, memory);
+    
+    // DYNAMIC CONTEXT TRIMMER (SAVE)
+    const memoryToSave = trimMemoryByContext(memory);
+    await saveMemory(env, memKey, memoryToSave);
 
     return new Response(output, {
       headers: { ...cors, "Content-Type": "text/plain" }
