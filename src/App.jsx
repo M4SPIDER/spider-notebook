@@ -4451,224 +4451,71 @@ export default function App() {
 // 🔥 SPIDER AI — Cloudflare GPT-120B + SDXL Integration (FINAL VERSION)
 // 🔥 SPIDER AI — Cloudflare GPT-120B + SDXL Integration (FINAL VERSION)
 const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat", options = {}) => {
-
-    // ==========================================================
-
-
-
-    // 🔥 THE REAL FIX: Pass options.signal and return raw 'res' for streams
-
-
-
-    // ==========================================================
-
-
-
-    
-
-
-
     let fetchOptions = {
-
-
-
         method: "POST",
-
-
-
-headers: {
-
-
-
+        headers: {
             "Content-Type": "application/json"
-
-
-
         },
-
-
-
         // Stringify the entire payload (includes file_content, images, etc.)
-
-
-
         body: JSON.stringify(payload),
-
-
-
         // Allows the frontend to cancel the request via handleStopGeneration
-
-
-
-        signal: options.signal 
-
-
-
+        signal: options.signal
     };
 
-
-
-
-
     try {
-
-
-
         // Use the new fetchOptions, sending to the /ai worker endpoint
-
-
-
         const res = await fetch("/ai", fetchOptions);
 
-
-
-
+        // Log the response for debugging
+        console.log("Response status:", res.status);
+        console.log("Response headers:", res.headers);
 
         // ---------------- STREAMING HANDLER (NEW) ----------------
-
-
-
         // If the frontend explicitly passed { stream: true } in the options,
-
-
-
         // we return the raw Response object so res.body.getReader() works.
-
-
-
         if (options.stream) {
-
-
-
-            return res; 
-
-
-
+            return res;
         }
-
-
-
-
 
         const contentType = res.headers.get("content-type") || "";
 
-
-
-
-
         // ---------------- IMAGE RESPONSE (PNG) ----------------
-
-
-
         if (contentType.includes("image/")) {
-
-
-
             const blob = await res.blob();
 
-
-
-
-
             const base64 = await new Promise((resolve) => {
-
-
-
                 const reader = new FileReader();
-
-
-
                 reader.onloadend = () => resolve(reader.result.split(",")[1]);
-
-
-
                 reader.readAsDataURL(blob);
-
-
-
             });
 
-
-
-
-
             return {
-
-
-
                 text: payload.prompt || "",
-
-
-
                 base64_image: base64,
-
-
-
                 model_used: "SDXL"
-
-
-
             };
-
-
-
-}
-
-
-
-
-
-        // ---------------- TEXT RESPONSE ----------------
-
-
-
-        const rawText = await res.text();
-
-
-
-
-
-        if (!rawText || rawText.trim() === "") {
-
-
-
-            return { error: "Empty response from Spider AI." };
-
-
-
         }
 
+        // ---------------- TEXT RESPONSE ----------------
+        const rawText = await res.text();
 
-
-
+        if (!rawText || rawText.trim() === "") {
+            return { error: "Empty response from Spider AI." };
+        }
 
         // Spider AI 2.0 returns plain text for non-streaming requests
-
-
-
         return {
-
-
-
             text: rawText,
-
-
-
             raw: rawText
-
-
-
         };
 
-
-
     } catch (err) {
+        // Log the error for debugging
+        console.error("API Error:", err);
         // Return error object instead of throwing to avoid breaking the UI flow
         return { error: err.message };
-}
-
-}, []); 
-
+    }
+}, []);
   // --- WebSocket Handlers (NEW) ---
     // Helper function to append plain text to terminal output
     const appendToTerminal = (text, type = 'stdout') => {
@@ -5394,6 +5241,7 @@ int main() {
         </>
     );
 }
+
 
 
 
