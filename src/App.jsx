@@ -3396,25 +3396,93 @@ const handleSendMessage = async () => {
 
     const fileCopy = uploadedFile;
     const imageCopy = uploadedImage;
-    
-    // --- 2. INTENT DETECTION & ROUTING ---
+    const msgLower = processedMessage.toLowerCase();
+
+    // --- 2. INTENT DETECTION & SMART ROUTING ---
+
+    // A. Detect "Code" Intent (Expanded List)
+    // We check if the user mentions any programming keyword or syntax starter.
+    const strongCodeIndicators = [
+        // General Intents
+        'code', 'script', 'function', 'method', 'bug', 'error', 'fix', 'debug', 
+        'syntax', 'compiler', 'stack trace', 'exception', 'run', 'compile', 'execute',
+        
+        // JavaScript / TypeScript / Node
+        'const', 'let', 'var', 'import', 'export', 'async', 'await', 'console.log', 
+        'npm', 'yarn', 'node_modules', 'react', 'jsx', 'tsx', 'vue', 'angular',
+        
+        // Python
+        'def', 'class', 'pip', 'flask', 'django', 'pandas', 'numpy', 
+        'self.', '__init__', 'print(', 'import os', 'import sys',
+        
+        // Java / C#
+        'public', 'private', 'protected', 'void', 'static', 'package', 'namespace', 
+        'using system', 'class', 'interface', 'extends', 'implements', 'maven', 'gradle',
+        
+        // C / C++
+        '#include', '#define', 'struct', 'typedef', 'std::', 'cout', 'cin', 'printf', 'malloc',
+        
+        // Go / Rust
+        'func', 'impl', 'fn', 'pub', 'crate', 'go mod', 'unwrap', 'mut',
+        
+        // PHP / SQL / Web
+        '<?php', 'echo', '$this', 'composer', 'laravel', 
+        'select', 'insert', 'update', 'delete', 'from table', 
+        '<div>', '<span>', 'href', 'onclick'
+    ];
+
+    // Check if the prompt contains any of these indicators
+    const hasCodeIndicator = strongCodeIndicators.some(indicator => msgLower.includes(indicator));
+
     const isFullCodeRequest = detectFullCodeRequest(processedMessage);
     const isComplexTask = (
-        processedMessage.toLowerCase().includes('step by step') || 
-        processedMessage.toLowerCase().includes('stream') ||
-        processedMessage.toLowerCase().includes('code') || 
+        hasCodeIndicator || // <--- NOW TRIGGERS ON ANY KEYWORD
+        msgLower.includes('step by step') || 
+        msgLower.includes('stream') ||
         detectMathRequest(processedMessage)
     );
 
+    // B. Detect "Image Code" Analysis (e.g., User uploads screenshot of error)
+    // If we have an image AND a code indicator, FORCE analysis.
+    const isImageCodeAnalysis = imageCopy && hasCodeIndicator;
+
+    // C. Detect "Image Generation" Requests (Strict)
+    const imageGenKeywords = ['generate image', 'create image', 'draw', 'create a picture', 'paint', 'art'];
+    const hasImageGenKeyword = imageGenKeywords.some(keyword => msgLower.includes(keyword));
+    
+    // Only treat as Image Gen if it DOES NOT have code indicators (e.g., "Draw a diagram of this code" -> Code Mode)
+    const isExplicitImageRequest = hasImageGenKeyword && !hasCodeIndicator && !isImageCodeAnalysis;
+
     let uiMode = activeAIMode || selectedAIMode; 
+    let forceTextProcessing = false;
+    let forceImageProcessing = false;
+    let statusMessageOverride = null;
 
-    // FORCE TEXT MODE for Code/Reasoning (Bypass Image Editor)
-    const isProMode = selectedAIMode === 'pro';
-    const forceTextProcessing = isProMode || isFullCodeRequest || isComplexTask;
+    // --- 3. ROUTING DECISION TREE ---
 
-    if (forceTextProcessing) {
-        if (uiMode === 'image_gen' || uiMode === 'image_edit') {
-            uiMode = 'chat'; // Override: Force text path
+    if (isExplicitImageRequest) {
+        // PRIORITY 1: Explicitly asking to DRAW ART
+        forceImageProcessing = true;
+        uiMode = 'image_gen'; 
+    } 
+    else if (isImageCodeAnalysis) {
+        // PRIORITY 2: Image + Code Keyword = VISION ANALYSIS
+        forceTextProcessing = true;
+        uiMode = 'analyze_file'; 
+        statusMessageOverride = "Reading code from image...";
+    }
+    else {
+        // PRIORITY 3: Text/Code/Pro Mode
+        const isProMode = selectedAIMode === 'pro';
+        
+        // Force text path if Pro, Code Request, or Complex Task
+        forceTextProcessing = isProMode || isFullCodeRequest || isComplexTask;
+        
+        if (forceTextProcessing) {
+            // Override Image UI if we are actually doing code
+            if (uiMode === 'image_gen' || uiMode === 'image_edit') {
+                uiMode = 'chat'; 
+            }
         }
     }
 
@@ -3423,8 +3491,7 @@ const handleSendMessage = async () => {
         setProjectMetadata(extractProjectMetadata(processedMessage));
     }
 
-    // --- 3. IMMEDIATE UI UPDATE (OPTIMISTIC UI) ---
-    // Update User Message immediately
+    // --- 4. OPTIMISTIC UI UPDATES ---
     const userMessage = {
         role: 'user',
         content: processedMessage,
@@ -3445,52 +3512,54 @@ const handleSendMessage = async () => {
     setLastStreamId(null);
     fileContentBufferRef.current = '';
 
-    // 🔥 INSTANT FEEDBACK: Start "Assistant" UI before fetching
-    // Determine the "Thinking" text based on mode
+    // Status Message Logic
     let initialStatusText = 'Thinking...';
-    if (isFullCodeRequest) initialStatusText = 'Analyzing requirements...';
-    else if (uiMode === 'analyze_file') initialStatusText = 'Reading file...';
-    else if (uiMode === 'image_gen') initialStatusText = 'Generating image...';
+    if (statusMessageOverride) initialStatusText = statusMessageOverride;
+    else if (forceImageProcessing) initialStatusText = 'Generating image...';
+    else if (isFullCodeRequest) initialStatusText = 'Scaffolding project...';
+    else if (hasCodeIndicator) initialStatusText = 'Analyzing code...'; // <--- Specific text for code
 
-    // Set the "Ghost" message that pulsates while waiting
     setStreamingMessage({
         role: 'assistant',
         content: initialStatusText, 
         type: 'text',
         ts: Date.now(),
         isStreaming: true,
-        isThinking: true // Use this flag in your UI to show a "pulsing" effect
+        isThinking: true 
     });
 
     try {
         // ============================================================
-        //  PATH A: MISTRAL / PRO / STREAMING 
+        //  PATH A: MISTRAL / VISION / PRO (Streaming & Code)
         // ============================================================
         if (
-            uiMode === 'stream' || 
-            uiMode === 'reasoning' || 
-            uiMode === 'pro' || 
-            uiMode === 'analyze_file' || 
-            forceTextProcessing // <--- Bypass triggered
+            !forceImageProcessing && (
+                uiMode === 'stream' || 
+                uiMode === 'reasoning' || 
+                uiMode === 'pro' || 
+                uiMode === 'analyze_file' || 
+                forceTextProcessing
+            )
         ) {
             setIsStreaming(true);
 
-            // Determine Model
             let effectiveAIMode = selectedAIMode;
-            if (isProMode) effectiveAIMode = 'pro';
-            else if (isFullCodeRequest || isComplexTask) effectiveAIMode = 'reasoning';
+            // If we detected code/complex tasks, upgrade to Reasoning/Pro automatically
+            if (selectedAIMode === 'pro') effectiveAIMode = 'pro';
+            else if (isFullCodeRequest || isComplexTask || isImageCodeAnalysis) effectiveAIMode = 'reasoning';
 
             const apiUrl = '/api/generate/text';
             const apiPayload = { 
                 prompt: processedMessage, 
-                mode: uiMode === 'analyze_file' ? 'analyze_file' : 'chat', 
+                // Force analyze_file mode if we are doing image code analysis
+                mode: (uiMode === 'analyze_file' || isImageCodeAnalysis) ? 'analyze_file' : 'chat', 
                 user_preference_id: getPersistentUserId(),
                 firebase_token: currentUser?.firebaseToken || '',
                 stream: true, 
                 ai_mode: effectiveAIMode, 
                 file_content: fileCopy ? await (fileCopy.text ? fileCopy.text() : Promise.resolve('')) : undefined,
                 filename: fileCopy?.name,
-                image: imageCopy ? imageCopy.content : undefined, // Context only
+                image: imageCopy ? imageCopy.content : undefined, 
                 full_code_mode: isFullCodeRequest,
                 project_type: projectMetadata?.type
             };
@@ -3503,7 +3572,6 @@ const handleSendMessage = async () => {
 
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             
-            // On first chunk, the 'isThinking' flag will be cleared by handleStreamResponse
             await handleStreamResponse(response);
 
             // Finalize Stream
@@ -3527,19 +3595,18 @@ const handleSendMessage = async () => {
         } 
         
         // ============================================================
-        //  PATH B: IMAGE GENERATION ONLY (Strict)
+        //  PATH B: IMAGE GEN ONLY (Fallback)
         // ============================================================
         else {
             const apiUrl = '/api/generate/text';
-            
             let base64Image = null;
-            if (uiMode === 'image_edit' && imageCopy) {
+            if (uiMode === 'image_edit' && imageCopy && !isImageCodeAnalysis) {
                 base64Image = imageCopy.content; 
             }
 
             const apiPayload = {
                 prompt: processedMessage,
-                mode: uiMode,
+                mode: forceImageProcessing ? 'image_gen' : uiMode, 
                 image: base64Image,
                 aspect_ratio: aspectRatio,
                 user_preference_id: getPersistentUserId(),
@@ -3555,10 +3622,9 @@ const handleSendMessage = async () => {
 
             if (result.error) throw new Error(result.error);
 
-            if (uiMode === 'image_gen' || uiMode === 'image_edit') {
+            if (uiMode === 'image_gen' || uiMode === 'image_edit' || forceImageProcessing) {
                 const imgData = result.base64_image || result.image || result.url;
                 if (imgData) {
-                    // Clear the "Generating image..." status
                     setStreamingMessage(null); 
                     setChatHistory(prev => [...prev, {
                         role: 'assistant',
@@ -3569,13 +3635,21 @@ const handleSendMessage = async () => {
                         is_generated: true
                     }]);
                 } else {
-                    throw new Error("No image returned.");
+                     if (result.text) {
+                         setStreamingMessage(null);
+                         setChatHistory(prev => [...prev, {
+                            role: 'assistant',
+                            content: result.text,
+                            type: 'text',
+                            ts: Date.now()
+                        }]);
+                    } else {
+                        throw new Error("No image returned.");
+                    }
                 }
             } 
             else if (result?.text) {
-                 // Clear the "Thinking..." status before typing
                 setStreamingMessage({ role: 'assistant', content: '', type: 'text', ts: Date.now() });
-                
                 typeText(result.text, () => {
                     setChatHistory(prev => [...prev, {
                         role: 'assistant',
@@ -3593,8 +3667,7 @@ const handleSendMessage = async () => {
     } catch (error) {
         if (error.name !== 'AbortError') {
             console.error('API Error:', error);
-            // Replace "Thinking..." with Error
-            setStreamingMessage(null); 
+            setStreamingMessage(null);
             setChatHistory(prev => [...prev, {
                 role: 'assistant',
                 content: `Error: ${error.message || 'Unknown error'}`,
@@ -5357,6 +5430,7 @@ int main() {
         </>
     );
 }
+
 
 
 
