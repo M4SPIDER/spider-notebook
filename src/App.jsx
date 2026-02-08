@@ -3390,33 +3390,33 @@ const handleSendMessage = async () => {
     // 1. INPUT VALIDATION
     if (!message.trim() && !uploadedFile && !uploadedImage) return;
 
-    const processedMessage = message; 
+    const processedMessage = message;
     setIsLoading(true);
     const controller = new AbortController();
     setAbortController(controller);
 
     const fileCopy = uploadedFile;
     const imageCopy = uploadedImage;
-    
+
     // --- 2. INTENT DETECTION & ROUTING ---
     const isFullCodeRequest = detectFullCodeRequest(processedMessage);
     const isComplexTask = (
-        processedMessage.toLowerCase().includes('step by step') || 
+        processedMessage.toLowerCase().includes('step by step') ||
         processedMessage.toLowerCase().includes('stream') ||
-        processedMessage.toLowerCase().includes('code') || 
+        processedMessage.toLowerCase().includes('code') ||
         detectMathRequest(processedMessage)
     );
+    const isImageRequest = detectImageGeneration(processedMessage);
 
-    let uiMode = activeAIMode || selectedAIMode; 
+    let uiMode = activeAIMode || selectedAIMode;
 
     // FORCE TEXT MODE for Code/Reasoning (Bypass Image Editor)
     const isProMode = selectedAIMode === 'pro';
     const forceTextProcessing = isProMode || isFullCodeRequest || isComplexTask;
 
-    if (forceTextProcessing) {
-        if (uiMode === 'image_gen' || uiMode === 'image_edit') {
-            uiMode = 'chat'; // Override: Force text path
-        }
+    // Prioritize text-based responses when code is involved
+    if (isFullCodeRequest || isComplexTask) {
+        uiMode = 'chat';
     }
 
     if (isFullCodeRequest) {
@@ -3438,7 +3438,7 @@ const handleSendMessage = async () => {
     };
     setChatHistory(prev => [...prev, userMessage]);
     setMessage('');
-    
+
     // Reset buffers
     accumulatedTokensRef.current = '';
     setStreamedContent('');
@@ -3451,12 +3451,12 @@ const handleSendMessage = async () => {
     let initialStatusText = 'Thinking...';
     if (isFullCodeRequest) initialStatusText = 'Analyzing requirements...';
     else if (uiMode === 'analyze_file') initialStatusText = 'Reading file...';
-    else if (uiMode === 'image_gen') initialStatusText = 'Generating image...';
+    else if (isImageRequest) initialStatusText = 'Generating image...';
 
     // Set the "Ghost" message that pulsates while waiting
     setStreamingMessage({
         role: 'assistant',
-        content: initialStatusText, 
+        content: initialStatusText,
         type: 'text',
         ts: Date.now(),
         isStreaming: true,
@@ -3465,14 +3465,11 @@ const handleSendMessage = async () => {
 
     try {
         // ============================================================
-        //  PATH A: MISTRAL / PRO / STREAMING 
+        //  PATH A: MISTRAL / PRO / STREAMING
         // ============================================================
         if (
-            uiMode === 'stream' || 
-            uiMode === 'reasoning' || 
-            uiMode === 'pro' || 
-            uiMode === 'analyze_file' || 
-            forceTextProcessing // <--- Bypass triggered
+            (uiMode === 'stream' || uiMode === 'reasoning' || uiMode === 'pro' || uiMode === 'analyze_file' || forceTextProcessing) &&
+            !isImageRequest
         ) {
             setIsStreaming(true);
 
@@ -3482,13 +3479,13 @@ const handleSendMessage = async () => {
             else if (isFullCodeRequest || isComplexTask) effectiveAIMode = 'reasoning';
 
             const apiUrl = '/api/generate/text';
-            const apiPayload = { 
-                prompt: processedMessage, 
-                mode: uiMode === 'analyze_file' ? 'analyze_file' : 'chat', 
+            const apiPayload = {
+                prompt: processedMessage,
+                mode: uiMode === 'analyze_file' ? 'analyze_file' : 'chat',
                 user_preference_id: getPersistentUserId(),
                 firebase_token: currentUser?.firebaseToken || '',
-                stream: true, 
-                ai_mode: effectiveAIMode, 
+                stream: true,
+                ai_mode: effectiveAIMode,
                 file_content: fileCopy ? await (fileCopy.text ? fileCopy.text() : Promise.resolve('')) : undefined,
                 filename: fileCopy?.name,
                 image: imageCopy ? imageCopy.content : undefined, // Context only
@@ -3499,11 +3496,11 @@ const handleSendMessage = async () => {
             const response = await callFastAPI(apiUrl, apiPayload, uiMode, {
                 signal: controller.signal,
                 stream: true,
-                timeout: 0 
+                timeout: 0
             });
 
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            
+
             // On first chunk, the 'isThinking' flag will be cleared by handleStreamResponse
             await handleStreamResponse(response);
 
@@ -3517,7 +3514,7 @@ const handleSendMessage = async () => {
                     isFullCode: isFullCodeRequest,
                     files: isFullCodeRequest && generatedFiles.length > 0 ? generatedFiles : undefined
                 }]);
-                
+
                 if (isFullCodeRequest && generatedFiles.length > 0) {
                     setTimeout(() => {
                         setIsProjectView(true);
@@ -3525,45 +3522,47 @@ const handleSendMessage = async () => {
                     }, 500);
                 }
             }
-        } 
-        
+        }
+
         // ============================================================
         //  PATH B: IMAGE GENERATION ONLY (Strict)
         // ============================================================
         else {
             const apiUrl = '/api/generate/text';
-            
+
             let base64Image = null;
             if (uiMode === 'image_edit' && imageCopy) {
-                base64Image = imageCopy.content; 
+                base64Image = imageCopy.content;
             }
+
+            const effectiveMode = isImageRequest ? (uiMode === 'image_edit' ? 'image_edit' : 'image_gen') : uiMode;
 
             const apiPayload = {
                 prompt: processedMessage,
-                mode: uiMode,
+                mode: effectiveMode,
                 image: base64Image,
                 aspect_ratio: aspectRatio,
                 user_preference_id: getPersistentUserId(),
                 firebase_token: currentUser?.firebaseToken || '',
-                stream: false, 
-                ai_mode: 'chat'
+                stream: false,
+                ai_mode: effectiveMode
             };
 
-            const result = await callFastAPI(apiUrl, apiPayload, uiMode, { 
+            const result = await callFastAPI(apiUrl, apiPayload, uiMode, {
                 signal: controller.signal,
                 stream: false
             });
 
             if (result.error) throw new Error(result.error);
 
-            if (uiMode === 'image_gen' || uiMode === 'image_edit') {
+            if (effectiveMode === 'image_gen' || effectiveMode === 'image_edit') {
                 const imgData = result.base64_image || result.image || result.url;
                 if (imgData) {
                     // Clear the "Generating image..." status
-                    setStreamingMessage(null); 
+                    setStreamingMessage(null);
                     setChatHistory(prev => [...prev, {
                         role: 'assistant',
-                        content: uiMode === 'image_edit' ? `Edited: ${processedMessage}` : '',
+                        content: effectiveMode === 'image_edit' ? `Edited: ${processedMessage}` : '',
                         type: 'image',
                         base64_image: imgData,
                         ts: Date.now(),
@@ -3572,11 +3571,11 @@ const handleSendMessage = async () => {
                 } else {
                     throw new Error("No image returned.");
                 }
-            } 
+            }
             else if (result?.text) {
                  // Clear the "Thinking..." status before typing
                 setStreamingMessage({ role: 'assistant', content: '', type: 'text', ts: Date.now() });
-                
+
                 typeText(result.text, () => {
                     setChatHistory(prev => [...prev, {
                         role: 'assistant',
@@ -3595,7 +3594,7 @@ const handleSendMessage = async () => {
         if (error.name !== 'AbortError') {
             console.error('API Error:', error);
             // Replace "Thinking..." with Error
-            setStreamingMessage(null); 
+            setStreamingMessage(null);
             setChatHistory(prev => [...prev, {
                 role: 'assistant',
                 content: `Error: ${error.message || 'Unknown error'}`,
@@ -3613,7 +3612,6 @@ const handleSendMessage = async () => {
         setUploadedImage(null);
     }
 };
-  
   // ---------- Enhanced Send Message (Vision + Smart Stream Logic + Auto Code/Image Routing) ----------
   // ---------- Download Project ----------
     const downloadProjectAsZip = useCallback(async () => {
