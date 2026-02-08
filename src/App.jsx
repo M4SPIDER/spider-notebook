@@ -2772,7 +2772,7 @@ useEffect(() => {
     e.stopPropagation();
     setOpen(false);
     // 🟢 NEW: Sets 'chat' mode. Backend will auto-detect "Edit" vs "Analyze" based on your words.
-    if (typeof _setActiveAIMode === 'function') _setActiveAIMode('chat'); 
+    if (typeof _setActiveAIMode === 'function') _setActiveAIMode('pro_chat'); 
     setTimeout(() => imageInputRef.current?.click(), 50);
 };
           
@@ -5205,6 +5205,7 @@ int main() {
         </>
     );
 }
+
 
 
 
