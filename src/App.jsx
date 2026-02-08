@@ -3385,14 +3385,15 @@ useEffect(() => {
 
     // ---------- Enhanced Send Message with AI Modes ----------
 // ---------- Enhanced Send Message (Vision + Smart Stream Logic) ----------
-// ---------- Enhanced Send Message (Instant UI + Code Badge + Smart Stream) ----------
+// ---------- Enhanced Send Message (Pro Mode Force Stream + Instant UI) ----------
     const handleSendMessage = async () => {
         // 1. INPUT VALIDATION
         if (!message.trim() && !uploadedFile && !uploadedImage) return;
 
         const processedMessage = message;
-        // Start loading UI immediately
-        setIsLoading(true);
+        
+        // --- INSTANT UI FEEDBACK (START) ---
+        setIsLoading(true); // Trigger loading spinner/state immediately
         const controller = new AbortController();
         setAbortController(controller);
 
@@ -3402,36 +3403,21 @@ useEffect(() => {
         // Determine the user's selected UI mode
         let uiMode = activeAIMode || selectedAIMode;
 
-        // --- 1. SMART ROUTING LOGIC ---
+        // --- 2. SMART ROUTING LOGIC ---
         
-        // A. Detect Image Request (Force Image Path)
-        // Uses the enhanced detector to avoid false positives in code requests
+        // A. Detect Requests
+        // Use enhanced detection to avoid false positives (e.g. "code for image" != image generation)
         const isImageRequest = detectImageGeneration(processedMessage);
-
-        // B. Detect Code Request (Expand triggers for Chat Mode)
+        
         const lowerMsg = processedMessage.toLowerCase();
+        // Expanded code triggers to ensure chat mode switches to stream for technical queries
         const codeTriggers = [
             'code', 'script', 'function', 'api', 'debug', 'fix', 'error', 
             'python', 'java', 'js', 'javascript', 'cpp', 'c++', 'html', 'css', 
             'react', 'node', 'sql', 'algorithm', 'class', 'method', 'variable',
-            'write', 'implement', 'build'
+            'write', 'implement', 'build', 'explain', 'how to', 'json'
         ];
         const isCodeRequest = codeTriggers.some(t => lowerMsg.includes(t));
-
-        // SHOW CODE DETECTED BADGE if applicable
-        if (isCodeRequest && !isImageRequest) {
-            setShowCodeDetected(true);
-            // Hide the badge after 3 seconds
-            setTimeout(() => setShowCodeDetected(false), 3000);
-        }
-
-        // C. Check for complex/streaming tasks in Standard Chat
-        const isComplexTask = (uiMode === 'chat' && (
-            lowerMsg.includes('step by step') ||
-            lowerMsg.includes('stream') ||
-            isCodeRequest || // Use robust check
-            detectMathRequest(processedMessage)
-        ));
 
         const isFullCodeRequest = detectFullCodeRequest(processedMessage);
         if (isFullCodeRequest) {
@@ -3439,18 +3425,39 @@ useEffect(() => {
             setProjectMetadata(extractProjectMetadata(processedMessage));
         }
 
-        // D. Determine if we should use the Streaming Text Model (Mistral 24B)
-        // Logic: If it's a code/complex task OR Pro Mode OR Reasoning -> Stream it.
-        // CRITICAL: We explicitly exclude image requests.
-        const shouldStream =
-            (uiMode === 'stream' ||
-            uiMode === 'reasoning' ||
-            uiMode === 'pro' ||
-            uiMode === 'analyze_file' ||
-            isFullCodeRequest ||
-            isComplexTask) && !isImageRequest; 
+        // B. Determine Stream Eligibility
+        const isComplexTask = (uiMode === 'chat' && (
+            lowerMsg.includes('step by step') ||
+            lowerMsg.includes('stream') ||
+            isCodeRequest || 
+            detectMathRequest(processedMessage)
+        ));
 
-        // Update UI History IMMEDIATELY
+        // --- THE FIX: Pro Mode Logic ---
+        // 1. If Pro/Reasoning, default to TRUE.
+        // 2. If Chat, check if it's a complex/code task.
+        // 3. ALWAYS stream for Full Code or Analyze File.
+        // 4. CRITICAL: Only disable streaming if it is a VALID image request.
+        //    (In Pro mode, we ignore weak image triggers like 'visualize')
+        const isProMode = uiMode === 'pro' || uiMode === 'reasoning';
+        
+        const shouldStream = (
+            isProMode || 
+            uiMode === 'stream' || 
+            uiMode === 'analyze_file' || 
+            isFullCodeRequest || 
+            isComplexTask
+        ) && !isImageRequest; 
+
+        // --- UI UPDATES ---
+
+        // 1. Show "Code Detected" Badge if applicable
+        if ((isCodeRequest || isFullCodeRequest) && !isImageRequest) {
+            setShowCodeDetected(true);
+            setTimeout(() => setShowCodeDetected(false), 3000);
+        }
+
+        // 2. Add User Message to History
         const userMessage = {
             role: 'user',
             content: processedMessage,
@@ -3462,9 +3469,9 @@ useEffect(() => {
             aiMode: selectedAIMode
         };
         setChatHistory(prev => [...prev, userMessage]);
-        setMessage('');
+        setMessage(''); // Clear input
 
-        // Reset buffers
+        // 3. Prepare for Stream
         accumulatedTokensRef.current = '';
         setStreamedContent('');
         setShowContinueButton(false);
@@ -3473,13 +3480,14 @@ useEffect(() => {
 
         try {
             // ============================================================
-            //  PATH A: MISTRAL 24B (High-Speed Text Streaming)
+            //  PATH A: MISTRAL 24B (High-Speed Streaming)
             // ============================================================
-            // Only enter this if it is NOT an image request
+            // Logic: Enter here if we should stream AND it's not an explicit image generation mode
             if (shouldStream && uiMode !== 'image_gen' && uiMode !== 'image_edit') {
                 setIsStreaming(true);
 
-                // Initialize the Assistant bubble immediately so user sees "Thinking..." or empty cursor
+                // RENDER EMPTY BUBBLE IMMEDIATELY
+                // This ensures the user sees the "Assistant is thinking..." state instantly
                 setStreamingMessage({
                     role: 'assistant',
                     content: '', 
@@ -3488,7 +3496,7 @@ useEffect(() => {
                     isStreaming: true
                 });
 
-                // Force the backend to use Mistral/Reasoning if we are auto-switching from Chat
+                // Auto-switch 'chat' to 'reasoning' model for better results if routed here
                 const effectiveAIMode = (uiMode === 'chat') ? 'reasoning' : selectedAIMode;
 
                 const apiUrl = '/api/generate/text';
@@ -3513,8 +3521,10 @@ useEffect(() => {
 
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
+                // Process the stream
                 await handleStreamResponse(response);
 
+                // Finalize logic after stream ends
                 if (accumulatedTokensRef.current) {
                     setChatHistory(prev => [...prev, {
                         role: 'assistant',
@@ -3545,7 +3555,8 @@ useEffect(() => {
                     base64Image = imageCopy.content;
                 }
 
-                // Override mode if image detected
+                // If we are here, it's either an Image Request OR a very simple chat
+                // Override mode if image detected to ensure we get an image back
                 const effectiveMode = isImageRequest ? 'image_gen' : uiMode;
 
                 const apiPayload = {
@@ -3559,7 +3570,7 @@ useEffect(() => {
                     ai_mode: 'chat'
                 };
 
-                // Show "Generating..." immediately for images
+                // Immediate UI feedback for Image Generation
                 if (effectiveMode === 'image_gen' || effectiveMode === 'image_edit') {
                     setStreamingMessage({
                         role: 'assistant',
@@ -3569,10 +3580,10 @@ useEffect(() => {
                         isStreaming: true
                     });
                 } else {
-                    // For standard chat text, show typing indicator immediately
+                    // Immediate UI feedback for Text (Fake Typing)
                     setStreamingMessage({
                         role: 'assistant',
-                        content: '',
+                        content: '', // Empty start for typing effect
                         type: 'text',
                         ts: Date.now(),
                         isStreaming: true
@@ -3603,16 +3614,9 @@ useEffect(() => {
                         throw new Error("No image returned.");
                     }
                 }
-                // 2. Handle Text (Fallback for non-streaming simple chat)
+                // 2. Handle Text (Fallback)
                 else if (result?.text) {
-                    // Start empty to ensure no double-render during typing effect
-                    setStreamingMessage({
-                        role: 'assistant',
-                        content: '',
-                        type: 'text',
-                        ts: Date.now()
-                    });
-
+                    // We already set the empty message above, now we type into it
                     typeText(result.text, () => {
                         setChatHistory(prev => [...prev, {
                             role: 'assistant',
@@ -5240,6 +5244,7 @@ int main() {
         </>
     );
 }
+
 
 
 
