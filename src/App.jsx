@@ -3389,7 +3389,7 @@ const handleSendMessage = async () => {
     // 1. INPUT VALIDATION
     if (!message.trim() && !uploadedFile && !uploadedImage) return;
 
-    const processedMessage = message; 
+    const processedMessage = message;
     setIsLoading(true);
     const controller = new AbortController();
     setAbortController(controller);
@@ -3404,30 +3404,29 @@ const handleSendMessage = async () => {
     // We check if the user mentions any programming keyword or syntax starter.
     const strongCodeIndicators = [
         // General Intents
-        'code', 'script', 'function', 'method', 'bug', 'error', 'fix', 'debug', 
+        'code', 'script', 'function', 'method', 'bug', 'error', 'fix', 'debug',
         'syntax', 'compiler', 'stack trace', 'exception', 'run', 'compile', 'execute',
-        
+
         // JavaScript / TypeScript / Node
-        'const', 'let', 'var', 'import', 'export', 'async', 'await', 'console.log', 
+        'const', 'let', 'var', 'import', 'export', 'async', 'await', 'console.log',
         'npm', 'yarn', 'node_modules', 'react', 'jsx', 'tsx', 'vue', 'angular',
-        
+
         // Python
-        'def', 'class', 'pip', 'flask', 'django', 'pandas', 'numpy', 
+        'def', 'class', 'pip', 'flask', 'django', 'pandas', 'numpy',
         'self.', '__init__', 'print(', 'import os', 'import sys',
-        
-        // Java / C#
-        'public', 'private', 'protected', 'void', 'static', 'package', 'namespace', 
+
+        // Java / C        'public', 'private', 'protected', 'void', 'static', 'package', 'namespace',
         'using system', 'class', 'interface', 'extends', 'implements', 'maven', 'gradle',
-        
+
         // C / C++
-        '#include', '#define', 'struct', 'typedef', 'std::', 'cout', 'cin', 'printf', 'malloc',
-        
+        'include', 'define', 'struct', 'typedef', 'std::', 'cout', 'cin', 'printf', 'malloc',
+
         // Go / Rust
         'func', 'impl', 'fn', 'pub', 'crate', 'go mod', 'unwrap', 'mut',
-        
+
         // PHP / SQL / Web
-        '<?php', 'echo', '$this', 'composer', 'laravel', 
-        'select', 'insert', 'update', 'delete', 'from table', 
+        '<?php', 'echo', '$this', 'composer', 'laravel',
+        'select', 'insert', 'update', 'delete', 'from table',
         '<div>', '<span>', 'href', 'onclick'
     ];
 
@@ -3436,8 +3435,8 @@ const handleSendMessage = async () => {
 
     const isFullCodeRequest = detectFullCodeRequest(processedMessage);
     const isComplexTask = (
-        hasCodeIndicator || // <--- NOW TRIGGERS ON ANY KEYWORD
-        msgLower.includes('step by step') || 
+        hasCodeIndicator ||
+        msgLower.includes('step by step') ||
         msgLower.includes('stream') ||
         detectMathRequest(processedMessage)
     );
@@ -3449,11 +3448,11 @@ const handleSendMessage = async () => {
     // C. Detect "Image Generation" Requests (Strict)
     const imageGenKeywords = ['generate image', 'create image', 'draw', 'create a picture', 'paint', 'art'];
     const hasImageGenKeyword = imageGenKeywords.some(keyword => msgLower.includes(keyword));
-    
+
     // Only treat as Image Gen if it DOES NOT have code indicators (e.g., "Draw a diagram of this code" -> Code Mode)
     const isExplicitImageRequest = hasImageGenKeyword && !hasCodeIndicator && !isImageCodeAnalysis;
 
-    let uiMode = activeAIMode || selectedAIMode; 
+    let uiMode = activeAIMode || selectedAIMode;
     let forceTextProcessing = false;
     let forceImageProcessing = false;
     let statusMessageOverride = null;
@@ -3463,25 +3462,23 @@ const handleSendMessage = async () => {
     if (isExplicitImageRequest) {
         // PRIORITY 1: Explicitly asking to DRAW ART
         forceImageProcessing = true;
-        uiMode = 'image_gen'; 
-    } 
-    else if (isImageCodeAnalysis) {
+        uiMode = 'image_gen';
+    } else if (isImageCodeAnalysis) {
         // PRIORITY 2: Image + Code Keyword = VISION ANALYSIS
         forceTextProcessing = true;
-        uiMode = 'analyze_file'; 
+        uiMode = 'analyze_file';
         statusMessageOverride = "Reading code from image...";
-    }
-    else {
+    } else {
         // PRIORITY 3: Text/Code/Pro Mode
         const isProMode = selectedAIMode === 'pro';
-        
+
         // Force text path if Pro, Code Request, or Complex Task
         forceTextProcessing = isProMode || isFullCodeRequest || isComplexTask;
-        
+
         if (forceTextProcessing) {
             // Override Image UI if we are actually doing code
             if (uiMode === 'image_gen' || uiMode === 'image_edit') {
-                uiMode = 'chat'; 
+                uiMode = 'chat';
             }
         }
     }
@@ -3504,7 +3501,7 @@ const handleSendMessage = async () => {
     };
     setChatHistory(prev => [...prev, userMessage]);
     setMessage('');
-    
+
     // Reset buffers
     accumulatedTokensRef.current = '';
     setStreamedContent('');
@@ -3521,11 +3518,11 @@ const handleSendMessage = async () => {
 
     setStreamingMessage({
         role: 'assistant',
-        content: initialStatusText, 
+        content: initialStatusText,
         type: 'text',
         ts: Date.now(),
         isStreaming: true,
-        isThinking: true 
+        isThinking: true
     });
 
     try {
@@ -3534,10 +3531,10 @@ const handleSendMessage = async () => {
         // ============================================================
         if (
             !forceImageProcessing && (
-                uiMode === 'stream' || 
-                uiMode === 'reasoning' || 
-                uiMode === 'pro' || 
-                uiMode === 'analyze_file' || 
+                uiMode === 'stream' ||
+                uiMode === 'reasoning' ||
+                uiMode === 'pro' ||
+                uiMode === 'analyze_file' ||
                 forceTextProcessing
             )
         ) {
@@ -3549,17 +3546,17 @@ const handleSendMessage = async () => {
             else if (isFullCodeRequest || isComplexTask || isImageCodeAnalysis) effectiveAIMode = 'reasoning';
 
             const apiUrl = '/api/generate/text';
-            const apiPayload = { 
-                prompt: processedMessage, 
+            const apiPayload = {
+                prompt: processedMessage,
                 // Force analyze_file mode if we are doing image code analysis
-                mode: (uiMode === 'analyze_file' || isImageCodeAnalysis) ? 'analyze_file' : 'chat', 
+                mode: (uiMode === 'analyze_file' || isImageCodeAnalysis) ? 'analyze_file' : 'chat',
                 user_preference_id: getPersistentUserId(),
                 firebase_token: currentUser?.firebaseToken || '',
-                stream: true, 
-                ai_mode: effectiveAIMode, 
+                stream: true,
+                ai_mode: effectiveAIMode,
                 file_content: fileCopy ? await (fileCopy.text ? fileCopy.text() : Promise.resolve('')) : undefined,
                 filename: fileCopy?.name,
-                image: imageCopy ? imageCopy.content : undefined, 
+                image: imageCopy ? imageCopy.content : undefined,
                 full_code_mode: isFullCodeRequest,
                 project_type: projectMetadata?.type
             };
@@ -3567,11 +3564,11 @@ const handleSendMessage = async () => {
             const response = await callFastAPI(apiUrl, apiPayload, uiMode, {
                 signal: controller.signal,
                 stream: true,
-                timeout: 0 
+                timeout: 0
             });
 
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            
+
             await handleStreamResponse(response);
 
             // Finalize Stream
@@ -3584,7 +3581,7 @@ const handleSendMessage = async () => {
                     isFullCode: isFullCodeRequest,
                     files: isFullCodeRequest && generatedFiles.length > 0 ? generatedFiles : undefined
                 }]);
-                
+
                 if (isFullCodeRequest && generatedFiles.length > 0) {
                     setTimeout(() => {
                         setIsProjectView(true);
@@ -3592,8 +3589,8 @@ const handleSendMessage = async () => {
                     }, 500);
                 }
             }
-        } 
-        
+        }
+
         // ============================================================
         //  PATH B: IMAGE GEN ONLY (Fallback)
         // ============================================================
@@ -3601,21 +3598,21 @@ const handleSendMessage = async () => {
             const apiUrl = '/api/generate/text';
             let base64Image = null;
             if (uiMode === 'image_edit' && imageCopy && !isImageCodeAnalysis) {
-                base64Image = imageCopy.content; 
+                base64Image = imageCopy.content;
             }
 
             const apiPayload = {
                 prompt: processedMessage,
-                mode: forceImageProcessing ? 'image_gen' : uiMode, 
+                mode: forceImageProcessing ? 'image_gen' : uiMode,
                 image: base64Image,
                 aspect_ratio: aspectRatio,
                 user_preference_id: getPersistentUserId(),
                 firebase_token: currentUser?.firebaseToken || '',
-                stream: false, 
-                ai_mode: 'chat'
+                stream: false,
+                ai_mode: selectedAIMode // Use the selected AI mode for image generation
             };
 
-            const result = await callFastAPI(apiUrl, apiPayload, uiMode, { 
+            const result = await callFastAPI(apiUrl, apiPayload, uiMode, {
                 signal: controller.signal,
                 stream: false
             });
@@ -3625,7 +3622,7 @@ const handleSendMessage = async () => {
             if (uiMode === 'image_gen' || uiMode === 'image_edit' || forceImageProcessing) {
                 const imgData = result.base64_image || result.image || result.url;
                 if (imgData) {
-                    setStreamingMessage(null); 
+                    setStreamingMessage(null);
                     setChatHistory(prev => [...prev, {
                         role: 'assistant',
                         content: uiMode === 'image_edit' ? `Edited: ${processedMessage}` : '',
@@ -3635,9 +3632,9 @@ const handleSendMessage = async () => {
                         is_generated: true
                     }]);
                 } else {
-                     if (result.text) {
-                         setStreamingMessage(null);
-                         setChatHistory(prev => [...prev, {
+                    if (result.text) {
+                        setStreamingMessage(null);
+                        setChatHistory(prev => [...prev, {
                             role: 'assistant',
                             content: result.text,
                             type: 'text',
@@ -3647,8 +3644,7 @@ const handleSendMessage = async () => {
                         throw new Error("No image returned.");
                     }
                 }
-            } 
-            else if (result?.text) {
+            } else if (result?.text) {
                 setStreamingMessage({ role: 'assistant', content: '', type: 'text', ts: Date.now() });
                 typeText(result.text, () => {
                     setChatHistory(prev => [...prev, {
@@ -5430,6 +5426,7 @@ int main() {
         </>
     );
 }
+
 
 
 
