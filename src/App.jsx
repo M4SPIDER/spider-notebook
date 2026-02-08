@@ -2768,13 +2768,14 @@ useEffect(() => {
                 setTimeout(() => fileInputRef.current?.click(), 50);
             };
 
-            const onUploadImage = (e) => {
-                e.stopPropagation();
-                setOpen(false);
-                if (typeof _setActiveAIMode === 'function') _setActiveAIMode('image_edit');
-                setTimeout(() => imageInputRef.current?.click(), 50);
-            };
-
+    const onUploadImage = (e) => {
+    e.stopPropagation();
+    setOpen(false);
+    // 🟢 NEW: Sets 'chat' mode. Backend will auto-detect "Edit" vs "Analyze" based on your words.
+    if (typeof _setActiveAIMode === 'function') _setActiveAIMode('chat'); 
+    setTimeout(() => imageInputRef.current?.click(), 50);
+};
+          
             const onGenImage = (e) => {
                 e.stopPropagation();
                 setOpen(false);
@@ -5204,6 +5205,7 @@ int main() {
         </>
     );
 }
+
 
 
 
