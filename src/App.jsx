@@ -3386,22 +3386,29 @@ useEffect(() => {
     // ---------- Enhanced Send Message with AI Modes ----------
 // ---------- Enhanced Send Message (Vision + Smart Stream Logic) ----------
 // ---------- Enhanced Send Message (Pro Mode Force Stream + Instant UI) ----------
+  // ---------- Enhanced Send Message (Pro Mode Fix + Instant UI) ----------
     const handleSendMessage = async () => {
         // 1. INPUT VALIDATION
         if (!message.trim() && !uploadedFile && !uploadedImage) return;
 
         const processedMessage = message;
         
-        // --- INSTANT UI FEEDBACK (START) ---
-        setIsLoading(true); // Trigger loading spinner/state immediately
+        // --- INSTANT UI FEEDBACK ---
+        setIsLoading(true);
         const controller = new AbortController();
         setAbortController(controller);
 
         const fileCopy = uploadedFile;
         const imageCopy = uploadedImage;
 
-        // Determine the user's selected UI mode
-        let uiMode = activeAIMode || selectedAIMode;
+        // --- CRITICAL FIX: MODE SELECTION LOGIC ---
+        // Previous bug: activeAIMode (defaulting to 'chat') was overwriting selectedAIMode ('pro').
+        // Fix: Only let activeAIMode override if it is a specific tool (like image_gen or analyze_file).
+        // Otherwise, trust the user's selected dropdown mode (Pro/Reasoning/Chat).
+        let uiMode = selectedAIMode; 
+        if (activeAIMode && activeAIMode !== 'chat') {
+            uiMode = activeAIMode;
+        }
 
         // --- 2. SMART ROUTING LOGIC ---
         
@@ -3410,7 +3417,7 @@ useEffect(() => {
         const isImageRequest = detectImageGeneration(processedMessage);
         
         const lowerMsg = processedMessage.toLowerCase();
-        // Expanded code triggers to ensure chat mode switches to stream for technical queries
+        // Expanded code triggers
         const codeTriggers = [
             'code', 'script', 'function', 'api', 'debug', 'fix', 'error', 
             'python', 'java', 'js', 'javascript', 'cpp', 'c++', 'html', 'css', 
@@ -3433,12 +3440,11 @@ useEffect(() => {
             detectMathRequest(processedMessage)
         ));
 
-        // --- THE FIX: Pro Mode Logic ---
-        // 1. If Pro/Reasoning, default to TRUE.
+        // --- PRO MODE LOGIC ---
+        // 1. If mode is Pro/Reasoning, default to TRUE.
         // 2. If Chat, check if it's a complex/code task.
         // 3. ALWAYS stream for Full Code or Analyze File.
         // 4. CRITICAL: Only disable streaming if it is a VALID image request.
-        //    (In Pro mode, we ignore weak image triggers like 'visualize')
         const isProMode = uiMode === 'pro' || uiMode === 'reasoning';
         
         const shouldStream = (
@@ -3480,14 +3486,13 @@ useEffect(() => {
 
         try {
             // ============================================================
-            //  PATH A: MISTRAL 24B (High-Speed Streaming)
+            //  PATH A: MISTRAL 24B (Streaming - Pro/Code/Reasoning)
             // ============================================================
             // Logic: Enter here if we should stream AND it's not an explicit image generation mode
             if (shouldStream && uiMode !== 'image_gen' && uiMode !== 'image_edit') {
                 setIsStreaming(true);
 
-                // RENDER EMPTY BUBBLE IMMEDIATELY
-                // This ensures the user sees the "Assistant is thinking..." state instantly
+                // RENDER EMPTY BUBBLE IMMEDIATELY (Instant Feedback)
                 setStreamingMessage({
                     role: 'assistant',
                     content: '', 
@@ -3496,8 +3501,11 @@ useEffect(() => {
                     isStreaming: true
                 });
 
-                // Auto-switch 'chat' to 'reasoning' model for better results if routed here
-                const effectiveAIMode = (uiMode === 'chat') ? 'reasoning' : selectedAIMode;
+                // Ensure we send the correct model ID to the backend
+                // If the user selected 'pro', map it to 'mistral-large' or 'reasoning' to be safe
+                let effectiveAIMode = uiMode;
+                if (uiMode === 'chat') effectiveAIMode = 'reasoning'; 
+                if (uiMode === 'pro') effectiveAIMode = 'mistral-large'; // Explicit mapping for Pro
 
                 const apiUrl = '/api/generate/text';
                 const apiPayload = {
@@ -3506,7 +3514,7 @@ useEffect(() => {
                     user_preference_id: getPersistentUserId(),
                     firebase_token: currentUser?.firebaseToken || '',
                     stream: true,
-                    ai_mode: effectiveAIMode,
+                    ai_mode: effectiveAIMode, // Send the explicit mode
                     file_content: fileCopy ? await (fileCopy.text ? fileCopy.text() : Promise.resolve('')) : undefined,
                     filename: fileCopy?.name,
                     full_code_mode: isFullCodeRequest,
@@ -3567,7 +3575,7 @@ useEffect(() => {
                     user_preference_id: getPersistentUserId(),
                     firebase_token: currentUser?.firebaseToken || '',
                     stream: false,
-                    ai_mode: 'chat'
+                    ai_mode: 'chat' // Fallback to standard model
                 };
 
                 // Immediate UI feedback for Image Generation
@@ -5244,6 +5252,7 @@ int main() {
         </>
     );
 }
+
 
 
 
