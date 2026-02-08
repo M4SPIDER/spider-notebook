@@ -3385,229 +3385,245 @@ useEffect(() => {
 
     // ---------- Enhanced Send Message with AI Modes ----------
 // ---------- Enhanced Send Message (Vision + Smart Stream Logic) ----------
+// ---------- Enhanced Send Message (Vision + Smart Stream Logic + Auto Code/Image Routing) ----------
 const handleSendMessage = async () => {
-  // 1. INPUT VALIDATION
-  if (!message.trim() && !uploadedFile && !uploadedImage) return;
+    // 1. INPUT VALIDATION
+    if (!message.trim() && !uploadedFile && !uploadedImage) return;
 
-  const processedMessage = message;
-  setIsLoading(true);
-  const controller = new AbortController();
-  setAbortController(controller);
+    const processedMessage = message;
+    setIsLoading(true);
+    const controller = new AbortController();
+    setAbortController(controller);
 
-  const fileCopy = uploadedFile;
-  const imageCopy = uploadedImage;
+    const fileCopy = uploadedFile;
+    const imageCopy = uploadedImage;
 
-  // Determine the user's selected UI mode
-  let uiMode = activeAIMode || selectedAIMode;
+    // Determine the user's selected UI mode
+    let uiMode = activeAIMode || selectedAIMode;
 
-  // --- 1. SMART ROUTING LOGIC ---
-  // Check if we need to force Mistral (Streaming) for complex tasks in Chat mode
-  const isComplexTask = (uiMode === 'chat' && (
-    processedMessage.toLowerCase().includes('step by step') ||
-    processedMessage.toLowerCase().includes('stream') ||
-    processedMessage.toLowerCase().includes('code') ||
-    detectMathRequest(processedMessage)
-  ));
+    // --- 1. SMART ROUTING LOGIC ---
+    
+    // A. Detect Image Request (Force Image Path)
+    const isImageRequest = detectImageGeneration(processedMessage);
 
-  const isFullCodeRequest = detectFullCodeRequest(processedMessage);
-  if (isFullCodeRequest) {
-    setIsFullCodeMode(true);
-    setProjectMetadata(extractProjectMetadata(processedMessage));
-  }
+    // B. Detect Code Request (The Fix for Chat Mode)
+    // We expand the list of triggers so "python", "script", "fix", etc. also trigger streaming.
+    const lowerMsg = processedMessage.toLowerCase();
+    const codeTriggers = [
+        'code', 'script', 'function', 'api', 'debug', 'fix', 'error', 
+        'python', 'java', 'js', 'javascript', 'cpp', 'c++', 'html', 'css', 
+        'react', 'node', 'sql', 'algorithm', 'class', 'method', 'variable'
+    ];
+    const isCodeRequest = codeTriggers.some(t => lowerMsg.includes(t));
 
-  // "shouldStream" = True implies using Mistral 24B
-  const shouldStream =
-    uiMode === 'stream' ||
-    uiMode === 'reasoning' ||
-    uiMode === 'pro' ||
-    uiMode === 'analyze_file' ||
-    isFullCodeRequest ||
-    isComplexTask;
+    // C. Check for complex/streaming tasks in Standard Chat
+    const isComplexTask = (uiMode === 'chat' && (
+        lowerMsg.includes('step by step') ||
+        lowerMsg.includes('stream') ||
+        isCodeRequest || // Use the robust code check here
+        detectMathRequest(processedMessage)
+    ));
 
-  // Update UI History
-  const userMessage = {
-    role: 'user',
-    content: processedMessage,
-    type: uiMode,
-    fileName: fileCopy ? fileCopy.name : undefined,
-    imageName: imageCopy ? imageCopy.name : undefined,
-    ts: Date.now(),
-    isFullCodeRequest: isFullCodeRequest,
-    aiMode: selectedAIMode
-  };
-  setChatHistory(prev => [...prev, userMessage]);
-  setMessage('');
+    const isFullCodeRequest = detectFullCodeRequest(processedMessage);
+    if (isFullCodeRequest) {
+        setIsFullCodeMode(true);
+        setProjectMetadata(extractProjectMetadata(processedMessage));
+    }
 
-  // Reset buffers
-  accumulatedTokensRef.current = '';
-  setStreamedContent('');
-  setShowContinueButton(false);
-  setLastStreamId(null);
-  fileContentBufferRef.current = '';
+    // D. Determine if we should use the Streaming Text Model (Mistral 24B)
+    // Logic: If it's a code/complex task AND NOT an image request -> Stream it.
+    const shouldStream =
+        (uiMode === 'stream' ||
+        uiMode === 'reasoning' ||
+        uiMode === 'pro' ||
+        uiMode === 'analyze_file' ||
+        isFullCodeRequest ||
+        isComplexTask) && !isImageRequest; 
 
-  try {
-    // ============================================================
-    //  PATH A: MISTRAL 24B (High-Speed Streaming)
-    // ============================================================
-    if (shouldStream && uiMode !== 'image_gen' && uiMode !== 'image_edit') {
-      setIsStreaming(true);
-
-      // 🚀 PERFORMANCE FIX: Initialize UI *immediately* before network request
-      setStreamingMessage({
-        role: 'assistant',
-        content: '', // Start empty to reduce render flicker
-        type: 'text',
+    // Update UI History
+    const userMessage = {
+        role: 'user',
+        content: processedMessage,
+        type: uiMode,
+        fileName: fileCopy ? fileCopy.name : undefined,
+        imageName: imageCopy ? imageCopy.name : undefined,
         ts: Date.now(),
-        isStreaming: true
-      });
+        isFullCodeRequest: isFullCodeRequest,
+        aiMode: selectedAIMode
+    };
+    setChatHistory(prev => [...prev, userMessage]);
+    setMessage('');
 
-      // Force the backend to use Mistral if we are auto-switching from Chat
-      const effectiveAIMode = (uiMode === 'chat') ? 'reasoning' : selectedAIMode;
+    // Reset buffers
+    accumulatedTokensRef.current = '';
+    setStreamedContent('');
+    setShowContinueButton(false);
+    setLastStreamId(null);
+    fileContentBufferRef.current = '';
 
-      const apiUrl = '/api/generate/text';
-      const apiPayload = {
-        prompt: processedMessage,
-        mode: uiMode === 'analyze_file' ? 'analyze_file' : 'chat',
-        user_preference_id: getPersistentUserId(),
-        firebase_token: currentUser?.firebaseToken || '',
-        stream: true, // Force Streaming
-        ai_mode: effectiveAIMode, // Send specific model ID
-        file_content: fileCopy ? await (fileCopy.text ? fileCopy.text() : Promise.resolve('')) : undefined,
-        filename: fileCopy?.name,
-        full_code_mode: isFullCodeRequest,
-        project_type: projectMetadata?.type
-      };
+    try {
+        // ============================================================
+        //  PATH A: MISTRAL 24B (High-Speed Text Streaming)
+        // ============================================================
+        // Only enter this if it is NOT an image request
+        if (shouldStream && uiMode !== 'image_gen' && uiMode !== 'image_edit') {
+            setIsStreaming(true);
 
-      const response = await callFastAPI(apiUrl, apiPayload, uiMode, {
-        signal: controller.signal,
-        stream: true,
-        timeout: 0
-      });
+            setStreamingMessage({
+                role: 'assistant',
+                content: '', 
+                type: 'text',
+                ts: Date.now(),
+                isStreaming: true
+            });
 
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            // Force the backend to use Mistral/Reasoning if we are auto-switching from Chat
+            const effectiveAIMode = (uiMode === 'chat') ? 'reasoning' : selectedAIMode;
 
-      // Handle the stream chunks
-      await handleStreamResponse(response);
+            const apiUrl = '/api/generate/text';
+            const apiPayload = {
+                prompt: processedMessage,
+                mode: uiMode === 'analyze_file' ? 'analyze_file' : 'chat',
+                user_preference_id: getPersistentUserId(),
+                firebase_token: currentUser?.firebaseToken || '',
+                stream: true,
+                ai_mode: effectiveAIMode,
+                file_content: fileCopy ? await (fileCopy.text ? fileCopy.text() : Promise.resolve('')) : undefined,
+                filename: fileCopy?.name,
+                full_code_mode: isFullCodeRequest,
+                project_type: projectMetadata?.type
+            };
 
-      // Finalize Stream
-      if (accumulatedTokensRef.current) {
-        setChatHistory(prev => [...prev, {
-          role: 'assistant',
-          content: accumulatedTokensRef.current,
-          type: 'text',
-          ts: Date.now(),
-          isFullCode: isFullCodeRequest,
-          files: isFullCodeRequest && generatedFiles.length > 0 ? generatedFiles : undefined
-        }]);
+            const response = await callFastAPI(apiUrl, apiPayload, uiMode, {
+                signal: controller.signal,
+                stream: true,
+                timeout: 0
+            });
 
-        if (isFullCodeRequest && generatedFiles.length > 0) {
-          setTimeout(() => {
-            setIsProjectView(true);
-            showModal("Project Generated", `Generated ${generatedFiles.length} files.`);
-          }, 500);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+            await handleStreamResponse(response);
+
+            if (accumulatedTokensRef.current) {
+                setChatHistory(prev => [...prev, {
+                    role: 'assistant',
+                    content: accumulatedTokensRef.current,
+                    type: 'text',
+                    ts: Date.now(),
+                    isFullCode: isFullCodeRequest,
+                    files: isFullCodeRequest && generatedFiles.length > 0 ? generatedFiles : undefined
+                }]);
+
+                if (isFullCodeRequest && generatedFiles.length > 0) {
+                    setTimeout(() => {
+                        setIsProjectView(true);
+                        showModal("Project Generated", `Generated ${generatedFiles.length} files.`);
+                    }, 500);
+                }
+            }
         }
-      }
-    }
 
-    // ============================================================
-    //  PATH B: GPT120OSS (Standard Chat / Images)
-    // ============================================================
-    else {
-      const apiUrl = '/api/generate/text';
+        // ============================================================
+        //  PATH B: GPT120OSS / SDXL (Standard Chat OR Image Gen)
+        // ============================================================
+        else {
+            const apiUrl = '/api/generate/text';
 
-      let base64Image = null;
-      if (uiMode === 'image_edit' && imageCopy) {
-        base64Image = imageCopy.content;
-      }
+            let base64Image = null;
+            if (uiMode === 'image_edit' && imageCopy) {
+                base64Image = imageCopy.content;
+            }
 
-      const apiPayload = {
-        prompt: processedMessage,
-        mode: uiMode,
-        image: base64Image,
-        aspect_ratio: aspectRatio,
-        user_preference_id: getPersistentUserId(),
-        firebase_token: currentUser?.firebaseToken || '',
-        stream: false,
-        ai_mode: 'chat' // Force GPT120
-      };
+            // Override mode if image detected
+            const effectiveMode = isImageRequest ? 'image_gen' : uiMode;
 
-      // Set a temp loading state if it's an image, otherwise wait quietly
-      if (uiMode === 'image_gen' || uiMode === 'image_edit') {
-        setStreamingMessage({
-          role: 'assistant',
-          content: 'Generating image...',
-          type: 'text',
-          ts: Date.now(),
-          isStreaming: true
-        });
-      }
+            const apiPayload = {
+                prompt: processedMessage,
+                mode: effectiveMode,
+                image: base64Image,
+                aspect_ratio: aspectRatio,
+                user_preference_id: getPersistentUserId(),
+                firebase_token: currentUser?.firebaseToken || '',
+                stream: false,
+                ai_mode: 'chat'
+            };
 
-      const result = await callFastAPI(apiUrl, apiPayload, uiMode, {
-        signal: controller.signal,
-        stream: false
-      });
+            if (effectiveMode === 'image_gen' || effectiveMode === 'image_edit') {
+                setStreamingMessage({
+                    role: 'assistant',
+                    content: 'Generating image...',
+                    type: 'text',
+                    ts: Date.now(),
+                    isStreaming: true
+                });
+            }
 
-      if (result.error) throw new Error(result.error);
+            const result = await callFastAPI(apiUrl, apiPayload, effectiveMode, {
+                signal: controller.signal,
+                stream: false
+            });
 
-      // 1. Handle Images
-      if (uiMode === 'image_gen' || uiMode === 'image_edit') {
-        const imgData = result.base64_image || result.image || result.url;
-        if (imgData) {
-          setChatHistory(prev => [...prev, {
-            role: 'assistant',
-            content: uiMode === 'image_edit' ? `Edited: ${processedMessage}` : '',
-            type: 'image',
-            base64_image: imgData,
-            ts: Date.now(),
-            is_generated: true
-          }]);
-        } else {
-          throw new Error("No image returned.");
+            if (result.error) throw new Error(result.error);
+
+            // 1. Handle Images
+            if (effectiveMode === 'image_gen' || effectiveMode === 'image_edit' || result.base64_image) {
+                const imgData = result.base64_image || result.image || result.url;
+                if (imgData) {
+                    setChatHistory(prev => [...prev, {
+                        role: 'assistant',
+                        content: effectiveMode === 'image_edit' ? `Edited: ${processedMessage}` : '',
+                        type: 'image',
+                        base64_image: imgData,
+                        ts: Date.now(),
+                        is_generated: true
+                    }]);
+                    setStreamingMessage(null);
+                } else {
+                    throw new Error("No image returned.");
+                }
+            }
+            // 2. Handle Text (Fallback for non-streaming simple chat)
+            else if (result?.text) {
+                setStreamingMessage({
+                    role: 'assistant',
+                    content: '',
+                    type: 'text',
+                    ts: Date.now()
+                });
+
+                typeText(result.text, () => {
+                    setChatHistory(prev => [...prev, {
+                        role: 'assistant',
+                        content: result.text,
+                        type: 'text',
+                        ts: Date.now()
+                    }]);
+                    setStreamingMessage(null);
+                });
+            } else {
+                throw new Error("Empty response from AI");
+            }
         }
-      }
-      // 2. Handle Text (GPT120 Fake Typing)
-      else if (result?.text) {
-        // Initialize empty message for typing effect
-        setStreamingMessage({
-          role: 'assistant',
-          content: '',
-          type: 'text',
-          ts: Date.now()
-        });
 
-        typeText(result.text, () => {
-          setChatHistory(prev => [...prev, {
-            role: 'assistant',
-            content: result.text,
-            type: 'text',
-            ts: Date.now()
-          }]);
-          setStreamingMessage(null);
-        });
-      } else {
-        throw new Error("Empty response from AI");
-      }
+    } catch (error) {
+        if (error.name !== 'AbortError') {
+            console.error('API Error:', error);
+            setChatHistory(prev => [...prev, {
+                role: 'assistant',
+                content: `Error: ${error.message || 'Unknown error'}`,
+                type: 'text',
+                ts: Date.now(),
+                isError: true
+            }]);
+        }
+    } finally {
+        setIsLoading(false);
+        setIsStreaming(false);
+        setStreamingMessage(null);
+        setAbortController(null);
+        setUploadedFile(null);
+        setUploadedImage(null);
     }
-
-  } catch (error) {
-    if (error.name !== 'AbortError') {
-      console.error('API Error:', error);
-      setChatHistory(prev => [...prev, {
-        role: 'assistant',
-        content: `Error: ${error.message || 'Unknown error'}`,
-        type: 'text',
-        ts: Date.now(),
-        isError: true
-      }]);
-    }
-  } finally {
-    setIsLoading(false);
-    setIsStreaming(false);
-    setStreamingMessage(null);
-    setAbortController(null);
-    setUploadedFile(null);
-    setUploadedImage(null);
-  }
 };
   // ---------- Download Project ----------
     const downloadProjectAsZip = useCallback(async () => {
@@ -5201,6 +5217,7 @@ int main() {
         </>
     );
 }
+
 
 
 
