@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.66)
+ * SPIDER AI — FINAL STABLE BACKEND (v9.9.67)
  * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN (GEN) + FLUX (EDIT) + ASR + VISION (MISTRAL)
- * UPDATES: Session Memory + Dynamic 128k Context
+ * UPDATES: Auto-Cleanup (Prevent Cut-off) + Dynamic Context
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,12 +11,12 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.66";
+const VERSION = "9.9.67";
 
 // CONTEXT MANAGEMENT
-// 128k tokens * 4 chars/token = ~512,000 chars. 
-// We reserve buffer for output and system prompts.
-const MAX_CONTEXT_TOKENS = 120000; 
+// 128k Limit. We set a SAFE LIMIT of 100k to leave ~28k tokens for the RESPONSE.
+// This prevents the "answer cutting in between" issue.
+const MAX_CONTEXT_TOKENS = 100000; 
 const EST_CHARS_PER_TOKEN = 4;
 const AI_MEMORY_TTL_DAYS = 30;
 const AI_MEMORY_USER_KEY_PREFIX = "spider_ai_mem:";
@@ -589,6 +589,9 @@ let activePrompt = prompt;
             // Just push the text prompt
             memory.push({ role: "user", content: currentPrompt, ts: Date.now() });
 
+            // AUTO CLEAN UP: Trim memory immediately to ensure we fit in context
+            memory = trimMemoryByContext(memory); 
+
             while (currentLoop < MAX_LOOPS && !isFullyDone) {
                 currentLoop++;
                 
@@ -1054,7 +1057,7 @@ let activePrompt = prompt;
 
     memory.push({ role: "user", content: finalUserPrompt, ts: Date.now() });
     
-    // DYNAMIC CONTEXT TRIMMER (PRE-RUN - Optional to prevent huge prompts, but usually we trim AFTER adding response)
+    // AUTO CLEAN UP: Trim memory immediately to ensure we fit in context
     memory = trimMemoryByContext(memory);
 
     const messages = [
