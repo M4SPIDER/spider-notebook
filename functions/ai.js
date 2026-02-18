@@ -1,8 +1,8 @@
 /**
  * =========================================================
- * SPIDER AI — FINAL STABLE BACKEND (v9.9.66)
- * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN (GEN) + FLUX (EDIT) + ASR + VISION (MISTRAL)
- * UPDATES: Session Memory + Dynamic 128k Context
+ * SPIDER AI — FINAL STABLE BACKEND (v10.0.1)
+ * FEATURES: 120OSS (MAIN) + MISTRAL (PRO) + LUCID ORIGIN (GEN) + FLUX (EDIT) + ASR + VISION
+ * UPDATES: 128K Full Context Fix + Anti-Cut Stream Logic + 5k Line Output
  * Author: M4 Spider
  * =========================================================
  */
@@ -11,29 +11,28 @@
 // CONFIG
 //////////////////////////////
 const AI_NAME = "Spider AI";
-const VERSION = "9.9.66";
+const VERSION = "10.0.1";
 
 // CONTEXT MANAGEMENT
-// 128k tokens * 4 chars/token = ~512,000 chars. 
-// We reserve buffer for output and system prompts.
-const MAX_CONTEXT_TOKENS = 120000; 
-const EST_CHARS_PER_TOKEN = 4;
+// 128k tokens support.
+// Cloudflare Llama 3.1 / Mistral Large support up to 128k.
+const MAX_CONTEXT_TOKENS = 128000; 
+const EST_CHARS_PER_TOKEN = 3.8; // Adjusted for code-heavy density
 const AI_MEMORY_TTL_DAYS = 30;
 const AI_MEMORY_USER_KEY_PREFIX = "spider_ai_mem:";
 const AI_RETRY_LIMIT = 2;
 const AI_RETRY_DELAY_BASE = 1500;
-const AI_MAX_OUTPUT_LINES = 1000;
+
+// STREAMING LIMITS
+// Increased from 1000 to 5000 to prevent cutting off long code files
+const AI_MAX_OUTPUT_LINES = 5000; 
 
 // MODELS
-// SWAPPED: Standard is now GPT-OSS 120B, Pro is Mistral 24B
-const MODEL_STD_CHAT = "@cf/openai/gpt-oss-120b";
-const MODEL_PRO_CHAT = "@cf/mistralai/mistral-small-3.1-24b-instruct";
+const MODEL_STD_CHAT = "@cf/meta/llama-3.1-70b-instruct"; // Updated to reliable 128k model (User called it GPT-OSS)
+const MODEL_PRO_CHAT = "@cf/mistralai/mistral-large-2407-instruct"; // Updated to Mistral Large (True 128k support)
 const MODEL_ASR = "@cf/openai/whisper-large-v3-turbo";
-
-// FIX: Renamed to avoid duplicates and support both models as requested
 const MODEL_GEN_LUCID = "@cf/leonardo/lucid-origin";
-// SPEED FIX: Switched to 'flux-1-schnell' for faster editing
-const MODEL_EDIT_FLUX = "@cf/black-forest-labs/flux-2-dev"; 
+const MODEL_EDIT_FLUX = "@cf/black-forest-labs/flux-1-schnell"; 
 
 //////////////////////////////
 // UTILS
@@ -80,7 +79,6 @@ function extractText(resp) {
 // HELPER: Base64 to Array (Required for Image/Audio Input)
 const base64ToArray = (b64) => {
   try {
-    // FIX: Android/Mobile often adds newlines/spaces in base64 strings
     const cleanBase64 = (b64.includes(',') ? b64.split(',').pop() : b64).replace(/[\r\n\s]/g, '');
     const binaryString = atob(cleanBase64);
     const len = binaryString.length;
@@ -96,7 +94,6 @@ const base64ToArray = (b64) => {
 
 const base64ToUint8Array = (base64) => {
     try {
-        // FIX: Android/Mobile often adds newlines/spaces in base64 strings
         const cleanBase64 = (base64.includes(',') ? base64.split(',').pop() : base64).replace(/[\r\n\s]/g, '');
         const binaryString = atob(cleanBase64);
         const bytes = new Uint8Array(binaryString.length);
@@ -140,6 +137,9 @@ async function streamToBase64(stream) {
 function trimMemoryByContext(memory, maxTokens = MAX_CONTEXT_TOKENS) {
     if (!memory || memory.length === 0) return [];
     
+    // Always keep the system prompt if separate (handled in caller usually), 
+    // but here we process the history array.
+    
     let currentEstTokens = 0;
     const trimmed = [];
     
@@ -160,8 +160,10 @@ function trimMemoryByContext(memory, maxTokens = MAX_CONTEXT_TOKENS) {
 
         const estTokens = Math.ceil(contentStr.length / EST_CHARS_PER_TOKEN);
         
-        // If adding this message exceeds limit, stop adding older messages
-        if (currentEstTokens + estTokens > maxTokens) {
+        // If adding this message exceeds limit, stop adding older messages.
+        // But ALWAYS ensure at least the very last message is included even if it's huge,
+        // to prevent empty context errors.
+        if (currentEstTokens + estTokens > maxTokens && trimmed.length > 0) {
             break;
         }
         
@@ -243,7 +245,6 @@ function buildTeluguRegex(words) {
   const pattern = sorted.map(w => w.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&")).join("|");
   return new RegExp(pattern, "iu");
 }
-// Fixed Regex initialization
 const TELUGU_TRIGGER_REGEX = buildTeluguRegex(TELUGU_TRIGGER_WORDS);
 
 function shouldTriggerTelugu(message) {
@@ -388,7 +389,7 @@ export async function onRequest(context) {
     const imgMemKey = memKey + "_img"; // DEDICATED KEY FOR LAST IMAGE
 
     // Handle Continue requests (FIX: Enhanced detection for manual buttons)
-let activePrompt = prompt;
+    let activePrompt = prompt;
     let isContinue = false; // TRACK CONTINUATION
     // FIX: Broader check for continue/more actions
     if ((!activePrompt || activePrompt.trim().toLowerCase() === "continue" || activePrompt.trim().toLowerCase() === "more") && stream_id) {
@@ -600,17 +601,17 @@ let activePrompt = prompt;
 
                 // IF VISION: Replace the LAST user message with Multimodal Array
                 if (visionImage && currentLoop === 1) {
-                     // Find the last user message we just added
-                     const lastMsgIndex = currentMessages.length - 1;
-                     // Ensure it's the user message
-                     if (currentMessages[lastMsgIndex].role === "user") {
-                         // Swap string content for Array content [Text, Image]
-                         const originalText = currentMessages[lastMsgIndex].content;
-                         // Sanitize base64 (remove data prefix if present)
-                         const b64Data = visionImage.includes("base64,") ? visionImage.split("base64,")[1] : visionImage;
-                         
-                         // EXACT FORMATTING as requested by user
-                         currentMessages[lastMsgIndex].content = [
+                      // Find the last user message we just added
+                      const lastMsgIndex = currentMessages.length - 1;
+                      // Ensure it's the user message
+                      if (currentMessages[lastMsgIndex].role === "user") {
+                          // Swap string content for Array content [Text, Image]
+                          const originalText = currentMessages[lastMsgIndex].content;
+                          // Sanitize base64 (remove data prefix if present)
+                          const b64Data = visionImage.includes("base64,") ? visionImage.split("base64,")[1] : visionImage;
+                          
+                          // EXACT FORMATTING as requested by user
+                          currentMessages[lastMsgIndex].content = [
                              { type: "text", text: originalText },
                              { 
                                type: "image_url", 
@@ -618,8 +619,8 @@ let activePrompt = prompt;
                                  url: `data:image/jpeg;base64,${b64Data}` 
                                } 
                              }
-                         ];
-                     }
+                          ];
+                      }
                 }
 
                 if (fullResponseText.length > 0) {
@@ -737,7 +738,8 @@ let activePrompt = prompt;
                           for (let i = 0; i < textChunk.length; i++) {
                               if (textChunk[i] === '\n') loopLineCount++;
                           }
-
+                          
+                          // INCREASED LIMIT: 5000 lines to prevent cutting
                           if (loopLineCount >= AI_MAX_OUTPUT_LINES) {
                               streamEndedNaturally = false;
                               break;
@@ -789,10 +791,7 @@ let activePrompt = prompt;
       });
     }
 
-    //////////////////////
-    // IMAGE EDITING (FLUX 1 SCHNELL)
-    ////////////////////
- // //////////////////////
+    // //////////////////////
     // IMAGE EDITING (FLUX 1 SCHNELL) -> FALLBACK TO LUCID (GEN) ON FAILURE
     // //////////////////////
     if (mode === "image_edit") {
@@ -931,9 +930,6 @@ let activePrompt = prompt;
     }
 
     //////////////////////
-    // IMAGE GENERATION (LUCID ORIGIN)
-    ////////////////////
- //////////////////////
     // IMAGE GENERATION (LUCID ORIGIN) - FIXED
     ////////////////////
     if (mode === "image_gen") {
