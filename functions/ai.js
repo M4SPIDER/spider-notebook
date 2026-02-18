@@ -22,7 +22,6 @@ const AI_MEMORY_TTL_DAYS = 30;
 const AI_MEMORY_USER_KEY_PREFIX = "spider_ai_mem:";
 const AI_RETRY_LIMIT = 2;
 const AI_RETRY_DELAY_BASE = 1500;
-const AI_MAX_OUTPUT_LINES = 1000000000;
 
 // MODELS
 // SWAPPED: Standard is now GPT-OSS 120B, Pro is Mistral 24B
