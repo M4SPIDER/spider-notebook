@@ -17,7 +17,7 @@ const VERSION = "9.9.66";
 // 128k tokens * 4 chars/token = ~512,000 chars. 
 // We reserve buffer for output and system prompts.
 const MAX_CONTEXT_TOKENS = 120000; 
-const EST_CHARS_PER_TOKEN = 4;
+const EST_CHARS_PER_TOKEN = 3.8;
 const AI_MEMORY_TTL_DAYS = 30;
 const AI_MEMORY_USER_KEY_PREFIX = "spider_ai_mem:";
 const AI_RETRY_LIMIT = 2;
