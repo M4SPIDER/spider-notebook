@@ -22,7 +22,6 @@ const AI_MEMORY_TTL_DAYS = 30;
 const AI_MEMORY_USER_KEY_PREFIX = "spider_ai_mem:";
 const AI_RETRY_LIMIT = 2;
 const AI_RETRY_DELAY_BASE = 1500;
-const AI_MAX_OUTPUT_LINES = 1000;
 
 // MODELS
 // SWAPPED: Standard is now GPT-OSS 120B, Pro is Mistral 24B
@@ -138,40 +137,44 @@ async function streamToBase64(stream) {
 
 // HELPER: Dynamic Context Trimmer (128k Support)
 function trimMemoryByContext(memory, maxTokens = MAX_CONTEXT_TOKENS) {
-    if (!memory || memory.length === 0) return [];
-    
-    let currentEstTokens = 0;
-    const trimmed = [];
-    
-    // Iterate backwards from the most recent message
-    for (let i = memory.length - 1; i >= 0; i--) {
-        const msg = memory[i];
-        
-        // Estimate tokens: Handle string or object content (multimodal)
-        let contentStr = "";
-        if (typeof msg.content === 'string') {
-            contentStr = msg.content;
-        } else if (Array.isArray(msg.content)) {
-            // Estimate size of array content (text + image metadata)
-            contentStr = JSON.stringify(msg.content);
-        } else {
-            contentStr = JSON.stringify(msg.content || "");
-        }
+    if (!memory || memory.length === 0) return [];
+    
+    // 1. Always keep the VERY LAST message (The new prompt)
+    const lastMsg = memory[memory.length - 1];
+    const trimmed = [lastMsg];
+    
+    // Estimate tokens for the last message
+    let currentEstTokens = estimateTokens(lastMsg);
 
-        const estTokens = Math.ceil(contentStr.length / EST_CHARS_PER_TOKEN);
-        
-        // If adding this message exceeds limit, stop adding older messages
-        if (currentEstTokens + estTokens > maxTokens) {
-            break;
-        }
-        
-        currentEstTokens += estTokens;
-        trimmed.unshift(msg);
-    }
-    
-    return trimmed;
+    // 2. Iterate backwards from the second-to-last message
+    for (let i = memory.length - 2; i >= 0; i--) {
+        const msg = memory[i];
+        const estTokens = estimateTokens(msg);
+        
+        // If adding this message exceeds the limit, STOP.
+        // This ensures we don't push old info that eats up space for the answer.
+        if (currentEstTokens + estTokens > maxTokens) {
+            break; 
+        }
+        
+        currentEstTokens += estTokens;
+        // Add to the front of the array (maintain order)
+        trimmed.unshift(msg);
+    }
+    
+    return trimmed;
 }
 
+// Helper to make token estimation cleaner
+function estimateTokens(msg) {
+    let contentStr = "";
+    if (typeof msg.content === 'string') {
+        contentStr = msg.content;
+    } else {
+        contentStr = JSON.stringify(msg.content || "");
+    }
+    return Math.ceil(contentStr.length / EST_CHARS_PER_TOKEN);
+}
 //////////////////////////////
 // TAVILY SEARCH INTEGRATION
 //////////////////////////////
