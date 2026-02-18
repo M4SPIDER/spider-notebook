@@ -3386,6 +3386,7 @@ useEffect(() => {
 
     // ---------- Enhanced Send Message with AI Modes ----------
 // ---------- Enhanced Send Message (Vision + Smart Stream Logic) ----------
+// ---------- Enhanced Send Message (Final Fix: Fake Typing for Chat, Streaming for Code) ----------
 const handleSendMessage = async () => {
     // 1. INPUT VALIDATION
     if (!message.trim() && !uploadedFile && !uploadedImage) return;
@@ -3400,19 +3401,22 @@ const handleSendMessage = async () => {
 
     // --- 2. INTENT DETECTION & ROUTING ---
     const isFullCodeRequest = detectFullCodeRequest(processedMessage);
+    
+    // "Complex Task" includes code keywords, math, or explicit streaming requests
     const isComplexTask = (
         processedMessage.toLowerCase().includes('step by step') ||
         processedMessage.toLowerCase().includes('stream') ||
         processedMessage.toLowerCase().includes('code') ||
+        processedMessage.toLowerCase().includes('function') ||
+        processedMessage.toLowerCase().includes('script') ||
         detectMathRequest(processedMessage)
     );
     const isImageRequest = detectImageGeneration(processedMessage);
 
     let uiMode = activeAIMode || selectedAIMode;
 
-    // FORCE TEXT MODE for Code/Reasoning (Bypass Image Editor)
+    // Pro mode always forces the streaming path
     const isProMode = selectedAIMode === 'pro';
-    const forceTextProcessing = isProMode || isFullCodeRequest || isComplexTask;
 
     // Prioritize text-based responses when code is involved
     if (isFullCodeRequest || isComplexTask) {
@@ -3425,7 +3429,6 @@ const handleSendMessage = async () => {
     }
 
     // --- 3. IMMEDIATE UI UPDATE (OPTIMISTIC UI) ---
-    // Update User Message immediately
     const userMessage = {
         role: 'user',
         content: processedMessage,
@@ -3446,37 +3449,44 @@ const handleSendMessage = async () => {
     setLastStreamId(null);
     fileContentBufferRef.current = '';
 
-    // 🔥 INSTANT FEEDBACK: Start "Assistant" UI before fetching
-    // Determine the "Thinking" text based on mode
+    // "Thinking" Status
     let initialStatusText = 'Thinking...';
     if (isFullCodeRequest) initialStatusText = 'Analyzing requirements...';
     else if (uiMode === 'analyze_file') initialStatusText = 'Reading file...';
     else if (isImageRequest) initialStatusText = 'Generating image...';
 
-    // Set the "Ghost" message that pulsates while waiting
     setStreamingMessage({
         role: 'assistant',
         content: initialStatusText,
         type: 'text',
         ts: Date.now(),
         isStreaming: true,
-        isThinking: true // Use this flag in your UI to show a "pulsing" effect
+        isThinking: true 
     });
 
     try {
         // ============================================================
-        //  PATH A: MISTRAL / PRO / STREAMING
+        //  PATH A: REAL STREAMING
+        //  Triggered ONLY for: Code, Complex Tasks, specific modes (Reasoning/Pro), or File Analysis
         // ============================================================
         if (
-            (uiMode === 'stream' || uiMode === 'reasoning' || uiMode === 'pro' || uiMode === 'analyze_file' || forceTextProcessing) &&
+            (isComplexTask || isFullCodeRequest || isProMode || uiMode === 'reasoning' || uiMode === 'analyze_file') && 
             !isImageRequest
         ) {
             setIsStreaming(true);
 
-            // Determine Model
+            // --- MODEL SELECTION LOGIC ---
             let effectiveAIMode = selectedAIMode;
-            if (isProMode) effectiveAIMode = 'pro';
-            else if (isFullCodeRequest || isComplexTask) effectiveAIMode = 'reasoning';
+            
+            // Only switch to 'reasoning' (Mistral) if it is explicitly a FULL CODE request.
+            if (isFullCodeRequest) {
+                effectiveAIMode = 'reasoning';
+            }
+            // Pro mode takes precedence
+            if (isProMode) {
+                effectiveAIMode = 'pro';
+            }
+            // Otherwise, it stays as 'chat' (Cloudflare Llama) but STREAMS because it's code.
 
             const apiUrl = '/api/generate/text';
             const apiPayload = {
@@ -3485,10 +3495,10 @@ const handleSendMessage = async () => {
                 user_preference_id: getPersistentUserId(),
                 firebase_token: currentUser?.firebaseToken || '',
                 stream: true,
-                ai_mode: effectiveAIMode,
+                ai_mode: effectiveAIMode, 
                 file_content: fileCopy ? await (fileCopy.text ? fileCopy.text() : Promise.resolve('')) : undefined,
                 filename: fileCopy?.name,
-                image: imageCopy ? imageCopy.content : undefined, // Context only
+                image: imageCopy ? imageCopy.content : undefined, 
                 full_code_mode: isFullCodeRequest,
                 project_type: projectMetadata?.type
             };
@@ -3501,7 +3511,6 @@ const handleSendMessage = async () => {
 
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-            // On first chunk, the 'isThinking' flag will be cleared by handleStreamResponse
             await handleStreamResponse(response);
 
             // Finalize Stream
@@ -3525,11 +3534,11 @@ const handleSendMessage = async () => {
         }
 
         // ============================================================
-        //  PATH B: IMAGE GENERATION ONLY (Strict)
+        //  PATH B: FAKE TYPING (Standard Chat & Image Gen)
+        //  Triggered for: Normal 'chat' messages and Image requests
         // ============================================================
         else {
             const apiUrl = '/api/generate/text';
-
             let base64Image = null;
             if (uiMode === 'image_edit' && imageCopy) {
                 base64Image = imageCopy.content;
@@ -3544,7 +3553,7 @@ const handleSendMessage = async () => {
                 aspect_ratio: aspectRatio,
                 user_preference_id: getPersistentUserId(),
                 firebase_token: currentUser?.firebaseToken || '',
-                stream: false,
+                stream: false, // Ensure streaming is OFF for API
                 ai_mode: effectiveMode
             };
 
@@ -3558,7 +3567,6 @@ const handleSendMessage = async () => {
             if (effectiveMode === 'image_gen' || effectiveMode === 'image_edit') {
                 const imgData = result.base64_image || result.image || result.url;
                 if (imgData) {
-                    // Clear the "Generating image..." status
                     setStreamingMessage(null);
                     setChatHistory(prev => [...prev, {
                         role: 'assistant',
@@ -3573,9 +3581,10 @@ const handleSendMessage = async () => {
                 }
             }
             else if (result?.text) {
-                 // Clear the "Thinking..." status before typing
+                // Clear "Thinking..."
                 setStreamingMessage({ role: 'assistant', content: '', type: 'text', ts: Date.now() });
-
+                
+                // TRIGGER FAKE TYPING ANIMATION
                 typeText(result.text, () => {
                     setChatHistory(prev => [...prev, {
                         role: 'assistant',
@@ -3593,7 +3602,6 @@ const handleSendMessage = async () => {
     } catch (error) {
         if (error.name !== 'AbortError') {
             console.error('API Error:', error);
-            // Replace "Thinking..." with Error
             setStreamingMessage(null);
             setChatHistory(prev => [...prev, {
                 role: 'assistant',
@@ -3606,7 +3614,10 @@ const handleSendMessage = async () => {
     } finally {
         setIsLoading(false);
         setIsStreaming(false);
-        setStreamingMessage(null);
+        // Only clear streaming message if NOT using fake typing (Path B clears it inside callback)
+        if (isComplexTask || isFullCodeRequest || isProMode) {
+             setStreamingMessage(null);
+        }
         setAbortController(null);
         setUploadedFile(null);
         setUploadedImage(null);
@@ -5205,6 +5216,7 @@ int main() {
         </>
     );
 }
+
 
 
 
