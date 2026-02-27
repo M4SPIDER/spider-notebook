@@ -41,29 +41,68 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // FIX 1: Robust Markdown Cleaner (Protects Code Blocks)
 function cleanAiResponse(text) {
-  if (!text) return "";
+    if (!text) return "";
 
-  let out = text;
+    let out = text;
 
-  // Remove ONLY markdown outside code blocks
-  const parts = out.split(/```/);
-  for (let i = 0; i < parts.length; i += 2) {
-    parts[i] = parts[i]
-      // headers
-      .replace(/^\s{0,3}#{1,6}\s+/gm, "")
-      // bold / italic
-      .replace(/\*\*(.*?)\*\*/g, "$1")
-      .replace(/\*(.*?)\*/g, "$1")
-      // underline style
-      .replace(/__(.*?)__/g, "$1")
-      .replace(/_(.*?)_/g, "$1");
-  }
+    // Split by BOTH code blocks AND math blocks to protect them
+    // Strategy: Extract protected regions, clean the rest, reassemble
 
-  out = parts.join("```");
+    const protected_regions = [];
+    let placeholder_index = 0;
 
-  return out
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+    // 1. Protect code blocks: ```...```
+    out = out.replace(/```[\s\S]*?```/g, (match) => {
+        const placeholder = `__PROTECTED_${placeholder_index++}__`;
+        protected_regions.push({ placeholder, content: match });
+        return placeholder;
+    });
+
+    // 2. Protect display math: $$...$$ and \[...\]
+    out = out.replace(/\$\$[\s\S]+?\$\$/g, (match) => {
+        const placeholder = `__PROTECTED_${placeholder_index++}__`;
+        protected_regions.push({ placeholder, content: match });
+        return placeholder;
+    });
+    out = out.replace(/\\\[[\s\S]+?\\\]/g, (match) => {
+        const placeholder = `__PROTECTED_${placeholder_index++}__`;
+        protected_regions.push({ placeholder, content: match });
+        return placeholder;
+    });
+
+    // 3. Protect inline math: $...$ and \(...\)
+    out = out.replace(/\$[^$\n]+?\$/g, (match) => {
+        const placeholder = `__PROTECTED_${placeholder_index++}__`;
+        protected_regions.push({ placeholder, content: match });
+        return placeholder;
+    });
+    out = out.replace(/\\\([\s\S]+?\\\)/g, (match) => {
+        const placeholder = `__PROTECTED_${placeholder_index++}__`;
+        protected_regions.push({ placeholder, content: match });
+        return placeholder;
+    });
+
+    // 4. Protect \boxed{...}
+    out = out.replace(/\\boxed\{[^}]+\}/g, (match) => {
+        const placeholder = `__PROTECTED_${placeholder_index++}__`;
+        protected_regions.push({ placeholder, content: match });
+        return placeholder;
+    });
+
+    // 5. NOW safely strip markdown from unprotected text only
+    out = out
+        .replace(/^\s{0,3}#{1,6}\s+/gm, "")    // Headers
+        .replace(/\*\*(.*?)\*\*/g, "$1")          // Bold
+        .replace(/\*(.*?)\*/g, "$1")              // Italic
+        .replace(/__(.*?)__/g, "$1")              // Bold alt
+        .replace(/_(.*?)_/g, "$1");               // Italic alt
+
+    // 6. Restore all protected regions
+    for (const { placeholder, content } of protected_regions) {
+        out = out.replace(placeholder, content);
+    }
+
+    return out.replace(/\n{3,}/g, "\n\n").trim();
 }
 
 function extractText(resp) {
@@ -291,7 +330,15 @@ const SPIDER_SYSTEM_PROMPT =
 "- Format: ```\\ncode here\\n```.\n" +
 "- NEVER use single backticks for multi-line code.\n" +
 "- FORMATTING RESTRICTION: Do NOT use **bold** or # headers in the chat text. ONLY use ** and # inside code blocks. Your chat text must be plain.\n";
-
+"\nMATH FORMATTING RULES:\n" +
+"- For inline math, use single dollar signs: $E = mc^2$\n" +
+"- For display math (equations on their own line), use double dollar signs:\n" +
+"  $$\\int_0^1 x^2 \\, dx = \\frac{1}{3}$$\n" +
+"- For boxed final answers, use: \\boxed{answer}\n" +
+"- ALWAYS use LaTeX notation for fractions (\\frac), square roots (\\sqrt), " +
+"  summations (\\sum), integrals (\\int), Greek letters (\\alpha, \\beta, etc.).\n" +
+"- Do NOT use plain text for math. Write $\\frac{a}{b}$ instead of 'a/b'.\n" +
+"- Do NOT use Unicode math symbols. Use LaTeX commands instead.\n"
 //////////////////////////////
 // KV MEMORY & IMAGE PERSISTENCE
 //////////////////////////////
@@ -730,8 +777,6 @@ let activePrompt = prompt;
                           const safeChunk = textChunk
                               .replace(/^\s{0,3}#{1,6}\s+/gm, "") // headers at start of line
                               .replace(/\*\*/g, "") // bold markers
-                              .replace(/#/g, ""); // stray hashes
-
                           controller.enqueue(
                             encoder.encode(`data: ${JSON.stringify({ text: safeChunk, stream_id: activeStreamId })}\n\n`)
                           );
