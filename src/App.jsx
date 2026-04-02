@@ -596,7 +596,7 @@ export default function App() {
 
   const [isFullCodeMode, setIsFullCodeMode] = useState(false);
   const [generatedFiles, setGeneratedFiles] = useState([]);
-  const [aspectRatio, setAspectRatio] = useState('1:1');
+  const [aspectRatio, setAspectRatio] = useState('16:9');
   const [videoDuration, setVideoDuration] = useState(8);
   const [videoQuality, setVideoQuality] = useState('free');
   const [videoJobs, setVideoJobs] = useState({});
