@@ -1,5236 +1,3736 @@
-// ----------------------------------------------------------------------
-// React Imports
-// ----------------------------------------------------------------------
-import React, { useState, useEffect, useCallback, useRef ,useMemo } from 'react';
-// ----------------------------------------------------------------------
-// Firebase Core
-// ----------------------------------------------------------------------
+﻿import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
-
-// ----------------------------------------------------------------------H
-// Firebase Auth
-// ----------------------------------------------------------------------c
 import {
   getAuth,
   onAuthStateChanged,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
-  signInAnonymously,
+  signInWithPopup,
+  GoogleAuthProvider,
+  setPersistence,
+  browserLocalPersistence,
   signOut,
-  updateProfile
 } from 'firebase/auth';
-
-// ----------------------------------------------------------------------
-// Firebase Firestore (Chat history / Docs)
-// ----------------------------------------------------------------------
+import { LEGAL_ACCEPTANCE_KEY, LEGAL_ACCEPTANCE_DATE_KEY, LEGAL_PAGE_PATH, LEGAL_SECTIONS } from './legalContent';
+import SpiderNotebook from './SpiderNotebook';
 import {
-  getFirestore,
-  collection,
-  query,
-  where,
-  addDoc,
-  getDocs,
-  onSnapshot,
-  setDoc,
-  doc,
-  limit
-} from 'firebase/firestore';
+  Plus, Mic, MessageCircle, Maximize, FileUp, ImagePlus,
+  Zap, Wand2, X, Send, Loader2, Copy, RotateCcw, Eye, Code, Square, Brain,
+  Camera, Menu, ChevronLeft, MicOff, Download, FolderUp, FileText,
+  ChevronDown, ChevronRight, WrapText, FileDiff, Paperclip, Image as ImageIcon,
+  Search, Trash2, Settings, Edit3, Check, Moon, Sun, Volume2, VolumeX,
+  Globe, Shield, Database, Bell, Palette, Type, MoreVertical, Pin,
+  Star, Archive, Share2, MessageSquare, RefreshCw, ChevronUp, Filter,
+  Calendar, Clock, Hash, AlertTriangle, User, HelpCircle, LogOut, Heart, ThumbsUp, ThumbsDown,
+  Layers, FolderOpen, Sparkles, MoreHorizontal, Film
+} from 'lucide-react';
 
-// ----------------------------------------------------------------------
-// Firebase Realtime Database (Streaming / Live messages)
-// ----------------------------------------------------------------------
-import {
-  getDatabase,
-  ref,
-  set,
-  get,
-  update,
-  onValue,
-  push,
-  remove,
-  query as rtdbQuery,
-  orderByChild,
-  limitToLast
-} from 'firebase/database';
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// CONSTANTS & HELPERS
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-// ----------------------------------------------------------------------
-// Local Imports
-// ----------------------------------------------------------------------
-import SpyDocs from './SpyDocs';
-
-// --- Extracted Info from PDF ---
-const pdfContent = `
-Spider Notebook & Spy Language
-Revolutionizing AI-Powered Cross-Language Compilation and Unified Development
-
-1. Introduction
-Spy Language and Spider Notebook together form a unified AI-driven ecosystem that merges multiple programming languages—Python, C++, Java, and Kotlin—into one hybrid runtime environment. It enables real-time code translation, execution, and interaction between compiled and interpreted languages with no dependency conflicts. Built from the ground up using C++ and LLVM, Spy Language compiles \`.sp\` files into native executables, while Spider Notebook provides a visual and interactive coding space for cross-language collaboration.
-
-2. Spider Notebook App
-Spider Notebook is the official development environment for Spy Language. It offers a powerful hybrid IDE experience similar to VS Code or PyCharm, but optimized for multi-runtime execution. It features live AI assistance, visual workflow orchestration, and full offline compilation capabilities.
-- Built using Qt6 and C++ for high performance.
-- Integrated AI suggestions and auto-completion.
-- Supports execution of Python, C++, Java, and Kotlin from within one notebook.
-- Offline compiler and interpreter management for \`.sp\` files.
-- Cross-platform design supporting Windows and Linux.
-
-3. Spy Language Overview
-Spy Language (or SpiderLang) is a next-generation, LLVM-based programming language designed for AI-powered, cross-language execution. It merges the strengths of interpreted scripting and compiled systems programming into a single modern syntax inspired by Swift but with original semantics and grammar.
-- Compiled with LLVM backend for high performance native output.
-- Supports dynamic imports from Python, Java, C++, and Kotlin.
-- Hybrid compiler–interpreter model enables AI-assisted runtime execution.
-- Inbuilt support for memory-level IPC, multi-threaded streaming, and AI execution units.
-- Output \`.exe\` builds with zero external dependencies.
-
-4. Architecture Stack
-Spy Architecture follows a modular LLVM-backed structure known as the Spy Bridge Architecture Stack. It consists of multiple interlinked layers:
-- SpyCore – Handles compilation, memory management, and inter-language linking.
-- SpyBridge – Real-time IPC communication between languages and runtime instances.
-- SpyAI – Embedded neural engine that predicts next-line code, manages context, and assists debugging.
-- Spider Notebook – Visual interface for hybrid runtime control.
-- Spy Package Manager – Handles \`.spkg\` dependency modules and binary distribution.
-
-5. Collaboration and Expansion
-Spider Notebook and Spy Language are open for collaboration with R&D teams and tech companies. The vision is to establish Spy as a universal AI-language platform capable of integrating any compiled or interpreted language at runtime. Collaborations are sought for IDE enhancement, compiler optimization, and AI integration.
-- Potential partners: Microsoft, Google, JetBrains, and open-source communities.
-- Focus areas: multi-runtime architecture, AI-assisted code translation, secure file-level IPC.
-- Goal: create the first language ecosystem that unifies all major programming paradigms.
-
-6. Contact & Vision
-Developed and envisioned by Vivek Vardhan Rao, Spy Language represents a leap towards intelligent software bridging — connecting humans, compilers, and AI systems under one universal runtime. For collaboration, partnerships, or demo scheduling, reach out through LinkedIn or official communication channels.
-`;
-
-
-// --- Example Snippets and Simulated Output ---
-const examples = [
-    { id: 1, title: "Simple Python Print", code: `python {\n  print("Hello from Python in Spy!")\n}`, output: "Hello from Python in Spy!" },
-    { id: 2, title: "Basic C++ Output", code: `c++ {\n  #include <iostream>\n  int main() {\n    std::cout << "C++ says hi!" << std::endl;\n    return 0;\n}\n}`, output: "C++ says hi!" },
-    { id: 3, title: "Java Greeting", code: `java {\n  public class Main {\n    public static void main(String[] args) {\n      System.out.println("Java is ready!");\n    }\n  }\n}`, output: "Java is ready!" }
+const MAX_IMAGE_SIZE = 1024;
+const MAX_FILE_SIZE_MB = 10;
+const MAX_FILES = 20;
+const MAX_IMAGES_COLLAGE = 4;
+const FEEDBACK_QUEUE_STORAGE_KEY = 'spider_feedback_queue_v1';
+const FEEDBACK_SYNC_INTERVAL_MS = 30000;
+const FREE_DAILY_VIDEO_LIMIT = 4;
+const FREE_DAILY_VIDEO_LIMIT_STORAGE_KEY = 'spider_free_video_daily_limit_v1';
+const VIDEO_ASPECT_OPTIONS = ['16:9', '9:16'];
+const VIDEO_DURATION_OPTIONS = [8, 10];
+const VIDEO_DURATION_OPTIONS_PRO = [8, 10, 20, 30, 40, 60];
+const VIDEO_DURATION_OPTIONS_PRO_QUALITY = [8, 10];
+const VIDEO_QUALITY_OPTIONS = [
+  { value: 'fast', label: 'Fast' },
+  { value: 'balanced', label: 'Balanced' },
+  { value: 'quality', label: 'Quality' }
+];
+const STARTER_TEMPLATES = [
+  {
+    title: 'Make Me Hero',
+    prompt: 'Transform my uploaded photo into a cinematic superhero poster with a powerful suit, dramatic lighting, and iconic heroic energy.',
+    accent: 'from-[#00E5FF]/25 to-[#0B2A2A]',
+    border: 'border-[#00E5FF]/25',
+    mode: 'image_edit'
+  },
+  {
+    title: 'Add Powers',
+    prompt: 'Edit my uploaded image and add glowing superpowers, energy effects, aura trails, and a legendary cinematic upgrade.',
+    accent: 'from-[#FFD700]/25 to-[#2A220B]',
+    border: 'border-[#FFD700]/25',
+    mode: 'image_edit'
+  },
+  {
+    title: 'Vibe Code',
+    prompt: 'Build me a stylish modern landing page with a bold hero section, smooth animations, and a premium feel.',
+    accent: 'from-[#7CE7FF]/25 to-[#10262A]',
+    border: 'border-[#7CE7FF]/25',
+    aiMode: 'pro'
+  },
+  {
+    title: 'Create Video',
+    prompt: 'A cinematic slow-motion hero entrance in a futuristic city, dramatic lighting, smoke, and intense camera movement.',
+    accent: 'from-[#7CFFB2]/25 to-[#0D2418]',
+    border: 'border-[#7CFFB2]/25',
+    mode: 'video_gen'
+  },
+  {
+    title: 'Create Image',
+    prompt: 'Create a hyper-detailed portrait poster of me as a sci-fi warrior with glowing armor and neon city lights.',
+    accent: 'from-[#FF8ACD]/25 to-[#2A1021]',
+    border: 'border-[#FF8ACD]/25',
+    mode: 'image_gen'
+  }
+];
+const MESSAGE_FEEDBACK_OPTIONS = [
+  { value: 'love', label: 'Love', Icon: Heart, activeClass: 'text-pink-300 bg-pink-500/15' },
+  { value: 'like', label: 'Like', Icon: ThumbsUp, activeClass: 'text-[#7CE7FF] bg-[#00E5FF]/15' },
+  { value: 'dislike', label: 'Dislike', Icon: ThumbsDown, activeClass: 'text-amber-300 bg-amber-500/15' }
 ];
 
-const initialTerminalOutput = [
-    'Welcome to SpiderNoteBook!',
-    'Load a project or create a new file to get started.',
-];
-
-// Placeholder data for the sidebar chat history links (FIXED LOCATION)
-const mockChatLinks = [
-    { id: 1, title: "Last Project Review" },
-    { id: 2, title: "Multi-language ideas" },
-    { id: 3, title: "Refactoring request" }
-];
-
-// --- Theme Definitions (NEW) ---
-const themeMap = {
-    // Current Default (Red/Blue Neon)
-    red: {
-        '--spider-dark': '#0d0c22',
-        '--spider-med': '#1a1a3a',
-        '--spider-light': '#2a2a52',
-        '--spider-neon-blue': '#00bfff',
-        '--spider-glow': 'rgba(0, 191, 255, 0.5)',
-        '--spider-text': '#d1d5db',
-        '--spider-text-dim': '#6b7280',
-    },
-    // Romantic (Purple/Pink Neon)
-    romantic: {
-        '--spider-dark': '#1e0a29',
-        '--spider-med': '#3a164b',
-        '--spider-light': '#5e2378',
-        '--spider-neon-blue': '#ff63b8', // Hot Pink
-        '--spider-glow': 'rgba(255, 99, 184, 0.5)',
-        '--spider-text': '#fce7f3',
-        '--spider-text-dim': '#b894c5',
-    },
-    // Teal (Green/Cyan Tech)
-    // MATCHES USER SCREENSHOT COLOR PALETTE
-    teal: {
-        '--spider-dark': '#0a1d1d', // Very dark teal/green
-        '--spider-med': '#113a3a', // Medium teal/green for panels
-        '--spider-light': '#1e5f5f', // Lighter teal/green for buttons/borders
-        '--spider-neon-blue': '#00ffff', // Cyan/Aqua for accents (Matching the mobile button glow)
-        '--spider-glow': 'rgba(0, 255, 255, 0.5)',
-        '--spider-text': '#e0ffff',
-        '--spider-text-dim': '#99cccc',
-    },
-    // Sky Blue (Bright Light Blue)
-    sky_blue: {
-        '--spider-dark': '#101a33',
-        '--spider-med': '#1e305e',
-        '--spider-light': '#385e99',
-        '--spider-neon-blue': '#64b5f6', // Light Blue
-        '--spider-glow': 'rgba(100, 181, 246, 0.5)',
-        '--spider-text': '#f0f8ff',
-        '--spider-text-dim': '#a0c4ff',
-    },
-    // Black (True Black/High Contrast)
-    black: {
-        '--spider-dark': '#000000',
-        '--spider-med': '#121212',
-        '--spider-light': '#212121',
-        '--spider-neon-blue': '#00ff00', // Green Neon
-        '--spider-glow': 'rgba(0, 255, 0, 0.5)',
-        '--spider-text': '#ffffff',
-        '--spider-text-dim': '#cccccc',
-    },
+const formatVideoDurationLabel = (seconds) => {
+  if (seconds === 60) return '1min';
+  return `${seconds}s`;
+};
+const getLocalDayStamp = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+const readFreeDailyVideoUsage = () => {
+  try {
+    const raw = localStorage.getItem(FREE_DAILY_VIDEO_LIMIT_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    const today = getLocalDayStamp();
+    if (!parsed || parsed.day !== today || !Number.isFinite(parsed.count)) {
+      return { day: today, count: 0 };
+    }
+    return { day: today, count: Math.max(0, Math.floor(parsed.count)) };
+  } catch {
+    return { day: getLocalDayStamp(), count: 0 };
+  }
+};
+const writeFreeDailyVideoUsage = (count) => {
+  const safeCount = Math.max(0, Math.floor(Number(count) || 0));
+  localStorage.setItem(FREE_DAILY_VIDEO_LIMIT_STORAGE_KEY, JSON.stringify({
+    day: getLocalDayStamp(),
+    count: safeCount,
+  }));
+  return safeCount;
+};
+const VIDEO_API_BASE = 'https://api.m4spider.com';
+const AI_API_FALLBACK_BASE = 'https://api.m4spider.com';
+const firebaseConfig = {
+  apiKey: 'AIzaSyBS1aGZZ2RDx2RKji1jOO-7spiY5QzJjh8',
+  authDomain: 'auth.m4spider.com',
+  databaseURL: 'https://m4-spider-default-rtdb.firebaseio.com',
+  projectId: 'm4-spider',
+  storageBucket: 'm4-spider.firebasestorage.app',
+  messagingSenderId: '154970150789',
+  appId: '1:154970150789:web:60796710cacca377edd6ec',
+  measurementId: 'G-TGTWRTF7EX',
 };
 
-// --- Helper: Format PDF Text for Landing Page ---
-const formatPdfTextForLanding = (text) => {
-     return text
-        .split('\n\n') // Split into paragraphs
-        .map(para => para.trim())
-        .filter(para => para)
-        .map((para, pIndex) => {
-            if (pIndex === 0 && para.includes('Spider Notebook & Spy Language')) { return null; }
-             if (pIndex === 1 && para.includes('Revolutionizing')) { return null; }
-            if (/^\*\*\d+\.\s.*?\*\*$/.test(para)) {
-                return <h2 key={pIndex} className="text-xl font-semibold text-white mt-6 mb-3">{para.slice(2, -2)}</h2>;
-            }
-             if (para.startsWith('- ')) { return <li key={pIndex} className="ml-6 list-disc mb-1">{para.slice(2)}</li> }
-             if (/^\d+\s/.test(para)) {
-                 const prevPara = pIndex > 0 ? text.split('\n\n')[pIndex - 1]?.trim() : null;
-                 if (prevPara?.includes("2. Spider Notebook App") || prevPara?.includes("3. Spy Language Overview")) {
-                    return <li key={pIndex} className="ml-6 list-decimal mb-1">{para.substring(para.indexOf(' ')+1)}</li>;
-                 }
-             }
-            return <p key={pIndex} className="mb-3 text-sm leading-relaxed">{para}</p>;
-        });
-};
+const firebaseApp = initializeApp(firebaseConfig);
+const firebaseAuth = getAuth(firebaseApp);
+const googleProvider = new GoogleAuthProvider();
 
-// --- NEW MODAL: Privacy Assurance ---
-const PrivacyModal = ({ show, onClose }) => {
-    if (!show) return null;
-    return (
-        <div className="fixed inset-0 bg-black bg-opacity-85 flex items-center justify-center z-[70] p-4 animate-fade-in">
-            <div className="bg-[var(--spider-dark)] border border-[var(--spider-neon-blue)] rounded-lg shadow-[var(--shadow-neon-blue)] w-full max-w-lg flex flex-col">
-                <div className="p-6 text-[var(--spider-text)] space-y-4">
-                    <h3 className="text-2xl font-bold text-[var(--spider-neon-blue)] mb-3 flex items-center">
-                        <svg className="w-8 h-8 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.238A6 6 0 0012 2a6 6 0 00-6 6v10a6 6 0 0012 0V8a6 6 0 00-6-6z"></path></svg>
-                        Your Privacy is Safe with M4 Spider
-                    </h3>
-                    <p className="text-sm">
-                        Welcome to the M4 Spider platform! We want you to know that your data and Spy-formatted code are fully protected.
-                    </p>
-                    <p className="text-sm">
-                        Your account information and all persistent data (like chat history) are secured and encrypted using Firebase Authentication and Firestore.This ensures:
-                        <ul className="list-disc list-inside ml-4 mt-2 space-y-1 text-[var(--spider-text-dim)]">
-                            <li>Cross-Device Persistence: Sign in anywhere (PC, mobile) without losing your data.</li>
-                            <li>High-Grade Encryption: Data is secured both in transit and at rest.</li>
-                        </ul>
-                    </p>
-                </div>
-                <div className="p-4 border-t border-[var(--spider-light)] text-right">
-                    <button onClick={onClose} className="bg-[var(--spider-neon-blue)] text-black text-sm font-semibold px-4 py-1.5 rounded-md hover:opacity-90">I Understand</button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-
-// --- NEW: Login Page Component (Updated for M4 Spider Login and Firebase Auth Pattern) ---
-const LoginPage = ({ onLoginSuccess }) => {
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
-    const [userName, setUserName] = useState(''); // NEW: State for User Name
-    const [error, setError] = useState('');
-    const [isSignUpMode, setIsSignUpMode] = useState(false); // New state to control default view
-
-    // User's provided Firebase configuration as a fallback
-    const USER_FIREBASE_CONFIG = {
-        apiKey: "AIzaSyBS1aGZZ2RDx2RKji1jOO-7spiY5QzJjh8",
-        authDomain: "m4-spider.firebaseapp.com",
-        projectId: "m4-spider",
-        storageBucket: "m4-spider.firebasestorage.app",
-        messagingSenderId: "154970150789",
-        appId: "1:154970150789:web:60796710cacca377edd6ec",
-        measurementId: "G-TGTWRTF7EX"
-    };
-
-    // --- Firebase Auth Setup (MANDATORY for real persistence) ---
-    const [auth, setAuth] = useState(null);
-    useEffect(() => {
-        try {
-            // 1. Try to get the configuration from the global environment variable
-            let configString = typeof __firebase_config !== 'undefined' ? __firebase_config : '{}';
-            let firebaseConfig = JSON.parse(configString);
-            
-            // 2. If environment config is empty or invalid, fall back to the hardcoded config
-            if (Object.keys(firebaseConfig).length === 0 || !firebaseConfig.apiKey) {
-                firebaseConfig = USER_FIREBASE_CONFIG;
-                console.warn("Using hardcoded Firebase configuration as environment config is unavailable.");
-            }
-
-            if (firebaseConfig.apiKey) {
-                 // Initialize the Firebase App and Auth service
-                 const app = initializeApp(firebaseConfig, 'm4-spider-login');
-                 setAuth(getAuth(app));
-                 // Clear any previous configuration error if successful
-                 setError(''); 
-            } else {
-                 setError("Authentication service is unavailable. Missing valid Firebase configuration.");
-            }
-        } catch (e) {
-            console.error("Failed to initialize Firebase in LoginPage:", e);
-            setError("Authentication service is unavailable. Configuration failed to parse.");
-        }
-    }, []);
-    // --- End Firebase Setup ---
-
-    // Helper to handle successful authentication
-    const handleAuthSuccess = (user) => {
-         onLoginSuccess({ 
-             email: user.email, 
-             name: user.displayName || user.email.split('@')[0] || 'User' 
-         });
-    };
-
-    const handleLogin = async (e) => {
-        e.preventDefault();
-        setError('');
-        
-        try {
-            // FIX 1 APPLIED: Check if auth object is available before trying to use it.
-            if (!auth) {
-                 setError("Authentication service is not ready. Please wait a moment.");
-                 return;
-            }
-
-            // REAL FIREBASE LOGIN: This requires the user to exist (i.e., signed up first)
-            const userCredential = await signInWithEmailAndPassword(auth, email, password);
-            handleAuthSuccess(userCredential.user);
-
-        } catch (err) {
-            let errorMessage = "An unknown error occurred.";
-            if (err.message.includes("api-down") || !auth) { // Added !auth for clarity
-                 errorMessage = "Authentication service is unavailable. Please check your network or deployment configuration.";
-            } else if (err.code === "auth/user-not-found" || err.code === "auth/wrong-password" || err.code === "auth/invalid-credential") {
-                errorMessage = "Invalid email or password. Please Sign Up first if you don't have an account.";
-            } else if (err.message.includes("missing-credentials")) {
-                errorMessage = "Please enter both email and password.";
-            } else {
-                errorMessage = `Sign In failed: ${err.code || 'Check credentials'}.`;
-            }
-            setError(errorMessage);
-        }
-    };
-    
-    const handleSignUp = async (e) => {
-        e.preventDefault();
-        setError('');
-        
-        try {
-            // FIX 1 APPLIED: Check if auth object is available before trying to use it.
-            if (!auth) {
-                 setError("Authentication service is not ready. Please wait a moment.");
-                 return;
-            }
-            if (!userName.trim()) {
-                setError("Please enter a user name.");
-                return;
-            }
-            
-            // 1. REAL FIREBASE SIGNUP
-            const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-            
-            // 2. UPDATE USER PROFILE with Display Name
-            await updateProfile(userCredential.user, {
-                displayName: userName.trim()
-            });
-
-            // 3. SUCCESS
-            handleAuthSuccess(userCredential.user);
-
-        } catch (err) {
-            let errorMessage = "An unknown error occurred.";
-            if (err.message.includes("api-down") || !auth) { // Added !auth for clarity
-                errorMessage = "Authentication service is unavailable. Please check your network or deployment configuration.";
-            } else if (err.code === "auth/email-already-in-use") {
-                errorMessage = "This email is already registered. Please Sign In.";
-            } else if (err.message.includes("missing-credentials")) {
-                errorMessage = "Please enter email, password, and user name.";
-            } else {
-                errorMessage = `Sign Up failed: ${err.code || 'Check credentials'}.`;
-            }
-            setError(errorMessage);
-        }
-    };
-
-
-    return (
-        <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-red-900 via-red-800 to-black text-white p-4 pattern-spider-web relative">
-             <div className="absolute inset-0 bg-black bg-opacity-75 z-0"></div>
-            <div className="relative z-10 w-full max-w-md bg-[var(--spider-med)] rounded-xl shadow-xl p-8 border border-[var(--spider-light)] animate-fade-in-up">
-                <div className="text-center mb-8">
-                     <svg className="w-16 h-16 inline-block mb-4 text-[var(--spider-neon-blue)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 4 0 118 0c0 1.017-.07 2.019-.203 3m-2.118 6.844A21.88 21.88 0 0015.171 17m3.839 1.132c.645-1.096.906-2.407.906-3.846 0-3.517-1.009-6.799-2.753-9.571m-3.44-2.04l.054-.09A13.916 13.916 0 0016 11a4 4 0 11-8 0c0 1.017.07 2.019.203 3m2.118 6.844a21.88 21.88 0 00-3.644-3.572M12 6.04A3.001 3.001 0 009 3c-1.657 0-3 1.343-3 3s1.343 3 3 3a3.001 3.001 0 003-2.96z"></path></svg>
-                    <h1 className="text-3xl font-bold text-white">M4 Spider Login</h1>
-                    <p className="text-sm text-[var(--spider-text-dim)] mt-1">{isSignUpMode ? 'Create your universal account.' : 'Access your unified development environment.'}</p>
-                </div>
-                <form onSubmit={isSignUpMode ? handleSignUp : handleLogin} className="space-y-6">
-                     {isSignUpMode && ( // NEW: User Name input only for Sign Up
-                        <div>
-                            <label htmlFor="username" className="block text-sm font-medium text-[var(--spider-text-dim)]">User Name</label>
-                            <input id="username" name="username" type="text" required value={userName} onChange={(e) => setUserName(e.target.value)} className="mt-1 block w-full px-3 py-2 bg-[var(--spider-light)] border border-[var(--spider-light)] rounded-md text-white placeholder-gray-500 focus:outline-none focus:border-[var(--spider-neon-blue)] focus:ring-1 focus:ring-[var(--spider-neon-blue)] sm:text-sm" placeholder="Your Display Name" />
-                        </div>
-                    )}
-                    <div>
-                        <label htmlFor="email" className="block text-sm font-medium text-[var(--spider-text-dim)]">Email address</label>
-                        <input id="email" name="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="mt-1 block w-full px-3 py-2 bg-[var(--spider-light)] border border-[var(--spider-light)] rounded-md text-white placeholder-gray-500 focus:outline-none focus:border-[var(--spider-neon-blue)] focus:ring-1 focus:ring-[var(--spider-neon-blue)] sm:text-sm" placeholder="you@example.com" />
-                    </div>
-                    <div>
-                        <label htmlFor="password" className="block text-sm font-medium text-[var(--spider-text-dim)]">Password</label>
-                        <input id="password" name="password" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} className="mt-1 block w-full px-3 py-2 bg-[var(--spider-light)] border border-[var(--spider-light)] rounded-md text-white placeholder-gray-500 focus:outline-none focus:border-[var(--spider-neon-blue)] focus:ring-1 focus:ring-[var(--spider-neon-blue)] sm:text-sm" placeholder="••••••••" />
-                    </div>
-                    {error && <p className="text-xs text-red-500 text-center">{error}</p>}
-                    
-                    {/* Dynamic Action Button */}
-                    <button type="submit" className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-black bg-[var(--spider-neon-blue)] hover:opacity-90 transition"> {isSignUpMode ? 'Create Account' : 'Sign In'} </button>
-
-                    {/* Switch Mode Link */}
-                    <div className="text-center">
-                        <button type="button" onClick={() => { setIsSignUpMode(prev => !prev); setError(''); setUserName(''); }} className="text-xs text-[var(--spider-text-dim)] hover:text-white transition underline">
-                            {isSignUpMode ? 'Already have an account? Sign In' : 'Need an account? Sign Up First'}
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    );
-};
-
-
-// --- Helper Components for LandingPage (Icons & Logo) ---
-
-// Custom inline SVG for the Spider Logo
-const SpiderLogo = () => (
-    <svg className="w-12 h-12 text-cyan-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        {/* Geometric Body (Faceted Processor Core) */}
-        <polygon points="12 4, 15 7, 15 15, 12 18, 9 15, 9 7" fill="rgba(0, 255, 255, 0.15)" stroke="currentColor" strokeWidth="1.5" />
-        <circle cx="12" cy="12" r="3.5" fill="currentColor" fillOpacity="0.1" />
-        <path d="M12 4 L 12 18" stroke="currentColor" strokeWidth="1" strokeDasharray="2 2" opacity="0.7"/>
-        
-        {/* Legs (Circuit Traces) */}
-        {/* Top Left (L1, L2) */}
-        <path d="M9 7 L 3 1 L 1 4" />
-        <path d="M9 10 L 2 5 L 0 9" />
-        {/* Top Right (R1, R2) */}
-        <path d="M15 7 L 21 1 L 23 4" />
-        <path d="M15 10 L 22 5 L 24 9" />
-        
-        {/* Bottom Left (L3, L4) */}
-        <path d="M9 15 L 3 23 L 1 20" />
-        <path d="M9 12 L 2 17 L 0 13" />
-        {/* Bottom Right (R3, R4) */}
-        <path d="M15 15 L 21 23 L 23 20" />
-        <path d="M15 12 L 22 17 L 24 13" />
-        
-        {/* Connectors / Eyes (Small Dots) */}
-        <circle cx="10.5" cy="5.5" r="0.5" fill="currentColor" />
-        <circle cx="13.5" cy="5.5" r="0.5" fill="currentColor" />
-    </svg>
+const GoogleMark = ({ size = 18, className = '' }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+    className={className}
+  >
+    <path
+      fill="#4285F4"
+      d="M23.49 12.27c0-.79-.07-1.54-.2-2.27H12v4.3h6.45a5.52 5.52 0 0 1-2.4 3.62v3h3.88c2.27-2.09 3.56-5.17 3.56-8.65Z"
+    />
+    <path
+      fill="#34A853"
+      d="M12 24c3.24 0 5.96-1.07 7.95-2.91l-3.88-3c-1.08.72-2.46 1.15-4.07 1.15-3.13 0-5.78-2.11-6.72-4.96H1.27v3.09A12 12 0 0 0 12 24Z"
+    />
+    <path
+      fill="#FBBC05"
+      d="M5.28 14.28A7.2 7.2 0 0 1 4.91 12c0-.79.14-1.56.37-2.28V6.63H1.27A12 12 0 0 0 0 12c0 1.93.46 3.76 1.27 5.37l4.01-3.09Z"
+    />
+    <path
+      fill="#EA4335"
+      d="M12 4.77c1.76 0 3.34.6 4.58 1.77l3.43-3.43C17.95 1.19 15.24 0 12 0A12 12 0 0 0 1.27 6.63l4.01 3.09C6.22 6.88 8.87 4.77 12 4.77Z"
+    />
+  </svg>
 );
 
-const Icon = ({ name, className }) => {
-    // Simple mapping for Lucide icons used in the HTML
-    const icons = {
-        brain: (<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M12 11a7 7 0 0 0 7-7 4.9 4.9 0 0 0-5.85-5.5m-2.3 0a4.9 4.9 0 0 0-5.85 5.5 7 7 0 0 0 7 7 4.9 4.9 0 0 0 5.85-5.5"/><path d="M12 17a7 7 0 0 0 7-7 4.9 4.9 0 0 0-5.85-5.5m-2.3 0a4.9 4.9 0 0 0-5.85 5.5 7 7 0 0 0 7 7 4.9 4.9 0 0 0 5.85-5.5"/></svg>),
-    plugZap: (<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="m13 2-2 4h3l-2 4-4-8z"/><path d="M12 22v-6"/><path d="M2 16h20"/><path d="M16 16v-6"/><path d="M8 16v-6"/></svg>),
-    gauge: (<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M12 14v4"/><path d="M18.4 12a6 6 0 0 1-12.8 0"/><path d="M18.4 12a10 10 0 0 0-12.8 0"/><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z"/></svg>),
-    layers3d: (<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M12 2l-8 4 8 4 8-4-8-4z"/><path d="M4 12l8 4 8-4"/><path d="M4 18l8 4 8-4"/></svg>),
-    layoutDashboard: (<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>),
-    cpu: (<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M15 9V7h-2V5h-2v2H9v2H7v2h2v2h2v2h2v-2h2v-2h-2V9h-2z"/></svg>),
-    link: (<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.54-7.54l-3 3a5 5 0 0 0-.54 7.54z"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.54 7.54l3-3a5 5 0 0 0 .54-7.54z"/></svg>),
-    sparkles: (<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M13.92 3.32a1 1 0 0 0-1.84 0l-3.49 6.82a1 1 0 0 1-.77.58L3.26 12a1 1 0 0 0 0 1.84l6.56 3.49a1 1 0 0 1 .58.77l3.32 6.47a1 1 0 0 0 1.84 0l3.49-6.82a1 1 0 0 1 .77-.58L22.74 12a1 1 0 0 0 0-1.84l-6.56-3.49a1 1 0 0 1-.58-.77z"/></svg>),
-    };
-    return icons[name] || <div className={className}>?</div>;
+const TEXT_FILE_EXTENSIONS = [
+  'js','jsx','ts','tsx','py','java','c','cpp','h','hpp','css','scss','less',
+  'html','htm','xml','svg','json','yaml','yml','toml','ini','cfg','conf',
+  'env','md','mdx','txt','csv','sql','sh','bash','zsh','ps1','bat','cmd',
+  'rb','php','go','rs','swift','kt','kts','dart','lua','r','pl','pm','ex',
+  'exs','clj','scala','hs','elm','vue','svelte','astro','prisma','graphql',
+  'gql','proto','tf','dockerfile','makefile','gitignore','editorconfig',
+  'prettierrc','eslintrc','babelrc','lock','log','map'
+];
+const IMAGE_EXTENSIONS = ['jpg','jpeg','png','gif','webp','svg','bmp','ico'];
+
+const getFileExtension = (name) => {
+  if (!name) return '';
+  const parts = name.split('.');
+  return parts.length > 1 ? parts.pop().toLowerCase() : '';
 };
-
-
-// --- Landing Page Component (REWRITTEN to match new UI) ---
-const LandingPage = ({ onNavigate, onShowExample }) => {
-    
-    // --- Tagline Animation Logic (NEW) ---
-    const taglines = [
-        "Revolutionizing AI-Powered Cross-Language Compilation",
-        "The Hybrid Runtime Environment for Complex Creation",
-        "Compile C++, Script Python, Run Seamlessly",
-        "Powered by Qt6, C++, and LLVM Backend"
-    ];
-    const [currentTaglineIndex, setCurrentTaglineIndex] = useState(0);
-    const [taglineVisible, setTaglineVisible] = useState(true);
-
-    useEffect(() => {
-        const interval = setInterval(() => {
-            // Start fade out
-            setTaglineVisible(false);
-            
-            // Wait for fade out, then update text and fade in
-            setTimeout(() => {
-                setCurrentTaglineIndex(prevIndex => (prevIndex + 1) % taglines.length);
-                setTaglineVisible(true);
-            }, 300); // Matches the transition speed
-        }, 5000); 
-
-        return () => clearInterval(interval);
-    }, [taglines.length]);
-
-    const taglineText = taglines[currentTaglineIndex];
-    // --- End Tagline Animation Logic ---
-
-    
-    return (
-        <div className="flex-grow h-full bg-[var(--primary-bg)] text-[var(--spider-text)] overflow-y-auto">
-            <main className="container mx-auto px-4 py-16">
-
-                {/* Header: Quantum Hub */}
-                <header id="quantum-hub" className="flex items-start justify-between mb-20 md:flex-row flex-col">
-                    <div className="flex items-start">
-                        {/* DEFINITIVE SPIDER Logo (Custom Inline SVG - Tech Spider) */}
-                        <div className="p-4 mr-6 rounded-lg logo-glow" style={{ '--accent-teal': 'var(--spider-neon-blue)' }}>
-                            <SpiderLogo />
-                        </div>
-                        <div>
-                            <h1 className="text-6xl font-extrabold tracking-tight text-white mb-2">M4 Spider</h1>
-                            <h2 className="text-xl font-light text-cyan-300 logo-glow" style={{ '--accent-teal': 'var(--spider-neon-blue)' }}>Quantum Compiler</h2>
-                            {/* Animated Tagline */}
-                            <p 
-                                id="tagline" 
-                                className={`mt-2 text-lg text-gray-400 min-h-[1.5rem] transition-opacity duration-300 ${taglineVisible ? 'opacity-100' : 'opacity-0'}`}
-                                style={{ color: 'var(--spider-text-dim)' }}
-                            >
-                                {taglineText}
-                            </p>
-                        </div>
-                    </div>
-                </header>
-
-                {/* Hero Section: The Compiler Node */}
-                <section id="hero" className="mb-24">
-                    <h3 className="text-3xl font-bold mb-8 text-gray-200">The Compiler Node: Hybrid Runtime Environment</h3>
-                    <p className="mb-6 text-gray-400 max-w-4xl mx-auto">
-                        SpiderNoteBook and Spy Language together form a unified AI-driven ecosystem that merges multiple programming languages—Python, C++, Java, and Kotlin—into one hybrid runtime environment. It enables real-time code translation, execution, and interaction between compiled and interpreted languages with no dependency conflicts.
-                    </p>
-                    <div className="max-w-4xl mx-auto terminal-glow rounded-xl p-6 relative">
-                        <div className="flex justify-between items-center mb-4">
-                            <span className="text-xs uppercase font-mono text-cyan-400 tracking-widest" style={{ color: 'var(--spider-neon-blue)' }}>Live Compiler Demo</span>
-                        </div>
-
-                        {/* START: CODE EXAMPLE SECTION - GUARANTEED SEPARATION */}
-                        <pre className="font-mono text-sm leading-relaxed whitespace-pre-wrap">
-    <span className="text-green-400">```python</span>{'\n'}
-    <span className="text-yellow-400">print</span>(<span className="text-orange-400">"Hello World"</span>){'\n'}
-    <span className="text-green-400">```</span>{'\n'}
-    {'\n'}
-    <span className="text-green-400">```cpp</span>{'\n'}
-    <span className="text-cyan-400">#include</span> <span className="text-red-400">&lt;iostream&gt;</span>{'\n'}
-    {'\n'}
-    <span className="text-yellow-400">int</span> main() {'{'}{'\n'}
-    {'    '}<span className="text-cyan-400">std::cout</span> <span className="text-red-400">&lt;&lt;</span> <span className="text-orange-400">"Hello, World!"</span> <span className="text-red-400">&lt;&lt;</span> <span className="text-cyan-400">std::endl</span>;{'\n'}
-    {'    '}<span className="text-yellow-400">return</span> <span className="text-red-400">0</span>;{'\n'}
-    {'}'}{'\n'}
-    <span className="text-green-400">```</span>{'\n'}
-    {'\n'}
-    <span className="text-green-400">```java</span>{'\n'}
-    <span className="text-yellow-400">public</span> <span className="text-blue-400">class</span> HelloWorld {'{'}{'\n'}
-    {'    '}<span className="text-yellow-400">public</span> <span className="text-yellow-400">static</span> <span className="text-yellow-400">void</span> main(<span className="text-blue-400">String</span>[] args) {'{'}{'\n'}
-    {'        '}<span className="text-blue-400">System</span>.<span className="text-yellow-400">out</span>.<span className="text-yellow-400">println</span>(<span className="text-orange-400">"Hello, World!"</span>);{'\n'}
-    {'    '}{'}'}{'\n'}
-    {'}'}{'\n'}
-    <span className="text-green-400">```</span>{'\n'}
-    {'\n'}
-    <span className="text-green-400">Output:</span> <span className="text-white font-bold">Runtime 0.001s</span>{'\n'}
-    <span className="text-cyan-300">python output:</span> <span className="text-white font-bold">Hello World</span>{'\n'}
-    <span className="text-cyan-300">c++ output:</span> <span className="text-white font-bold">Hello, World!</span>{'\n'}
-    <span className="text-cyan-300">java output:</span> <span className="text-white font-bold">Hello, World!</span>
-                        </pre>
-                        {/* END: CODE EXAMPLE SECTION */}
-                        
-                        {/* CTA Buttons - Adapted to use React navigation */}
-                        <div className="mt-8 flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4">
-                            <button 
-                                onClick={() => onNavigate('notebook')} 
-                                className="px-8 py-3 rounded-lg font-bold text-lg text-black bg-cyan-400 hover:bg-cyan-300 transition-all shadow-lg logo-glow"
-                                style={{ backgroundColor: 'var(--spider-neon-blue)', color: 'var(--spider-dark)', boxShadow: `0 0 15px var(--spider-neon-blue)` }}
-                            >
-                                Get M4 Spider Launcher for PC
-                            </button>
-                            <button 
-                                onClick={() => onNavigate('notebook')} 
-                                className="px-8 py-3 text-lg font-medium text-cyan-400 border border-cyan-400 rounded-lg hover:bg-cyan-400 hover:text-black transition-colors"
-                                style={{ color: 'var(--spider-neon-blue)', borderColor: 'var(--spider-neon-blue)', hoverBackgroundColor: 'var(--spider-neon-blue)' }}
-                            >
-                                Explore the LLVM Backend
-                            </button>
-                        </div>
-                    </div>
-                </section>
-
-                {/* Features Section: Core Domains */}
-                <section id="features" className="mb-24">
-                    <h3 className="text-3xl font-bold mb-12 text-gray-200 text-center">Core Domains: Unified Power & Language Details</h3>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-                        {/* Feature 1: Spy AI */}
-                        <div className="feature-card rounded-xl p-6 text-center">
-                            <div className="flex justify-center mb-4">
-                                <Icon name="brain" className="w-10 h-10 text-cyan-400 logo-glow" style={{ color: 'var(--spider-neon-blue)' }}/>
-                            </div>
-                            <h4 className="text-xl font-semibold mb-2 text-white">🧠 Spy AI Engine</h4>
-                            <p className="text-gray-400 text-sm">Embedded neural engine (SpyAI) predicts next-line code, manages context, and provides intelligent code unification across all supported languages.</p>
-                        </div>
-
-                        {/* Feature 2: Hybrid Runtime */}
-                        <div className="feature-card rounded-xl p-6 text-center">
-                            <div className="flex justify-center mb-4">
-                                <Icon name="plugZap" className="w-10 h-10 text-cyan-400 logo-glow" style={{ color: 'var(--spider-neon-blue)' }}/>
-                            </div>
-                            <h4 className="text-xl font-semibold mb-2 text-white">🕸️ Spy Language (SPY)</h4>
-                            <p className="text-gray-400 text-sm">Next-gen, LLVM-based language merging compiled and interpreted strengths. Outputs `.exe` builds with zero external dependencies.</p>
-                        </div>
-
-                        {/* Feature 3: High Performance IDE */}
-                        <div className="feature-card rounded-xl p-6 text-center">
-                            <div className="flex justify-center mb-4">
-                                <Icon name="gauge" className="w-10 h-10 text-cyan-400 logo-glow" style={{ color: 'var(--spider-neon-blue)' }}/>
-                            </div>
-                            <h4 className="text-xl font-semibold mb-2 text-white">⚡ High Performance IDE</h4>
-                            <p className="text-gray-400 text-sm">The Spider Notebook is built using Qt6 and native C++ for unparalleled speed, visual workflow, and full offline compilation capabilities.</p>
-                        </div>
-
-                        {/* Feature 4: Cross-Language Linking */}
-                        <div className="feature-card rounded-xl p-6 text-center">
-                            <div className="flex justify-center mb-4">
-                                <Icon name="layers3d" className="w-10 h-10 text-cyan-400 logo-glow" style={{ color: 'var(--spider-neon-blue)' }}/>
-                            </div>
-                            <h4 className="text-xl font-semibold mb-2 text-white">🌐 Cross-Language Linking</h4>
-                            <p className="text-gray-400 text-sm">Features dynamic imports from Python, Java, C++, and Kotlin, utilizing the SpyBridge for real-time IPC communication.</p>
-                        </div>
-                    </div>
-                </section>
-
-                {/* Architecture Stack */}
-                <section id="architecture" className="mb-24">
-                    <h3 className="text-3xl font-bold mb-12 text-gray-200 text-center">Architecture Stack: The Spy Bridge Framework</h3>
-                    <p className="text-center text-gray-400 mb-12 max-w-4xl mx-auto">
-                        The Spy Architecture follows a modular LLVM-backed structure known as the Spy Bridge Architecture Stack. This stack ensures seamless, high-speed interaction across all language runtimes.
-                    </p>
-
-                    <div className="flex flex-col items-center space-y-8">
-                        {/* Layer 1: Spider Notebook (Visual Interface) */}
-                        <div className="w-full max-w-xs p-4 rounded-xl arch-node text-center">
-                            <Icon name="layoutDashboard" className="w-6 h-6 mx-auto mb-2 text-cyan-400" />
-                            <p className="font-bold text-lg text-white">Spider Notebook</p>
-                            <p className="text-sm text-gray-400">Visual interface for hybrid runtime control.</p>
-                        </div>
-
-                        {/* Connector Line */}
-                        <div className="arch-line w-0.5 h-8 bg-cyan-400" style={{ backgroundColor: 'var(--spider-neon-blue)', boxShadow: `0 0 5px var(--spider-neon-blue)` }}></div>
-                        
-                        {/* Core Layer: Spy Bridge and Spy Core */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-3xl">
-                            {/* Spy Core */}
-                            <div className="p-6 rounded-xl arch-node text-center">
-                                <Icon name="cpu" className="w-6 h-6 mx-auto mb-2 text-cyan-400" />
-                                <p className="font-bold text-lg text-white">SpyCore</p>
-                                <p className="text-xs text-gray-400 mt-1">Compilation, memory management, and inter-language linking.</p>
-                            </div>
-                            {/* Spy Bridge */}
-                            <div className="p-6 rounded-xl arch-node text-center">
-                                <Icon name="link" className="w-6 h-6 mx-auto mb-2 text-cyan-400" />
-                                <p className="font-bold text-lg text-white">SpyBridge</p>
-                                <p className="text-xs text-gray-400 mt-1">Real-time IPC communication between languages and runtime instances.</p>
-                            </div>
-                        </div>
-
-                        {/* Connector Line */}
-                        <div className="arch-line w-0.5 h-8 bg-cyan-400" style={{ backgroundColor: 'var(--spider-neon-blue)', boxShadow: `0 0 5px var(--spider-neon-blue)` }}></div>
-
-                        {/* Foundation Layer: Spy AI */}
-                        <div className="w-full max-w-xs p-4 rounded-xl arch-node text-center bg-teal-500/20 border-teal-400 shadow-teal-500/50" style={{ border: `1px solid var(--spider-neon-blue)`, boxShadow: `0 0 10px var(--spider-neon-blue)` }}>
-                            <Icon name="sparkles" className="w-6 h-6 mx-auto mb-2 text-teal-300" />
-                            <p className="font-bold text-xl text-teal-300">SpyAI Foundation</p>
-                            <p className="text-sm text-gray-300">Embedded Neural Engine for Predictive Execution.</p>
-                        </div>
-                    </div>
-                </section>
-
-
-                {/* Collaboration and Vision */}
-                <section id="collaboration" className="mb-24 pt-16 border-t border-gray-800">
-                    <h3 className="text-3xl font-bold mb-12 text-gray-200 text-center">Collaboration & Universal Runtime Vision</h3>
-
-                    <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-8">
-                        {/* Vision Statement */}
-                        <div className="md:col-span-2 p-8 feature-card rounded-xl">
-                            <h4 className="text-2xl font-semibold mb-4 text-white">Vision: Intelligent Software Bridging</h4>
-                            <p className="text-gray-400 leading-relaxed mb-4">
-                                Developed and envisioned by Vivek Vardhan Rao, Spy Language represents a leap towards intelligent software bridging — connecting humans, compilers, and AI systems under one universal runtime. 
-                                The goal is to create the first language ecosystem that unifies all major programming paradigms.
-                            </p>
-                            <p className="text-cyan-400 font-medium" style={{ color: 'var(--spider-neon-blue)' }}>Focus Areas: Multi-runtime architecture, AI-assisted code translation, secure file-level IPC.</p>
-                        </div>
-
-                        {/* Contact & Partners */}
-                        <div className="p-8 feature-card rounded-xl text-center">
-                            <h4 className="text-2xl font-semibold mb-4 text-cyan-400" style={{ color: 'var(--spider-neon-blue)' }}>Join the Ecosystem</h4>
-                            <p className="text-gray-300 mb-4">We are actively seeking collaboration with R&D teams and tech companies like Microsoft, Google, and JetBrains.</p>
-                            
-                            <p className="text-sm text-gray-500 mb-2">For partnerships or demos, please contact:</p>
-                            <a href="mailto:support@Ms4Spider.com" className="text-xl font-bold text-secondary-accent hover:underline" style={{ color: 'var(--secondary-accent)' }}>
-                                support@M4Spider.com
-                            </a>
-                        </div>
-                    </div>
-                </section>
-
-            </main>
-
-            {/* Footer */}
-            <footer className="text-center py-8 border-t border-gray-800 text-gray-600 text-sm flex-shrink-0">
-                SpiderNoteBook & Spy Language - A Hybrid Compilation Platform | &copy; 2025 Vivek Vardhan Rao
-            </footer>
-        </div>
-    );
+const isTextFile = (name) => {
+  const ext = getFileExtension(name);
+  if (!ext) return ['dockerfile','makefile','readme','license','changelog'].includes(name.toLowerCase());
+  return TEXT_FILE_EXTENSIONS.includes(ext);
 };
-
-
-// --- Panel Components (Only Sidebar for Notebook) ---
-
-const SpiderNotebookPanel = ({ handleOpenProject, handleOpenFileClick, handleNewProject, projectFiles, openFiles, activeFileId, handleFileClick, FolderIcon, FileIcon }) => {
-     return (
-        // File Tree Panel - Only visible on medium screens and up (PC view)
-        <div className="hidden md:flex flex-col bg-[var(--spider-med)] w-64 p-4 border-r border-[var(--spider-light)] flex-shrink-0 h-full overflow-y-auto">
-            <span className="text-sm font-semibold mb-4">NOTEBOOK FILES</span>
-            {/* --- FIX 1: Added "Open File(s)" button and adjusted margins --- */}
-            <button onClick={handleOpenProject} className="bg-[var(--spider-neon-blue)] text-[var(--spider-dark)] text-sm font-semibold w-full py-2 rounded-md mb-2 hover:opacity-90">Open Project</button>
-            <button onClick={handleOpenFileClick} className="bg-[var(--spider-light)] text-[var(--spider-text)] text-sm font-semibold w-full py-2 rounded-md mb-2 hover:bg-opacity-80">Open File(s)</button>
-            <button onClick={handleNewProject} className="bg-[var(--spider-light)] text-[var(--spider-text)] text-sm font-semibold w-full py-2 rounded-md mb-4 hover:bg-opacity-80">New Project</button>
-            
-            <div className="relative mb-4"> <input type="text" placeholder="Search files..." className="w-full bg-[var(--spider-light)] border border-[var(--spider-light)] rounded-md py-1.5 px-3 text-sm focus:outline-none focus:border-[var(--spider-neon-blue)] focus:ring-1 focus:ring-[var(--spider-neon-blue)]" /> <svg className="w-4 h-4 text-[var(--spider-text-dim)] absolute right-2.5 top-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg> </div>
-            <div className="flex-grow text-sm space-y-1"> <div className="font-semibold">{projectFiles.length > 0 ? 'Project' : 'No Project'}</div> <div className="pl-2 space-y-1"> {projectFiles.map(file => { let bg='transparent'; let text='var(--spider-text)'; if(file.kind==='file'&&openFiles.includes(file.name)){bg='var(--spider-light)';text=activeFileId===file.name?'white':'var(--spider-text-dim)';} if(file.kind==='directory')return null; return ( <div key={file.name} onClick={() => handleFileClick(file)} className={`pl-4 rounded px-1 flex items-center ${file.kind==='file'?'cursor-pointer':'cursor-default'}`} style={{backgroundColor:bg,color:text}}><FileIcon /><span className="truncate">{file.name}</span></div> ) })} </div> </div>
-        </div>
-    );
+const isImageFile = (name) => IMAGE_EXTENSIONS.includes(getFileExtension(name));
+const isPDFFile = (name) => getFileExtension(name) === 'pdf';
+const isZipFile = (name) => ['zip','tar','gz','tgz','7z','rar'].includes(getFileExtension(name));
+const formatFileSize = (bytes) => {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 };
-
-
-// --- Full Page Components ---
-
-// --- THIS IS THE START OF THE REFACTORED COMPONENT ---
-// Spider Notebook App (Main IDE View)
-// Spider Notebook App (Main IDE View) - WITH ALL ICONS RESTORED
-const SpiderNotebookApp = ({ 
-    openFiles, activeFileId, fileContents, projectFiles, terminalOutput, activeTerminalTab, 
-    aiQuery, handleFileClick, handleCloseTab, handleCodeChange, handleSave, handleRunEngine, 
-    setAiQuery, setActiveTerminalTab, showModal, LockIcon, FolderIcon, FileIcon, 
-    handleOpenProject, handleOpenFileClick, handleNewProject,
-    callFastAPI,
-    wsStatus,
-}) => {
-    
-    // --- State for Mobile Panel Visibility ---
-    const [isAiPanelVisible, setIsAiPanelVisible] = useState(false);
-    const [isTerminalVisible, setIsTerminalVisible] = useState(true);
-    const [activeMobileTab, setActiveMobileTab] = useState('editor'); // 'editor', 'files', 'ai'
-
-    const getCurrentCode = () => { 
-        if (!activeFileId) { showModal("No File", "Open file."); return null; } 
-        const code=fileContents.get(activeFileId); 
-        if (typeof code==='undefined'||code.trim()==="") { showModal("Empty File", "No code."); return null; } 
-        return code;
-    };
-    
-    // NOTEBOOK AI HANDLERS
-    const handleGenerateCode = async () => { 
-        if (!activeFileId) { showModal("No File", "Open file."); return; } 
-        if (!aiQuery) { showModal("Empty Prompt", "Enter prompt in AI input area."); return; } 
-        const systemPrompt="Generate only raw code for the existing open file. If possible, use Spy Language multi-language format."; 
-        const generatedCode=await callFastAPI('/api/generate/text', { prompt: aiQuery, system_instruction: systemPrompt }, 'chat'); 
-        if (generatedCode && !generatedCode.error) { 
-            const newContents=new Map(fileContents); 
-            const oldContent=newContents.get(activeFileId)||""; 
-            newContents.set(activeFileId, oldContent+"\n\n"+generatedCode.text); 
-            setFileContents(newContents); 
-            setAiQuery(""); 
-        }
-    };
-
-    const handleExplainCode = async () => { 
-        const code=getCurrentCode(); if (!code) return; 
-        const userQuery=`Explain the following code from file ${activeFileId}:\n\`\`\`\n${code}\n\`\`\``; 
-        const systemPrompt="Provide a detailed, beginner-friendly explanation of the provided code. If it contains Spy Language elements, explain the cross-language interaction."; 
-        const explanation=await callFastAPI('/api/generate/text', { prompt: userQuery, system_instruction: systemPrompt }, 'chat'); 
-        if (explanation && !explanation.error) { showModal("AI Explanation", explanation.text); }
-    };
-    
-    const handleCritiqueCode = async () => { 
-        const code=getCurrentCode(); if (!code) return; 
-        const userQuery=`Critique the following code from file ${activeFileId}. Focus on best practices, performance, and cross-language compatibility (if applicable):\n\`\`\`\n${code}\n\`\`\``; 
-        const systemPrompt="Act as a senior software architect. Provide a constructive critique focusing on efficiency and security."; 
-        const critique=await callFastAPI('/api/generate/text', { prompt: userQuery, system_instruction: systemPrompt }, 'chat'); 
-        if (critique && !critique.error) { showModal("AI Critique", critique.text); }
-    };
-    
-    const handleFixErrors = async () => { 
-        const code=getCurrentCode(); if (!code) return; 
-        const userQuery=`Fix all obvious errors and suggest improvements for the following code from file ${activeFileId}. Return ONLY the raw, corrected code, nothing else.\n\`\`\`\n${code}\n\`\`\``; 
-        const systemPrompt="Fix the errors and return only the raw, corrected code. Do not add any conversational text."; 
-        const fixedCode=await callFastAPI('/api/generate/text', { prompt: userQuery, system_instruction: systemPrompt }, 'chat'); 
-        if (fixedCode && !fixedCode.error) { 
-            const newContents=new Map(fileContents); 
-            newContents.set(activeFileId, fixedCode.text); 
-            setFileContents(newContents);
-            showModal("AI Fix Applied", `The AI has updated the file ${activeFileId} with suggested fixes.`);
-        }
-    };
-
-    // FIXED: Mobile action handlers that close the file panel
-    const handleMobileOpenProject = () => {
-        handleOpenProject();
-        setActiveMobileTab('editor'); // Close file panel and go to editor
-    };
-
-    const handleMobileOpenFileClick = () => {
-        handleOpenFileClick();
-        setActiveMobileTab('editor'); // Close file panel and go to editor
-    };
-
-    const handleMobileNewProject = () => {
-        handleNewProject();
-        setActiveMobileTab('editor'); // Close file panel and go to editor
-    };
-
-    const handleMobileFileClick = (file) => {
-        handleFileClick(file);
-        setActiveMobileTab('editor'); // Close file panel and go to editor
-    };
-
-    return (
-        // Main container
-        <div className="w-full h-full flex bg-[var(--spider-dark)] overflow-hidden">
-            
-            {/* --- DESKTOP LAYOUT (Hidden on mobile) --- */}
-            <div className="hidden md:flex w-full h-full">
-                {/* Left Sidebar: File Explorer */}
-                <div className="flex flex-col bg-[var(--spider-med)] w-64 border-r border-[var(--spider-light)] flex-shrink-0 h-full">
-                    {/* Sidebar Header */}
-                    <div className="p-4 border-b border-[var(--spider-light)]">
-                        <h2 className="text-sm font-semibold text-white uppercase tracking-wide">NOTEBOOK FILES</h2>
-                    </div>
-                    
-                    {/* Action Buttons */}
-                    <div className="p-4 space-y-2 border-b border-[var(--spider-light)]">
-                        <button 
-                            onClick={handleOpenProject}
-                            className="w-full bg-[var(--spider-neon-blue)] text-[var(--spider-dark)] font-medium py-2.5 px-4 rounded-md hover:opacity-90 transition-all duration-200 text-sm flex items-center justify-center space-x-2"
-                        >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path>
-                            </svg>
-                            <span>Open Project</span>
-                        </button>
-                        <button 
-                            onClick={handleOpenFileClick}
-                            className="w-full bg-[var(--spider-light)] text-[var(--spider-text)] font-medium py-2.5 px-4 rounded-md hover:bg-opacity-80 transition-all duration-200 text-sm flex items-center justify-center space-x-2"
-                        >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"></path>
-                            </svg>
-                            <span>Open File(s)</span>
-                        </button>
-                        <button 
-                            onClick={handleNewProject}
-                            className="w-full bg-[var(--spider-light)] text-[var(--spider-text)] font-medium py-2.5 px-4 rounded-md hover:bg-opacity-80 transition-all duration-200 text-sm flex items-center justify-center space-x-2"
-                        >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
-                            </svg>
-                            <span>New Project</span>
-                        </button>
-                    </div>
-
-                    {/* Search */}
-                    <div className="p-4 border-b border-[var(--spider-light)]">
-                        <div className="relative">
-                            <input 
-                                type="text" 
-                                placeholder="Search files..." 
-                                className="w-full bg-[var(--spider-dark)] text-[var(--spider-text)] border border-[var(--spider-light)] rounded-md py-2 px-3 text-sm focus:outline-none focus:border-[var(--spider-neon-blue)] focus:ring-1 focus:ring-[var(--spider-neon-blue)]" 
-                            />
-                            <svg className="w-4 h-4 text-[var(--spider-text-dim)] absolute right-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
-                            </svg>
-                        </div>
-                    </div>
-
-                    {/* File Tree */}
-                    <div className="flex-1 p-4 overflow-y-auto">
-                        <div className="text-sm">
-                            <div className="font-semibold text-[var(--spider-text-dim)] text-xs uppercase tracking-wide mb-3">
-                                {projectFiles.length > 0 ? 'Project Files' : 'No Project'}
-                            </div>
-                            <div className="space-y-1">
-                                {projectFiles.map(file => { 
-                                    if (file.kind === 'directory') return null;
-                                    const isActive = activeFileId === file.name;
-                                    const isOpen = openFiles.includes(file.name);
-                                    
-                                    return ( 
-                                        <div 
-                                            key={file.name} 
-                                            onClick={() => handleFileClick(file)} 
-                                            className={`pl-3 py-2 rounded flex items-center cursor-pointer transition-all duration-200 ${
-                                                isActive 
-                                                    ? 'bg-[var(--spider-neon-blue)] text-[var(--spider-dark)]' 
-                                                    : isOpen 
-                                                        ? 'bg-[var(--spider-light)] text-white' 
-                                                        : 'text-[var(--spider-text-dim)] hover:bg-[var(--spider-light)] hover:text-white'
-                                            }`}
-                                        >
-                                            <FileIcon />
-                                            <span className="ml-2 truncate text-sm">{file.name}</span>
-                                        </div> 
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Main Content Area */}
-                <div className="flex-1 flex flex-col min-w-0">
-                    
-                    {/* Editor Tabs */}
-                    <div className="bg-[var(--spider-med)] border-b border-[var(--spider-light)] flex-shrink-0">
-                        <div className="flex overflow-x-auto">
-                            {openFiles.map(fileName => ( 
-                                <button 
-                                    key={fileName} 
-                                    onClick={() => handleFileClick({ name: fileName, kind: 'file' })} 
-                                    className={`flex items-center space-x-2 py-3 px-4 border-r border-[var(--spider-light)] flex-shrink-0 min-w-0 transition-all duration-200 ${
-                                        activeFileId === fileName 
-                                            ? 'bg-[var(--spider-dark)] text-white border-b-2 border-[var(--spider-neon-blue)]' 
-                                            : 'text-[var(--spider-text-dim)] hover:bg-[var(--spider-light)] hover:text-white'
-                                    }`}
-                                >
-                                    <FileIcon />
-                                    <span className="truncate max-w-xs text-sm">{fileName}</span>
-                                    <span 
-                                        onClick={(e) => handleCloseTab(e, fileName)} 
-                                        className="text-[var(--spider-text-dim)] hover:text-white text-xs ml-1 transition-colors duration-200"
-                                    >
-                                        ×
-                                    </span>
-                                </button> 
-                            ))} 
-                            {openFiles.length === 0 && ( 
-                                <div className="py-3 px-4 text-[var(--spider-text-dim)] italic text-sm flex items-center space-x-2">
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-                                    </svg>
-                                    <span>No files open</span>
-                                </div> 
-                            )} 
-                        </div>
-                    </div>
-                    
-                    {/* Editor + AI Panel Row */}
-                    <div className="flex-1 flex min-h-0">
-                        {/* Code Editor */}
-                        <div className="flex-1 flex flex-col bg-[var(--spider-dark)] min-w-0">
-                            <div className="flex-1 p-6 overflow-auto">
-                                <textarea 
-                                    id="code-editor" 
-                                    className="w-full h-full bg-transparent text-white font-mono text-sm border-none outline-none resize-none leading-relaxed"
-                                    value={fileContents.get(activeFileId) || ''} 
-                                    onChange={handleCodeChange} 
-                                    disabled={!activeFileId && projectFiles.length === 0} 
-                                    placeholder={projectFiles.length === 0 ? "Open Project or create a new file to get started..." : !activeFileId ? "Select a file from the sidebar to start editing..." : ""} 
-                                />
-                            </div>
-                        </div>
-                        
-                        {/* AI Panel */}
-                        <div className="w-80 flex flex-col bg-[var(--spider-med)] border-l border-[var(--spider-light)] flex-shrink-0">
-                            <div className="p-4 border-b border-[var(--spider-light)]">
-                                <h3 className="text-sm font-semibold text-white flex items-center space-x-2">
-                                    <svg className="w-4 h-4 text-[var(--spider-neon-blue)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
-                                    </svg>
-                                    <span>AI Assistant</span>
-                                </h3>
-                            </div>
-                            
-                            <div className="flex-1 p-4 space-y-4 overflow-y-auto">
-                                {/* AI Prompt Input */}
-                                <div className="relative">
-                                    <input 
-                                        id="ai-query-input" 
-                                        type="text" 
-                                        placeholder="✨ Enter prompt..." 
-                                        className="w-full bg-[var(--spider-dark)] text-[var(--spider-text)] border border-[var(--spider-light)] rounded-lg py-2.5 px-4 text-sm focus:outline-none focus:border-[var(--spider-neon-blue)] focus:ring-1 focus:ring-[var(--spider-neon-blue)]" 
-                                        value={aiQuery} 
-                                        onChange={(e) => setAiQuery(e.target.value)} 
-                                    />
-                                    <svg className="w-4 h-4 text-[var(--spider-text-dim)] absolute right-3.5 top-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
-                                    </svg>
-                                </div>
-                                
-                                {/* AI Action Buttons */}
-                                <div className="space-y-3">
-                                    <button 
-                                        id="btn-generate-code" 
-                                        onClick={handleGenerateCode} 
-                                        className="w-full flex items-center space-x-3 p-3 bg-[var(--spider-dark)] rounded-lg cursor-pointer hover:bg-opacity-80 text-left border border-[var(--spider-light)] hover:border-[var(--spider-neon-blue)] transition-all duration-200"
-                                    >
-                                        <span className="text-xl">✨</span>
-                                        <span className="text-sm font-semibold text-[var(--spider-text)]">Generate Code</span>
-                                    </button>
-                                    <button 
-                                        id="btn-explain-code" 
-                                        onClick={handleExplainCode} 
-                                        className="w-full flex items-center space-x-3 p-3 bg-[var(--spider-dark)] rounded-lg cursor-pointer hover:bg-opacity-80 text-left border border-[var(--spider-light)] hover:border-[var(--spider-neon-blue)] transition-all duration-200"
-                                    >
-                                        <span className="text-xl">💡</span>
-                                        <span className="text-sm font-semibold text-[var(--spider-text)]">Explain Code</span>
-                                    </button>
-                                    <button 
-                                        id="btn-critique-code" 
-                                        onClick={handleCritiqueCode} 
-                                        className="w-full flex items-center space-x-3 p-3 bg-[var(--spider-dark)] rounded-lg cursor-pointer hover:bg-opacity-80 text-left border border-[var(--spider-light)] hover:border-[var(--spider-neon-blue)] transition-all duration-200"
-                                    >
-                                        <span className="text-xl">📐</span>
-                                        <span className="text-sm font-semibold text-[var(--spider-text)]">Critique Code</span>
-                                    </button>
-                                    <button 
-                                        id="btn-fix-errors" 
-                                        onClick={handleFixErrors} 
-                                        className="w-full flex items-center space-x-3 p-3 bg-[var(--spider-dark)] rounded-lg cursor-pointer hover:bg-opacity-80 text-left border border-[var(--spider-light)] hover:border-[var(--spider-neon-blue)] transition-all duration-200"
-                                    >
-                                        <span className="text-xl">🩹</span>
-                                        <span className="text-sm font-semibold text-[var(--spider-text)]">Fix Errors</span>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    {/* Terminal Area */}
-                    <div className="h-64 flex flex-col bg-[var(--spider-med)] border-t border-[var(--spider-light)] flex-shrink-0">
-                        {/* Terminal Tabs */}
-                        <div className="flex border-b border-[var(--spider-light)]">
-                            <button 
-                                onClick={() => setActiveTerminalTab('terminal')} 
-                                className={`py-3 px-6 text-sm font-semibold flex items-center transition-all duration-200 ${
-                                    activeTerminalTab === 'terminal' 
-                                        ? 'text-white bg-[var(--spider-dark)] border-b-2 border-[var(--spider-neon-blue)]' 
-                                        : 'text-[var(--spider-text-dim)] hover:text-white'
-                                }`}
-                            >
-                                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
-                                </svg>
-                                TERMINAL
-                            </button>
-                            <button 
-                                onClick={() => showModal("Pro Feature", "PowerShell integration coming soon!")} 
-                                className={`py-3 px-6 text-sm font-semibold flex items-center transition-all duration-200 ${
-                                    activeTerminalTab === 'powershell' 
-                                        ? 'text-white bg-[var(--spider-dark)] border-b-2 border-[var(--spider-neon-blue)]' 
-                                        : 'text-[var(--spider-text-dim)] hover:text-white opacity-70'
-                                }`}
-                            >
-                                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path>
-                                </svg>
-                                POWERSHELL
-                                <LockIcon />
-                            </button>
-                        </div>
-                        
-                        {/* Terminal Content */}
-                        <div className="flex-1 p-4 bg-[var(--spider-dark)] overflow-y-auto font-mono text-sm">
-                            {/* Status Bar */}
-                            <div className="mb-3 pb-2 border-b border-[var(--spider-light)]">
-                                <p className="text-sm font-semibold text-gray-400 flex items-center">
-                                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
-                                    </svg>
-                                    Spy Engine Status: 
-                                    <span className={`ml-2 ${
-                                        wsStatus === 'Connected' ? 'text-green-400' : 
-                                        wsStatus === 'Connecting' ? 'text-yellow-400' : 
-                                        'text-red-400'
-                                    }`}>
-                                        {wsStatus}
-                                    </span>
-                                </p>
-                            </div>
-                            
-                            {/* Terminal Output */}
-                            <div className="space-y-1">
-                                {activeTerminalTab === 'terminal' && terminalOutput.map((line, index) => (
-                                    <p key={index} dangerouslySetInnerHTML={{ __html: line || '&nbsp;' }} />
-                                ))}
-                                {activeTerminalTab === 'powershell' && (
-                                    <p className="text-[var(--spider-text-dim)] italic flex items-center">
-                                        <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
-                                        </svg>
-                                        PowerShell integration coming soon. Use Terminal for now.
-                                    </p>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {/* --- MOBILE LAYOUT (Visible on mobile) --- */}
-            <div className="md:hidden flex flex-col w-full h-full">
-                
-                {/* Mobile Header */}
-                <div className="flex items-center justify-between p-4 bg-[var(--spider-med)] border-b border-[var(--spider-light)]">
-                    <div className="flex items-center space-x-3">
-                        <button 
-                            onClick={() => setActiveMobileTab(activeMobileTab === 'files' ? 'editor' : 'files')}
-                            className={`p-2 rounded-lg ${
-                                activeMobileTab === 'files' 
-                                    ? 'bg-[var(--spider-neon-blue)] text-black' 
-                                    : 'bg-[var(--spider-light)] text-white'
-                            }`}
-                        >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path>
-                            </svg>
-                        </button>
-                        <h1 className="text-lg font-semibold text-white">Spider Notebook</h1>
-                    </div>
-                    <div className="flex space-x-2">
-                        <button 
-                            onClick={() => setIsAiPanelVisible(!isAiPanelVisible)}
-                            className={`p-2 rounded-lg ${isAiPanelVisible ? 'bg-[var(--spider-neon-blue)] text-black' : 'bg-[var(--spider-light)] text-white'}`}
-                        >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
-                            </svg>
-                        </button>
-                        <button 
-                            onClick={() => setIsTerminalVisible(!isTerminalVisible)}
-                            className={`p-2 rounded-lg ${isTerminalVisible ? 'bg-[var(--spider-neon-blue)] text-black' : 'bg-[var(--spider-light)] text-white'}`}
-                        >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
-                            </svg>
-                        </button>
-                    </div>
-                </div>
-
-                {/* Mobile Content Area */}
-                <div className="flex-1 flex flex-col min-h-0">
-                    
-                    {/* File Manager (Hidden by default) */}
-                    {activeMobileTab === 'files' && (
-                        <div className="flex-1 bg-[var(--spider-med)] p-4 overflow-y-auto">
-                            <div className="space-y-3">
-                                {/* FIXED: All three buttons now close the file panel */}
-                                <button 
-                                    onClick={handleMobileOpenProject}
-                                    className="w-full bg-[var(--spider-neon-blue)] text-[var(--spider-dark)] font-medium py-3 px-4 rounded-lg text-sm flex items-center justify-center space-x-2"
-                                >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path>
-                                    </svg>
-                                    <span>Open Project</span>
-                                </button>
-                                <button 
-                                    onClick={handleMobileOpenFileClick}
-                                    className="w-full bg-[var(--spider-light)] text-white font-medium py-3 px-4 rounded-lg text-sm flex items-center justify-center space-x-2"
-                                >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"></path>
-                                    </svg>
-                                    <span>Open File(s)</span>
-                                </button>
-                                <button 
-                                    onClick={handleMobileNewProject}
-                                    className="w-full bg-[var(--spider-light)] text-white font-medium py-3 px-4 rounded-lg text-sm flex items-center justify-center space-x-2"
-                                >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
-                                    </svg>
-                                    <span>New Project</span>
-                                </button>
-                                
-                                <div className="mt-4">
-                                    <h3 className="text-sm font-semibold text-white mb-2 flex items-center space-x-2">
-                                        <FileIcon />
-                                        <span>Project Files</span>
-                                    </h3>
-                                    <div className="space-y-1">
-                                        {projectFiles.map(file => (
-                                            <div 
-                                                key={file.name} 
-                                                onClick={() => handleMobileFileClick(file)}
-                                                className="p-3 bg-[var(--spider-dark)] rounded-lg text-white text-sm cursor-pointer active:bg-[var(--spider-light)] transition-colors flex items-center space-x-2"
-                                            >
-                                                <FileIcon />
-                                                <span className="truncate">{file.name}</span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Editor Area (Default view) */}
-                    {activeMobileTab === 'editor' && (
-                        <div className="flex-1 flex flex-col min-h-0">
-                            {/* Mobile Tabs */}
-                            <div className="bg-[var(--spider-med)] border-b border-[var(--spider-light)] flex-shrink-0">
-                                <div className="flex overflow-x-auto">
-                                    {openFiles.map(fileName => ( 
-                                        <button 
-                                            key={fileName} 
-                                            onClick={() => handleFileClick({ name: fileName, kind: 'file' })} 
-                                            className={`flex items-center space-x-2 py-3 px-4 border-r border-[var(--spider-light)] flex-shrink-0 min-w-0 ${
-                                                activeFileId === fileName 
-                                                    ? 'bg-[var(--spider-dark)] text-white' 
-                                                    : 'text-[var(--spider-text-dim)]'
-                                            }`}
-                                        >
-                                            <FileIcon />
-                                            <span className="truncate max-w-32 text-sm">{fileName}</span>
-                                            <span 
-                                                onClick={(e) => handleCloseTab(e, fileName)} 
-                                                className="text-[var(--spider-text-dim)] text-xs ml-1"
-                                            >
-                                                ×
-                                            </span>
-                                        </button> 
-                                    ))} 
-                                    {openFiles.length === 0 && ( 
-                                        <div className="py-3 px-4 text-[var(--spider-text-dim)] italic text-sm flex items-center space-x-2">
-                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-                                            </svg>
-                                            <span>No files open</span>
-                                        </div> 
-                                    )} 
-                                </div>
-                            </div>
-                            
-                            {/* Editor */}
-                            <div className="flex-1 bg-[var(--spider-dark)] p-4 overflow-auto">
-                                <textarea 
-                                    className="w-full h-full bg-transparent text-white font-mono text-sm border-none outline-none resize-none leading-relaxed"
-                                    value={fileContents.get(activeFileId) || ''} 
-                                    onChange={handleCodeChange} 
-                                    disabled={!activeFileId && projectFiles.length === 0} 
-                                    placeholder={projectFiles.length === 0 ? "Open Project..." : !activeFileId ? "Select file..." : ""} 
-                                />
-                            </div>
-                        </div>
-                    )}
-
-                    {/* AI Panel (Collapsible) */}
-                    {isAiPanelVisible && (
-                        <div className="bg-[var(--spider-med)] border-t border-[var(--spider-light)] max-h-64 overflow-y-auto">
-                            <div className="p-4 space-y-4">
-                                <div className="relative">
-                                    <input 
-                                        type="text" 
-                                        placeholder="✨ Enter prompt..." 
-                                        className="w-full bg-[var(--spider-dark)] text-white border border-[var(--spider-light)] rounded-lg py-3 px-4 text-sm"
-                                        value={aiQuery} 
-                                        onChange={(e) => setAiQuery(e.target.value)} 
-                                    />
-                                </div>
-                                
-                                <div className="grid grid-cols-2 gap-2">
-                                    <button 
-                                        onClick={handleGenerateCode}
-                                        className="p-3 bg-[var(--spider-dark)] rounded-lg text-white text-sm border border-[var(--spider-light)] active:bg-[var(--spider-light)] transition-colors flex items-center justify-center space-x-2"
-                                    >
-                                        <span>✨</span>
-                                        <span>Generate Code</span>
-                                    </button>
-                                    <button 
-                                        onClick={handleExplainCode}
-                                        className="p-3 bg-[var(--spider-dark)] rounded-lg text-white text-sm border border-[var(--spider-light)] active:bg-[var(--spider-light)] transition-colors flex items-center justify-center space-x-2"
-                                    >
-                                        <span>💡</span>
-                                        <span>Explain Code</span>
-                                    </button>
-                                    <button 
-                                        onClick={handleCritiqueCode}
-                                        className="p-3 bg-[var(--spider-dark)] rounded-lg text-white text-sm border border-[var(--spider-light)] active:bg-[var(--spider-light)] transition-colors flex items-center justify-center space-x-2"
-                                    >
-                                        <span>📐</span>
-                                        <span>Critique Code</span>
-                                    </button>
-                                    <button 
-                                        onClick={handleFixErrors}
-                                        className="p-3 bg-[var(--spider-dark)] rounded-lg text-white text-sm border border-[var(--spider-light)] active:bg-[var(--spider-light)] transition-colors flex items-center justify-center space-x-2"
-                                    >
-                                        <span>🩹</span>
-                                        <span>Fix Errors</span>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Terminal (Collapsible) */}
-                    {isTerminalVisible && (
-                        <div className="bg-[var(--spider-med)] border-t border-[var(--spider-light)] flex-shrink-0">
-                            <div className="flex border-b border-[var(--spider-light)]">
-                                <button 
-                                    onClick={() => setActiveTerminalTab('terminal')} 
-                                    className={`flex-1 py-3 text-sm font-semibold flex items-center justify-center space-x-2 ${
-                                        activeTerminalTab === 'terminal' 
-                                            ? 'text-white bg-[var(--spider-dark)]' 
-                                            : 'text-[var(--spider-text-dim)]'
-                                    }`}
-                                >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
-                                    </svg>
-                                    <span>TERMINAL</span>
-                                </button>
-                                <button 
-                                    onClick={() => showModal("Pro Feature", "PowerShell coming soon!")} 
-                                    className={`flex-1 py-3 text-sm font-semibold flex items-center justify-center space-x-2 ${
-                                        activeTerminalTab === 'powershell' 
-                                            ? 'text-white bg-[var(--spider-dark)]' 
-                                            : 'text-[var(--spider-text-dim)] opacity-70'
-                                    }`}
-                                >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path>
-                                    </svg>
-                                    <span>POWERSHELL</span>
-                                    <LockIcon />
-                                </button>
-                            </div>
-                            
-                            <div className="p-4 bg-[var(--spider-dark)] max-h-48 overflow-y-auto font-mono text-sm">
-                                <div className="mb-2">
-                                    <p className="text-sm text-gray-400 flex items-center">
-                                        <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
-                                        </svg>
-                                        Spy Engine Status: 
-                                        <span className={`ml-2 ${
-                                            wsStatus === 'Connected' ? 'text-green-400' : 
-                                            wsStatus === 'Connecting' ? 'text-yellow-400' : 
-                                            'text-red-400'
-                                        }`}>
-                                            {wsStatus}
-                                        </span>
-                                    </p>
-                                </div>
-                                
-                                <div className="space-y-1">
-                                    {activeTerminalTab === 'terminal' && terminalOutput.map((line, index) => (
-                                        <p key={index} dangerouslySetInnerHTML={{ __html: line || '&nbsp;' }} />
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                </div>
-            </div>
-        </div>
-    );
+const formatEta = (seconds) => {
+  if (seconds == null) return 'Calculating...';
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remaining = seconds % 60;
+  if (!remaining) return `${minutes}m`;
+  return `${minutes}m ${remaining}s`;
 };
-
-const SpiderAIApp = ({ 
-    currentUser, 
-    showModal, 
-    callFastAPI, 
-    activeAIMode, 
-    setActiveAIMode, 
-    uploadedFile, 
-    setUploadedFile, 
-    uploadedImage, 
-    setUploadedImage 
-}) => {
-    // ---------- State ----------
-    const [message, setMessage] = useState('');
-    const [chatHistory, setChatHistory] = useState([
-        { role: 'assistant', content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', type: 'text' }
-    ]);
-    const [activeChatId, setActiveChatId] = useState(null);
-    const [recentChats, setRecentChats] = useState([]);
-    const [aspectRatio, setAspectRatio] = useState('1:1');
-    const [isLoading, setIsLoading] = useState(false);
-    const [abortController, setAbortController] = useState(null);
-    const [streamingMessage, setStreamingMessage] = useState(null);
-    const [isDeleting, setIsDeleting] = useState(false);
-    const [sidebarOpen, setSidebarOpen] = useState(false);
-    const [isMobile, setIsMobile] = useState(false);
-    
-    // ---------- Streaming State ----------
-    const [isStreaming, setIsStreaming] = useState(false);
-    const [streamedContent, setStreamedContent] = useState('');
-    const [showContinueButton, setShowContinueButton] = useState(false);
-    const [lastStreamId, setLastStreamId] = useState(null);
-    
-    // ---------- Full Code Mode State ----------
-    const [isFullCodeMode, setIsFullCodeMode] = useState(false);
-    const [generatedFiles, setGeneratedFiles] = useState([]);
-    const [projectMetadata, setProjectMetadata] = useState({
-        name: '',
-        type: '',
-        description: '',
-        totalFiles: 0
-    });
-    const [activeFileIndex, setActiveFileIndex] = useState(0);
-    const [isProjectView, setIsProjectView] = useState(false);
-    
-    // ---------- Voice Recording State ----------
-    const [isRecording, setIsRecording] = useState(false);
-    const [recordingTime, setRecordingTime] = useState(0);
-    const [mediaRecorder, setMediaRecorder] = useState(null);
-    const [audioChunks, setAudioChunks] = useState([]);
-    const [isTranscribing, setIsTranscribing] = useState(false);
-    
-    // ---------- AI Mode State ----------
-    const [selectedAIMode, setSelectedAIMode] = useState('chat'); // chat, reasoning, pro
-
-    const fileInputRef = useRef(null);
-    const imageInputRef = useRef(null);
-    const chatEndRef = useRef(null);
-    const textareaRef = useRef(null);
-    const streamReaderRef = useRef(null);
-    const accumulatedTokensRef = useRef('');
-    const fileContentBufferRef = useRef('');
-    const recordingTimerRef = useRef(null);
-    const continueStreamIdRef = useRef(null);
-
-    const getAppId = () => typeof __app_id !== 'undefined' ? __app_id : 'default-m4-app';
-    const LOCAL_STORAGE_KEY = `spider_chat_history_${getAppId()}_${(currentUser?.email || 'anon')}`;
-    
-    // ---------- Persistent User ID ----------
-    const getPersistentUserId = useCallback(() => {
-        const key = `spider_user_id_${getAppId()}`;
-        let userId = localStorage.getItem(key);
-        if (!userId) {
-            userId = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-            localStorage.setItem(key, userId);
-        }
-        return userId;
-    }, [getAppId()]);
-
-    // ---------- Full Code Detection Patterns ----------
-    const fullCodePatterns = useMemo(() => ({
-        strong: [
-            'write full code',
-            'give full code',
-            'provide full code',
-            'complete code',
-            'entire code',
-            'full implementation',
-            'complete implementation',
-            'entire application',
-            'complete project',
-            'entire project',
-            'full project',
-            'whole application',
-            'create a complete',
-            'build a complete',
-            'develop a complete',
-            'make a complete',
-            'generate a complete',
-            'with all files',
-            'with entire codebase',
-            'with complete source',
-            'including all dependencies',
-            'with package.json',
-            'with requirements.txt'
-        ],
-        
-        medium: [
-            'full stack',
-            'complete app',
-            'entire app',
-            'full app',
-            'with frontend and backend',
-            'with database',
-            'with api',
-            'with all components',
-            'with all modules',
-            'with configuration',
-            'with setup',
-            'with installation',
-            'multi-file',
-            'multiple files',
-            'file structure',
-            'project structure',
-            'directory structure',
-            'folder structure'
-        ],
-        
-        projectTypes: [
-            'todo app',
-            'calculator',
-            'weather app',
-            'chat application',
-            'e-commerce',
-            'blog platform',
-            'social media',
-            'dashboard',
-            'admin panel',
-            'portfolio website',
-            'rest api',
-            'crud application',
-            'fullstack',
-            'mern stack',
-            'mean stack',
-            'react app',
-            'vue app',
-            'angular app',
-            'node.js app',
-            'django app',
-            'flask app',
-            'mobile app',
-            'desktop app'
-        ]
-    }), []);
-
-    // ---------- Math Detection Patterns ----------
-    const mathPatterns = useMemo(() => ({
-        latexInline: [
-            /\$([^$]+?)\$/g,                         // $...$
-            /\$\\displaystyle\s*([^$]+?)\$/g,        // $\displaystyle ...$
-            /\\\(([^)]+?)\\\)/g,                     // \(...\)
-            /\\\[([\s\S]+?)\\\]/g,                   // \[...\]
-            /\\begin\{equation\}([\s\S]+?)\\end\{equation\}/g,
-            /\\begin\{align\}([\s\S]+?)\\end\{align\}/g,
-            /\\begin\{gather\}([\s\S]+?)\\end\{gather\}/g,
-            /\\boxed\{([^}]+?)\}/g                   // \boxed{...}
-        ],
-        
-        mathKeywords: [
-            'calculate',
-            'solve',
-            'equation',
-            'formula',
-            'theorem',
-            'derivative',
-            'integral',
-            'matrix',
-            'vector',
-            'function',
-            'limit',
-            'sum',
-            'product',
-            'sqrt',
-            'frac',
-            'sin',
-            'cos',
-            'tan',
-            'log',
-            'ln',
-            'exp',
-            'pi',
-            'theta',
-            'alpha',
-            'beta',
-            'gamma',
-            'delta',
-            'epsilon',
-            'sigma',
-            'omega',
-            'infty',
-            'rightarrow',
-            'leftarrow',
-            'Rightarrow',
-            'Leftarrow',
-            'approx',
-            'equiv',
-            'propto',
-            'partial',
-            'nabla',
-            'int',
-            'sum',
-            'prod',
-            'lim'
-        ]
-    }), []);
-
-    // ---------- Detect Full Code Request ----------
-    const detectFullCodeRequest = useCallback((text) => {
-        if (!text || typeof text !== 'string') return false;
-        
-        const lowerText = text.toLowerCase();
-        let score = 0;
-        
-        // Check strong patterns (2 points each)
-        fullCodePatterns.strong.forEach(pattern => {
-            if (lowerText.includes(pattern)) score += 2;
-        });
-        
-        // Check medium patterns (1 point each)
-        fullCodePatterns.medium.forEach(pattern => {
-            if (lowerText.includes(pattern)) score += 1;
-        });
-        
-        // Check for project type mentions
-        fullCodePatterns.projectTypes.forEach(type => {
-            if (lowerText.includes(type)) score += 1;
-        });
-        
-        // Check for explicit file requests
-        const fileExtensions = ['.js', '.jsx', '.ts', '.tsx', '.py', '.html', '.css', '.json', '.md', '.txt'];
-        fileExtensions.forEach(ext => {
-            if (lowerText.includes(ext)) score += 1;
-        });
-        
-        // Check for file count mentions
-        const fileCountMatch = lowerText.match(/(\d+)\s*(files|file)/);
-        if (fileCountMatch && parseInt(fileCountMatch[1]) > 1) {
-            score += 2;
-        }
-        
-        // Check for structure keywords
-        if (lowerText.includes('structure') || lowerText.includes('architecture')) {
-            score += 1;
-        }
-        
-        // Threshold for triggering full code mode
-        return score >= 3;
-    }, [fullCodePatterns]);
-
-    // ---------- Detect Math Request ----------
-    const detectMathRequest = useCallback((text) => {
-        if (!text) return false;
-        
-        const lowerText = text.toLowerCase();
-        
-        // Check for math keywords
-        const hasMathKeywords = mathPatterns.mathKeywords.some(keyword => 
-            lowerText.includes(keyword) || 
-            text.includes(`\\${keyword}`)
-        );
-        
-        // Check for LaTeX patterns
-        const hasLatex = mathPatterns.latexInline.some(pattern => pattern.test(text));
-        
-        // Check for common math phrases
-        const mathPhrases = [
-            'solve for',
-            'calculate',
-            'find the value',
-            'prove that',
-            'show that',
-            'derivative of',
-            'integral of',
-            'limit of',
-            'matrix',
-            'vector',
-            'equation'
-        ];
-        
-        const hasMathPhrases = mathPhrases.some(phrase => lowerText.includes(phrase));
-        
-        return hasMathKeywords || hasLatex || hasMathPhrases;
-    }, [mathPatterns]);
-
-    // ---------- Detect Large Code Request ----------
-    const detectLargeCodeRequest = useCallback((text) => {
-        if (!text) return false;
-        
-        const lowerText = text.toLowerCase();
-        
-        // Code-specific keywords that usually mean large responses
-        const codeKeywords = [
-            'write code for',
-            'create a function',
-            'build a program',
-            'develop an application',
-            'implement',
-            'algorithm for',
-            'data structure',
-            'database schema',
-            'api endpoint',
-            'complete script',
-            'entire program',
-            'source code'
-        ];
-        
-        // Check length - long questions usually mean long answers
-        const isLongQuestion = text.length > 100;
-        
-        // Check for code block indicators
-        const hasCodeIndicators = codeKeywords.some(keyword => lowerText.includes(keyword));
-        
-        // Check for multiple file mentions
-        const hasMultipleFiles = lowerText.match(/\d+\s*(?:files|file)/);
-        
-        return isLongQuestion && (hasCodeIndicators || hasMultipleFiles);
-    }, []);
-
-    // ---------- Decision: When to Use Streaming ----------
-    const shouldUseStreaming = useCallback((text, isFullCode, mode) => {
-        // Always stream for these cases:
-        if (isFullCode) return true;
-        if (mode === "analyze_file") return true;
-        if (detectLargeCodeRequest(text)) return true;
-        
-        // Check for streaming keywords in user request
-        const streamingKeywords = [
-            'stream',
-            'live',
-            'real-time',
-            'as you type',
-            'show step by step',
-            'show process',
-            'type it out'
-        ];
-        
-        const lowerText = text.toLowerCase();
-        const userRequestsStreaming = streamingKeywords.some(keyword => lowerText.includes(keyword));
-        
-        return userRequestsStreaming;
-    }, [detectLargeCodeRequest]);
-
-    // ---------- Extract Project Metadata ----------
-    const extractProjectMetadata = useCallback((text) => {
-        const lowerText = text.toLowerCase();
-        const metadata = {
-            name: 'Untitled Project',
-            type: 'web',
-            description: 'Generated by Spider AI',
-            totalFiles: 0,
-            techStack: [],
-            hasFrontend: false,
-            hasBackend: false,
-            hasDatabase: false
-        };
-        
-        // Detect project type
-        if (lowerText.includes('react') || lowerText.includes('frontend')) {
-            metadata.type = 'react';
-            metadata.techStack.push('React');
-            metadata.hasFrontend = true;
-        }
-        if (lowerText.includes('node') || lowerText.includes('backend') || lowerText.includes('api')) {
-            metadata.type = metadata.type === 'react' ? 'mern' : 'node';
-            metadata.techStack.push('Node.js');
-            metadata.hasBackend = true;
-        }
-        if (lowerText.includes('mongodb') || lowerText.includes('database')) {
-            metadata.techStack.push('MongoDB');
-            metadata.hasDatabase = true;
-        }
-        if (lowerText.includes('python') || lowerText.includes('django') || lowerText.includes('flask')) {
-            metadata.type = 'python';
-            metadata.techStack.push('Python');
-            metadata.hasBackend = true;
-        }
-        
-        // Try to extract project name
-        const nameMatch = lowerText.match(/(?:create|build|make|generate)\s+(?:a|an)?\s+([a-z\s]+?)(?:\s+(?:app|application|project|website|platform))/);
-        if (nameMatch) {
-            metadata.name = nameMatch[1].trim().replace(/\b\w/g, l => l.toUpperCase());
-        }
-        
-        return metadata;
-    }, []);
-
-    // ---------- Parse Generated Code for Files ----------
-    const parseCodeForFiles = useCallback((text) => {
-        if (!text) return [];
-        
-        const files = [];
-        const lines = text.split('\n');
-        let currentFile = null;
-        let currentContent = [];
-        
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
-            
-            // Detect file headers
-            const fileHeaderMatch = line.match(/^(?:File|Filename|File name|## |# |📁|📄)\s*[:：]?\s*(.+?\.(?:js|jsx|ts|tsx|py|html|css|json|md|txt|yml|yaml|xml|env))$/i);
-            const pathMatch = line.match(/^([a-zA-Z0-9_\-./]+\.(?:js|jsx|ts|tsx|py|html|css|json|md|txt|yml|yaml|xml|env))$/);
-            
-            if (fileHeaderMatch || pathMatch) {
-                // Save previous file if exists
-                if (currentFile && currentContent.length > 0) {
-                    files.push({
-                        ...currentFile,
-                        content: currentContent.join('\n').trim()
-                    });
-                }
-                
-                const fileName = (fileHeaderMatch?.[1] || pathMatch?.[1]).trim();
-                currentFile = {
-                    name: fileName,
-                    path: fileName.includes('/') ? fileName : `/${fileName}`,
-                    language: getLanguageFromExtension(fileName),
-                    size: 0,
-                    lastModified: Date.now()
-                };
-                currentContent = [];
-                continue;
-            }
-            
-            // Accumulate content
-            if (currentFile) {
-                currentContent.push(line);
-            }
-        }
-        
-        // Save last file
-        if (currentFile && currentContent.length > 0) {
-            files.push({
-                ...currentFile,
-                content: currentContent.join('\n').trim(),
-                size: currentContent.join('\n').length
-            });
-        }
-        
-        return files;
-    }, []);
-
-    const getLanguageFromExtension = (filename) => {
-        const ext = filename.split('.').pop().toLowerCase();
-        const map = {
-            'js': 'javascript', 'jsx': 'javascript', 'ts': 'typescript', 'tsx': 'typescript',
-            'py': 'python', 'html': 'html', 'css': 'css', 'scss': 'scss', 'json': 'json',
-            'md': 'markdown', 'txt': 'text', 'yml': 'yaml', 'yaml': 'yaml', 'xml': 'xml'
-        };
-        return map[ext] || 'text';
-    };
-
-    // ---------- LaTeX Math Processing ----------
-    const processMathContent = useCallback((text) => {
-        if (!text) return [];
-        
-        const blocks = [];
-        let currentText = '';
-        let i = 0;
-        
-        while (i < text.length) {
-            // Check for inline math: $...$
-            if (text[i] === '$' && i + 1 < text.length && text[i + 1] !== '$') {
-                // Flush previous text
-                if (currentText.trim()) {
-                    blocks.push({ type: "text", content: currentText });
-                    currentText = '';
-                }
-                
-                // Find closing $
-                let j = i + 1;
-                while (j < text.length && text[j] !== '$') j++;
-                
-                if (j < text.length) {
-                    const latex = text.substring(i + 1, j);
-                    try {
-                        const html = katex.renderToString(latex, {
-                            throwOnError: false,
-                            displayMode: false
-                        });
-                        blocks.push({ type: "math-inline", content: latex, html });
-                    } catch (error) {
-                        blocks.push({ type: "text", content: `$${latex}$` });
-                    }
-                    i = j + 1;
-                    continue;
-                }
-            }
-            
-            // Check for display math: $$...$$
-            if (text.substr(i, 2) === '$$' && i + 2 < text.length) {
-                // Flush previous text
-                if (currentText.trim()) {
-                    blocks.push({ type: "text", content: currentText });
-                    currentText = '';
-                }
-                
-                // Find closing $$
-                let j = i + 2;
-                while (j < text.length - 1 && text.substr(j, 2) !== '$$') j++;
-                
-                if (j < text.length - 1) {
-                    const latex = text.substring(i + 2, j);
-                    try {
-                        const html = katex.renderToString(latex, {
-                            throwOnError: false,
-                            displayMode: true
-                        });
-                        blocks.push({ type: "math-display", content: latex, html });
-                    } catch (error) {
-                        blocks.push({ type: "text", content: `$$${latex}$$` });
-                    }
-                    i = j + 2;
-                    continue;
-                }
-            }
-            
-            // Check for LaTeX brackets: \(...\)
-            if (text.substr(i, 2) === '\\(' && i + 2 < text.length) {
-                // Flush previous text
-                if (currentText.trim()) {
-                    blocks.push({ type: "text", content: currentText });
-                    currentText = '';
-                }
-                
-                // Find closing \)
-                let j = i + 2;
-                while (j < text.length - 1 && text.substr(j, 2) !== '\\)') j++;
-                
-                if (j < text.length - 1) {
-                    const latex = text.substring(i + 2, j);
-                    try {
-                        const html = katex.renderToString(latex, {
-                            throwOnError: false,
-                            displayMode: false
-                        });
-                        blocks.push({ type: "math-inline", content: latex, html });
-                    } catch (error) {
-                        blocks.push({ type: "text", content: `\\(${latex}\\)` });
-                    }
-                    i = j + 2;
-                    continue;
-                }
-            }
-            
-            // Check for LaTeX brackets: \[...\]
-            if (text.substr(i, 2) === '\\[' && i + 2 < text.length) {
-                // Flush previous text
-                if (currentText.trim()) {
-                    blocks.push({ type: "text", content: currentText });
-                    currentText = '';
-                }
-                
-                // Find closing \]
-                let j = i + 2;
-                while (j < text.length - 1 && text.substr(j, 2) !== '\\]') j++;
-                
-                if (j < text.length - 1) {
-                    const latex = text.substring(i + 2, j);
-                    try {
-                        const html = katex.renderToString(latex, {
-                            throwOnError: false,
-                            displayMode: true
-                        });
-                        blocks.push({ type: "math-display", content: latex, html });
-                    } catch (error) {
-                        blocks.push({ type: "text", content: `\\[${latex}\\]` });
-                    }
-                    i = j + 2;
-                    continue;
-                }
-            }
-            
-            // Check for \boxed{...}
-            if (text.substr(i, 7) === '\\boxed{' && i + 7 < text.length) {
-                // Flush previous text
-                if (currentText.trim()) {
-                    blocks.push({ type: "text", content: currentText });
-                    currentText = '';
-                }
-                
-                // Find closing }
-                let j = i + 7;
-                let braceCount = 1;
-                while (j < text.length && braceCount > 0) {
-                    if (text[j] === '{') braceCount++;
-                    if (text[j] === '}') braceCount--;
-                    j++;
-                }
-                
-                if (braceCount === 0) {
-                    const latex = text.substring(i + 7, j - 1);
-                    try {
-                        const html = katex.renderToString(`\\boxed{${latex}}`, {
-                            throwOnError: false,
-                            displayMode: true
-                        });
-                        blocks.push({ type: "math-boxed", content: latex, html });
-                    } catch (error) {
-                        blocks.push({ type: "text", content: `\\boxed{${latex}}` });
-                    }
-                    i = j;
-                    continue;
-                }
-            }
-            
-            // Add regular character
-            currentText += text[i];
-            i++;
-        }
-        
-        // Flush remaining text
-        if (currentText.trim()) {
-            blocks.push({ type: "text", content: currentText });
-        }
-        
-        return blocks;
-    }, []);
-
-    // ---------- IndexedDB Configuration ----------
-    const DB_NAME = 'SpiderAIChatsDB';
-    const DB_VERSION = 1;
-    const STORE_NAME = 'chats';
-
-    // ---------- Detect Mobile & Responsive ----------
-    useEffect(() => {
-        const checkMobile = () => {
-            const mobile = window.innerWidth <= 768;
-            setIsMobile(mobile);
-            if (mobile) {
-                setSidebarOpen(false);
-            }
-        };
-        
-        checkMobile();
-        window.addEventListener('resize', checkMobile);
-        
-        return () => window.removeEventListener('resize', checkMobile);
-    }, []);
-
-    // ---------- Auto-resize textarea ----------
-    useEffect(() => {
-        if (textareaRef.current) {
-            textareaRef.current.style.height = 'auto';
-            textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 120) + 'px';
-        }
-    }, [message]);
-
-    // ---------- Voice Recording Functions ----------
-    const startRecording = useCallback(async () => {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ 
-                audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    sampleRate: 16000
-                } 
-            });
-            
-            const recorder = new MediaRecorder(stream);
-            const chunks = [];
-            
-            recorder.ondataavailable = (e) => {
-                if (e.data.size > 0) {
-                    chunks.push(e.data);
-                }
-            };
-            
-            recorder.onstop = async () => {
-                const audioBlob = new Blob(chunks, { type: 'audio/wav' });
-                await transcribeAudio(audioBlob);
-                
-                // Stop all tracks
-                stream.getTracks().forEach(track => track.stop());
-            };
-            
-            recorder.start();
-            setMediaRecorder(recorder);
-            setAudioChunks(chunks);
-            setIsRecording(true);
-            setRecordingTime(0);
-            
-            // Start timer
-            recordingTimerRef.current = setInterval(() => {
-                setRecordingTime(prev => prev + 1);
-            }, 1000);
-            
-            // Auto stop after 60 seconds
-            setTimeout(() => {
-                if (recorder.state === 'recording') {
-                    stopRecording();
-                }
-            }, 60000);
-            
-        } catch (error) {
-            console.error('Error starting recording:', error);
-            showModal("Microphone Error", "Could not access microphone. Please check permissions.");
-        }
-    }, [showModal]);
-
-    const stopRecording = useCallback(() => {
-        if (mediaRecorder && mediaRecorder.state === 'recording') {
-            mediaRecorder.stop();
-            setIsRecording(false);
-            
-            if (recordingTimerRef.current) {
-                clearInterval(recordingTimerRef.current);
-                recordingTimerRef.current = null;
-            }
-        }
-    }, [mediaRecorder]);
-
-    const transcribeAudio = useCallback(async (audioBlob) => {
-        setIsTranscribing(true);
-        
-        try {
-            // Convert blob to base64
-            const reader = new FileReader();
-            reader.readAsDataURL(audioBlob);
-            
-            reader.onloadend = async () => {
-                const base64Audio = reader.result.split(',')[1];
-                
-                // Call Whisper API
-                const apiUrl = '/api/transcribe';
-                const apiPayload = {
-                    audio: base64Audio,
-                    model: 'whisper-large',
-                    language: 'en',
-                    user_preference_id: getPersistentUserId()
-                };
-                
-                const result = await callFastAPI(apiUrl, apiPayload, 'transcribe');
-                
-                if (result?.text) {
-                    setMessage(prev => prev + (prev ? ' ' : '') + result.text);
-                } else {
-                    showModal("Transcription Error", "Could not transcribe audio.");
-                }
-                
-                setIsTranscribing(false);
-            };
-            
-        } catch (error) {
-            console.error('Transcription error:', error);
-            showModal("Transcription Error", "Failed to transcribe audio.");
-            setIsTranscribing(false);
-        }
-    }, [callFastAPI, getPersistentUserId, showModal]);
-
-    // Clean up recording on unmount
-    useEffect(() => {
-        return () => {
-            if (recordingTimerRef.current) {
-                clearInterval(recordingTimerRef.current);
-            }
-            if (mediaRecorder) {
-                mediaRecorder.stream?.getTracks().forEach(track => track.stop());
-            }
-        };
-    }, [mediaRecorder]);
-
-    // ---------- Open Database ----------
-    const openDatabase = useCallback(() => {
-        return new Promise((resolve, reject) => {
-            const request = indexedDB.open(DB_NAME, DB_VERSION);
-            
-            request.onerror = () => {
-                reject(new Error(`Failed to open database: ${request.error}`));
-            };
-            
-            request.onsuccess = () => {
-                resolve(request.result);
-            };
-            
-            request.onupgradeneeded = (event) => {
-                const db = event.target.result;
-                
-                if (!db.objectStoreNames.contains(STORE_NAME)) {
-                    const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
-                    store.createIndex('userId', 'userId', { unique: false });
-                    store.createIndex('timestamp', 'timestamp', { unique: false });
-                    store.createIndex('appId', 'appId', { unique: false });
-                }
-            };
-        });
-    }, []);
-
-    const getUserId = useCallback(() => {
-        return currentUser?.email || currentUser?.id || getPersistentUserId();
-    }, [currentUser, getPersistentUserId]);
-
-    // ---------- Load Recent Chats ----------
-    const loadRecentChats = useCallback(async () => {
-        try {
-            const db = await openDatabase();
-            const transaction = db.transaction([STORE_NAME], 'readonly');
-            const store = transaction.objectStore(STORE_NAME);
-            const index = store.index('userId');
-            
-            const userId = getUserId();
-            const range = IDBKeyRange.only(userId);
-            const request = index.getAll(range);
-            
-            return new Promise((resolve) => {
-                request.onsuccess = () => {
-                    const chats = request.result || [];
-                    const sortedChats = chats
-                        .sort((a, b) => b.timestamp - a.timestamp)
-                        .slice(0, 10)
-                        .map(chat => ({
-                            id: chat.id,
-                            title: chat.title || 'Untitled Chat',
-                            timestamp: chat.timestamp,
-                            mode: chat.mode || 'chat',
-                            aiMode: chat.aiMode || 'chat'
-                        }));
-                    
-                    setRecentChats(sortedChats);
-                    resolve(sortedChats);
-                    db.close();
-                };
-                
-                request.onerror = () => {
-                    console.error('Error loading recent chats:', request.error);
-                    setRecentChats([]);
-                    resolve([]);
-                    db.close();
-                };
-            });
-        } catch (error) {
-            console.error('Error in loadRecentChats:', error);
-            setRecentChats([]);
-            return [];
-        }
-    }, [openDatabase, getUserId]);
-
-    // ---------- Load Specific Chat ----------
-    const loadChatById = useCallback(async (chatId) => {
-        if (!chatId) return;
-        
-        try {
-            const db = await openDatabase();
-            const transaction = db.transaction([STORE_NAME], 'readonly');
-            const store = transaction.objectStore(STORE_NAME);
-            const request = store.get(chatId);
-            
-            return new Promise((resolve, reject) => {
-                request.onsuccess = () => {
-                    if (request.result) {
-                        const chat = request.result;
-                        try {
-                            const history = JSON.parse(chat.history || '[]');
-                            if (Array.isArray(history) && history.length > 0) {
-                                setChatHistory(history);
-                                setActiveChatId(chatId);
-                                setSelectedAIMode(chat.aiMode || 'chat');
-                                resolve(history);
-                            } else {
-                                throw new Error('Invalid chat history');
-                            }
-                        } catch (parseError) {
-                            console.error('Error parsing chat history:', parseError);
-                            reject(parseError);
-                        }
-                    } else {
-                        reject(new Error('Chat not found'));
-                    }
-                    db.close();
-                };
-                
-                request.onerror = () => {
-                    reject(request.error);
-                    db.close();
-                };
-            });
-        } catch (error) {
-            console.error('Error in loadChatById:', error);
-            throw error;
-        }
-    }, [openDatabase]);
-
-    // ---------- Save Chat History ----------
-    const saveChatHistory = useCallback(async (history, aiMode = selectedAIMode) => {
-        if (!Array.isArray(history) || history.length <= 1) return;
-        
-        try {
-            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(history));
-        } catch (e) {
-            console.warn('LocalStorage save failed:', e);
-        }
-        
-        const userId = getUserId();
-        const chatTitle = (history[1]?.content || 'New Chat')
-            .toString()
-            .substring(0, 50)
-            .trim() || 'New Chat';
-        
-        const chatData = {
-            id: activeChatId || `chat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-            title: chatTitle,
-            history: JSON.stringify(history),
-            timestamp: Date.now(),
-            mode: history[1]?.type || 'chat',
-            aiMode: aiMode,
-            userId: userId,
-            appId: getAppId()
-        };
-        
-        try {
-            const db = await openDatabase();
-            const transaction = db.transaction([STORE_NAME], 'readwrite');
-            const store = transaction.objectStore(STORE_NAME);
-            
-            store.put(chatData);
-            
-            transaction.oncomplete = () => {
-                if (!activeChatId) {
-                    setActiveChatId(chatData.id);
-                }
-                loadRecentChats();
-                db.close();
-            };
-            
-            transaction.onerror = () => {
-                console.error('Error saving to IndexedDB:', transaction.error);
-                db.close();
-            };
-        } catch (error) {
-            console.error('Error saving chat:', error);
-        }
-    }, [activeChatId, openDatabase, getUserId, loadRecentChats, selectedAIMode]);
-
-    // ---------- Delete Chat ----------
-    const deleteChat = useCallback(async (chatId) => {
-        if (!chatId) return;
-        
-        setIsDeleting(true);
-        try {
-            const db = await openDatabase();
-            const transaction = db.transaction([STORE_NAME], 'readwrite');
-            const store = transaction.objectStore(STORE_NAME);
-            
-            store.delete(chatId);
-            
-            transaction.oncomplete = () => {
-                if (activeChatId === chatId) {
-                    handleNewChat();
-                }
-                loadRecentChats();
-                db.close();
-                setIsDeleting(false);
-            };
-            
-            transaction.onerror = () => {
-                console.error('Error deleting chat:', transaction.error);
-                db.close();
-                setIsDeleting(false);
-            };
-        } catch (error) {
-            console.error('Error in deleteChat:', error);
-            setIsDeleting(false);
-        }
-    }, [activeChatId, openDatabase, loadRecentChats]);
-
-    // ---------- Initialize ----------
-    useEffect(() => {
-        const initializeChats = async () => {
-            try {
-                await loadRecentChats();
-                
-                if (recentChats.length > 0) {
-                    try {
-                        await loadChatById(recentChats[0].id);
-                    } catch (error) {
-                        console.log('Starting new chat');
-                    }
-                }
-            } catch (error) {
-                console.error('Error initializing chats:', error);
-            }
-        };
-        
-        initializeChats();
-    }, [currentUser]);
-
-    // Auto-save chat history
-    useEffect(() => {
-        if (chatHistory.length > 1) {
-            const timeoutId = setTimeout(() => {
-                saveChatHistory(chatHistory);
-            }, 500);
-            
-            return () => clearTimeout(timeoutId);
-        }
-    }, [chatHistory, saveChatHistory]);
-
-    // Scroll to bottom when chat updates
-// --- SMART SCROLL HANDLING (Fixes Jumping) ---
-    const isAutoScrollEnabled = useRef(true);
-
-    // 1. Detect if user scrolled up to read previous messages
-    const handleScroll = (e) => {
-        const { scrollTop, scrollHeight, clientHeight } = e.target;
-        // If user is within 50px of the bottom, enable auto-scroll. Otherwise, disable it.
-        const isAtBottom = scrollHeight - scrollTop - clientHeight < 50; 
-        isAutoScrollEnabled.current = isAtBottom;
-    };
-
-    // 2. Only scroll if the user was ALREADY at the bottom
-    useEffect(() => {
-        if (isAutoScrollEnabled.current) {
-            requestAnimationFrame(() => {
-                chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-            });
-        }
-    }, [chatHistory, streamingMessage, streamedContent]);
-  
-    // ---------- Fast Typing Animation ----------
-    const typeText = useCallback((text, onComplete) => {
-        if (!text) {
-            onComplete?.();
-            return;
-        }
-        
-        const words = text.split(' ');
-        let currentText = '';
-        let wordIndex = 0;
-        
-        const typeNextWord = () => {
-            if (wordIndex < words.length) {
-                const wordsToAdd = words.slice(wordIndex, wordIndex + 2 + Math.floor(Math.random() * 3));
-                currentText += (currentText ? ' ' : '') + wordsToAdd.join(' ');
-                wordIndex += wordsToAdd.length;
-                
-                setStreamingMessage(prev => ({
-                    ...prev,
-                    content: currentText
-                }));
-                
-                setTimeout(typeNextWord, 10 + Math.random() * 20);
-            } else {
-                onComplete?.();
-            }
-        };
-        
-        typeNextWord();
-    }, []);
-
-// ---------- Fixed Streaming Handler with Code Block Continuation -----
-const handleStreamResponse = useCallback(async (response, isContinue = false, initialContent = '') => {
-    if (!response.body) return;
-
-    const reader = response.body.getReader();
-    streamReaderRef.current = reader;
-    
-    const decoder = new TextDecoder();
-    let buffer = '';
-    
-    // Initialize
-    accumulatedTokensRef.current = initialContent;
-    setStreamedContent(initialContent);
-
+const formatClock = (seconds) => {
+  const safeSeconds = Math.max(0, Math.floor(Number(seconds) || 0));
+  const minutes = Math.floor(safeSeconds / 60);
+  const remaining = safeSeconds % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(remaining).padStart(2, '0')}`;
+};
+const formatEtaCompact = (videoJob) => {
+  const etaSeconds = Number(videoJob?.eta_seconds);
+  if (!Number.isFinite(etaSeconds) || etaSeconds < 0) return 'Calculating...';
+  const startedAt = Number(videoJob?.started_at);
+  if (!Number.isFinite(startedAt) || startedAt <= 0) {
+    return formatClock(etaSeconds);
+  }
+  const elapsed = Math.max(0, Math.floor(Date.now() / 1000 - startedAt));
+  return `${formatClock(elapsed)}<${formatClock(etaSeconds)}`;
+};
+const getVideoQualityLabel = (job) => {
+  const value = String(job?.quality_preset || '').toLowerCase().trim();
+  const option = VIDEO_QUALITY_OPTIONS.find(item => item.value === value);
+  if (option) return option.label;
+  if (value.includes('free')) return 'Free';
+  if (value.includes('fast')) return 'Fast';
+  if (value.includes('balanced')) return 'Balanced';
+  if (value.includes('quality')) return 'Quality';
+  return 'Video';
+};
+const buildVideoPromptInput = ({ prompt, aspectRatio, durationSeconds, qualityPreset, sourceImage }) => {
+  const cleanPrompt = String(prompt || '').trim();
+  if (sourceImage) {
+    return `${cleanPrompt} Use the uploaded image as the exact starting frame. Keep the same subject, identity, scene, and composition without adding unrelated details.`;
+  }
+  return cleanPrompt;
+};
+const shouldRetryImageEditWithCloud = (message = '') => {
+  const text = String(message).toLowerCase();
+  return [
+    'kelvin',
+    'flux 4b',
+    'flux4b',
+    'model unavailable',
+    'not available',
+    'backend unavailable',
+    'service unavailable',
+    'failed to load model',
+    'no local model',
+  ].some(token => text.includes(token));
+};
+const normalizeUserFacingError = (error) => {
+  const text = String(error?.message || error || '').trim();
+  const lower = text.toLowerCase();
+  if (!text || lower.includes('failed to fetch') || lower.includes('networkerror') || lower.includes('network error')) {
+    return 'Network issue. Please try again.';
+  }
+  if (
+    lower.includes('24 hours') ||
+    lower.includes('daily limit') ||
+    lower.includes('hit the limit') ||
+    lower.includes('context limit') ||
+    lower.includes('context window') ||
+    lower.includes('token limit') ||
+    lower.includes('neuron')
+  ) {
+    return 'You have hit the limit. Try again after 24 hours.';
+  }
+  if (lower.includes('empty response')) {
+    return 'No response received. Please try again.';
+  }
+  return text;
+};
+const fetchAiForMode = async (mode, path, options = {}) => {
+  const normalizedMode = String(mode || 'chat').toLowerCase();
+  if (normalizedMode === 'chat') {
     try {
-        while (true) {
-            const { done, value } = await reader.read();
-            
-            if (done) {
-                // Process remaining buffer
-                if (buffer.trim()) processLine(buffer);
-
-                // --- 🚨 SMART CONTINUE DETECTION ---
-                const finalContent = accumulatedTokensRef.current.trim();
-                const lastChar = finalContent.slice(-1);
-                
-                // 1. Check for broken code blocks (Odd number of ``` means one is open)
-                const codeBlockCount = (finalContent.match(/```/g) || []).length;
-                const isCodeBlockOpen = codeBlockCount % 2 !== 0;
-
-                // 2. Check for abrupt text ending (No punctuation)
-                // We ignore short messages to prevent "Continue" on simple greetings
-                const isSubstantial = finalContent.length > 50; 
-                const hasAbruptEnding = !['.', '!', '?', '}', ']', '`', '"', "'", ';', '>'].includes(lastChar);
-
-                // 3. Show button if either condition is met
-                if (isCodeBlockOpen || (isSubstantial && hasAbruptEnding)) {
-                    console.log("Stream looks incomplete. Showing Continue.");
-                    setShowContinueButton(true);
-                }
-                break;
-            }
-            
-            const chunk = decoder.decode(value, { stream: true });
-            buffer += chunk;
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || ''; 
-            
-            for (const line of lines) processLine(line);
-        }
+      return await fetch(`${AI_API_FALLBACK_BASE}${path}`, options);
     } catch (error) {
-        if (error.name !== 'AbortError') console.error("Stream Error:", error);
+      if (error?.message && String(error.message).toLowerCase().includes('failed to fetch')) {
+        return await fetch(path, options);
+      }
+      throw error;
+    }
+  }
+  return await fetch(path, options);
+};
+const getVideoSrc = (job) => {
+  if (!job) return '';
+  if (job.output_url) {
+    const outputUrl = String(job.output_url).trim();
+    if (!outputUrl) return '';
+    if (/^https?:\/\//i.test(outputUrl)) return outputUrl;
+    if (outputUrl.startsWith('/')) return `${VIDEO_API_BASE}${outputUrl}`;
+    return `${VIDEO_API_BASE}/${outputUrl}`;
+  }
+  if (!job.output_path) return '';
+  const normalized = String(job.output_path).replace(/\\/g, '/');
+  const marker = '/video_outputs/';
+  const idx = normalized.lastIndexOf(marker);
+  if (idx >= 0) return `${VIDEO_API_BASE}${normalized.slice(idx)}`;
+  if (normalized.match(/^[A-Za-z]:\//)) {
+    return `/@fs/${encodeURI(normalized)}`;
+  }
+  return '';
+};
+
+const getVideoSources = (job) => {
+  if (!job) return [];
+  const outputUrls = Array.isArray(job.output_urls) && job.output_urls.length ? job.output_urls : [];
+  const outputPaths = Array.isArray(job.output_paths) && job.output_paths.length ? job.output_paths : [];
+  const sources = [];
+  if (outputUrls.length) {
+    outputUrls.forEach(url => {
+      const src = getVideoSrc({ output_url: url });
+      if (src) sources.push(src);
+    });
+  } else if (outputPaths.length) {
+    outputPaths.forEach(path => {
+      const src = getVideoSrc({ output_path: path });
+      if (src) sources.push(src);
+    });
+  } else {
+    const single = getVideoSrc(job);
+    if (single) sources.push(single);
+  }
+  return [...new Set(sources)];
+};
+
+const normalizeVideoJob = (job) => {
+  if (!job) return job;
+  const hasOutput = Boolean(
+    job.output_url ||
+    job.output_path ||
+    (Array.isArray(job.output_urls) && job.output_urls.length) ||
+    (Array.isArray(job.output_paths) && job.output_paths.length)
+  );
+  if (!hasOutput) return job;
+  return {
+    ...job,
+    status: 'completed',
+    progress: 1,
+    queue_position: 0,
+    eta_seconds: 0,
+    message: job.message && job.message !== 'Queued behind 0 job(s)' ? job.message : 'Video ready',
+  };
+};
+
+const extractPDFText = async (arrayBuffer) => {
+  try {
+    if (!window.pdfjsLib) {
+      await new Promise((resolve, reject) => {
+        if (document.getElementById('pdfjs-script')) {
+          const check = setInterval(() => { if (window.pdfjsLib) { clearInterval(check); resolve(); } }, 100);
+          setTimeout(() => { clearInterval(check); reject(new Error('PDF.js timeout')); }, 10000);
+          return;
+        }
+        const s = document.createElement('script');
+        s.id = 'pdfjs-script';
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+        s.onload = () => {
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+          resolve();
+        };
+        s.onerror = reject;
+        document.head.appendChild(s);
+      });
+    }
+    const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    let text = '';
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      text += `\n--- Page ${i} ---\n` + content.items.map(item => item.str).join(' ');
+    }
+    return text.trim();
+  } catch (e) {
+    return '[PDF extraction failed: ' + e.message + ']';
+  }
+};
+
+const extractZipFiles = async (arrayBuffer) => {
+  try {
+    if (!window.JSZip) {
+      await new Promise((resolve, reject) => {
+        if (document.getElementById('jszip-script')) {
+          const check = setInterval(() => { if (window.JSZip) { clearInterval(check); resolve(); } }, 100);
+          setTimeout(() => { clearInterval(check); reject(new Error('JSZip timeout')); }, 10000);
+          return;
+        }
+        const s = document.createElement('script');
+        s.id = 'jszip-script';
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+        s.onload = resolve; s.onerror = reject;
+        document.head.appendChild(s);
+      });
+    }
+    const zip = await window.JSZip.loadAsync(arrayBuffer);
+    const files = [];
+    const skipDirs = ['node_modules/','.git/','__pycache__/','.next/','dist/','build/','.venv/'];
+    for (const [path, file] of Object.entries(zip.files)) {
+      if (file.dir) continue;
+      if (skipDirs.some(d => path.includes(d))) continue;
+      const name = path.split('/').pop();
+      if (isTextFile(name)) {
+        try {
+          const content = await file.async('string');
+          if (content.length < 500000) files.push({ name: path, content, size: content.length });
+        } catch {}
+      } else if (isImageFile(name)) {
+        try {
+          const blob = await file.async('blob');
+          const dataUrl = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(blob); });
+          files.push({ name: path, type: 'image', preview: dataUrl, size: blob.size });
+        } catch {}
+      }
+    }
+    return files;
+  } catch (e) { return []; }
+};
+
+const createImageCollage = async (images) => {
+  if (images.length === 0) return null;
+  if (images.length === 1) return images[0].content;
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  const count = Math.min(images.length, MAX_IMAGES_COLLAGE);
+  let cols = count <= 2 ? 2 : 2, rows = count <= 2 ? 1 : 2;
+  const cellW = 512, cellH = 512;
+  canvas.width = cols * cellW; canvas.height = rows * cellH;
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  for (let i = 0; i < count; i++) {
+    const col = i % cols, row = Math.floor(i / cols);
+    try {
+      const img = new Image();
+      await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = images[i].preview || `data:image/jpeg;base64,${images[i].content}`; });
+      const x = col * cellW, y = row * cellH;
+      const scale = Math.min(cellW / img.width, cellH / img.height);
+      const w = img.width * scale, h = img.height * scale;
+      ctx.drawImage(img, x + (cellW - w) / 2, y + (cellH - h) / 2, w, h);
+      ctx.strokeStyle = '#194A4A'; ctx.lineWidth = 2; ctx.strokeRect(x, y, cellW, cellH);
+    } catch {}
+  }
+  return canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
+};
+
+const parseDiffContent = (code) => {
+  return code.split('\n').map((line, i) => {
+    let type = 'normal', content = line;
+    if (line.startsWith('+') && !line.startsWith('+++')) { type = 'added'; content = line.substring(1); }
+    else if (line.startsWith('-') && !line.startsWith('---')) { type = 'removed'; content = line.substring(1); }
+    else if (line.startsWith('@@')) { type = 'info'; }
+    return { type, content, lineNum: i + 1 };
+  });
+};
+
+const DEFAULT_SETTINGS = {
+  theme: 'dark',
+  fontSize: 'medium',
+  sendWithEnter: true,
+  showTimestamps: false,
+  soundEnabled: false,
+  streamingSpeed: 'normal',
+  autoScroll: true,
+  compactMode: false,
+  codeLineNumbers: true,
+  codeWordWrap: false,
+  defaultMode: 'chat',
+  saveHistory: true,
+};
+
+const GLOBAL_STYLES = `
+  html, body, #root {
+    background: #091E1E;
+    min-height: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+  body {
+    margin: 0;
+    overscroll-behavior: none;
+  }
+  .custom-scrollbar::-webkit-scrollbar { height: 6px; width: 6px; }
+  .custom-scrollbar::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); border-radius: 4px; }
+  .custom-scrollbar::-webkit-scrollbar-thumb { background: #194A4A; border-radius: 4px; }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #529E98; }
+  * { -webkit-user-drag: none; -webkit-tap-highlight-color: transparent; }
+  .allow-select, p, h1, h2, h3, h4, span, div, input, textarea, .whitespace-pre-wrap, pre, code, td { user-select: text; -webkit-user-select: text; }
+  button, .sidebar-btn, .nav-item { user-select: none; -webkit-user-select: none; }
+  img { -webkit-user-drag: none; user-select: none; }
+  .break-words { word-break: break-word; overflow-wrap: break-word; }
+  pre { white-space: pre-wrap; overflow-x: auto; }
+  @keyframes pulse-glow { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+  .streaming-cursor::after { content: '|'; animation: pulse-glow 1s infinite; color: #00E5FF; margin-left: 2px; }
+  @keyframes pro-shimmer { 0% { background-position: -200% center; } 100% { background-position: 200% center; } }
+  .pro-badge { background: linear-gradient(90deg, #00E5FF, #FFD700, #FF6B6B, #00E5FF); background-size: 200% auto; animation: pro-shimmer 3s linear infinite; -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  @keyframes thinking-pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+  .thinking-pulse { animation: thinking-pulse 1.5s ease-in-out infinite; }
+  @keyframes mic-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); } 50% { box-shadow: 0 0 0 12px rgba(239, 68, 68, 0); } }
+  .mic-active { animation: mic-pulse 1.5s ease-in-out infinite; }
+  @keyframes lens-scan { 0% { top: 0; } 50% { top: calc(100% - 3px); } 100% { top: 0; } }
+  .lens-scan-line { animation: lens-scan 2s ease-in-out infinite; }
+  @keyframes drag-pulse { 0%, 100% { border-color: rgba(0,229,255,0.3); } 50% { border-color: rgba(0,229,255,0.8); } }
+  .drag-active { animation: drag-pulse 1s ease-in-out infinite; }
+  .mobile-sidebar-overlay { position: fixed; inset: 0; z-index: 40; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); transition: opacity 0.3s ease; }
+  .mobile-sidebar { transition: transform 0.3s ease; }
+  textarea.auto-expand { resize: none; overflow-y: auto; min-height: 24px; max-height: 180px; line-height: 1.5; scrollbar-width: thin; scrollbar-color: #194A4A transparent; }
+  textarea.auto-expand::-webkit-scrollbar { width: 4px; }
+  textarea.auto-expand::-webkit-scrollbar-track { background: transparent; }
+  textarea.auto-expand::-webkit-scrollbar-thumb { background: #194A4A; border-radius: 4px; }
+  @media (max-width: 767px) { .desktop-sidebar { display: none !important; } .mobile-header { display: flex !important; } }
+  @media (min-width: 768px) { .mobile-header { display: none !important; } .mobile-sidebar-overlay { display: none !important; } .mobile-sidebar-container { display: none !important; } }
+  .iphone-shell { position: fixed; inset: 0; height: var(--spider-app-height, 100dvh); min-height: var(--spider-app-height, 100dvh); min-height: -webkit-fill-available; background: #091E1E; overflow: hidden; }
+  .iphone-main { min-height: 0; height: 100%; display: flex; flex-direction: column; padding-top: max(env(safe-area-inset-top), 0px); padding-bottom: max(env(safe-area-inset-bottom), 0px); }
+  .iphone-mobile-header { padding-top: max(12px, env(safe-area-inset-top)); position: sticky; top: 0; background: #102B2B; }
+  .iphone-input-bar { padding-bottom: max(12px, env(safe-area-inset-bottom)); background: #091E1E; margin-top: auto; }
+  .iphone-sidebar { padding-top: max(env(safe-area-inset-top), 0px); padding-bottom: max(env(safe-area-inset-bottom), 0px); }
+  .iphone-nozoom { font-size: 16px !important; }
+  .iphone-scroll-lock { overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch; }
+  .android-shell { position: fixed; inset: 0; height: var(--spider-app-height, 100dvh); min-height: var(--spider-app-height, 100dvh); background: #091E1E; overflow: hidden; transform: translateY(var(--spider-app-offset-top, 0px)); -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  .android-shell input, .android-shell textarea, .android-shell button, .android-shell div, .android-shell span, .android-shell p { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  .android-main { min-height: 0; height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+  .android-mobile-header { position: sticky; top: 0; background: #102B2B; }
+  .android-input-bar { position: sticky; bottom: 0; z-index: 30; background: #091E1E; padding-bottom: 8px; margin-top: 0; flex-shrink: 0; }
+  .android-scroll-lock { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch; }
+  .android-sidebar { padding-top: 0; padding-bottom: 0; }
+  .composer-control-strip { flex-shrink: 0; }
+  @media (max-width: 767px) {
+    textarea.auto-expand { max-height: 120px; }
+  }
+  @keyframes slideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+  .animate-slide-up { animation: slideUp 0.2s ease-out; }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  .animate-fade-in { animation: fadeIn 0.2s ease-out; }
+  @keyframes scaleIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+  .animate-scale-in { animation: scaleIn 0.2s ease-out; }
+  .sidebar-nav-btn { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 16px; font-size: 14px; color: #d1d5db; border-radius: 10px; transition: all 0.15s; text-align: left; }
+  .sidebar-nav-btn:hover { background: rgba(25, 64, 64, 0.6); color: white; }
+  .sidebar-nav-btn.active { background: #194040; color: white; }
+  .sidebar-bottom-btn { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 16px; font-size: 14px; color: #9ca3af; border-radius: 10px; transition: all 0.15s; text-align: left; }
+  .sidebar-bottom-btn:hover { background: rgba(25, 64, 64, 0.4); color: #d1d5db; }
+  .settings-dialog { width: min(980px, calc(100vw - 32px)); height: min(720px, calc(100vh - 32px)); }
+  @media (max-width: 767px) {
+    .settings-dialog {
+      width: 100vw;
+      height: 100dvh;
+      min-height: 100dvh;
+      max-width: 100vw;
+      max-height: 100dvh;
+      border-radius: 0;
+    }
+  }
+`;
+
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// MAIN COMPONENT
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+export default function App() {
+
+  const [message, setMessage] = useState('');
+  const [chatHistory, setChatHistory] = useState([]);
+  const [currentChatId, setCurrentChatId] = useState(null);
+  const [chats, setChats] = useState([]);
+  const [isPlusMenuOpen, setIsPlusMenuOpen] = useState(false);
+
+  const [selectedAIMode, setSelectedAIMode] = useState(() => {
+    try {
+      const saved = localStorage.getItem('spider_ai_settings');
+      if (!saved) return DEFAULT_SETTINGS.defaultMode || 'chat';
+      const parsed = { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
+      return parsed.defaultMode || 'chat';
+    } catch {
+      return DEFAULT_SETTINGS.defaultMode || 'chat';
+    }
+  });
+  const [activeAIMode, setActiveAIMode] = useState(null);
+  const [forceMode, setForceMode] = useState(null);
+  const [activeWorkspace, setActiveWorkspace] = useState('chat');
+
+  const [uploadedFiles, setUploadedFiles] = useState([]);
+  const [uploadedImages, setUploadedImages] = useState([]);
+  const [previewFile, setPreviewFile] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(null);
+
+  const [isLoading, setIsLoading] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamedContent, setStreamedContent] = useState('');
+  const [streamingMessage, setStreamingMessage] = useState(null);
+  const [showContinueButton, setShowContinueButton] = useState(false);
+  const [lastStreamId, setLastStreamId] = useState(null);
+  const [abortController, setAbortController] = useState(null);
+
+  const [collapsedBlocks, setCollapsedBlocks] = useState({});
+  const [wordWrapBlocks, setWordWrapBlocks] = useState({});
+
+  const [isFullCodeMode, setIsFullCodeMode] = useState(false);
+  const [generatedFiles, setGeneratedFiles] = useState([]);
+  const [aspectRatio, setAspectRatio] = useState('1:1');
+  const [videoDuration, setVideoDuration] = useState(8);
+  const [videoQuality, setVideoQuality] = useState('free');
+  const [videoJobs, setVideoJobs] = useState({});
+  const [videoBackendHealth, setVideoBackendHealth] = useState(null);
+  const [openVideoPreviews, setOpenVideoPreviews] = useState({});
+  const [brokenVideoPreviews, setBrokenVideoPreviews] = useState({});
+  const visibleVideoDurations = selectedAIMode === 'pro'
+    ? (videoQuality === 'quality' ? VIDEO_DURATION_OPTIONS_PRO_QUALITY : VIDEO_DURATION_OPTIONS_PRO)
+    : VIDEO_DURATION_OPTIONS;
+  const visibleVideoQualityOptions = selectedAIMode === 'pro' ? VIDEO_QUALITY_OPTIONS : [{ value: 'free', label: 'Free' }];
+
+  const [modalInfo, setModalInfo] = useState(null);
+  const [katexLoaded, setKatexLoaded] = useState(false);
+  const [isTabVisible, setIsTabVisible] = useState(true);
+
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const [isIPhone, setIsIPhone] = useState(false);
+  const [isAndroid, setIsAndroid] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [micSupported, setMicSupported] = useState(false);
+  const [showLensModal, setShowLensModal] = useState(false);
+  const [lensStream, setLensStream] = useState(null);
+  const [lensCapturedImage, setLensCapturedImage] = useState(null);
+
+  // Search & Settings & Chat Management
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [settings, setSettings] = useState(() => {
+    try {
+      const saved = localStorage.getItem('spider_ai_settings');
+      return saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : DEFAULT_SETTINGS;
+    } catch { return DEFAULT_SETTINGS; }
+  });
+  const [editingMessageIndex, setEditingMessageIndex] = useState(null);
+  const [editingMessageContent, setEditingMessageContent] = useState('');
+  const [chatContextMenu, setChatContextMenu] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [openMessageMenuIndex, setOpenMessageMenuIndex] = useState(null);
+  const [pinnedChats, setPinnedChats] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('spider_pinned_chats') || '[]'); } catch { return []; }
+  });
+  const [settingsTab, setSettingsTab] = useState('general');
+  const [searchFilter, setSearchFilter] = useState('all');
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [chatRestoreReady, setChatRestoreReady] = useState(false);
+  const [authReady, setAuthReady] = useState(false);
+  const [authUser, setAuthUser] = useState(null);
+  const [authSnapshot, setAuthSnapshot] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('spider_auth_snapshot') || 'null');
+    } catch {
+      return null;
+    }
+  });
+  const [showAuthGate, setShowAuthGate] = useState(false);
+  const [authScreen, setAuthScreen] = useState('signin');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState('');
+  const [authIntent, setAuthIntent] = useState('');
+  const [showLegalNotice, setShowLegalNotice] = useState(false);
+
+  // Refs
+  const messagesEndRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const imageInputRef = useRef(null);
+  const folderInputRef = useRef(null);
+  const multiInputRef = useRef(null);
+  const streamReaderRef = useRef(null);
+  const accumulatedTokensRef = useRef('');
+  const continueStreamIdRef = useRef(null);
+  const fileContentBufferRef = useRef('');
+  const typeTextIntervalRef = useRef(null);
+  const recognitionRef = useRef(null);
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const textareaRef = useRef(null);
+  const isTabVisibleRef = useRef(true);
+  const dropZoneRef = useRef(null);
+  const pendingStreamRef = useRef(null);
+  const searchInputRef = useRef(null);
+  const editTextareaRef = useRef(null);
+
+  const isFullCodeModeRef = useRef(isFullCodeMode);
+  const selectedAIModeRef = useRef(selectedAIMode);
+  const forceModeRef = useRef(forceMode);
+  const currentChatIdRef = useRef(currentChatId);
+  const chatHistoryRef = useRef(chatHistory);
+  const lastStreamIdRef = useRef(lastStreamId);
+  const uploadedFilesRef = useRef(uploadedFiles);
+  const uploadedImagesRef = useRef(uploadedImages);
+  const isLoadingRef = useRef(isLoading);
+  const isStreamingRef = useRef(isStreaming);
+  const isListeningRef = useRef(isListening);
+  const messageRef = useRef(message);
+  const abortControllerRef = useRef(abortController);
+  const streamingMessageRef = useRef(streamingMessage);
+  const settingsRef = useRef(settings);
+  const chatsRef = useRef(chats);
+  const videoJobsRef = useRef(videoJobs);
+  const videoPollInFlightRef = useRef(false);
+  const notifiedVideoJobsRef = useRef({});
+  const feedbackSyncInFlightRef = useRef(false);
+
+  useEffect(() => { isFullCodeModeRef.current = isFullCodeMode; }, [isFullCodeMode]);
+  useEffect(() => { selectedAIModeRef.current = selectedAIMode; }, [selectedAIMode]);
+  useEffect(() => { forceModeRef.current = forceMode; }, [forceMode]);
+  useEffect(() => { currentChatIdRef.current = currentChatId; }, [currentChatId]);
+  useEffect(() => { chatHistoryRef.current = chatHistory; }, [chatHistory]);
+  useEffect(() => { lastStreamIdRef.current = lastStreamId; }, [lastStreamId]);
+  useEffect(() => { uploadedFilesRef.current = uploadedFiles; }, [uploadedFiles]);
+  useEffect(() => { uploadedImagesRef.current = uploadedImages; }, [uploadedImages]);
+  useEffect(() => { isLoadingRef.current = isLoading; }, [isLoading]);
+  useEffect(() => { isStreamingRef.current = isStreaming; }, [isStreaming]);
+  useEffect(() => { isListeningRef.current = isListening; }, [isListening]);
+  useEffect(() => { messageRef.current = message; }, [message]);
+  useEffect(() => { abortControllerRef.current = abortController; }, [abortController]);
+  useEffect(() => { streamingMessageRef.current = streamingMessage; }, [streamingMessage]);
+  useEffect(() => { settingsRef.current = settings; }, [settings]);
+  useEffect(() => { chatsRef.current = chats; }, [chats]);
+  useEffect(() => { videoJobsRef.current = videoJobs; }, [videoJobs]);
+
+  const showModal = useCallback((title, text) => {
+    setModalInfo({ title, text });
+    setTimeout(() => setModalInfo(null), 4000);
+  }, []);
+
+  const playNotificationSound = useCallback(() => {
+    if (!settingsRef.current.soundEnabled) return;
+    try {
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+      oscillator.type = 'sine';
+      oscillator.frequency.value = 880;
+      gainNode.gain.value = 0.03;
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+      oscillator.start();
+      oscillator.stop(audioContext.currentTime + 0.12);
+    } catch {}
+  }, []);
+
+  const pushBrowserNotification = useCallback(async (title, body) => {
+    if (!('Notification' in window)) return;
+    try {
+      if (Notification.permission === 'default') {
+        await Notification.requestPermission();
+      }
+      if (Notification.permission === 'granted') {
+        new Notification(title, { body, silent: !settingsRef.current.soundEnabled });
+      }
+    } catch {}
+  }, []);
+
+  const notifyGenerationComplete = useCallback((title, body) => {
+    showModal(title, body);
+    playNotificationSound();
+    if (document.hidden) {
+      pushBrowserNotification(title, body);
+    }
+  }, [playNotificationSound, pushBrowserNotification, showModal]);
+
+  useEffect(() => {
+    if (!visibleVideoDurations.includes(videoDuration)) {
+      setVideoDuration(10);
+    }
+  }, [videoDuration, visibleVideoDurations]);
+
+  useEffect(() => {
+    if (selectedAIMode === 'pro') {
+      if (videoQuality === 'free') setVideoQuality('balanced');
+    } else if (videoQuality !== 'free') {
+      setVideoQuality('free');
+    }
+  }, [selectedAIMode, videoQuality]);
+
+  // Save settings & pins
+  useEffect(() => { localStorage.setItem('spider_ai_settings', JSON.stringify(settings)); }, [settings]);
+  useEffect(() => { localStorage.setItem('spider_pinned_chats', JSON.stringify(pinnedChats)); }, [pinnedChats]);
+  useEffect(() => {
+    let unsubscribe = () => {};
+    const initAuth = async () => {
+      try {
+        await setPersistence(firebaseAuth, browserLocalPersistence);
+      } catch {}
+      unsubscribe = onAuthStateChanged(firebaseAuth, (user) => {
+        setAuthUser(user);
+        const snapshot = user ? {
+          uid: user.uid,
+          displayName: user.displayName || '',
+          email: user.email || '',
+        } : null;
+        setAuthSnapshot(snapshot);
+        try {
+          if (snapshot) localStorage.setItem('spider_auth_snapshot', JSON.stringify(snapshot));
+          else localStorage.removeItem('spider_auth_snapshot');
+        } catch {}
+        setAuthReady(true);
+      });
+    };
+    initAuth();
+    return () => unsubscribe();
+  }, []);
+  useEffect(() => {
+    try {
+      const accepted = localStorage.getItem(LEGAL_ACCEPTANCE_KEY);
+      if (!accepted) setShowLegalNotice(true);
+    } catch {
+      setShowLegalNotice(true);
+    }
+  }, []);
+
+  const requiresAuthForMode = useCallback((aimode, forcedMode) => {
+    return forcedMode === 'image_gen' || forcedMode === 'image_edit' || forcedMode === 'video_gen' || aimode === 'pro';
+  }, []);
+
+  const openAuthGate = useCallback((intent = 'Use creative tools') => {
+    setAuthIntent(intent);
+    setAuthError('');
+    setAuthScreen('signin');
+    setShowAuthGate(true);
+    setShowUserMenu(false);
+    setIsPlusMenuOpen(false);
+  }, []);
+
+  const ensureModeAccess = useCallback((aimode, forcedMode, intent) => {
+    if (!requiresAuthForMode(aimode, forcedMode)) return true;
+    if (!authReady) {
+      showModal('Checking account', 'Please wait a moment.');
+      return false;
+    }
+    if (authUser) return true;
+    openAuthGate(intent);
+    return false;
+  }, [authReady, authUser, openAuthGate, requiresAuthForMode, showModal]);
+
+  const handleGoogleSignIn = useCallback(async () => {
+    setAuthBusy(true);
+    setAuthError('');
+    try {
+      await signInWithPopup(firebaseAuth, googleProvider);
+      setShowAuthGate(false);
+      setShowLegalNotice(true);
+      showModal('Welcome', 'Signed in with Google.');
+    } catch (error) {
+      const code = error?.code || '';
+      const message = String(error?.message || '');
+      const userCancelled =
+        code === 'auth/popup-closed-by-user' ||
+        code === 'auth/cancelled-popup-request' ||
+        message.toLowerCase().includes('popup closed') ||
+        message.toLowerCase().includes('cancelled popup');
+      if (!userCancelled) {
+        setAuthError(message || 'Google sign-in failed.');
+      } else {
+        setAuthError('');
+      }
     } finally {
-        reader.releaseLock();
-        streamReaderRef.current = null;
-        if (isFullCodeMode && fileContentBufferRef.current) {
-            const files = parseCodeForFiles(fileContentBufferRef.current);
-            if (files.length > 0) setGeneratedFiles(files);
+      setAuthBusy(false);
+    }
+  }, [showModal]);
+
+  const handleEmailAuth = useCallback(async () => {
+    if (!authEmail.trim() || !authPassword.trim()) {
+      setAuthError('Enter your email and password.');
+      return;
+    }
+    setAuthBusy(true);
+    setAuthError('');
+    try {
+      if (authScreen === 'signup') {
+        await createUserWithEmailAndPassword(firebaseAuth, authEmail.trim(), authPassword);
+        setShowLegalNotice(true);
+        showModal('Account ready', 'Your M4 Spider account was created.');
+      } else {
+        await signInWithEmailAndPassword(firebaseAuth, authEmail.trim(), authPassword);
+        setShowLegalNotice(true);
+        showModal('Welcome back', 'Signed in to M4 Spider.');
+      }
+      setShowAuthGate(false);
+      setAuthEmail('');
+      setAuthPassword('');
+    } catch (error) {
+      setAuthError(error?.message || 'Authentication failed.');
+    } finally {
+      setAuthBusy(false);
+    }
+  }, [authEmail, authPassword, authScreen, showModal]);
+
+  const handleAuthSignOut = useCallback(async () => {
+    try {
+      await signOut(firebaseAuth);
+      setShowUserMenu(false);
+      showModal('Signed out', 'You are back on free chat mode.');
+    } catch (error) {
+      showModal('Sign-out failed', error?.message || 'Please try again.');
+    }
+  }, [showModal]);
+
+  const acceptLegalNotice = useCallback(() => {
+    try {
+      localStorage.setItem(LEGAL_ACCEPTANCE_KEY, 'yes');
+      localStorage.setItem(LEGAL_ACCEPTANCE_DATE_KEY, new Date().toISOString());
+    } catch {}
+    setShowLegalNotice(false);
+  }, []);
+
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // UTILITIES
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+  const getPersistentUserId = useCallback(() => {
+    let id = localStorage.getItem('spider_user_id');
+    if (!id) { id = 'user_' + Date.now().toString(36) + Math.random().toString(36).substring(2); localStorage.setItem('spider_user_id', id); }
+    return id;
+  }, []);
+
+  const getStoredFeedbackQueue = useCallback(() => {
+    try {
+      const raw = localStorage.getItem(FEEDBACK_QUEUE_STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }, []);
+
+  const setStoredFeedbackQueue = useCallback((queue) => {
+    try {
+      if (!Array.isArray(queue) || queue.length === 0) {
+        localStorage.removeItem(FEEDBACK_QUEUE_STORAGE_KEY);
+        return;
+      }
+      localStorage.setItem(FEEDBACK_QUEUE_STORAGE_KEY, JSON.stringify(queue));
+    } catch {}
+  }, []);
+
+  const appendPendingFeedback = useCallback((entry) => {
+    const nextQueue = [...getStoredFeedbackQueue(), entry];
+    setStoredFeedbackQueue(nextQueue);
+    return nextQueue.length;
+  }, [getStoredFeedbackQueue, setStoredFeedbackQueue]);
+
+  const getFeedbackSyncEndpoints = useCallback(() => {
+    const origin = typeof window !== 'undefined' ? window.location.origin.replace(/\/$/, '') : '';
+    return [...new Set([
+      origin ? `${origin}/api/feedback` : '',
+      `${AI_API_FALLBACK_BASE}/feedback`,
+      `${AI_API_FALLBACK_BASE}/api/feedback`
+    ].filter(Boolean))];
+  }, []);
+
+  const flushPendingFeedback = useCallback(async (showSuccess = false) => {
+    if (feedbackSyncInFlightRef.current) return false;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return false;
+
+    const pendingQueue = getStoredFeedbackQueue();
+    if (pendingQueue.length === 0) return true;
+
+    feedbackSyncInFlightRef.current = true;
+    try {
+      let remainingQueue = [...pendingQueue];
+      const endpoints = getFeedbackSyncEndpoints();
+
+      for (const endpoint of endpoints) {
+        if (remainingQueue.length === 0) break;
+
+        const retryQueue = [];
+        for (const entry of remainingQueue) {
+          try {
+            const response = await fetch(endpoint, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(entry),
+              keepalive: true,
+            });
+            if (!response.ok) {
+              retryQueue.push(entry);
+            }
+          } catch {
+            retryQueue.push(entry);
+          }
         }
+
+        remainingQueue = retryQueue;
+      }
+
+      setStoredFeedbackQueue(remainingQueue);
+
+      if (showSuccess && pendingQueue.length > 0 && remainingQueue.length === 0) {
+        showModal('Feedback synced', `Sent ${pendingQueue.length} feedback item${pendingQueue.length === 1 ? '' : 's'} to your server.`);
+      }
+
+      return remainingQueue.length === 0;
+    } finally {
+      feedbackSyncInFlightRef.current = false;
     }
+  }, [getFeedbackSyncEndpoints, getStoredFeedbackQueue, setStoredFeedbackQueue, showModal]);
 
-    function processLine(line) {
-        const trimmedLine = line.trim();
-        if (!trimmedLine) return;
+  const mergeVideoJob = useCallback((job) => {
+    const normalizedJob = normalizeVideoJob(job);
+    setBrokenVideoPreviews(prev => {
+      if (!prev[normalizedJob.id]) return prev;
+      const next = { ...prev };
+      delete next[normalizedJob.id];
+      return next;
+    });
+    setVideoJobs(prev => {
+      const previousJob = prev[normalizedJob.id] || {};
+      const nextJob = normalizeVideoJob({ ...(prev[normalizedJob.id] || {}), ...normalizedJob });
+      const same = JSON.stringify(prev[normalizedJob.id] || {}) === JSON.stringify(nextJob);
+      const priorNotifiedStatus = notifiedVideoJobsRef.current[normalizedJob.id];
+      if (previousJob.status !== 'completed' && nextJob.status === 'completed' && priorNotifiedStatus !== 'completed') {
+        notifiedVideoJobsRef.current[normalizedJob.id] = 'completed';
+        setTimeout(() => notifyGenerationComplete('Video Ready', 'Your video generation finished.'), 0);
+      } else if (previousJob.status !== 'failed' && nextJob.status === 'failed' && priorNotifiedStatus !== 'failed') {
+        notifiedVideoJobsRef.current[normalizedJob.id] = 'failed';
+        setTimeout(() => notifyGenerationComplete('Video Failed', nextJob.error || 'A video job failed.'), 0);
+      } else if (nextJob.status !== 'completed' && nextJob.status !== 'failed') {
+        delete notifiedVideoJobsRef.current[normalizedJob.id];
+      }
+      if (same) return prev;
+      return { ...prev, [normalizedJob.id]: nextJob };
+    });
+  }, [notifyGenerationComplete]);
 
-        if (trimmedLine.startsWith('data:')) {
-            const dataStr = trimmedLine.slice(5).trim();
-            if (dataStr === '[DONE]') return;
-            try {
-                const parsed = JSON.parse(dataStr);
-                if (parsed.text) {
-                    accumulatedTokensRef.current += parsed.text;
-                    setStreamedContent(accumulatedTokensRef.current);
-                    
-                    setStreamingMessage(prev => ({
-                        role: 'assistant', type: 'text', ts: Date.now(), isStreaming: true,
-                        ...prev, content: accumulatedTokensRef.current 
-                    }));
+  useEffect(() => {
+    const chatVideoJobs = (chatHistory || [])
+      .filter(msg => msg?.type === 'video_job' && msg?.videoJobId)
+      .map(msg => ({
+        id: msg.videoJobId,
+        ...(msg.videoJob || {}),
+      }))
+      .filter(job => job.id);
 
-                    if (isFullCodeMode) {
-                        fileContentBufferRef.current += parsed.text;
-                        if (accumulatedTokensRef.current.length % 500 === 0) {
-                            const files = parseCodeForFiles(fileContentBufferRef.current);
-                            if (files.length > 0) setGeneratedFiles(files);
-                        }
-                    }
-                }
-                // Save Stream ID for the Continue button
-                if (parsed.stream_id) {
-                    setLastStreamId(parsed.stream_id);
-                    continueStreamIdRef.current = parsed.stream_id;
-                }
-            } catch (e) { }
+    if (chatVideoJobs.length === 0) return;
+
+    setVideoJobs(prev => {
+      let changed = false;
+      const next = { ...prev };
+      for (const job of chatVideoJobs) {
+        const normalizedJob = normalizeVideoJob(job);
+        const merged = normalizeVideoJob({ ...(next[normalizedJob.id] || {}), ...normalizedJob });
+        if (JSON.stringify(next[normalizedJob.id] || {}) !== JSON.stringify(merged)) {
+          next[normalizedJob.id] = merged;
+          changed = true;
         }
-    }
-}, [isStreaming, isFullCodeMode, parseCodeForFiles]);
+      }
+      return changed ? next : prev;
+    });
+  }, [chatHistory]);
 
-// ---------- Fixed Continue Generation ----------
-const handleContinueGeneration = useCallback(async () => {
-    if (!lastStreamId) return;
-    
-    setIsLoading(true);
-    setIsStreaming(true);
-    setShowContinueButton(false);
-    
-    // Grab the last message content to append to
-    const lastMsgIndex = chatHistory.length - 1;
-    const lastMsg = chatHistory[lastMsgIndex];
-    const previousContent = lastMsg.role === 'assistant' ? lastMsg.content : '';
-    
-    // Remove static message, switch to streaming UI
-    if (lastMsg.role === 'assistant') {
-        setChatHistory(prev => prev.slice(0, -1));
-    }
+  useEffect(() => {
+    if (!currentChatId || !chatHistory.length) return;
+    setChatHistory(prev => {
+      let changed = false;
+      const next = prev.map(msg => {
+        if (msg?.type !== 'video_job' || !msg?.videoJobId) return msg;
+        const liveJob = videoJobs[msg.videoJobId];
+        if (!liveJob) return msg;
+        const mergedVideoJob = {
+          ...(msg.videoJob || {}),
+          ...liveJob,
+          sourceImagePreview: liveJob.sourceImagePreview ?? msg.videoJob?.sourceImagePreview ?? null,
+          sourceImageName: liveJob.sourceImageName ?? msg.videoJob?.sourceImageName ?? null,
+        };
+        if (JSON.stringify(msg.videoJob || {}) === JSON.stringify(mergedVideoJob)) return msg;
+        changed = true;
+        return { ...msg, videoJob: mergedVideoJob };
+      });
+      return changed ? next : prev;
+    });
+  }, [videoJobs, currentChatId, chatHistory.length]);
 
-    setStreamingMessage({
+  const markVideoJobsBackendOffline = useCallback(() => {
+    setVideoJobs(prev => {
+      const next = { ...prev };
+      Object.values(next).forEach((job) => {
+        if (!job || !['queued', 'running', 'interrupted'].includes(job.status)) return;
+        next[job.id] = {
+          ...job,
+          status: 'running',
+          message: job.output_url || job.output_path
+            ? 'Connection dropped, checking for finished output...'
+            : 'Connection dropped, backend may still be generating. Reconnecting...',
+          error: null,
+        };
+      });
+      return next;
+    });
+  }, []);
+
+  const submitVideoJob = useCallback(async (prompt, chatId, sourceImage = null) => {
+    const cleanVideoPrompt = String(prompt || '').trim();
+    if (selectedAIMode !== 'pro') {
+      const usage = readFreeDailyVideoUsage();
+      if (usage.count >= FREE_DAILY_VIDEO_LIMIT) {
+        showModal('Daily limit reached', `Free plan allows ${FREE_DAILY_VIDEO_LIMIT} video generations per day.`);
+        throw new Error('Free daily video generation limit reached');
+      }
+    }
+    const response = await fetch(`${VIDEO_API_BASE}/api/video/jobs`, {
+      method: 'POST',
+      cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt: cleanVideoPrompt,
+        original_prompt: cleanVideoPrompt,
+        aspect_ratio: aspectRatio,
+        duration_seconds: videoDuration,
+        quality_preset: videoQuality,
+        user_preference_id: getPersistentUserId(),
+        session_id: chatId,
+        image: sourceImage?.content || null,
+        image_base64: sourceImage?.content || null,
+        source_image_name: sourceImage?.name || null,
+      })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || data.error || 'Failed to queue video job');
+    if (selectedAIMode !== 'pro') {
+      const usage = readFreeDailyVideoUsage();
+      writeFreeDailyVideoUsage(usage.count + 1);
+    }
+    mergeVideoJob(data);
+    setChatHistory(prev => [...prev, {
+      role: 'assistant',
+      content: prompt,
+      type: 'video_job',
+      videoJobId: data.id,
+      videoJob: {
+        ...data,
+        sourceImagePreview: sourceImage?.preview || null,
+        sourceImageName: sourceImage?.name || null,
+      },
+      ts: Date.now()
+    }]);
+  }, [aspectRatio, videoDuration, videoQuality, getPersistentUserId, mergeVideoJob, selectedAIMode, showModal]);
+
+  const stopVideoJob = useCallback(async (jobId) => {
+    try {
+      const response = await fetch(`${VIDEO_API_BASE}/api/video/jobs/${jobId}/cancel`, { method: 'POST', cache: 'no-store' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || data.error || 'Failed to stop video job');
+      mergeVideoJob(data);
+    } catch (error) {
+      setChatHistory(prev => [...prev, {
         role: 'assistant',
-        content: previousContent,
+        content: `Error: ${error.message}`,
         type: 'text',
         ts: Date.now(),
-        isStreaming: true,
-        isContinue: true
-    });
-
-    const apiUrl = '/api/generate/continue';
-    const apiPayload = {
-        stream_id: continueStreamIdRef.current || lastStreamId,
-        user_preference_id: getPersistentUserId(),
-        firebase_token: currentUser?.firebaseToken || '',
-        stream: true
-    };
-    
-    try {
-        const controller = new AbortController();
-        setAbortController(controller);
-        
-        const response = await callFastAPI(apiUrl, apiPayload, 'chat', {
-            signal: controller.signal,
-            stream: true
-        });
-        
-        if (!response.ok) throw new Error(response.statusText);
-        
-        // Pass previousContent so it appends, doesn't overwrite
-        await handleStreamResponse(response, true, previousContent);
-        
-    } catch (error) {
-        console.error('Continue error:', error);
-        setChatHistory(prev => [...prev, lastMsg]);
-    } finally {
-        setIsLoading(false);
-        setIsStreaming(false);
-        setStreamingMessage(null);
+        isError: true
+      }]);
     }
-}, [lastStreamId, chatHistory, getPersistentUserId, currentUser, callFastAPI, handleStreamResponse]);
+  }, [mergeVideoJob]);
 
-// ---------- Smart Stop Handler (Allows Resuming) ----------
-const handleStopGeneration = useCallback(() => {
-    if (abortController) {
-        abortController.abort();
-        setAbortController(null);
-    }
-    if (streamReaderRef.current) {
-        streamReaderRef.current.cancel();
-        streamReaderRef.current = null;
-    }
-    
-    setIsLoading(false);
-    setIsStreaming(false);
-    
-    // Save whatever we've streamed so far
-    if (accumulatedTokensRef.current) {
-        const assistantMessage = {
-            role: 'assistant',
-            content: accumulatedTokensRef.current,
-            type: 'text',
-            ts: Date.now(),
-            isPartial: true // Mark as partial so we know it was cut off
-        };
-        setChatHistory(prev => [...prev, assistantMessage]);
-        
-        // 3. SHOW CONTINUE BUTTON (The Fix)
-        // If we have a stream ID, let the user resume even if they stopped it manually
-        if (lastStreamId || continueStreamIdRef.current) {
-            console.log("User stopped stream. Enabling resume.");
-            setShowContinueButton(true);
-        }
+  useEffect(() => {
+    const pollActiveVideoJobs = async () => {
+      if (document.hidden || videoPollInFlightRef.current) return;
+      const stateJobs = Object.values(videoJobsRef.current || {});
+      const chatJobs = (chatHistoryRef.current || [])
+        .filter(msg => msg?.type === 'video_job' && msg?.videoJobId)
+        .map(msg => ({
+          id: msg.videoJobId,
+          ...(msg.videoJob || {}),
+        }))
+        .filter(job => job.id);
 
-        accumulatedTokensRef.current = '';
-        setStreamedContent('');
-    }
-    
-    setStreamingMessage(null);
-}, [abortController, lastStreamId]);
+      const jobMap = {};
+      [...chatJobs, ...stateJobs].forEach(job => {
+        if (!job?.id) return;
+        jobMap[job.id] = normalizeVideoJob({ ...(jobMap[job.id] || {}), ...job });
+      });
 
-// Add this useEffect to handle cleanup and finalization
-useEffect(() => {
-    // When streaming stops naturally (not via stop button)
-    if (!isStreaming && !isLoading && streamingMessage === null) {
-        if (accumulatedTokensRef.current && accumulatedTokensRef.current.trim()) {
-            const lastMessage = chatHistory[chatHistory.length - 1];
-            
-            // Only add if the last message is not the same content
-            if (!lastMessage || lastMessage.content !== accumulatedTokensRef.current) {
-                const assistantMessage = {
-                    role: 'assistant',
-                    content: accumulatedTokensRef.current,
-                    type: 'text',
-                    ts: Date.now(),
-                    isContinued: false
-                };
-                setChatHistory(prev => [...prev, assistantMessage]);
-            }
-            
-            accumulatedTokensRef.current = '';
-            setStreamedContent('');
-        }
-    }
-}, [isStreaming, isLoading, streamingMessage, chatHistory]);
-  // ---------- Auto-detect Image Generation ----------
-    const detectImageGeneration = (prompt) => {
-        const lowerPrompt = prompt.toLowerCase();
-        const imageTriggers = [
-            'generate image', 'create image', 'make image', 'draw', 'paint',
-            'picture of', 'photo of', 'image of', 'generate a picture',
-            'create a picture', 'make a picture', 'visualize', 'illustrate',
-            'show me an image', 'show me a picture', 'can you draw',
-            'can you create an image', 'can you generate an image'
-        ];
-        
-        return imageTriggers.some(trigger => lowerPrompt.includes(trigger));
-    };
-
-    // ---------- File / Image Upload Handlers ----------
-// ---------- Universal File Handler ----------
-    const handleFileUpload = (event) => {
-        const file = event?.target?.files?.[0];
-        if (!file) return;
-
-        // Check if it is an image
-        if (file.type.startsWith('image/')) {
-             setUploadedImage(file);
-             setUploadedFile(null); // Clear text file if any
-             setMessage("Analyze this image: ");
-             
-             // If active mode isn't already compatible, suggest image mode
-             if (selectedAIMode !== 'pro' && selectedAIMode !== 'reasoning') {
-                 // You might want to switch to a vision-capable mode here
-                 // setSelectedAIMode('chat'); 
-             }
-        } else {
-            // It's a document/code
-            if (file.size > 1024 * 1024 * 10) {
-                showModal("File Error", "File size exceeds 10MB limit.");
-                event.target.value = null;
+      const activeJobs = Object.values(jobMap).filter(job => ['queued', 'running', 'interrupted'].includes(job.status));
+      if (activeJobs.length === 0) return;
+      videoPollInFlightRef.current = true;
+      let hadBackendFailure = false;
+      try {
+        await Promise.all(activeJobs.map(async (job) => {
+          try {
+            const response = await fetch(`${VIDEO_API_BASE}/api/video/jobs/${job.id}?t=${Date.now()}`, {
+              cache: 'no-store'
+            });
+            if (!response.ok) {
+              if (response.status === 404) {
+                mergeVideoJob({
+                  ...job,
+                  status: 'stale',
+                  progress: 0,
+                  queue_position: 0,
+                  eta_seconds: 0,
+                  message: 'Old job from a previous backend session.',
+                  error: null,
+                });
                 return;
+              }
+              hadBackendFailure = true;
+              return;
             }
-            setUploadedFile(file);
-            setUploadedImage(null); // Clear image if any
-            setMessage(`Analyze the contents of ${file.name}.`);
-        }
-        event.target.value = null;
+            const data = await response.json();
+            mergeVideoJob(data);
+          } catch {
+            hadBackendFailure = true;
+          }
+        }));
+      } finally {
+        videoPollInFlightRef.current = false;
+      }
+      if (hadBackendFailure) markVideoJobsBackendOffline();
     };
-  
-    // ---------- Universal Image Handler (Client-Side Resize & Base64) ----------
-    const handleImageUpload = (event) => {
-        const file = event?.target?.files?.[0];
-        if (!file) {
-            if (event) event.target.value = null;
-            return;
-        }
 
-        if (!file.type.startsWith('image/')) {
-            showModal("File Error", "Please upload a valid image file.");
-            event.target.value = null;
-            return;
-        }
+    const id = window.setInterval(() => {
+      pollActiveVideoJobs();
+    }, 3000);
 
-        // 1. Read the file
-        const reader = new FileReader();
-        reader.onload = (readerEvent) => {
+    return () => window.clearInterval(id);
+  }, [markVideoJobsBackendOffline, mergeVideoJob]);
+
+  useEffect(() => {
+    if (forceMode !== 'video_gen') return;
+    let cancelled = false;
+    const loadHealth = async () => {
+      try {
+        const response = await fetch(`${VIDEO_API_BASE}/api/video/health?t=${Date.now()}`, {
+          cache: 'no-store'
+        });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (!cancelled) setVideoBackendHealth(data);
+      } catch {
+        if (!cancelled) setVideoBackendHealth({ ok: false, runner_configured: false, runner_url_configured: false });
+      }
+    };
+    loadHealth();
+    const id = window.setInterval(loadHealth, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [forceMode]);
+
+  const copyToClipboard = useCallback((text) => {
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(() => showModal('Copied', 'Copied to clipboard')).catch(() => {
+        const ta = document.createElement('textarea');
+        ta.value = text; ta.style.cssText = 'position:fixed;opacity:0';
+        document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); } catch {}
+        document.body.removeChild(ta);
+      });
+    }
+  }, [showModal]);
+
+  const handleMessageFeedback = useCallback((messageIndex, feedback) => {
+    const currentMessage = chatHistoryRef.current?.[messageIndex];
+    if (!currentMessage || currentMessage.role === 'user') return;
+
+    const isRemoving = currentMessage.feedback === feedback;
+    const feedbackEntryBase = {
+      id: `fb_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
+      messageKey: `${currentChatIdRef.current || 'session'}:${currentMessage.ts || 'na'}:${messageIndex}`,
+      chatId: currentChatIdRef.current || null,
+      messageIndex,
+      messageTs: currentMessage.ts || null,
+      messageType: currentMessage.type || 'text',
+      assistantMessage: String(currentMessage.content || '').slice(0, 12000),
+      createdAt: new Date().toISOString(),
+      pageUrl: typeof window !== 'undefined' ? window.location.href : '',
+      user: authUser ? {
+        uid: authUser.uid,
+        email: authUser.email || '',
+        displayName: authUser.displayName || '',
+      } : authSnapshot ? {
+        uid: authSnapshot.uid || '',
+        email: authSnapshot.email || '',
+        displayName: authSnapshot.displayName || '',
+      } : {
+        anonymousId: getPersistentUserId(),
+      }
+    };
+
+    if (feedback === 'dislike' && !isRemoving) {
+      const feedbackNote = window.prompt('What problem did you face with this reply?', currentMessage.feedbackNote || '');
+      if (feedbackNote === null) return;
+      const cleanedNote = feedbackNote.trim();
+
+      setChatHistory(prev => prev.map((msg, idx) => (
+        idx !== messageIndex
+          ? msg
+          : {
+              ...msg,
+              feedback,
+              feedbackNote: cleanedNote,
+            }
+      )));
+      appendPendingFeedback({
+        ...feedbackEntryBase,
+        action: 'set',
+        feedback,
+        feedbackNote: cleanedNote,
+      });
+      flushPendingFeedback();
+      showModal('Feedback saved', 'Stored locally and will sync when your API is reachable.');
+      return;
+    }
+
+    const nextFeedback = isRemoving ? null : feedback;
+    setChatHistory(prev => prev.map((msg, idx) => {
+      if (idx !== messageIndex) return msg;
+      return {
+        ...msg,
+        feedback: nextFeedback,
+        feedbackNote: nextFeedback === 'dislike' ? (msg.feedbackNote || null) : null,
+      };
+    }));
+    appendPendingFeedback({
+      ...feedbackEntryBase,
+      action: isRemoving ? 'remove' : 'set',
+      feedback: nextFeedback,
+      feedbackNote: null,
+    });
+    flushPendingFeedback();
+    showModal('Feedback saved', 'Stored locally and will sync when your API is reachable.');
+  }, [appendPendingFeedback, authSnapshot, authUser, flushPendingFeedback, getPersistentUserId, showModal]);
+
+  const renderFeedbackButtons = useCallback((msg, index, compact = false, closeMenu = false) => (
+    MESSAGE_FEEDBACK_OPTIONS.map(({ value, label, Icon, activeClass }) => {
+      const isActive = msg.feedback === value;
+      const baseClass = compact
+        ? `sidebar-bottom-btn w-full ${isActive ? activeClass : ''}`
+        : `sidebar-btn flex items-center gap-1 text-[11px] px-2 py-1 rounded-md ${isActive ? activeClass : 'text-[#529E98] hover:text-[#00E5FF] hover:bg-[#194A4A]/50'}`;
+
+      return (
+        <button
+          key={`${index}-${value}`}
+          onClick={() => {
+            handleMessageFeedback(index, value);
+            if (closeMenu) setOpenMessageMenuIndex(null);
+          }}
+          className={baseClass}
+        >
+          <Icon size={compact ? 14 : 11} />
+          {label}
+        </button>
+      );
+    })
+  ), [handleMessageFeedback]);
+
+  const downloadFile = useCallback((filename, content) => {
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, []);
+
+  const parseCodeForFiles = useCallback((content) => {
+    const files = [];
+    const regex = /```(\w+)?\s*(?:\/\/|#|\/\*)\s*(?:file(?:name)?:\s*)?([^\n*]+)\n([\s\S]*?)```/gi;
+    let match;
+    while ((match = regex.exec(content)) !== null) {
+      files.push({ language: match[1] || 'text', name: match[2].trim(), content: match[3].trim(), id: Date.now().toString(36) + Math.random().toString(36).substring(2) });
+    }
+    return files;
+  }, []);
+
+  const autoResizeTextarea = useCallback(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.style.height = 'auto';
+    const maxHeight = window.innerWidth < 768 ? 120 : 180;
+    ta.style.height = Math.min(ta.scrollHeight, maxHeight) + 'px';
+  }, []);
+
+  useEffect(() => { autoResizeTextarea(); }, [message, autoResizeTextarea]);
+
+  const formatTimestamp = useCallback((ts) => {
+    if (!ts) return '';
+    const d = new Date(ts);
+    const now = new Date();
+    const diff = now - d;
+    if (diff < 60000) return 'Just now';
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+    if (diff < 86400000) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    if (diff < 604800000) return d.toLocaleDateString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  }, []);
+
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // INDEXEDDB
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+  const updateChatInDB = useCallback((chatId, updatedMessages) => {
+    const req = indexedDB.open('SpiderAIDB', 1);
+    req.onsuccess = (e) => {
+      const db = e.target.result;
+      const tx = db.transaction(['chats'], 'readwrite');
+      const store = tx.objectStore('chats');
+      const getReq = store.get(chatId);
+      getReq.onsuccess = () => {
+        if (getReq.result) {
+          const chat = getReq.result;
+          chat.messages = updatedMessages;
+          chat.lastUpdated = Date.now();
+          if (updatedMessages.length === 1 && updatedMessages[0].role === 'user') {
+            chat.title = (updatedMessages[0].content || '').substring(0, 40) + (updatedMessages[0].content?.length > 40 ? '...' : '');
+            setChats(prev => prev.map(c => c.id === chatId ? { ...c, title: chat.title, lastUpdated: Date.now() } : c));
+          }
+          store.put(chat);
+        }
+      };
+    };
+  }, []);
+
+  const createNewChatInDB = useCallback((title) => {
+    return new Promise((resolve) => {
+      const req = indexedDB.open('SpiderAIDB', 1);
+      req.onsuccess = (e) => {
+        const db = e.target.result;
+        const tx = db.transaction(['chats'], 'readwrite');
+        const store = tx.objectStore('chats');
+        const newId = Date.now().toString(36) + Math.random().toString(36).substring(2);
+        const newChat = {
+          id: newId,
+          title: (title || 'New Chat').substring(0, 40),
+          date: new Date().toLocaleDateString('en-US'),
+          type: 'chat', timestamp: Date.now(), lastUpdated: Date.now(), messages: []
+        };
+        const addReq = store.add(newChat);
+        addReq.onsuccess = () => { setChats(prev => [newChat, ...prev]); setCurrentChatId(newId); resolve(newId); };
+      };
+    });
+  }, []);
+
+  const deleteChatFromDB = useCallback((chatId) => {
+    return new Promise((resolve) => {
+      const req = indexedDB.open('SpiderAIDB', 1);
+      req.onsuccess = (e) => {
+        const db = e.target.result;
+        const tx = db.transaction(['chats'], 'readwrite');
+        tx.objectStore('chats').delete(chatId);
+        tx.oncomplete = () => {
+          setChats(prev => prev.filter(c => c.id !== chatId));
+          setPinnedChats(prev => prev.filter(id => id !== chatId));
+          if (currentChatIdRef.current === chatId) {
+            const remaining = chatsRef.current.filter(c => c.id !== chatId);
+            if (remaining.length > 0) { setCurrentChatId(remaining[0].id); setChatHistory(remaining[0].messages || []); }
+            else { setCurrentChatId(null); setChatHistory([]); }
+          }
+          resolve();
+        };
+      };
+    });
+  }, []);
+
+  const deleteAllChatsFromDB = useCallback(() => {
+    return new Promise((resolve) => {
+      const req = indexedDB.open('SpiderAIDB', 1);
+      req.onsuccess = (e) => {
+        const db = e.target.result;
+        const tx = db.transaction(['chats'], 'readwrite');
+        tx.objectStore('chats').clear();
+        tx.oncomplete = () => {
+          setChats([]); setCurrentChatId(null); setChatHistory([]); setPinnedChats([]); resolve();
+        };
+      };
+    });
+  }, []);
+
+  const renameChatInDB = useCallback((chatId, newTitle) => {
+    const req = indexedDB.open('SpiderAIDB', 1);
+    req.onsuccess = (e) => {
+      const db = e.target.result;
+      const tx = db.transaction(['chats'], 'readwrite');
+      const store = tx.objectStore('chats');
+      const getReq = store.get(chatId);
+      getReq.onsuccess = () => {
+        if (getReq.result) {
+          const chat = getReq.result;
+          chat.title = newTitle;
+          store.put(chat);
+          setChats(prev => prev.map(c => c.id === chatId ? { ...c, title: newTitle } : c));
+        }
+      };
+    };
+  }, []);
+
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // SEARCH & FILTER
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+  const filteredChats = useMemo(() => {
+    let result = chats;
+    if (searchFilter !== 'all') {
+      const now = Date.now();
+      const map = { today: 86400000, week: 604800000, month: 2592000000 };
+      const cutoff = now - (map[searchFilter] || 0);
+      result = result.filter(c => (c.lastUpdated || c.timestamp) >= cutoff);
+    }
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter(c => {
+        if (c.title?.toLowerCase().includes(query)) return true;
+        if (c.messages?.some(m => m.content?.toLowerCase().includes(query))) return true;
+        return false;
+      });
+    }
+    return result.sort((a, b) => {
+      const aPinned = pinnedChats.includes(a.id);
+      const bPinned = pinnedChats.includes(b.id);
+      if (aPinned && !bPinned) return -1;
+      if (!aPinned && bPinned) return 1;
+      return (b.lastUpdated || b.timestamp) - (a.lastUpdated || a.timestamp);
+    });
+  }, [chats, searchQuery, searchFilter, pinnedChats]);
+
+  // Group chats by date
+  const groupedChats = useMemo(() => {
+    const groups = { pinned: [], today: [], yesterday: [], week: [], month: [], older: [] };
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const yesterdayStart = todayStart - 86400000;
+    const weekStart = todayStart - 604800000;
+    const monthStart = todayStart - 2592000000;
+
+    filteredChats.forEach(chat => {
+      if (pinnedChats.includes(chat.id)) { groups.pinned.push(chat); return; }
+      const ts = chat.lastUpdated || chat.timestamp;
+      if (ts >= todayStart) groups.today.push(chat);
+      else if (ts >= yesterdayStart) groups.yesterday.push(chat);
+      else if (ts >= weekStart) groups.week.push(chat);
+      else if (ts >= monthStart) groups.month.push(chat);
+      else groups.older.push(chat);
+    });
+    return groups;
+  }, [filteredChats, pinnedChats]);
+
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // EFFECTS
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+  useEffect(() => {
+    const handler = () => {
+      const visible = !document.hidden;
+      setIsTabVisible(visible);
+      isTabVisibleRef.current = visible;
+      if (!visible) {
+        if (typeTextIntervalRef.current) { clearInterval(typeTextIntervalRef.current); typeTextIntervalRef.current = null; }
+        if (recognitionRef.current && isListeningRef.current) recognitionRef.current.stop();
+      } else if (pendingStreamRef.current) {
+        const { content, callback } = pendingStreamRef.current;
+        pendingStreamRef.current = null;
+        setStreamingMessage(prev => ({ ...(prev || {}), role: 'assistant', type: 'text', content, isStreaming: false, isThinking: false }));
+        if (callback) callback();
+      }
+    };
+    document.addEventListener('visibilitychange', handler);
+    return () => document.removeEventListener('visibilitychange', handler);
+  }, []);
+
+  useEffect(() => {
+    const check = () => {
+      const ua = window.navigator.userAgent || '';
+      const platform = window.navigator.platform || '';
+      const touchPoints = window.navigator.maxTouchPoints || 0;
+      const iPhoneLike = /iPhone/i.test(ua) || (/Mac/i.test(platform) && touchPoints > 1);
+      const androidLike = /Android/i.test(ua);
+      setIsMobile(window.innerWidth < 768);
+      setIsIPhone(iPhoneLike);
+      setIsAndroid(androidLike);
+    };
+    check(); window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
+
+  useEffect(() => {
+    if (!isIPhone && !isAndroid) return undefined;
+    const updateViewportHeight = () => {
+      const viewport = window.visualViewport;
+      const height = viewport?.height || window.innerHeight;
+      const offsetTop = viewport?.offsetTop || 0;
+
+      document.documentElement.style.setProperty('--spider-app-height', `${Math.round(height)}px`);
+      document.documentElement.style.setProperty('--spider-app-offset-top', `${Math.round(offsetTop)}px`);
+    };
+    const scheduleViewportUpdate = () => {
+      updateViewportHeight();
+      if (isAndroid) {
+        window.requestAnimationFrame(() => {
+          updateViewportHeight();
+        });
+      }
+    };
+
+    scheduleViewportUpdate();
+    window.visualViewport?.addEventListener('resize', scheduleViewportUpdate);
+    window.visualViewport?.addEventListener('scroll', scheduleViewportUpdate);
+    window.addEventListener('orientationchange', scheduleViewportUpdate);
+    window.addEventListener('resize', scheduleViewportUpdate);
+
+    const handleFocusIn = () => {
+      if (!isAndroid) return;
+      window.setTimeout(() => {
+        scheduleViewportUpdate();
+        messagesEndRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
+      }, 120);
+    };
+
+    const handleFocusOut = () => {
+      if (!isAndroid) return;
+      window.setTimeout(scheduleViewportUpdate, 120);
+    };
+
+    window.addEventListener('focusin', handleFocusIn);
+    window.addEventListener('focusout', handleFocusOut);
+    return () => {
+      window.visualViewport?.removeEventListener('resize', scheduleViewportUpdate);
+      window.visualViewport?.removeEventListener('scroll', scheduleViewportUpdate);
+      window.removeEventListener('orientationchange', scheduleViewportUpdate);
+      window.removeEventListener('resize', scheduleViewportUpdate);
+      window.removeEventListener('focusin', handleFocusIn);
+      window.removeEventListener('focusout', handleFocusOut);
+      document.documentElement.style.removeProperty('--spider-app-height');
+      document.documentElement.style.removeProperty('--spider-app-offset-top');
+    };
+  }, [isAndroid, isIPhone]);
+
+  useEffect(() => {
+    let mounted = true, interval;
+    if (!document.getElementById('katex-css')) {
+      const link = document.createElement('link'); link.id = 'katex-css'; link.rel = 'stylesheet';
+      link.href = 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css';
+      document.head.appendChild(link);
+    }
+    const check = () => { if (window.katex && mounted) { setKatexLoaded(true); if (interval) clearInterval(interval); } };
+    if (window.katex) check();
+    else if (!document.getElementById('katex-js')) {
+      const s = document.createElement('script'); s.id = 'katex-js';
+      s.src = 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js';
+      s.onload = check; document.head.appendChild(s); interval = setInterval(check, 100);
+    } else interval = setInterval(check, 100);
+    return () => { mounted = false; if (interval) clearInterval(interval); };
+  }, []);
+
+  useEffect(() => {
+    if (settings.saveHistory === false) {
+      setChats([]);
+      setCurrentChatId(null);
+      setChatRestoreReady(true);
+      return;
+    }
+    setChatRestoreReady(false);
+    const req = indexedDB.open('SpiderAIDB', 1);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains('chats')) db.createObjectStore('chats', { keyPath: 'id' });
+    };
+    req.onsuccess = (e) => {
+      const db = e.target.result;
+      const tx = db.transaction(['chats'], 'readonly');
+      const getAll = tx.objectStore('chats').getAll();
+      getAll.onsuccess = () => {
+        const fetched = getAll.result.sort((a, b) => (b.lastUpdated || b.timestamp) - (a.lastUpdated || a.timestamp));
+        setChats(fetched);
+        if (fetched.length > 0) {
+          setCurrentChatId(fetched[0].id);
+          setChatHistory(fetched[0].messages || []);
+        } else {
+          setCurrentChatId(null);
+          setChatHistory([]);
+        }
+        setChatRestoreReady(true);
+      };
+    };
+    req.onerror = () => {
+      setChatRestoreReady(true);
+    };
+  }, [settings.saveHistory]);
+
+  useEffect(() => {
+    if (!currentChatId) return;
+    setChats(prev => prev.map(chat => (
+      chat.id === currentChatId
+        ? { ...chat, messages: chatHistory, lastUpdated: Date.now() }
+        : chat
+    )));
+    if (settings.saveHistory === false) return;
+    if (chatHistory.length > 0) updateChatInDB(currentChatId, chatHistory);
+  }, [chatHistory, currentChatId, updateChatInDB, settings.saveHistory]);
+
+  const scrollToBottom = useCallback(() => {
+    if (settingsRef.current.autoScroll !== false) messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+  }, []);
+
+  useEffect(() => { if (!isStreaming) scrollToBottom(); }, [chatHistory, isStreaming, scrollToBottom]);
+  useEffect(() => { if (streamingMessage) scrollToBottom(); }, [streamedContent, streamingMessage, scrollToBottom]);
+  useEffect(() => { return () => { if (typeTextIntervalRef.current) clearInterval(typeTextIntervalRef.current); }; }, []);
+  useEffect(() => { return () => { if (lensStream) lensStream.getTracks().forEach(t => t.stop()); }; }, [lensStream]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault(); setIsSearchOpen(prev => !prev);
+        setTimeout(() => searchInputRef.current?.focus(), 100);
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === ',') { e.preventDefault(); setShowSettings(prev => !prev); }
+      if (e.key === 'Escape') {
+        if (showSettings) setShowSettings(false);
+        else if (isSearchOpen) { setIsSearchOpen(false); setSearchQuery(''); }
+        else if (chatContextMenu) setChatContextMenu(null);
+        else if (confirmDelete) setConfirmDelete(null);
+        else if (showUserMenu) setShowUserMenu(false);
+        else if (editingMessageIndex !== null) { setEditingMessageIndex(null); setEditingMessageContent(''); }
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'n') { e.preventDefault(); handleNewChat(); }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [showSettings, isSearchOpen, chatContextMenu, confirmDelete, editingMessageIndex, showUserMenu]);
+
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // SPEECH / LENS / FILE PROCESSING (same as before, abbreviated)
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+  useEffect(() => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SR) {
+      setMicSupported(true);
+      const recognition = new SR();
+      recognition.continuous = false; recognition.interimResults = true; recognition.lang = 'en-US';
+      recognition.onresult = (event) => {
+        let final = '', interim = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const t = event.results[i][0].transcript;
+          if (event.results[i].isFinal) final += t; else interim += t;
+        }
+        if (final) setMessage(prev => (prev.replace(/\s*\[mic\].*$/, '').trim() + ' ' + final).trim());
+        else if (interim) setMessage(prev => prev.replace(/\s*\[mic\].*$/, '').trim() + ' [mic] ' + interim);
+      };
+      recognition.onend = () => { setIsListening(false); setMessage(prev => prev.replace(/\s*\[mic\].*$/, '').trim()); };
+      recognition.onerror = (e) => { setIsListening(false); };
+      recognitionRef.current = recognition;
+    }
+  }, [showModal]);
+
+  const handleMicToggle = useCallback(() => {
+    if (!micSupported) { showModal('Not Supported', 'Speech recognition not supported.'); return; }
+    if (isListeningRef.current) { recognitionRef.current?.stop(); setIsListening(false); }
+    else { try { recognitionRef.current?.start(); setIsListening(true); } catch { showModal('Mic Error', 'Could not start microphone.'); } }
+  }, [micSupported, showModal]);
+
+  const openLens = useCallback(async () => {
+    setShowLensModal(true); setLensCapturedImage(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } });
+      setLensStream(stream);
+      setTimeout(() => { if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play().catch(() => {}); } }, 100);
+    } catch { showModal('Camera Error', 'Could not access camera.'); setShowLensModal(false); }
+  }, [showModal]);
+
+  const closeLens = useCallback(() => {
+    if (lensStream) { lensStream.getTracks().forEach(t => t.stop()); setLensStream(null); }
+    setShowLensModal(false); setLensCapturedImage(null);
+  }, [lensStream]);
+
+  const captureLensPhoto = useCallback(() => {
+    if (!videoRef.current || !canvasRef.current) return;
+    const v = videoRef.current, c = canvasRef.current;
+    c.width = v.videoWidth; c.height = v.videoHeight;
+    c.getContext('2d').drawImage(v, 0, 0);
+    setLensCapturedImage(c.toDataURL('image/jpeg', 0.85));
+    if (lensStream) { lensStream.getTracks().forEach(t => t.stop()); setLensStream(null); }
+  }, [lensStream]);
+
+  const useLensCapturedImage = useCallback(() => {
+    if (!lensCapturedImage) return;
+    const raw = lensCapturedImage.split(',')[1];
+    setUploadedImages(prev => [...prev, { name: 'camera_capture.jpg', content: raw, preview: lensCapturedImage, size: raw.length }]);
+    setMessage(prev => prev || 'Analyze this image: ');
+    closeLens();
+  }, [lensCapturedImage, closeLens]);
+
+  const retakeLensPhoto = useCallback(async () => {
+    setLensCapturedImage(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } });
+      setLensStream(stream);
+      setTimeout(() => { if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play().catch(() => {}); } }, 100);
+    } catch { showModal('Camera Error', 'Could not restart camera.'); }
+  }, [showModal]);
+
+  const processFiles = useCallback(async (fileList) => {
+    const files = Array.from(fileList);
+    if (files.length === 0) return;
+    const total = uploadedFilesRef.current.length + uploadedImagesRef.current.length + files.length;
+    if (total > MAX_FILES) { showModal('Too Many Files', `Maximum ${MAX_FILES} files.`); return; }
+    setUploadProgress('Processing files...');
+    const newFiles = [], newImages = [];
+    for (const file of files) {
+      try {
+        if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) { showModal('Too Large', `${file.name} exceeds ${MAX_FILE_SIZE_MB}MB.`); continue; }
+        if (file.type.startsWith('image/') || isImageFile(file.name)) {
+          const dataUrl = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(file); });
+          const resized = await new Promise((resolve) => {
             const img = new Image();
             img.onload = () => {
-                // 2. Setup Canvas for Resizing (Max 1024px to prevent API timeouts)
-                const canvas = document.createElement('canvas');
-                let width = img.width;
-                let height = img.height;
-                const MAX_SIZE = 1024;
-
-                // Maintain aspect ratio
-                if (width > height) {
-                    if (width > MAX_SIZE) {
-                        height *= MAX_SIZE / width;
-                        width = MAX_SIZE;
-                    }
-                } else {
-                    if (height > MAX_SIZE) {
-                        width *= MAX_SIZE / height;
-                        height = MAX_SIZE;
-                    }
-                }
-
-                canvas.width = width;
-                canvas.height = height;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0, width, height);
-
-                // 3. Convert to clean Base64 string
-                const mimeType = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
-                const resizedDataUrl = canvas.toDataURL(mimeType, 0.85); // 0.85 quality compression
-                const rawBase64 = resizedDataUrl.split(',')[1];
-
-                // 4. Save structured object to state
-                setUploadedImage({
-                    name: file.name,
-                    type: 'image',
-                    content: rawBase64,   // This goes to the API
-                    preview: resizedDataUrl // This is shown in the UI
-                });
-
-                setUploadedFile(null); // Clear any conflicting text file
-                setMessage("Analyze this image: "); // Auto-fill prompt
+              const canvas = document.createElement('canvas');
+              let w = img.width, h = img.height;
+              if (w > MAX_IMAGE_SIZE || h > MAX_IMAGE_SIZE) { if (w > h) { h *= MAX_IMAGE_SIZE / w; w = MAX_IMAGE_SIZE; } else { w *= MAX_IMAGE_SIZE / h; h = MAX_IMAGE_SIZE; } }
+              canvas.width = w; canvas.height = h; canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+              const result = canvas.toDataURL(file.type === 'image/png' ? 'image/png' : 'image/jpeg', 0.85);
+              resolve({ preview: result, content: result.split(',')[1] });
             };
-            img.src = readerEvent.target.result;
-        };
-        reader.readAsDataURL(file);
-        event.target.value = null;
-    };
-    // ---------- Enhanced PlusMenu with AI Modes ----------
-    const PlusMenu = useMemo(() => {
-        return React.memo(({ setActiveAIMode: _setActiveAIMode, fileInputRef, imageInputRef }) => {
-            const [open, setOpen] = useState(false);
-            const menuRef = useRef(null);
-
-            useEffect(() => {
-                const handleClickOutside = (event) => {
-                    if (menuRef.current && !menuRef.current.contains(event.target)) {
-                        setOpen(false);
-                    }
-                };
-
-                if (open) {
-                    document.addEventListener('mousedown', handleClickOutside);
-                    document.addEventListener('touchstart', handleClickOutside);
-                }
-
-                return () => {
-                    document.removeEventListener('mousedown', handleClickOutside);
-                    document.removeEventListener('touchstart', handleClickOutside);
-                };
-            }, [open]);
-
-            const handleAIModeChange = (mode) => {
-                setSelectedAIMode(mode);
-                setOpen(false);
-            };
-
-            const onUploadFile = (e) => {
-                e.stopPropagation();
-                setOpen(false);
-                if (typeof _setActiveAIMode === 'function') _setActiveAIMode('file_analysis');
-                setTimeout(() => fileInputRef.current?.click(), 50);
-            };
-
-    const onUploadImage = (e) => {
-    e.stopPropagation();
-    setOpen(false);
-    // 🟢 NEW: Sets 'chat' mode. Backend will auto-detect "Edit" vs "Analyze" based on your words.
-    if (typeof _setActiveAIMode === 'function') _setActiveAIMode('pro'); 
-    setTimeout(() => imageInputRef.current?.click(), 50);
-};
-          
-            const onGenImage = (e) => {
-                e.stopPropagation();
-                setOpen(false);
-                if (typeof _setActiveAIMode === 'function') _setActiveAIMode('image_gen');
-            };
-
-            const handleToggleMenu = (e) => {
-                e.stopPropagation();
-                setOpen(!open);
-            };
-
-            const getModeIcon = (mode) => {
-                switch(mode) {
-                    case 'chat': return '💬';
-                    case 'reasoning': return '🧠';
-                    case 'pro': return '🚀';
-                    default: return '💬';
-                }
-            };
-
-            return (
-                <div className="relative" ref={menuRef}>
-                    <button 
-                        onClick={handleToggleMenu} 
-                        className="bg-[var(--spider-light)] text-white w-10 h-10 rounded-md flex items-center justify-center hover:opacity-90 transition touch-manipulation active:scale-95"
-                        aria-label="Open menu"
-                        aria-expanded={open}
-                    >
-                        {open ? '×' : '+'}
-                    </button>
-                    {open && (
-                        <div className="absolute bottom-12 right-0 bg-[var(--spider-dark)] border border-[var(--spider-light)] rounded-md shadow-lg w-48 p-2 z-50">
-                            <div className="text-xs text-[var(--spider-text-dim)] px-3 py-2 border-b border-[var(--spider-light)] mb-2">
-                                AI Mode
-                            </div>
-                            <button 
-                                onClick={() => handleAIModeChange('chat')} 
-                                className={`w-full text-left px-3 py-2 rounded-md text-sm flex items-center touch-manipulation active:scale-95 transition-colors ${
-                                    selectedAIMode === 'chat' 
-                                        ? 'bg-[var(--spider-light)] text-white' 
-                                        : 'hover:bg-[var(--spider-light)]'
-                                }`}
-                            >
-                                <span className="mr-2">{getModeIcon('chat')}</span> 
-                                <span>Chat Mode</span>
-                            </button>
-                            <button 
-                                onClick={() => handleAIModeChange('reasoning')} 
-                                className={`w-full text-left px-3 py-2 rounded-md text-sm flex items-center touch-manipulation active:scale-95 transition-colors ${
-                                    selectedAIMode === 'reasoning' 
-                                        ? 'bg-[var(--spider-light)] text-white' 
-                                        : 'hover:bg-[var(--spider-light)]'
-                                }`}
-                            >
-                                <span className="mr-2">{getModeIcon('reasoning')}</span> 
-                                <span>Reasoning</span>
-                            </button>
-                            <button 
-                                onClick={() => handleAIModeChange('pro')} 
-                                className={`w-full text-left px-3 py-2 rounded-md text-sm flex items-center touch-manipulation active:scale-95 transition-colors ${
-                                    selectedAIMode === 'pro' 
-                                        ? 'bg-[var(--spider-light)] text-white' 
-                                        : 'hover:bg-[var(--spider-light)]'
-                                }`}
-                            >
-                                <span className="mr-2">{getModeIcon('pro')}</span> 
-                                <span>Spider AI Pro</span>
-                            </button>
-                            
-                            <div className="text-xs text-[var(--spider-text-dim)] px-3 py-2 border-t border-[var(--spider-light)] mt-2 mb-2">
-                                Tools
-                            </div>
-                            <button 
-                                onClick={onUploadFile} 
-                                className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center touch-manipulation active:scale-95 transition-colors"
-                            >
-                                <span className="mr-2">📄</span> Upload File
-                            </button>
-                            <button 
-                                onClick={onUploadImage} 
-                                className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center touch-manipulation active:scale-95 transition-colors"
-                            >
-                                <span className="mr-2">🖼</span> Upload Image
-                            </button>
-                            <button 
-                                onClick={onGenImage} 
-                                className="w-full text-left px-3 py-2 hover:bg-[var(--spider-light)] rounded-md text-sm flex items-center touch-manipulation active:scale-95 transition-colors"
-                            >
-                                <span className="mr-2">🎨</span> Create Image
-                            </button>
-                        </div>
-                    )}
-                </div>
-            );
-        });
-    }, [selectedAIMode]);
-
-    // ---------- Voice Recording Button ----------
-    const VoiceButton = useMemo(() => {
-        return React.memo(({ isRecording, recordingTime, isTranscribing, onStartRecording, onStopRecording }) => {
-            const formatTime = (seconds) => {
-                const mins = Math.floor(seconds / 60);
-                const secs = seconds % 60;
-                return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-            };
-
-            if (isTranscribing) {
-                return (
-                    <button 
-                        className="w-10 h-10 flex items-center justify-center bg-[var(--spider-light)] text-white rounded-md hover:opacity-90 transition"
-                        disabled
-                    >
-                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                    </button>
-                );
-            }
-
-            if (isRecording) {
-                return (
-                    <div className="relative">
-                        <button 
-                            onClick={onStopRecording}
-                            className="w-10 h-10 flex items-center justify-center bg-red-500 text-white rounded-md hover:bg-red-600 transition animate-pulse"
-                        >
-                            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
-                            </svg>
-                        </button>
-                        <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-red-500 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
-                            {formatTime(recordingTime)}
-                        </div>
-                        <div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-2 h-2 bg-red-500 rounded-full animate-ping"></div>
-                    </div>
-                );
-            }
-
-            return (
-                <button 
-                    onClick={onStartRecording}
-                    className="w-10 h-10 flex items-center justify-center bg-[var(--spider-light)] text-white rounded-md hover:opacity-90 transition hover:bg-[var(--spider-med)]"
-                    title="Voice Input"
-                >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
-                    </svg>
-                </button>
-            );
-        });
-    }, []);
-
-    // ---------- Optimized Content Processing ----------
-    const processContent = useCallback((text) => {
-        if (!text || typeof text !== "string") {
-            return [{ type: "text", content: text || "" }];
-        }
-
-        const blocks = [];
-        const lines = text.split('\n');
-        let currentBlock = { type: "text", content: "" };
-        let inCodeBlock = false;
-        let codeLanguage = "";
-        let codeContent = "";
-        let tableRows = [];
-
-        const flushCurrentBlock = () => {
-            if (currentBlock.content.trim()) {
-                blocks.push({ ...currentBlock });
-                currentBlock = { type: "text", content: "" };
-            }
-        };
-
-        const flushTable = () => {
-            if (tableRows.length >= 2) {
-                blocks.push({
-                    type: "table",
-                    content: tableRows.join('\n')
-                });
-                tableRows = [];
-            }
-        };
-
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
-
-            // Handle code blocks
-            if (line.trim().startsWith('```')) {
-                if (!inCodeBlock) {
-                    flushCurrentBlock();
-                    flushTable();
-                    inCodeBlock = true;
-                    codeLanguage = line.trim().replace(/```/g, '').trim();
-                    codeContent = "";
-                } else {
-                    inCodeBlock = false;
-                    blocks.push({
-                        type: "code",
-                        language: codeLanguage || "text",
-                        content: codeContent.trim()
-                    });
-                }
-                continue;
-            }
-
-            if (inCodeBlock) {
-                codeContent += line + '\n';
-                continue;
-            }
-
-            // Handle tables
-            const trimmedLine = line.trim();
-            if (trimmedLine.includes('|') && 
-                !trimmedLine.includes('```') && 
-                !trimmedLine.startsWith('|--') &&
-                trimmedLine.match(/[^\s|:-]/)) {
-                
-                const isSeparator = trimmedLine.match(/^[\s|:-]+$/);
-                
-                if (!isSeparator || (isSeparator && tableRows.length > 0)) {
-                    tableRows.push(line);
-                }
-                
-                let j = i + 1;
-                while (j < lines.length && lines[j].trim().includes('|') && !lines[j].trim().startsWith('```')) {
-                    tableRows.push(lines[j]);
-                    j++;
-                }
-                
-                if (j > i + 1) {
-                    i = j - 1;
-                }
-                
-                if (tableRows.length >= 2) {
-                    flushCurrentBlock();
-                    flushTable();
-                    continue;
-                } else {
-                    tableRows.forEach(row => {
-                        currentBlock.content += row + '\n';
-                    });
-                    tableRows = [];
-                    continue;
-                }
-            } else {
-                if (tableRows.length > 0) {
-                    tableRows.forEach(row => {
-                        currentBlock.content += row + '\n';
-                    });
-                    tableRows = [];
-                }
-            }
-
-            // Regular text
-            if (line.trim() === '') {
-                flushCurrentBlock();
-                currentBlock.content += '\n';
-            } else {
-                currentBlock.content += line + '\n';
-            }
-        }
-
-        flushCurrentBlock();
-        flushTable();
-
-        if (inCodeBlock && codeContent.trim()) {
-            blocks.push({
-                type: "code",
-                language: codeLanguage || "text",
-                content: codeContent.trim()
-            });
-        }
-
-        return blocks;
-    }, []);
-
-    // ---------- Enhanced Chat Bubble with Math Support ----------
-    const ChatBubble = useMemo(() => {
-        return React.memo(({ message }) => {
-            const [contentBlocks, setContentBlocks] = useState([]);
-            const [mathBlocks, setMathBlocks] = useState([]);
-            const [combinedBlocks, setCombinedBlocks] = useState([]);
-
-            useEffect(() => {
-                // Process LaTeX math first
-                const mathBlocks = processMathContent(message.content);
-                
-                // Then process regular content
-                const regularBlocks = processContent(message.content);
-                
-                // Combine both
-                const combined = [];
-                let regularIndex = 0;
-                let mathIndex = 0;
-                
-                // For now, just use regular blocks with math processing
-                const blocks = processContent(message.content);
-                setContentBlocks(blocks);
-                
-                // Apply syntax highlighting
-                if (typeof window !== "undefined" && window.Prism) {
-                    setTimeout(() => {
-                        window.Prism.highlightAll();
-                    }, 50);
-                }
-                
-                // Re-render KaTeX for any math in text blocks
-                setTimeout(() => {
-                    document.querySelectorAll('.math-content').forEach(element => {
-                        const latex = element.getAttribute('data-latex');
-                        const isDisplay = element.classList.contains('math-display');
-                        if (latex) {
-                            try {
-                                element.innerHTML = katex.renderToString(latex, {
-                                    throwOnError: false,
-                                    displayMode: isDisplay
-                                });
-                            } catch (error) {
-                                element.textContent = isDisplay ? `$$${latex}$$` : `$${latex}$`;
-                            }
-                        }
-                    });
-                }, 100);
-            }, [message.content, processContent, processMathContent]);
-
-            const handleCopyCode = (content) => {
-                navigator.clipboard.writeText(content);
-            };
-
-            const renderTable = (tableText) => {
-                const rows = tableText.trim().split('\n').filter(r => r.trim());
-                if (rows.length < 2) return null;
-
-                const headers = rows[0].split('|').filter(c => c.trim()).map(c => c.trim());
-                const separator = rows[1];
-                const dataRows = rows.slice(2).filter(r => r.includes('|'));
-
-                const alignments = separator.split('|').filter(c => c.trim()).map(col => {
-                    if (col.startsWith(':') && col.endsWith(':')) return 'center';
-                    if (col.endsWith(':')) return 'right';
-                    return 'left';
-                });
-
-                return (
-                    <div className="overflow-x-auto my-3 rounded-lg border border-[var(--spider-light)] bg-[var(--spider-dark)]">
-                        <table className="min-w-full divide-y divide-[var(--spider-light)]">
-                            <thead>
-                                <tr className="bg-[var(--spider-med)]">
-                                    {headers.map((header, idx) => (
-                                        <th 
-                                            key={idx}
-                                            className={`px-4 py-3 text-left text-sm font-semibold text-white border-r border-[var(--spider-light)] last:border-r-0 ${
-                                                alignments[idx] === 'center' ? 'text-center' :
-                                                alignments[idx] === 'right' ? 'text-right' : 'text-left'
-                                            }`}
-                                        >
-                                            {header}
-                                        </th>
-                                    ))}
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-[var(--spider-light)]">
-                                {dataRows.map((row, rowIdx) => {
-                                    const cells = row.split('|').filter(c => c.trim()).map(c => c.trim());
-                                    return (
-                                        <tr 
-                                            key={rowIdx} 
-                                            className={`${
-                                                rowIdx % 2 === 0 
-                                                    ? 'bg-[var(--spider-dark)]' 
-                                                    : 'bg-[#0a2a2a]'
-                                            } hover:bg-[var(--spider-light)] transition-colors`}
-                                        >
-                                            {cells.map((cell, cellIdx) => (
-                                                <td 
-                                                    key={cellIdx}
-                                                    className={`px-4 py-3 text-sm text-white border-r border-[var(--spider-light)] last:border-r-0 ${
-                                                        alignments[cellIdx] === 'center' ? 'text-center' :
-                                                        alignments[cellIdx] === 'right' ? 'text-right' : 'text-left'
-                                                    }`}
-                                                >
-                                                    {cell}
-                                                </td>
-                                            ))}
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                    </div>
-                );
-            };
-
-            const renderMathBlock = (block) => {
-                if (!block.html) {
-                    return (
-                        <div className={`my-2 ${block.type === 'math-display' || block.type === 'math-boxed' ? 'text-center' : ''}`}>
-                            <span className="text-gray-400">
-                                {block.type === 'math-display' ? `$$${block.content}$$` :
-                                 block.type === 'math-boxed' ? `\\boxed{${block.content}}` :
-                                 `$${block.content}$`}
-                            </span>
-                        </div>
-                    );
-                }
-
-                return (
-                    <div className={`my-2 ${block.type === 'math-display' || block.type === 'math-boxed' ? 'text-center' : ''}`}>
-                        <div 
-                            className={`inline-block ${block.type === 'math-boxed' ? 'border-2 border-green-500 p-2 rounded' : ''}`}
-                            dangerouslySetInnerHTML={{ __html: block.html }}
-                        />
-                    </div>
-                );
-            };
-
-            const bubbleClass = message.role === "user"
-                ? "bg-[#00e5ff] text-black ml-auto"
-                : "bg-[#004745] text-white mr-auto";
-
-            return (
-                <div
-                    className={`flex w-full ${
-                        message.role === "user" ? "justify-end" : "justify-start"
-                    } mb-4 px-2`}
-                >
-                    <div
-                        className={`px-4 py-3 rounded-2xl max-w-[95%] sm:max-w-4xl ${bubbleClass}`}
-                    >
-                        {message.type === "image" && message.base64_image && (
-                            <div className="w-full rounded-xl overflow-hidden bg-black mb-3">
-                                <img
-                                    src={`data:image/jpeg;base64,${message.base64_image}`}
-                                    alt="AI Generated"
-                                    className="w-full h-auto max-h-96 object-contain"
-                                    onError={(e) => {
-                                        e.target.style.display = 'none';
-                                        e.target.parentElement.innerHTML = 
-                                            '<div class="p-4 text-center text-gray-400">Image failed to load</div>';
-                                    }}
-                                />
-                            </div>
-                        )}
-
-                        <div className="space-y-3">
-                            {contentBlocks.map((block, index) => {
-                                if (block.type === "code") {
-                                    return (
-                                        <div
-                                            key={index}
-                                            className="rounded-lg overflow-hidden relative group"
-                                            style={{ background: "#0f0f0f" }}
-                                        >
-                                            <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                                                <button
-                                                    onClick={() => handleCopyCode(block.content)}
-                                                    className="w-8 h-8 flex items-center justify-center rounded bg-gray-800 hover:bg-gray-700 transition-colors touch-manipulation"
-                                                    title="Copy code"
-                                                >
-                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                                                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                                                    </svg>
-                                                </button>
-                                            </div>
-                                            <pre className="overflow-x-auto p-4 m-0 text-sm" style={{ background: "#0f0f0f", lineHeight: "1.5", color: "white" }}>
-                                                <code className={`language-${block.language}`}>
-                                                    {block.content}
-                                                </code>
-                                            </pre>
-                                        </div>
-                                    );
-                                }
-
-                                if (block.type === "table") {
-                                    return (
-                                        <div key={index}>
-                                            {renderTable(block.content)}
-                                        </div>
-                                    );
-                                }
-
-                                if (block.type === "text") {
-                                    // Process math in text blocks
-                                    const text = block.content;
-                                    const parts = [];
-                                    let lastIndex = 0;
-                                    
-                                    // Find inline math: $...$
-                                    const inlineMathRegex = /\$([^$]+?)\$/g;
-                                    let match;
-                                    
-                                    while ((match = inlineMathRegex.exec(text)) !== null) {
-                                        // Add text before math
-                                        if (match.index > lastIndex) {
-                                            parts.push({
-                                                type: 'text',
-                                                content: text.substring(lastIndex, match.index)
-                                            });
-                                        }
-                                        
-                                        // Add math
-                                        const latex = match[1];
-                                        try {
-                                            const html = katex.renderToString(latex, {
-                                                throwOnError: false,
-                                                displayMode: false
-                                            });
-                                            parts.push({
-                                                type: 'math-inline',
-                                                html,
-                                                latex
-                                            });
-                                        } catch (error) {
-                                            parts.push({
-                                                type: 'text',
-                                                content: `$${latex}$`
-                                            });
-                                        }
-                                        
-                                        lastIndex = match.index + match[0].length;
-                                    }
-                                    
-                                    // Add remaining text
-                                    if (lastIndex < text.length) {
-                                        parts.push({
-                                            type: 'text',
-                                            content: text.substring(lastIndex)
-                                        });
-                                    }
-                                    
-                                    return (
-                                        <div
-                                            key={index}
-                                            className="whitespace-pre-wrap break-words text-sm sm:text-base leading-relaxed"
-                                        >
-                                            {parts.map((part, partIndex) => {
-                                                if (part.type === 'text') {
-                                                    return <span key={partIndex}>{part.content}</span>;
-                                                } else if (part.type === 'math-inline') {
-                                                    return (
-                                                        <span 
-                                                            key={partIndex} 
-                                                            className="math-content math-inline"
-                                                            dangerouslySetInnerHTML={{ __html: part.html }}
-                                                        />
-                                                    );
-                                                }
-                                                return null;
-                                            })}
-                                        </div>
-                                    );
-                                }
-
-                                return null;
-                            })}
-                        </div>
-                    </div>
-                </div>
-            );
-        });
-    }, [processContent, processMathContent]);
-
-    // Helper function for mode display
-    const getModeText = () => {
-        if (selectedAIMode === 'reasoning') return "Reasoning Mode";
-        if (selectedAIMode === 'pro') return "Spider AI Pro";
-        if (isFullCodeMode) return "Full Code Project";
-        if (uploadedFile) return "File Analysis";
-        if (uploadedImage) return "Image Edit";
-        if (activeAIMode === 'image_gen') return "Create Image";
-        if (activeAIMode === 'image_edit') return "Edit Image";
-        return "Chat Mode";
-    };
-
-    // ---------- New Chat Handler ----------
-    const handleNewChat = () => {
-        setUploadedFile(null);
-        setUploadedImage(null);
-        setActiveAIMode && setActiveAIMode('chat');
-        setSelectedAIMode('chat');
-        setActiveChatId(null);
-        setLastStreamId(null);
-        setShowContinueButton(false);
-        setIsFullCodeMode(false);
-        setGeneratedFiles([]);
-        setIsProjectView(false);
-        setProjectMetadata({
-            name: '',
-            type: '',
-            description: '',
-            totalFiles: 0
-        });
-        accumulatedTokensRef.current = '';
-        setStreamedContent('');
-        fileContentBufferRef.current = '';
-        continueStreamIdRef.current = null;
-        const welcome = [{ 
-            role: 'assistant', 
-            content: 'Welcome! I am Spider AI. Select a tool from the (+) menu to begin, or start chatting for code assistance.', 
-            type: 'text' 
-        }];
-        setChatHistory(welcome);
-        try { 
-            localStorage.removeItem(LOCAL_STORAGE_KEY); 
-        } catch (e) { 
-            console.warn("Error clearing localStorage:", e);
-        }
-    };
-
-    // ---------- Enhanced Send Message with AI Modes ----------
-// ---------- Enhanced Send Message (Vision + Smart Stream Logic) ----------
-const handleSendMessage = async () => {
-// 1. INPUT VALIDATION
-if (!message.trim() && !uploadedFile && !uploadedImage) return;
-const processedMessage = message;
-setIsLoading(true);
-const controller = new AbortController();
-setAbortController(controller);
-
-const fileCopy = uploadedFile;
-const imageCopy = uploadedImage;
-
-// --- 2. INTENT DETECTION & ROUTING ---
-const isFullCodeRequest = detectFullCodeRequest(processedMessage);
-const isComplexTask = (
-    processedMessage.toLowerCase().includes('step by step') ||
-    processedMessage.toLowerCase().includes('stream') ||
-    processedMessage.toLowerCase().includes('code') ||
-    detectMathRequest(processedMessage)
-);
-const isImageRequest = detectImageGeneration(processedMessage);
-
-let uiMode = activeAIMode || selectedAIMode;
-
-// FORCE TEXT MODE for Code/Reasoning (Bypass Image Editor)
-const isProMode = selectedAIMode === 'pro';
-const forceTextProcessing = isProMode || isFullCodeRequest || isComplexTask;
-
-// Prioritize text-based responses when code is involved
-if (isFullCodeRequest || isComplexTask) {
-    uiMode = 'chat';
-}
-
-if (isFullCodeRequest) {
-    setIsFullCodeMode(true);
-    setProjectMetadata(extractProjectMetadata(processedMessage));
-}
-
-// --- 3. IMMEDIATE UI UPDATE (OPTIMISTIC UI) ---
-// Update User Message immediately
-const userMessage = {
-    role: 'user',
-    content: processedMessage,
-    type: uiMode,
-    fileName: fileCopy ? fileCopy.name : undefined,
-    imageName: imageCopy ? imageCopy.name : undefined,
-    ts: Date.now(),
-    isFullCodeRequest: isFullCodeRequest,
-    aiMode: selectedAIMode
-};
-setChatHistory(prev => [...prev, userMessage]);
-setMessage('');
-
-// Reset buffers
-accumulatedTokensRef.current = '';
-setStreamedContent('');
-setShowContinueButton(false);
-setLastStreamId(null);
-fileContentBufferRef.current = '';
-
-// 🔥 INSTANT FEEDBACK: Start "Assistant" UI before fetching
-// Determine the "Thinking" text based on mode
-let initialStatusText = 'Thinking...';
-if (isFullCodeRequest) initialStatusText = 'Analyzing requirements...';
-else if (uiMode === 'analyze_file') initialStatusText = 'Reading file...';
-else if (isImageRequest) initialStatusText = 'Generating image...';
-
-// Set the "Ghost" message that pulsates while waiting
-setStreamingMessage({
-    role: 'assistant',
-    content: initialStatusText,
-    type: 'text',
-    ts: Date.now(),
-    isStreaming: true,
-    isThinking: true // Use this flag in your UI to show a "pulsing" effect
-});
-
-try {
-    // ============================================================
-    //  PATH A: MISTRAL / PRO / STREAMING
-    // ============================================================
-    if (
-        (uiMode === 'stream' || uiMode === 'reasoning' || uiMode === 'pro' || uiMode === 'analyze_file' || forceTextProcessing) &&
-        !isImageRequest
-    ) {
-        setIsStreaming(true);
-
-        // Determine Model
-        let effectiveAIMode = selectedAIMode;
-        if (isProMode) effectiveAIMode = 'pro';
-        else if (isFullCodeRequest || isComplexTask) effectiveAIMode = 'reasoning';
-
-        const apiUrl = '/api/generate/text';
-        const apiPayload = {
-            prompt: processedMessage,
-            mode: uiMode === 'analyze_file' ? 'analyze_file' : 'chat',
-            user_preference_id: getPersistentUserId(),
-            firebase_token: currentUser?.firebaseToken || '',
-            stream: true,
-            ai_mode: effectiveAIMode,
-            file_content: fileCopy ? await (fileCopy.text ? fileCopy.text() : Promise.resolve('')) : undefined,
-            filename: fileCopy?.name,
-            image: imageCopy ? imageCopy.content : undefined, // Context only
-            full_code_mode: isFullCodeRequest,
-            project_type: projectMetadata?.type
-        };
-
-        const response = await callFastAPI(apiUrl, apiPayload, uiMode, {
-            signal: controller.signal,
-            stream: true,
-            timeout: 0
-        });
-
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-        // On first chunk, the 'isThinking' flag will be cleared by handleStreamResponse
-        await handleStreamResponse(response);
-
-        // Finalize Stream
-        if (accumulatedTokensRef.current) {
-            setChatHistory(prev => [...prev, {
-                role: 'assistant',
-                content: accumulatedTokensRef.current,
-                type: 'text',
-                ts: Date.now(),
-                isFullCode: isFullCodeRequest,
-                files: isFullCodeRequest && generatedFiles.length > 0 ? generatedFiles : undefined
-            }]);
-
-            if (isFullCodeRequest && generatedFiles.length > 0) {
-                setTimeout(() => {
-                    setIsProjectView(true);
-                    showModal("Project Generated", `Generated ${generatedFiles.length} files.`);
-                }, 500);
-            }
-        }
-    }
-
-    // ============================================================
-    //  PATH B: IMAGE GENERATION ONLY (Strict)
-    // ============================================================
-    else {
-        const apiUrl = '/api/generate/text';
-
-        let base64Image = null;
-        if (uiMode === 'image_edit' && imageCopy) {
-            base64Image = imageCopy.content;
-        }
-
-        const effectiveMode = isImageRequest ? (uiMode === 'image_edit' ? 'image_edit' : 'image_gen') : uiMode;
-
-        const apiPayload = {
-            prompt: processedMessage,
-            mode: effectiveMode,
-            image: base64Image,
-            aspect_ratio: aspectRatio,
-            user_preference_id: getPersistentUserId(),
-            firebase_token: currentUser?.firebaseToken || '',
-            stream: false,
-            ai_mode: effectiveMode
-        };
-
-        const result = await callFastAPI(apiUrl, apiPayload, uiMode, {
-            signal: controller.signal,
-            stream: false
-        });
-
-        if (result.error) throw new Error(result.error);
-
-        if (effectiveMode === 'image_gen' || effectiveMode === 'image_edit') {
-            const imgData = result.base64_image || result.image || result.url;
-            if (imgData) {
-                // Clear the "Generating image..." status
-                setStreamingMessage(null);
-                setChatHistory(prev => [...prev, {
-                    role: 'assistant',
-                    content: effectiveMode === 'image_edit' ? `Edited: ${processedMessage}` : '',
-                    type: 'image',
-                    base64_image: imgData,
-                    ts: Date.now(),
-                    is_generated: true
-                }]);
-            } else {
-                throw new Error("No image returned.");
-            }
-        }
-        else if (result?.text) {
-             // Clear the "Thinking..." status before typing
-            setStreamingMessage({ role: 'assistant', content: '', type: 'text', ts: Date.now() });
-
-            typeText(result.text, () => {
-                setChatHistory(prev => [...prev, {
-                    role: 'assistant',
-                    content: result.text,
-                    type: 'text',
-                    ts: Date.now()
-                }]);
-                setStreamingMessage(null);
-            });
+            img.src = dataUrl;
+          });
+          newImages.push({ name: file.name, content: resized.content, preview: resized.preview, size: file.size });
+        } else if (isPDFFile(file.name)) {
+          setUploadProgress(`Extracting PDF: ${file.name}...`);
+          const text = await extractPDFText(await file.arrayBuffer());
+          newFiles.push({ name: file.name, content: text, size: file.size, type: 'pdf' });
+        } else if (isZipFile(file.name)) {
+          setUploadProgress(`Extracting ZIP: ${file.name}...`);
+          const extracted = await extractZipFiles(await file.arrayBuffer());
+          for (const ef of extracted) {
+            if (ef.type === 'image') newImages.push({ name: ef.name, content: ef.preview.split(',')[1], preview: ef.preview, size: ef.size });
+            else newFiles.push({ name: ef.name, content: ef.content, size: ef.size, type: 'text' });
+          }
+        } else if (isTextFile(file.name)) {
+          const text = await file.text();
+          newFiles.push({ name: file.name, content: text, size: file.size, type: 'text' });
         } else {
-            throw new Error("Empty response from AI");
+          try {
+            const text = await file.text();
+            if (text.length > 0 && text.length < 500000) newFiles.push({ name: file.name, content: text, size: file.size, type: 'unknown' });
+          } catch {}
         }
+      } catch {}
     }
+    if (newImages.length > 0) setUploadedImages(prev => [...prev, ...newImages]);
+    if (newFiles.length > 0) setUploadedFiles(prev => [...prev, ...newFiles]);
+    setUploadProgress(null);
+    if (newFiles.length + newImages.length > 0) showModal('Files Added', `Added ${newImages.length + newFiles.length} file(s)`);
+  }, [showModal]);
 
-} catch (error) {
-    if (error.name !== 'AbortError') {
-        console.error('API Error:', error);
-        // Replace "Thinking..." with Error
-        setStreamingMessage(null);
-        setChatHistory(prev => [...prev, {
-            role: 'assistant',
-            content: `Error: ${error.message || 'Unknown error'}`,
-            type: 'text',
-            ts: Date.now(),
-            isError: true
-        }]);
-    }
-} finally {
-    setIsLoading(false);
-    setIsStreaming(false);
-    setStreamingMessage(null);
-    setAbortController(null);
-    setUploadedFile(null);
-    setUploadedImage(null);
-}
-};
-  // ---------- Enhanced Send Message (Vision + Smart Stream Logic + Auto Code/Image Routing) ----------
-  // ---------- Download Project ----------
-    const downloadProjectAsZip = useCallback(async () => {
-        if (generatedFiles.length === 0) {
-            showModal("No Files", "No generated files to download.");
-            return;
-        }
-        
-        try {
-            const projectData = {
-                name: projectMetadata.name || 'spider-project',
-                files: generatedFiles,
-                metadata: projectMetadata,
-                generatedAt: new Date().toISOString()
-            };
-            
-            const blob = new Blob([JSON.stringify(projectData, null, 2)], {
-                type: 'application/json'
-            });
-            
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${projectMetadata.name || 'project'}.json`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-            
-            showModal("Project Downloaded", `Project "${projectMetadata.name}" has been downloaded.`);
-        } catch (error) {
-            console.error('Download error:', error);
-            showModal("Download Error", "Failed to download project.");
-        }
-    }, [generatedFiles, projectMetadata, showModal]);
+  const processFolder = useCallback(async (fileList) => {
+    const files = Array.from(fileList);
+    const skipDirs = ['node_modules','.git','__pycache__','.next','dist','build','.venv','.idea','.vscode'];
+    await processFiles(files.filter(f => !skipDirs.some(d => (f.webkitRelativePath || f.name).includes(d + '/'))));
+  }, [processFiles]);
 
-    // ---------- Project View Components ----------
-    const ProjectFileTree = useMemo(() => {
-        return React.memo(({ files, activeIndex, onSelectFile }) => {
-            if (!files || files.length === 0) return null;
-            
-            const getFileIcon = (fileName) => {
-                const ext = fileName.split('.').pop().toLowerCase();
-                const icons = {
-                    'js': '📜', 'jsx': '⚛️', 'ts': '📘', 'tsx': '⚛️',
-                    'py': '🐍', 'html': '🌐', 'css': '🎨', 'json': '📦',
-                    'md': '📝', 'txt': '📄'
-                };
-                return icons[ext] || '📄';
-            };
-            
-            return (
-                <div className="bg-[var(--spider-dark)] rounded-lg border border-[var(--spider-light)] p-3">
-                    <div className="flex items-center justify-between mb-3">
-                        <h4 className="text-sm font-semibold text-white">Project Files</h4>
-                        <span className="text-xs text-[var(--spider-text-dim)]">
-                            {files.length} file{files.length !== 1 ? 's' : ''}
-                        </span>
-                    </div>
-                    
-                    <div className="space-y-1 max-h-60 overflow-y-auto">
-                        {files.map((file, index) => (
-                            <button
-                                key={index}
-                                onClick={() => onSelectFile(index)}
-                                className={`w-full text-left px-3 py-2 text-sm rounded-md flex items-center space-x-2 transition-colors ${
-                                    activeIndex === index
-                                        ? 'bg-[var(--spider-light)] text-white'
-                                        : 'text-[var(--spider-text)] hover:bg-[var(--spider-med)]'
-                                }`}
-                            >
-                                <span>{getFileIcon(file.name)}</span>
-                                <span className="truncate">{file.name}</span>
-                            </button>
-                        ))}
-                    </div>
-                </div>
-            );
-        });
-    }, []);
-
-    const FileViewer = useMemo(() => {
-        return React.memo(({ file }) => {
-            if (!file) return null;
-            
-            const handleCopyFile = () => {
-                navigator.clipboard.writeText(file.content);
-                showModal("Copied", "File content copied to clipboard!");
-            };
-            
-            return (
-                <div className="bg-[var(--spider-dark)] rounded-lg border border-[var(--spider-light)] p-4">
-                    <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center space-x-2">
-                            <h4 className="text-sm font-semibold text-white truncate">{file.name}</h4>
-                            <span className="text-xs text-[var(--spider-text-dim)] bg-[var(--spider-med)] px-2 py-1 rounded">
-                                {file.language}
-                            </span>
-                        </div>
-                        <button
-                            onClick={handleCopyFile}
-                            className="text-xs bg-[var(--spider-light)] text-white px-3 py-1.5 rounded hover:opacity-90 transition-colors"
-                        >
-                            Copy
-                        </button>
-                    </div>
-                    
-                    <div className="bg-black rounded-lg overflow-hidden">
-                        <pre className="text-sm p-4 overflow-x-auto max-h-96">
-                            <code className={`language-${file.language}`}>
-                                {file.content}
-                            </code>
-                        </pre>
-                    </div>
-                </div>
-            );
-        });
-    }, [showModal]);
-
-    // ---------- Main JSX ----------
-    return (
-        <div className="flex flex-row h-full w-full bg-[var(--spider-dark)] text-[var(--spider-text)] overflow-hidden relative">
-            {/* Desktop Sidebar */}
-            {!isMobile && (
-                <div className="hidden md:flex flex-col bg-[var(--spider-med)] w-64 p-4 border-r border-[var(--spider-light)] flex-shrink-0 space-y-4 overflow-y-auto">
-                    <button 
-                        onClick={handleNewChat} 
-                        className="w-full bg-[var(--spider-neon-blue)] text-black text-sm font-semibold py-3 px-4 rounded-lg hover:opacity-90 transition flex items-center space-x-2 justify-center active:scale-95"
-                        disabled={isDeleting}
-                    >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
-                        </svg>
-                        <span>New Chat</span>
-                    </button>
-
-                    <div className="flex-grow pt-4 border-t border-[var(--spider-light)] overflow-y-auto">
-                        <h3 className="text-xs font-semibold uppercase text-[var(--spider-text-dim)] mb-2 px-1">
-                            Recent Chats
-                        </h3>
-                        <div className="space-y-1">
-                            {recentChats.length > 0 ? (
-                                recentChats.map((chat) => (
-                                    <div key={chat.id} className="flex items-center group">
-                                        <button 
-                                            onClick={() => loadChatById(chat.id)} 
-                                            className={`flex-grow text-left px-3 py-2 text-sm rounded-lg hover:bg-[var(--spider-light)] truncate transition-colors active:scale-95 ${
-                                                activeChatId === chat.id 
-                                                    ? 'bg-[var(--spider-light)] text-white font-medium' 
-                                                    : 'text-[var(--spider-text)] hover:text-white'
-                                            }`}
-                                            disabled={isDeleting}
-                                        >
-                                            <div className="truncate">{chat.title}</div>
-                                            <div className="text-xs text-[var(--spider-text-dim)] mt-1">
-                                                {new Date(chat.timestamp).toLocaleDateString()} • {chat.aiMode || chat.mode}
-                                            </div>
-                                        </button>
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                if (window.confirm('Delete this chat?')) {
-                                                    deleteChat(chat.id);
-                                                }
-                                            }}
-                                            className="ml-2 text-red-400 hover:text-red-300 opacity-0 group-hover:opacity-100 transition-opacity p-2 active:scale-95"
-                                            title="Delete chat"
-                                            disabled={isDeleting}
-                                        >
-                                            {isDeleting ? (
-                                                <div className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin"></div>
-                                            ) : (
-                                                '×'
-                                            )}
-                                        </button>
-                                    </div>
-                                ))
-                            ) : (
-                                <div className="text-center py-6 text-[var(--spider-text-dim)] text-sm">
-                                    No recent chats
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Main Chat Area */}
-            <div className="flex flex-col flex-1 h-full min-h-0 w-full">
-                {/* Mobile Header */}
-                {isMobile && (
-                    <div className="flex items-center justify-between p-3 bg-[var(--spider-med)] border-b border-[var(--spider-light)] flex-shrink-0">
-                        <button 
-                            onClick={() => setSidebarOpen(!sidebarOpen)}
-                            className="text-white p-2 touch-manipulation active:scale-95"
-                            aria-label="Open menu"
-                        >
-                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path>
-                            </svg>
-                        </button>
-                        <span className="text-sm font-semibold text-[var(--spider-neon-blue)] truncate px-2">
-                            {getModeText()}
-                        </span>
-                        <button 
-                            onClick={handleNewChat}
-                            className="text-white p-2 touch-manipulation active:scale-95"
-                            aria-label="New chat"
-                        >
-                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
-                            </svg>
-                        </button>
-                    </div>
-                )}
-
-                {/* Mobile Sidebar */}
-                {isMobile && sidebarOpen && (
-                    <div className="fixed inset-0 z-50">
-                        <div 
-                            className="fixed inset-0 bg-black bg-opacity-50"
-                            onClick={() => setSidebarOpen(false)}
-                        />
-                        <div className="fixed left-0 top-0 h-full w-64 bg-[var(--spider-med)] z-50 overflow-y-auto p-4">
-                            <div className="flex justify-between items-center mb-4">
-                                <h2 className="text-white font-semibold">Chat History</h2>
-                                <button 
-                                    onClick={() => setSidebarOpen(false)}
-                                    className="text-white hover:text-gray-300 text-2xl p-1"
-                                >
-                                    ×
-                                </button>
-                            </div>
-                            
-                            <button 
-                                onClick={handleNewChat} 
-                                className="w-full bg-[var(--spider-neon-blue)] text-black text-sm font-semibold py-3 px-4 rounded-lg hover:opacity-90 transition flex items-center space-x-2 justify-center mb-4"
-                            >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
-                                </svg>
-                                <span>New Chat</span>
-                            </button>
-
-                            <div className="space-y-1">
-                                {recentChats.length > 0 ? (
-                                    recentChats.map((chat) => (
-                                        <button 
-                                            key={chat.id}
-                                            onClick={() => {
-                                                loadChatById(chat.id);
-                                                setSidebarOpen(false);
-                                            }} 
-                                            className={`w-full text-left px-3 py-3 text-sm rounded-lg hover:bg-[var(--spider-light)] truncate transition-colors ${
-                                                activeChatId === chat.id 
-                                                    ? 'bg-[var(--spider-light)] text-white font-medium' 
-                                                    : 'text-[var(--spider-text)] hover:text-white'
-                                            }`}
-                                        >
-                                            <div className="truncate">{chat.title}</div>
-                                            <div className="text-xs text-[var(--spider-text-dim)] mt-1">
-                                                {new Date(chat.timestamp).toLocaleDateString()}
-                                            </div>
-                                        </button>
-                                    ))
-                                ) : (
-                                    <div className="text-center py-6 text-[var(--spider-text-dim)] text-sm">
-                                        No recent chats
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {/* Project View */}
-                {isProjectView ? (
-                    <div className="flex-grow overflow-y-auto p-4">
-                        <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-4">
-                            <div className="lg:col-span-1">
-                                <ProjectFileTree 
-                                    files={generatedFiles}
-                                    activeIndex={activeFileIndex}
-                                    onSelectFile={setActiveFileIndex}
-                                />
-                                
-                                <div className="mt-4 bg-[var(--spider-dark)] rounded-lg border border-[var(--spider-light)] p-3">
-                                    <h4 className="text-sm font-semibold text-white mb-2">Project Info</h4>
-                                    <div className="space-y-2 text-xs">
-                                        <div className="flex justify-between">
-                                            <span className="text-[var(--spider-text-dim)]">Name:</span>
-                                            <span className="text-white">{projectMetadata.name}</span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-[var(--spider-text-dim)]">Type:</span>
-                                            <span className="text-white">{projectMetadata.type}</span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-[var(--spider-text-dim)]">Files:</span>
-                                            <span className="text-white">{generatedFiles.length}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <div className="lg:col-span-2">
-                                {generatedFiles[activeFileIndex] ? (
-                                    <FileViewer file={generatedFiles[activeFileIndex]} />
-                                ) : (
-                                    <div className="bg-[var(--spider-dark)] rounded-lg border border-[var(--spider-light)] p-8 text-center">
-                                        <div className="text-4xl mb-4">📁</div>
-                                        <h3 className="text-lg font-semibold text-white mb-2">Select a File</h3>
-                                        <p className="text-[var(--spider-text-dim)]">
-                                            Choose a file from the sidebar to view its contents
-                                        </p>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                ) : (
-                    <div 
-    className="flex-grow overflow-y-auto p-2 sm:p-4 space-y-4 pb-28 sm:pb-4"
-    onScroll={handleScroll} 
->
-                        {chatHistory.map((msg, index) => (
-                            <ChatBubble key={`${msg.ts}_${index}`} message={msg} />
-                        ))}
-                        
-                        {/* Streaming Message */}
-                        {(streamingMessage || isStreaming) && (
-                            <div className="flex justify-start mb-4 px-2">
-                                <div className="bg-[var(--spider-med)] text-white p-4 rounded-2xl max-w-[95%] shadow-md border border-[var(--spider-light)]">
-                                    <pre className="whitespace-pre-wrap font-sans text-sm break-words leading-relaxed">
-                                        {streamedContent || streamingMessage?.content || ''}
-                                    </pre>
-                                    <div className="flex items-center justify-between mt-3">
-                                        <div className="flex items-center space-x-2">
-                                            <div className="flex space-x-1">
-                                                <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce"></div>
-                                                <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                                                <div className="w-2 h-2 bg-[var(--spider-neon-blue)] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                                            </div>
-                                            <span className="text-xs text-[var(--spider-text-dim)]">
-                                                {isStreaming ? 'AI is generating...' : 'AI is typing...'}
-                                            </span>
-                                        </div>
-                                        <button 
-                                            onClick={handleStopGeneration}
-                                            className="bg-red-500 hover:bg-red-600 text-white text-xs px-3 py-1.5 rounded-lg transition-colors"
-                                        >
-                                            Stop
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                        
-                        {/* Continue Button */}
-                        {showContinueButton && !isLoading && (
-                            <div className="flex justify-start mb-4 px-2">
-                                <div className="bg-[var(--spider-dark)] p-3 rounded-lg border border-[var(--spider-light)]">
-                                    <div className="flex items-center space-x-3">
-                                        <div className="text-sm text-[var(--spider-text-dim)]">
-                                            {isFullCodeMode 
-                                                ? 'Project generation seems incomplete. Continue?' 
-                                                : 'Response seems incomplete. Continue generation?'}
-                                        </div>
-                                        <button 
-                                            onClick={handleContinueGeneration}
-                                            className="bg-[var(--spider-neon-blue)] text-black text-xs font-semibold px-4 py-2 rounded-lg hover:opacity-90 transition"
-                                        >
-                                            Continue
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                        
-                        <div ref={chatEndRef} />
-                    </div>
-                )}
-
-                {/* Hidden file inputs */}
-                <input 
-                    type="file" 
-                    ref={fileInputRef} 
-                    onChange={handleFileUpload} 
-                    className="hidden" 
-                    accept=".txt,.md,.js,.html,.css,.json,.py" 
-                />
-                <input 
-                    type="file" 
-                    ref={imageInputRef} 
-                    onChange={handleImageUpload} 
-                    className="hidden" 
-                    accept="image/*" 
-                />
-
-                {/* Input Area */}
-                <div className={`bg-[var(--spider-med)] border-t border-[var(--spider-light)] flex-shrink-0 w-full ${
-                    isMobile ? 'fixed bottom-0 left-0 right-0 p-3' : 'p-4'
-                }`}>
-                    <div className="max-w-5xl mx-auto">
-                        {!isMobile && (
-                            <div className="flex justify-between items-center mb-3">
-                                <div className="flex items-center space-x-2">
-                                    <span className="text-sm text-[var(--spider-neon-blue)] font-semibold flex items-center">
-                                        <span className="mr-2">
-                                            {selectedAIMode === 'pro' ? '🚀' : 
-                                             selectedAIMode === 'reasoning' ? '🧠' : '💬'}
-                                        </span>
-                                        {getModeText()}
-                                        {isFullCodeMode && (
-                                            <span className="ml-2 text-xs px-2 py-0.5 bg-[var(--spider-neon-blue)] text-black rounded-full">
-                                                FULL CODE
-                                            </span>
-                                        )}
-                                    </span>
-                                </div>
-                                {activeAIMode === 'image_gen' && (
-                                    <select 
-                                        value={aspectRatio} 
-                                        onChange={(e) => setAspectRatio(e.target.value)} 
-                                        className="bg-[var(--spider-light)] text-[var(--spider-text)] px-3 py-1.5 rounded-lg text-sm focus:outline-none"
-                                    >
-                                        <option value="1:1">1:1 Square</option>
-                                        <option value="16:9">16:9 Landscape</option>
-                                        <option value="9:16">9:16 Portrait</option>
-                                        <option value="4:3">4:3 Standard</option>
-                                    </select>
-                                )}
-                            </div>
-                        )}
-
-                        {(uploadedFile || uploadedImage) && (
-                            <div className="mb-3 text-xs text-green-400 p-3 bg-[var(--spider-dark)] rounded-lg flex justify-between items-center border border-green-800">
-                                <span className="truncate flex items-center space-x-2">
-                                    {uploadedFile ? (
-                                        <>
-                                            <span>📄</span>
-                                            <span>{uploadedFile.name}</span>
-                                        </>
-                                    ) : uploadedImage ? (
-                                        <>
-                                            <span>🖼</span>
-                                            <span>{uploadedImage.name}</span>
-                                        </>
-                                    ) : ''}
-                                </span>
-                                <button 
-                                    onClick={() => { 
-                                        setUploadedFile(null); 
-                                        setUploadedImage(null); 
-                                    }} 
-                                    className="text-red-400 hover:text-red-300 ml-3 font-bold flex-shrink-0 p-1"
-                                >
-                                    ×
-                                </button>
-                            </div>
-                        )}
-
-                        <div className="flex items-end w-full space-x-3">
-                            <div className="flex-1 bg-[var(--spider-light)] rounded-xl p-3 min-h-[48px] border border-[var(--spider-light)]">
-                                <textarea 
-                                    ref={textareaRef}
-                                    placeholder={
-                                        isFullCodeMode ? "Describe your complete project..." :
-                                        uploadedImage ? "Describe how to edit this image..." : 
-                                        uploadedFile ? `Analyze "${uploadedFile.name}"...` : 
-                                        `Message Spider AI ${selectedAIMode === 'pro' ? 'Pro' : selectedAIMode === 'reasoning' ? '(Reasoning)' : ''}... (Try: 'solve x² + 2x - 3 = 0' or 'write full code for a todo app')`
-                                    } 
-                                    className="w-full bg-transparent text-white focus:outline-none resize-none text-sm sm:text-base max-h-32 overflow-y-auto"
-                                    value={message} 
-                                    onChange={(e) => setMessage(e.target.value)} 
-                                    onKeyDown={(e) => { 
-                                        if (e.key === 'Enter' && !e.shiftKey) { 
-                                            e.preventDefault(); 
-                                            handleSendMessage(); 
-                                        } 
-                                    }} 
-                                    rows={1}
-                                    disabled={isLoading}
-                                />
-                            </div>
-
-                            <VoiceButton 
-                                isRecording={isRecording}
-                                recordingTime={recordingTime}
-                                isTranscribing={isTranscribing}
-                                onStartRecording={startRecording}
-                                onStopRecording={stopRecording}
-                            />
-
-                            <PlusMenu 
-                                setActiveAIMode={setActiveAIMode} 
-                                fileInputRef={fileInputRef} 
-                                imageInputRef={imageInputRef} 
-                            />
-
-                            <button 
-                                onClick={handleSendMessage} 
-                                className="bg-[var(--spider-neon-blue)] text-black font-semibold px-5 py-3 rounded-xl hover:opacity-90 transition duration-200 flex-shrink-0 h-12 flex items-center justify-center min-w-[52px] shadow-lg" 
-                                disabled={(!message.trim() && !uploadedFile && !uploadedImage) || isLoading}
-                            >
-                                {isLoading ? (
-                                    <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
-                                ) : (
-                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
-                                    </svg>
-                                )}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                {isMobile && <div className="h-24" />}
-            </div>
-        </div>
-    );
-};
-
-// --- END Plus Menu Component ---
-const SpiderVFXApp = () => { /* ... (Remains Placeholder) ... */ return (<div className="flex-grow h-full flex flex-col items-center justify-center bg-black text-white p-8 pattern-vfx-grid overflow-y-auto"><div className="bg-black bg-opacity-80 p-10 rounded-lg text-center shadow-xl"><h1 className="text-4xl font-bold mb-4 text-[var(--spider-neon-blue)]">Spider VFX</h1><p className="text-lg text-gray-400 mb-8">Coming Soon!</p><div className="animate-pulse text-6xl">✨</div></div></div>);};
-
-// --- NEW Component: Theme Settings Drawer ---
-const ThemeSettingsDrawer = ({ currentTheme, onThemeChange }) => {
-    // Theme names for display and the corresponding internal key
-    const themes = [
-        { key: 'red', name: 'Red (Default)', color: '#00bfff' },
-        { key: 'romantic', name: 'Romantic', color: '#ff63b8' },
-        { key: 'teal', name: 'Teal (Selected)', color: '#00ffff' },
-        { key: 'sky_blue', name: 'Sky Blue', color: '#64b5f6' },
-        { key: 'black', name: 'Black (High Contrast)', color: '#00ff00' },
-    ];
-
-    return (
-        <div className="space-y-4 pt-4 border-t border-[var(--spider-light)]">
-            <h3 className="text-xl font-semibold text-white">App Theme</h3>
-            <div className="grid grid-cols-2 gap-4">
-                {themes.map((theme) => (
-                    <button
-                        key={theme.key}
-                        onClick={() => onThemeChange(theme.key)}
-                        className={`p-3 rounded-lg flex items-center space-x-3 transition duration-150 ease-in-out border-2 ${
-                            currentTheme === theme.key 
-                                ? 'border-[var(--spider-neon-blue)] shadow-[var(--shadow-neon-blue)]' 
-                                : 'border-transparent hover:border-[var(--spider-text-dim)]'
-                        } bg-[var(--spider-med)] text-[var(--spider-text)]`}
-                    >
-                        {/* Color Swatch */}
-                        <div 
-                            className="w-4 h-4 rounded-full flex-shrink-0" 
-                            style={{ backgroundColor: theme.color, boxShadow: `0 0 5px ${theme.color}` }}
-                        ></div>
-                        <span className="text-sm truncate">{theme.name}</span>
-                    </button>
-                ))}
-            </div>
-        </div>
-    );
-};
-
-const SettingsApp = ({ currentUser, onLogout, isLoggedIn, onLoginClick, currentTheme, onThemeChange, appScale, onScaleChange }) => {
-     return (
-     <div className="flex-grow h-full flex flex-col items-center bg-gray-900 text-white p-8 overflow-y-auto">
-         <h1 className="text-4xl font-bold mb-8 text-[var(--spider-neon-blue)]">Settings</h1>
-         <div className="w-full max-w-md bg-[var(--spider-med)] rounded-lg shadow-lg p-6 space-y-6">
-            <div className="border-b border-[var(--spider-light)] pb-4">
-                <h3 className="text-xl font-semibold text-white mb-3">Account</h3>
-                {isLoggedIn ? (
-                    <>
-                        <p className="text-sm text-[var(--spider-text-dim)] mb-3">Logged in as: {currentUser?.email || 'Unknown'}</p>
-                        <button className="w-full mb-2 bg-[var(--spider-light)] text-[var(--spider-text)] text-sm font-semibold py-2.5 rounded-md hover:bg-opacity-80 transition duration-200 disabled:opacity-50" disabled>Manage Account</button>
-                        <button onClick={onLogout} className="w-full bg-red-600 text-white text-sm font-semibold py-2.5 rounded-md hover:bg-red-700 transition duration-200">Logout</button>
-                    </>
-                ) : (
-                    <>
-                        <p className="text-sm text-yellow-400 mb-4">You are currently using the app anonymously. Log in to save your data and chat history persistently.</p>
-                        <button onClick={onLoginClick} className="w-full bg-[var(--spider-neon-blue)] text-black text-sm font-semibold py-2.5 rounded-md hover:opacity-90 transition duration-200">Login / Sign Up</button>
-                    </>
-                )}
-            </div>
-            
-            {/* Theme Switcher Integration */}
-            <ThemeSettingsDrawer 
-                currentTheme={currentTheme} 
-                onThemeChange={onThemeChange} 
-            />
-            
-            {/* New Scale Control */}
-            <div className="border-b border-[var(--spider-light)] pb-4">
-                <h3 className="text-xl font-semibold text-white mb-3">App Scale / Zoom</h3>
-                <label className="text-sm block text-[var(--spider-text-dim)] mb-2">Scale Factor: <span className="text-white font-mono">{Math.round(appScale * 100)}%</span></label>
-                <input
-                    type="range"
-                    min="0.8"
-                    max="1.2"
-                    step="0.05"
-                    value={appScale}
-                    onChange={(e) => onScaleChange(parseFloat(e.target.value))}
-                    className="w-full h-2 bg-[var(--spider-light)] rounded-lg appearance-none cursor-pointer range-lg"
-                    style={{ '--spider-neon-blue': 'var(--spider-neon-blue)' }}
-                />
-                <p className="text-xs text-[var(--spider-text-dim)] mt-2">Adjusts the overall size of the UI elements.</p>
-            </div>
-
-
-            <div className="border-b border-[var(--spider-light)] pb-4"><h3 className="text-xl font-semibold text-white mb-3">Storage</h3><button className="w-full bg-[var(--spider-light)] text-[var(--spider-text)] text-sm font-semibold py-2.5 rounded-md hover:bg-opacity-80 flex items-center justify-center space-x-2 transition duration-200"><svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71,7.29l-6-6a1,1,0,0,0-1.41,0l-6,6a1,1,0,0,0,0,1.41L12,15.41l6.71-6.71A1,1,0,0,0,18.71,7.29ZM11.29,4.12l4.29,4.29H7Z"/><path d="M5.29,15.29l-1,1a1,1,0,0,0,0,1.41l6.29,6.29a1,1,0,0,0,1.41,0l6.29-6.29a1,1,0,0,0,0-1.41l-1-1L12,20.59Z"/></svg><span>Connect Google Drive (Placeholder)</span></button></div>
-         </div>
-    </div>
-    );
-};
-
-// --- Modals (About, Example) ---
-// ... (Modals remain the same) ...
-// FIX: Added conditional return at the start of AboutModal to ensure it only renders when 'show' is true.
- const AboutModal = ({ show, onClose }) => { 
-     if (!show) return null; // FIX APPLIED HERE
-     const formattedText = formatPdfTextForLanding(pdfContent); 
-     return (<div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4"><div className="bg-[var(--spider-med)] rounded-lg shadow-[var(--shadow-neon-blue)] w-full max-w-2xl max-h-[80vh] flex flex-col"><div className="flex justify-between items-center p-4 border-b border-[var(--spider-light)]"><h3 className="text-lg font-semibold text-white">About</h3><button onClick={onClose} className="text-[var(--spider-text-dim)] hover:text-white text-3xl leading-none">&times;</button></div><div className="p-6 text-[var(--spider-text)] overflow-y-auto text-sm">{formattedText}</div><div className="p-4 border-t border-[var(--spider-light)] text-right"><button onClick={onClose} className="bg-[var(--spider-neon-blue)] text-[var(--spider-dark)] text-sm font-semibold px-4 py-1.5 rounded-md hover:opacity-90">Close</button></div></div></div>);
-};
-const ExampleModal = ({ show, example, onClose }) => { /* ... */ if (!show || !example) return null; return (<div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4"><div className="bg-[var(--spider-dark)] border border-[var(--spider-light)] rounded-lg shadow-[var(--shadow-neon-blue)] w-full max-w-lg flex flex-col"><div className="flex justify-between items-center p-4 border-b border-[var(--spider-light)]"><h3 className="text-md font-semibold text-[var(--spider-neon-blue)]">{example.title} - Simulation</h3><button onClick={onClose} className="text-[var(--spider-text-dim)] hover:text-white text-3xl leading-none">&times;</button></div><div className="p-4 text-[var(--spider-text)] space-y-3"><div><p className="text-xs uppercase text-[var(--spider-text-dim)] mb-1">Code:</p><pre className="text-xs bg-black p-2 rounded whitespace-pre-wrap font-mono">{example.code}</pre></div><div><p className="text-xs uppercase text-[var(--spider-text-dim)] mb-1">Simulated Output:</p><pre className="text-xs bg-black p-2 rounded whitespace-pre-wrap font-mono text-green-400">{example.output}</pre></div></div><div className="p-3 border-t border-[var(--spider-light)] text-right"><button onClick={onClose} className="bg-[var(--spider-light)] text-[var(--spider-text)] text-xs font-semibold px-3 py-1 rounded-md hover:bg-opacity-80">Close</button></div></div></div>);};
-
-
-// --- Right Sidebar Component ---
-// ----- FIX 3: Removed onWsSend prop and the "Send File" button -----
-const RightSidebar = ({ 
-    isOpen, onClose, onNavigate, activePanel, isLoggedIn, onRun, onSave, activeFileId, showSaveAlert, 
-    // NEW WS PROPS
-    onWsConnect, 
-    wsStatus 
-}) => { 
-    const activeClass = "bg-[var(--spider-light)] text-[var(--spider-neon-blue)]";
-    const inactiveClass = "text-[var(--spider-text-dim)] hover:bg-[var(--spider-med)] hover:text-white";
-    
-    // Custom link class that highlights 'Settings' even if redirected to 'login'
-    const linkClass = (panelName) => {
-        const isActive = activePanel === panelName || (!isLoggedIn && panelName === 'settings' && activePanel === 'login');
-        return `block w-full text-left px-4 py-3 text-sm font-medium rounded-md transition duration-150 ease-in-out ${isActive ? activeClass : inactiveClass}`;
+  useEffect(() => {
+    const handler = async (e) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const files = [];
+      for (const item of items) { if (item.kind === 'file') { const f = item.getAsFile(); if (f) files.push(f); } }
+      if (files.length > 0) { e.preventDefault(); await processFiles(files); }
     };
+    document.addEventListener('paste', handler);
+    return () => document.removeEventListener('paste', handler);
+  }, [processFiles]);
 
-    return (
-         <div 
-             className={`fixed top-0 right-0 h-full bg-[var(--spider-dark)] w-64 shadow-2xl z-[90] transform transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
-         >
-             <div className="p-4 h-full flex flex-col">
-                 <div className="flex justify-between items-center mb-6">
-                     <h2 className="text-lg font-semibold text-white">Navigation</h2>
-                     <button onClick={onClose} className="text-[var(--spider-text-dim)] hover:text-white text-2xl">&times;</button>
-                 </div>
-                 
-                 {/* Notebook Actions (only visible in Notebook view) */}
-                 {activePanel === 'notebook' && (
-                    <div className="pb-4 mb-4 border-b border-[var(--spider-light)] space-y-2">
-                        <h3 className="text-xs font-semibold uppercase tracking-widest text-gray-400">Notebook Actions</h3>
-                        
-                        {/* WebSocket Connect/Disconnect Button */}
-                        <button 
-                            onClick={() => { onWsConnect(); onClose(); }} 
-                            className={`w-full text-sm font-semibold px-3 py-2 rounded-md flex items-center justify-center transition-colors ${
-                                wsStatus === 'Connected' 
-                                    ? 'bg-red-600 text-white hover:bg-red-700' 
-                                    : wsStatus === 'Connecting' 
-                                        ? 'bg-yellow-500 text-black hover:bg-yellow-600'
-                                        : 'bg-indigo-600 text-white hover:bg-indigo-700'
-                            }`}
-                        >
-                            <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9v-4H7V8h2V6h2v10zm4 0h-2V6h2v10z"/></svg>
-                            {/* MODIFIED: Updated button text to be dynamic */}
-                            {wsStatus === 'Connected' ? `Disconnect Engine` : wsStatus === 'Connecting' ? `Connecting...` : 'Connect Spy Engine ()'}
-                        </button>
-                        
-                        {/* ----- FIX 3: Removed the "Send File Content via WS" button ----- */}
-                        
-                        <div className="pt-2 border-t border-[var(--spider-light)] space-y-2">
-                            <button 
-                                onClick={() => { onSave(); onClose(); }} 
-                                className="w-full bg-[var(--spider-neon-blue)] text-[var(--spider-dark)] text-sm font-semibold px-3 py-2 rounded-md hover:opacity-90 relative flex items-center justify-center"
-                                disabled={!activeFileId}
-                            > 
-                                <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20"><path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 6a1 1 0 011-1h10a1 1 0 011 1v10a1 1 0 01-1 1H5a1 1 0 01-1-1V6zM10 16a3 3 0 100-6 3 3 0 000 6z"></path></svg>
-                                Save File
-                                {showSaveAlert && (<span className="absolute top-1 right-1 bg-green-500 text-white text-xs px-1.5 py-0.5 rounded-full">✓</span>)}
-                            </button>
-                            <button 
-                                onClick={() => { onRun(); onClose(); }} 
-                                className="w-full bg-orange-500 text-white text-sm font-semibold px-3 py-2 rounded-md hover:bg-orange-600 flex items-center justify-center"
-                                disabled={!activeFileId}
-                            >
-                                <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd"></path></svg>
-                                Run Engine
-                            </button>
-                        </div>
-                    </div>
-                 )}
-                 
-                 <nav className="flex-grow space-y-2">
-                     <button onClick={() => { onNavigate('landing'); onClose(); }} className={linkClass('landing')}>Home (Quantum Compiler)</button>
-                     <button onClick={() => { onNavigate('notebook'); onClose(); }} className={linkClass('notebook')}>Spider Notebook (IDE)</button>
-                     <button onClick={() => { onNavigate('ai'); onClose(); }} className={linkClass('ai')}>Spider AI (Chat)</button>
-                   <button onClick={() => { onNavigate('docs'); onClose(); }} className={linkClass('docs')}>Spy Documentation</button>
-                     <button onClick={() => { onNavigate('vfx'); onClose(); }} className={linkClass('vfx')}>Spider VFX <span className="text-xs opacity-70">(Soon)</span></button>
-                     {/* Settings/Profile link uses onNavigate, which handles the login redirect */}
-                     <button onClick={() => { onNavigate('settings'); onClose(); }} className={linkClass('settings')}>
-                         {isLoggedIn ? 'User Settings' : 'Login / Settings'}
-                     </button>
-                 </nav>
-                 
-                 <div className="mt-4 pt-4 border-t border-[var(--spider-light)]">
-                    <p className="text-xs text-gray-500">System Status: <span className="text-green-400">ONLINE</span></p>
-                 </div>
-             </div>
-         </div>
-    );
-};
+  const handleDragOver = useCallback((e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); }, []);
+  const handleDragLeave = useCallback((e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); }, []);
+  const handleDrop = useCallback(async (e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); if (e.dataTransfer?.files?.length > 0) await processFiles(e.dataTransfer.files); }, [processFiles]);
 
+  const removeUploadedFile = useCallback((i) => setUploadedFiles(prev => prev.filter((_, idx) => idx !== i)), []);
+  const removeUploadedImage = useCallback((i) => setUploadedImages(prev => prev.filter((_, idx) => idx !== i)), []);
+  const clearAllUploads = useCallback(() => { setUploadedFiles([]); setUploadedImages([]); }, []);
 
-// --- Main App Component (Handles Routing, Sidebar, Authentication) ---
-export default function App() {
-    // --- State Management ---
-    const [openFiles, setOpenFiles] = useState([]);
-    const [activeFileId, setActiveFileId] = useState(null); 
-    const [fileContents, setFileContents] = useState(new Map()); 
-    const [projectFiles, setProjectFiles] = useState([]); 
-    // START on 'landing' so user can browse without login
-    const [activePanel, setActivePanel] = useState('landing'); 
-    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-    const [activeTerminalTab, setActiveTerminalTab] = useState('terminal'); 
-    const [aiQuery, setAiQuery] = useState("");
-    const [isLoading, setIsLoading] = useState(false);
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [modalTitle, setModalTitle] = useState("");
-    const [modalText, setModalText] = useState("");
-    const [terminalOutput, setTerminalOutput] = useState(initialTerminalOutput);
-    const [showSaveAlert, setShowSaveAlert] = useState(false);
-    const [showAboutModal, setShowAboutModal] = useState(false);
-    const [showExampleModal, setShowExampleModal] = useState(false);
-    const [showPrivacyModal, setShowPrivacyModal] = useState(false); // NEW
-    const [currentExample, setCurrentExample] = useState(null);
-    const fileInputRef = useRef(null);
-    const [isLoggedIn, setIsLoggedIn] = useState(false);
-    const [currentUser, setCurrentUser] = useState(null); 
-    
-    // --- FIX 1: Added new ref for single file input ---
-    const singleFileInputRef = useRef(null);
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // STREAM RESPONSE HANDLER
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  const handleStreamResponse = useCallback(async (response, isContinue = false, initialContent = '') => {
+    if (!response.body) return;
+    const reader = response.body.getReader();
+    streamReaderRef.current = reader;
+    const decoder = new TextDecoder();
+    let buffer = '';
+    accumulatedTokensRef.current = initialContent;
+    setStreamedContent(initialContent);
+    let messageAddedToHistory = false;
+    let lastUpdateTime = 0;
+    const throttleMap = { slow: 220, normal: 120, fast: 40 };
+    const THROTTLE_MS = throttleMap[settingsRef.current.streamingSpeed] || 120;
 
-    // NEW WEBSOCKET STATE & REF
-    const wsRef = useRef(null);
-    // Initial status set to match the desktop screenshot for first load
-    const [wsStatus, setWsStatus] = useState('Disconnected'); 
-
-    // --- NEW THEME STATE (Default to 'teal' to match the new UI) ---
-    const [currentTheme, setCurrentTheme] = useState('teal'); 
-    
-    // --- NEW SCALE STATE (Default to 1.0) ---
-    const [appScale, setAppScale] = useState(1.0); 
-
-    // --- NEW AI STATE ---
-    const [activeAIMode, setActiveAIMode] = useState('chat');
-    const [uploadedFile, setUploadedFile] = useState(null);
-    const [uploadedImage, setUploadedImage] = useState(null);
-    
-    // --- Theme Application Effect (NEW) ---
-    useEffect(() => {
-        const theme = themeMap[currentTheme];
-        const root = document.documentElement;
-        if (theme) {
-            Object.entries(theme).forEach(([key, value]) => {
-                root.style.setProperty(key, value);
-            });
-            // Update shadow color based on neon blue setting
-            root.style.setProperty('--shadow-neon-blue', `0 0 15px 5px ${theme['--spider-neon-blue']}50`);
-            root.style.setProperty('--shadow-neon-blue-sidebar', `-5px 0 20px 0px ${theme['--spider-neon-blue']}50`);
-}
-    }, [currentTheme]);
-
-    // --- Scale Application Effect (NEW) ---
-    useEffect(() => {
-        // Apply scaling directly to the root HTML element's font size
-        document.documentElement.style.fontSize = `${appScale * 100}%`;
-    }, [appScale]);
-
-
-    // --- Icon Components ---
-    const FolderIcon = () => ( <svg className="w-4 h-4 mr-2 inline-block text-yellow-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"></path></svg> );
-     const FileIcon = () => ( <svg className="w-4 h-4 mr-2 inline-block text-[var(--spider-neon-blue)] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg> );
-     const LockIcon = () => ( <svg className="w-3 h-3 ml-1.5 inline-block" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 1a4.5 4.5 0 00-4.5 4.5V9H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-.5V5.5A4.5 4.5 0 0010 1zm3 8V5.5a3 3 0 10-6 0V9h6z" clipRule="evenodd" /></svg> );
-     const AiIcon = () => ( <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg> );
-     const VfxIcon = () => ( <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 21a9 9 0 110-18 9 9 0 010 18z" opacity="0.3"></path></svg> );
-
-    // --- Modal & API Call Logic ---
-    const showLoader = () => setIsLoading(true);
-    const hideLoader = () => setIsLoading(false);
-    const showModal = (title, text) => { setModalTitle(title); setModalText(text); setIsModalOpen(true); };
-    const hideModal = () => setIsModalOpen(false);
-    
-    // RENAMED AND UPDATED TO CONNECT TO FASTAPI
-// 🔥 UPDATED: Spider AI Cloudflare Integration
-// 🔥 SPIDER AI — Cloudflare GPT-120B + SDXL Integration (FINAL VERSION)
-// 🔥 SPIDER AI — Cloudflare GPT-120B + SDXL Integration (FINAL VERSION)
-const callFastAPI = useCallback(async (endpoint, payload = {}, mode = "chat", options = {}) => {
-    let fetchOptions = {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        // Stringify the entire payload (includes file_content, images, etc.)
-        body: JSON.stringify(payload),
-        // Allows the frontend to cancel the request via handleStopGeneration
-        signal: options.signal
+    const processLine = (line) => {
+      const tl = line.trim();
+      if (!tl) return;
+      if (tl.startsWith('data:')) {
+        const ds = tl.slice(5).trim();
+        if (ds === '[DONE]') return;
+        try {
+          const p = JSON.parse(ds);
+          const nt = p.text || p.response || p.token || '';
+          if (nt) {
+            accumulatedTokensRef.current += nt;
+            setStreamedContent(accumulatedTokensRef.current);
+            const now = Date.now();
+            if (now - lastUpdateTime > THROTTLE_MS && isTabVisibleRef.current) {
+              setStreamingMessage(prev => ({ ...(prev || {}), role: 'assistant', type: 'text', ts: Date.now(), isStreaming: true, content: accumulatedTokensRef.current }));
+              lastUpdateTime = now;
+            }
+          }
+          if (p.stream_id) { setLastStreamId(p.stream_id); continueStreamIdRef.current = p.stream_id; }
+        } catch {
+          accumulatedTokensRef.current += ds;
+          setStreamedContent(accumulatedTokensRef.current);
+          const now = Date.now();
+          if (now - lastUpdateTime > THROTTLE_MS && isTabVisibleRef.current) {
+            setStreamingMessage(prev => ({ ...(prev || {}), role: 'assistant', type: 'text', ts: Date.now(), isStreaming: true, content: accumulatedTokensRef.current }));
+            lastUpdateTime = now;
+          }
+        }
+      } else if (tl.startsWith('{')) {
+        try {
+          const p = JSON.parse(tl);
+          const nt = p.text || p.content || p.delta || p.token || p.response || '';
+          if (nt) {
+            accumulatedTokensRef.current += nt;
+            setStreamedContent(accumulatedTokensRef.current);
+            const now = Date.now();
+            if (now - lastUpdateTime > THROTTLE_MS && isTabVisibleRef.current) {
+              setStreamingMessage(prev => ({ ...(prev || {}), role: 'assistant', type: 'text', ts: Date.now(), isStreaming: true, content: accumulatedTokensRef.current }));
+              lastUpdateTime = now;
+            }
+          }
+          if (p.stream_id) { setLastStreamId(p.stream_id); continueStreamIdRef.current = p.stream_id; }
+        } catch {}
+      }
     };
 
     try {
-        // Use the new fetchOptions, sending to the /ai worker endpoint
-        const res = await fetch("/ai", fetchOptions);
-
-        // Log the response for debugging
-        console.log("Response status:", res.status);
-        console.log("Response headers:", res.headers);
-
-        // ---------------- STREAMING HANDLER (NEW) ----------------
-        // If the frontend explicitly passed { stream: true } in the options,
-        // we return the raw Response object so res.body.getReader() works.
-        if (options.stream) {
-            return res;
-        }
-
-        const contentType = res.headers.get("content-type") || "";
-
-        // ---------------- IMAGE RESPONSE (PNG) ----------------
-        if (contentType.includes("image/")) {
-            const blob = await res.blob();
-
-            const base64 = await new Promise((resolve) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result.split(",")[1]);
-                reader.readAsDataURL(blob);
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          if (buffer.trim()) processLine(buffer);
+          if (!messageAddedToHistory && accumulatedTokensRef.current) {
+            const fc = accumulatedTokensRef.current.trim();
+            const lc = fc.slice(-1);
+            const cbc = (fc.match(/```/g) || []).length;
+            if (cbc % 2 !== 0 || (fc.length > 50 && !['.','!','?','}',']','`','"',"'",';','>'].includes(lc))) setShowContinueButton(true);
+            const pf = parseCodeForFiles(fc);
+            setChatHistory(prev => {
+              const filtered = prev.filter(msg => !(msg.isStreaming && msg.role === 'assistant'));
+              return [...filtered, { role: 'assistant', content: fc, type: 'text', ts: Date.now(), files: pf.length > 0 ? pf : undefined }];
             });
-
-            return {
-                text: payload.prompt || "",
-                base64_image: base64,
-                model_used: "SDXL"
-            };
+            if (pf.length > 0) setGeneratedFiles(pf);
+            messageAddedToHistory = true;
+            setStreamingMessage(null);
+          }
+          break;
         }
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) processLine(line);
+      }
+    } catch (error) { if (error.name !== 'AbortError') console.error("Stream Error:", error); }
+    finally { reader.releaseLock(); streamReaderRef.current = null; }
+  }, [parseCodeForFiles]);
 
-        // ---------------- TEXT RESPONSE ----------------
-        const rawText = await res.text();
+  const handleContinueGeneration = useCallback(async () => {
+    const streamId = lastStreamIdRef.current || continueStreamIdRef.current;
+    if (!streamId) return;
+    setIsLoading(true); setIsStreaming(true); setShowContinueButton(false);
+    const history = chatHistoryRef.current;
+    const lastMsg = history[history.length - 1];
+    const previousContent = lastMsg?.role === 'assistant' ? lastMsg.content : '';
+    if (lastMsg?.role === 'assistant') setChatHistory(prev => prev.slice(0, -1));
+    setStreamingMessage({ role: 'assistant', content: previousContent, type: 'text', ts: Date.now(), isStreaming: true, isContinue: true });
+    const controller = new AbortController();
+    setAbortController(controller);
+    try {
+      const continueMode = selectedAIModeRef.current || 'chat';
+      const response = await fetchAiForMode(continueMode, '/ai', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: 'continue', mode: continueMode, stream: true, stream_id: streamId, user_preference_id: getPersistentUserId(), session_id: currentChatIdRef.current }), signal: controller.signal });
+      const ct = response.headers.get('content-type') || '';
+      if (ct.includes('text/event-stream') || ct.includes('stream')) await handleStreamResponse(response, true, previousContent);
+      else { const text = await response.text(); setChatHistory(prev => [...prev, { role: 'assistant', content: previousContent + text, type: 'text', ts: Date.now() }]); }
+    } catch (error) { if (error.name !== 'AbortError') { if (lastMsg?.role === 'assistant') setChatHistory(prev => [...prev, { ...lastMsg, isPartial: true }]); setShowContinueButton(true); showModal('Error', 'Failed to continue.'); } }
+    finally { setIsLoading(false); setIsStreaming(false); setStreamingMessage(null); setAbortController(null); }
+  }, [getPersistentUserId, handleStreamResponse, showModal]);
 
-        if (!rawText || rawText.trim() === "") {
-            return { error: "Empty response from Spider AI." };
-        }
-
-        // Spider AI 2.0 returns plain text for non-streaming requests
-        return {
-            text: rawText,
-            raw: rawText
-        };
-
-    } catch (err) {
-        // Log the error for debugging
-        console.error("API Error:", err);
-        // Return error object instead of throwing to avoid breaking the UI flow
-        return { error: err.message };
+  const handleStopGeneration = useCallback(() => {
+    abortControllerRef.current?.abort(); setAbortController(null);
+    streamReaderRef.current?.cancel().catch(() => {});
+    if (streamingMessageRef.current && accumulatedTokensRef.current) {
+      setChatHistory(prev => { const f = prev.filter(m => !(m.isStreaming && m.role === 'assistant')); return [...f, { role: 'assistant', content: accumulatedTokensRef.current.trim(), type: 'text', ts: Date.now(), isPartial: true }]; });
     }
-}, []);
-  // --- WebSocket Handlers (NEW) ---
-    // Helper function to append plain text to terminal output
-    const appendToTerminal = (text, type = 'stdout') => {
-        let coloredText = '';
-        switch (type) {
-            case 'stdout':
-                // Standard output (plain text)
-                coloredText = `<span class="text-white">${text}</span>`;
-                break;
-            case 'run_started':
-                // Execution start message
-                coloredText = `<span class="text-yellow-400">🚀 ${text}</span>`;
-                break;
-            case 'error':
-                // Error message
-                coloredText = `<span class="text-red-500">❌ ${text}</span>`;
-                break;
-            case 'connect_note':
-                // System message (connection status)
-                coloredText = `<span class="text-gray-500">System: ${text}</span>`;
-                break;
-            default:
-                // Raw message fallback (should not happen often with this fix)
-                coloredText = `<span class="text-gray-600">${text}</span>`;
-                break;
-        }
+    setIsStreaming(false); setIsLoading(false); setStreamingMessage(null); setShowContinueButton(true);
+  }, []);
 
-        // Add to the terminal output state
-        setTerminalOutput(prev => [...prev, coloredText]);
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // SEND MESSAGE
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  const handleSendMessage = useCallback(async () => {
+    const cleanMsg = messageRef.current.replace(/\s*\[mic\].*$/, '').trim();
+    const curFiles = uploadedFilesRef.current;
+    const curImages = uploadedImagesRef.current;
+    if (!cleanMsg && curFiles.length === 0 && curImages.length === 0) return;
+    if (isLoadingRef.current || isStreamingRef.current) return;
+    if (isListeningRef.current) { recognitionRef.current?.stop(); setIsListening(false); }
+    let chatId = currentChatIdRef.current;
+    if (!chatId) {
+      if (settingsRef.current.saveHistory === false) {
+        chatId = `temp_${Date.now().toString(36)}`;
+      } else {
+        chatId = await createNewChatInDB(cleanMsg || 'New Chat');
+      }
+    }
+    if (isMobile) setIsMobileSidebarOpen(false);
+    setIsLoading(true);
+    const controller = new AbortController(); setAbortController(controller);
+    const hasImages = curImages.length > 0, hasFiles = curFiles.length > 0;
+    let modeToSend = 'chat';
+    const fm = forceModeRef.current, sm = selectedAIModeRef.current;
+    if (fm) modeToSend = fm; else if (sm === 'pro') modeToSend = 'pro'; else if (sm === 'reasoning') modeToSend = 'reasoning';
+    if (!ensureModeAccess(
+      sm,
+      fm,
+      modeToSend === 'pro'
+        ? 'Use Spider AI Pro'
+        : modeToSend === 'video_gen'
+          ? 'Create videos'
+          : modeToSend === 'image_edit'
+            ? 'Edit images'
+            : modeToSend === 'image_gen'
+              ? 'Create images'
+              : 'Use M4 Spider tools'
+    )) {
+      setIsLoading(false);
+      setAbortController(null);
+      return;
+    }
+    let imageBase64 = null;
+    if (hasImages) imageBase64 = curImages.length === 1 ? curImages[0].content : await createImageCollage(curImages);
+    let fileContent = null, fileNames = null;
+    if (hasFiles) { fileNames = curFiles.map(f => f.name).join(', '); fileContent = curFiles.map(f => `=== FILE: ${f.name} ===\n${f.content}\n=== END: ${f.name} ===`).join('\n\n'); }
+    let enhancedPrompt = cleanMsg;
+    if (hasImages && curImages.length > 1) { enhancedPrompt += `\n\n[${curImages.length} images attached]`; curImages.forEach((img, i) => { enhancedPrompt += `\n- Image ${i + 1}: ${img.name}`; }); }
+    const userMessage = { role: 'user', content: cleanMsg, ts: Date.now(), images: hasImages ? curImages.map(i => ({ name: i.name, preview: i.preview })) : undefined, files: hasFiles ? curFiles.map(f => ({ name: f.name, size: f.size, type: f.type })) : undefined, aiMode: sm, forceMode: fm };
+    setChatHistory(prev => [...prev, userMessage]);
+    setMessage(''); if (textareaRef.current) textareaRef.current.style.height = 'auto';
+    accumulatedTokensRef.current = ''; setStreamedContent(''); setShowContinueButton(false); setLastStreamId(null); fileContentBufferRef.current = '';
+    setUploadedFiles([]); setUploadedImages([]); setForceMode(null); setActiveAIMode(null);
+    if (modeToSend === 'video_gen') {
+      try {
+        await submitVideoJob(enhancedPrompt, chatId, curImages[0] || null);
+      } catch (error) {
+        setChatHistory(prev => [...prev, { role: 'assistant', content: `Error: ${normalizeUserFacingError(error)}`, type: 'text', ts: Date.now(), isError: true }]);
+      } finally {
+        setIsLoading(false); setIsStreaming(false); setStreamingMessage(null); setAbortController(null); setIsFullCodeMode(false);
+      }
+      return;
+    }
+    setStreamingMessage({ role: 'assistant', content: '', type: 'text', ts: Date.now(), isStreaming: true, isThinking: true });
+    const basePayload = {
+      prompt: enhancedPrompt,
+      mode: modeToSend,
+      image: imageBase64,
+      file_content: fileContent,
+      filename: fileNames,
+      stream: true,
+      user_preference_id: getPersistentUserId(),
+      session_id: chatId,
+      aspect_ratio: aspectRatio,
+      image_model_preference: modeToSend === 'image_edit' ? 'flux-kelvin-4b' : undefined,
+      image_model_fallback: modeToSend === 'image_edit' ? 'cloudflare-flux-9b' : undefined,
+      allow_cloud_fallback: modeToSend === 'image_edit',
+      llm_model_preference: sm === 'pro' ? undefined : 'ministral-3.8b',
+      vision_model_hint: hasImages ? 'ministral-3.8b-vision' : undefined,
     };
-
-
-    // MODIFIED: Changed default URL to your secure domain
-// MODIFIED: Changed default URL to your secure domain
-    const handleWsConnect = (url = 'wss://spy.m4spider.com/') => { // <<< FIX HERE
-        if (wsRef.current && wsStatus === 'Connected') {
-            wsRef.current.close(1000, 'User initiated disconnect');
-            return;
+    try {
+      let response = await fetchAiForMode(modeToSend, '/ai', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(basePayload), signal: controller.signal });
+      if (!response.ok && modeToSend === 'image_edit') {
+        const retryText = await response.clone().text();
+        if (shouldRetryImageEditWithCloud(retryText)) {
+          response = await fetchAiForMode(modeToSend, '/ai', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ...basePayload,
+              force_cloudflare_flux_fallback: true,
+              image_model_preference: 'cloudflare-flux-9b',
+            }),
+            signal: controller.signal
+          });
         }
-
-        if (wsStatus === 'Connecting') {
-            // Suppress: appendToTerminal(`WebSocket: Already attempting connection.`, 'connect_note');
-            return;
+      }
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('image/')) {
+        const blob = await response.blob();
+        const base64 = await new Promise(r => { const fr = new FileReader(); fr.onloadend = () => r(fr.result.split(',')[1]); fr.readAsDataURL(blob); });
+        setChatHistory(prev => [...prev, { role: 'assistant', content: cleanMsg, type: 'image', base64_image: base64, ts: Date.now(), is_generated: true }]);
+        notifyGenerationComplete('Image Ready', 'Your image generation finished.');
+      } else if (contentType.includes('text/event-stream') || contentType.includes('stream')) { setIsStreaming(true); await handleStreamResponse(response); }
+      else if (contentType.includes('application/json')) {
+        const data = await response.json();
+        if (data.error) throw new Error(data.error);
+        if (data.base64_image || data.image) {
+          setChatHistory(prev => [...prev, { role: 'assistant', content: cleanMsg, type: 'image', base64_image: data.base64_image || data.image, ts: Date.now(), is_generated: true }]);
+          notifyGenerationComplete('Image Ready', 'Your image generation finished.');
         }
+        else setChatHistory(prev => [...prev, { role: 'assistant', content: data.text || data.content || data.response || JSON.stringify(data), type: 'text', ts: Date.now() }]);
+      } else {
+        if (!response.ok) throw new Error(await response.text() || 'Request failed');
+        const text = await response.text();
+        if (!text.trim()) throw new Error('Empty response');
+        setChatHistory(prev => [...prev, { role: 'assistant', content: text, type: 'text', ts: Date.now() }]);
+      }
+    } catch (error) { if (error.name !== 'AbortError') setChatHistory(prev => [...prev, { role: 'assistant', content: `Error: ${normalizeUserFacingError(error)}`, type: 'text', ts: Date.now(), isError: true }]); }
+    finally { setIsLoading(false); setIsStreaming(false); setStreamingMessage(null); setAbortController(null); setIsFullCodeMode(false); }
+  }, [isMobile, aspectRatio, createNewChatInDB, ensureModeAccess, getPersistentUserId, handleStreamResponse, submitVideoJob]);
 
-        setWsStatus('Connecting');
-        appendToTerminal(`Spy Engine: Attempting connection to  connect ...`, 'connect_note');
+  // EDIT & REGENERATE
+  const handleEditMessage = useCallback((index) => {
+    const msg = chatHistoryRef.current[index];
+    if (msg?.role === 'user') { setEditingMessageIndex(index); setEditingMessageContent(msg.content); setTimeout(() => editTextareaRef.current?.focus(), 50); }
+  }, []);
 
-        try {
-            const ws = new WebSocket(url);
-            wsRef.current = ws;
+  const handleSaveEdit = useCallback(async (index) => {
+    const nc = editingMessageContent.trim();
+    if (!nc) return;
+    setChatHistory(prev => { const u = prev.slice(0, index); u.push({ ...prev[index], content: nc, ts: Date.now(), edited: true }); return u; });
+    setEditingMessageIndex(null); setEditingMessageContent('');
+    setMessage(nc);
+    setTimeout(() => handleSendMessage(), 100);
+  }, [editingMessageContent, handleSendMessage]);
 
-            ws.onopen = () => {
-                setWsStatus('Connected');
-                appendToTerminal(`Spy Engine: Connected `, 'stdout');
-                // Automatically send a welcome message 
-                ws.send(JSON.stringify({ type: "connect_note", message: "Hello, Spider Node Book!" }));
-            };
+  const handleCancelEdit = useCallback(() => { setEditingMessageIndex(null); setEditingMessageContent(''); }, []);
 
-            // ----------------------------------------------------------------------------------
-            // >>>>>>>>>>>>>>>>>>>> CORE FIX IMPLEMENTATION <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-            // ----------------------------------------------------------------------------------
-            ws.onmessage = (event) => {
-                try {
-                    const data = JSON.parse(event.data);
+  const handleRegenerateResponse = useCallback(async (index) => {
+    const history = chatHistoryRef.current;
+    let ui = index - 1;
+    while (ui >= 0 && history[ui].role !== 'user') ui--;
+    if (ui < 0) return;
+    setChatHistory(prev => prev.slice(0, index));
+    setMessage(history[ui].content);
+    setTimeout(() => handleSendMessage(), 100);
+  }, [handleSendMessage]);
 
-                    // Handle known message types
-                    if (data.type === "stdout" && data.message) {
-                        let message = data.message.trim();
-                        
-                        // 1. Regex to strip common Windows temporary paths (C:\Users\... and /D/home/Tools/...)
-                        // This handles linker/compiler paths and Python tracebacks that contain a full path + extension.
-                        const pathRegex = /(?:C:\\Users\\|D:\/home\/Tools\/|File\s+)[\w\s\\/.-]+\.(py|cpp|java|exe|ld\.exe|collect2\.exe|javac)/g;
-                        
-                        let isPathError = false;
-                        let cleanMessage = message.replace(pathRegex, (match) => {
-                             isPathError = true;
-                             // For Python File tracebacks, keep the file name. For system tools, simplify.
-                             if (match.startsWith("File ")) {
-                                 const fileNameMatch = match.match(/["']?([^:"']+\.(py|cpp|java|spy))["']?/i);
-                                 return `[File Error: ${fileNameMatch ? fileNameMatch[1] : 'Unknown File'}]`;
-                             } else if (match.includes('ld.exe') || match.includes('collect2.exe') || match.includes('javac')) {
-                                 // Replace full compiler paths with a simple compiler identifier
-                                 return match.includes('javac') ? 'javac' : 'Linker/Compiler Error';
-                             }
-                             return 'File Path Omitted'; // Fallback for other direct path leaks
-                        });
-                        
-                        // 2. Further simplify linker error messages to remove file references that still contain temp paths
-                        // E.g., 'cannot open output file "C:\Users\...\temp_cpp_6bd73a12.exe": Invalid argument'
-                        cleanMessage = cleanMessage.replace(/cannot open output file\s+["']?([^:"']+\.(exe))["']?:\s*/i, 'Linker Error: Cannot open output file: ');
-                        
-                        
-                        // 3. Output the result
-                        if (isPathError) {
-                            appendToTerminal(cleanMessage, 'error');
-                        } else {
-                             // Regular stdout message
-                            appendToTerminal(message);
-                        }
+  const handleDeleteMessage = useCallback((index) => {
+    setConfirmDelete({ type: 'message', messageIndex: index });
+    setOpenMessageMenuIndex(null);
+  }, []);
 
-                    } else if (data.type === "run_started") {
-                        appendToTerminal("Running " + data.file, 'run_started');
-                    } else if (data.type === "error") {
-                        appendToTerminal("Execution Error: " + data.message, 'error');
-                    } else if (data.type === "process_finished") {
-                        // Suppress unhandled debug message type process_finished
-                        console.debug("WS Debug Message:", data);
-                    } 
-                    else {
-                        // For anything else, just log quietly (debug)
-                        console.debug("WS Debug Message:", data);
-                        // Optional: Append a colored notice for truly unhandled/debug messages
-                        appendToTerminal(`[DEBUG] Unhandled message type: ${data.type || 'unknown'}`, 'connect_note');
-                    }
-                } catch (e) {
-                    // Non-JSON fallback: log the entire raw message as an error/raw
-                    appendToTerminal("Raw WS Message (Non-JSON): " + event.data, 'error');
-                }
-            };
-            // ----------------------------------------------------------------------------------
-            // >>>>>>>>>>>>>>>>>>>> END CORE FIX IMPLEMENTATION <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-            // ----------------------------------------------------------------------------------
+  const confirmDeleteMessage = useCallback((index) => {
+    setChatHistory(prev => {
+      const u = [...prev];
+      if (u[index]?.role === 'user' && u[index + 1]?.role === 'assistant') u.splice(index, 2);
+      else u.splice(index, 1);
+      return u;
+    });
+    setConfirmDelete(null);
+    showModal('Deleted', 'Message removed.');
+  }, [showModal]);
 
-            ws.onclose = (event) => {
-                setWsStatus('Disconnected');
-                appendToTerminal(`Spy Engine: Disconnected. Code: ${event.code}, Reason: ${event.reason || ''}`, 'error');
-                wsRef.current = null;
-            };
+  // CHAT MANAGEMENT
+  const handleDeleteChat = useCallback(async (chatId) => { await deleteChatFromDB(chatId); setConfirmDelete(null); setChatContextMenu(null); showModal('Deleted', 'Chat deleted.'); }, [deleteChatFromDB, showModal]);
+  const handleDeleteAllChats = useCallback(async () => { await deleteAllChatsFromDB(); setConfirmDelete(null); showModal('Cleared', 'All chats deleted.'); }, [deleteAllChatsFromDB, showModal]);
+  const handlePinChat = useCallback((chatId) => { setPinnedChats(prev => prev.includes(chatId) ? prev.filter(id => id !== chatId) : [...prev, chatId]); setChatContextMenu(null); }, []);
+  const handleRenameChat = useCallback((chatId) => {
+    const chat = chatsRef.current.find(c => c.id === chatId);
+    if (!chat) return;
+    const nt = prompt('Enter new name:', chat.title || '');
+    if (nt?.trim()) { renameChatInDB(chatId, nt.trim().substring(0, 50)); showModal('Renamed', 'Chat renamed.'); }
+    setChatContextMenu(null);
+  }, [renameChatInDB, showModal]);
+  const handleExportChat = useCallback((chatId) => {
+    const chat = chatsRef.current.find(c => c.id === chatId);
+    if (!chat) return;
+    const content = (chat.messages || []).map(m => `[${m.role === 'user' ? 'You' : 'Spider AI'}]\n${m.content}\n`).join('\n---\n\n');
+    downloadFile(`${chat.title || 'chat'}.txt`, `# ${chat.title}\n\n${content}`);
+    setChatContextMenu(null); showModal('Exported', 'Chat exported.');
+  }, [downloadFile, showModal]);
 
-            ws.onerror = (error) => {
-                setWsStatus('Error');
-                appendToTerminal(`Spy Engine: Error! Check console for details.`, 'error');
-                console.error("WebSocket Error:", error);
-                wsRef.current?.close(); // Clean up on error
-            };
-        } catch (e) {
-            setWsStatus('Error');
-            appendToTerminal(`Spy Engine: Connection failed immediately. Invalid URL or protocol.`, 'error');
-            console.error("WebSocket Initialization Error:", e);
-        }
+  const handleFileInputChange = useCallback(async (e) => { if (e.target.files?.length > 0) await processFiles(e.target.files); e.target.value = null; }, [processFiles]);
+  const handleFolderInputChange = useCallback(async (e) => { if (e.target.files?.length > 0) await processFolder(e.target.files); e.target.value = null; }, [processFolder]);
+
+  useEffect(() => {
+    flushPendingFeedback();
+
+    const syncNow = () => { flushPendingFeedback(true); };
+    const intervalId = window.setInterval(() => { flushPendingFeedback(); }, FEEDBACK_SYNC_INTERVAL_MS);
+    window.addEventListener('online', syncNow);
+    document.addEventListener('visibilitychange', syncNow);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('online', syncNow);
+      document.removeEventListener('visibilitychange', syncNow);
     };
+  }, [flushPendingFeedback]);
 
-    // This function is now only called by handleRunEngine
-    const handleWsSend = () => {
-        const content = fileContents.get(activeFileId);
+  const handleNewChat = useCallback(async () => {
+    setActiveWorkspace('chat');
+    if (settingsRef.current.saveHistory !== false) {
+      await createNewChatInDB(`Chat ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
+    } else {
+      setCurrentChatId(null);
+    }
+    setSelectedAIMode(settingsRef.current.defaultMode || 'chat');
+    setChatHistory([]); setShowContinueButton(false); setStreamingMessage(null);
+    setUploadedFiles([]); setUploadedImages([]); setForceMode(null); setActiveAIMode(null);
+    setLastStreamId(null); setGeneratedFiles([]); setIsFullCodeMode(false);
+    accumulatedTokensRef.current = ''; setStreamedContent('');
+    if (isMobile) setIsMobileSidebarOpen(false);
+  }, [createNewChatInDB, isMobile]);
 
-        if (wsStatus !== 'Connected' || !wsRef.current || !activeFileId) {
-             showModal("WebSocket Error", "Cannot send. Ensure you are connected and a file is open.");
-             return;
-        }
-        
-        if (typeof content === 'undefined' || content.trim() === "") {
-             showModal("WebSocket Error", "Cannot send an empty file.");
-             return;
-        }
+  const updateSetting = useCallback((key, value) => {
+    setSettings(prev => ({ ...prev, [key]: value }));
+    if (key === 'defaultMode') {
+      setSelectedAIMode(value || 'chat');
+      setForceMode(null);
+    }
+  }, []);
+  const resetSettings = useCallback(() => {
+    setSettings(DEFAULT_SETTINGS);
+    setSelectedAIMode(DEFAULT_SETTINGS.defaultMode || 'chat');
+    setForceMode(null);
+    setWordWrapBlocks({});
+    showModal('Reset', 'Settings reset to defaults.');
+  }, [showModal]);
 
-        try {
-            wsRef.current.send(content);
-            // Hiding the raw message here, only keeping the friendly status update.
-            // appendToTerminal(`WebSocket: Sent ${activeFileId} (${content.length} bytes)`);
-            setShowSaveAlert(true); // Reusing save alert for a moment
-            setTimeout(() => setShowSaveAlert(false), 1500);
-        } catch (e) {
-            appendToTerminal(`WebSocket Send Failed: ${e.message}`, 'error');
-            showModal("WS Send Error", e.message);
-        }
-    };
-    // --- End WebSocket Handlers ---
-    
-    // --- File Handlers ---
-     const handleOpenProject = () => { fileInputRef.current.click(); };
-     // --- FIX 1: Added new handler to click the single file input ---
-     const handleOpenFileClick = () => { singleFileInputRef.current.click(); };
-     
-     // ----- FIX 1: Modified handleFilesUploaded (for projects) -----
-     const handleFilesUploaded = async (event) => { 
-         const files = event.target.files; if (!files || files.length === 0) return; showLoader();
-        const newProjectFiles = []; const newFileContents = new Map();
-        for (const file of files) {
-            try { 
-                // Use webkitRelativePath if available (for directory upload), otherwise fall back to file.name
-                const filePath = file.webkitRelativePath || file.name;
-                const content = await file.text(); 
-                newProjectFiles.push({ name: filePath, kind: 'file' }); 
-                newFileContents.set(filePath, content); 
-            } 
-            catch (err) { console.error("Read file error:", file.name, err); }
-        }
-        newProjectFiles.sort((a, b) => a.name.localeCompare(b.name)); setProjectFiles(newProjectFiles); setFileContents(newFileContents);
-        // Open the first 3 files, or fewer if less than 3 were uploaded
-        const newOpenFileNames = newProjectFiles.map(f => f.name).slice(0, 3); 
-        setOpenFiles(newOpenFileNames); 
-        setActiveFileId(newOpenFileNames[0] || null); 
-        hideLoader(); 
-        event.target.value = null; // Clear input
-     };
-     // ----- END FIX 1 -----
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // CODE BLOCK RENDERING
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-    // --- FIX 1: Added new handler for single file uploads ---
-    const handleSingleFilesUploaded = async (event) => {
-        const files = event.target.files;
-        if (!files || files.length === 0) return;
-        showLoader();
-        
-        const newProjectFiles = [...projectFiles];
-        const newFileContents = new Map(fileContents);
-        const newOpenFileNames = [...openFiles];
-        let firstNewFile = null;
+  const highlightCode = useCallback((code) => {
+    let h = code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\t/g, '  ');
+    const tokens = {}; let ti = 0; const P = '___TKN_';
+    const s = (m, c, it = false) => { const t = `${P}${ti++}___`; tokens[t] = `<span style="color:${c};${it ? 'font-style:italic;' : ''}">${m}</span>`; return t; };
+    h = h.replace(/(`[\s\S]*?`|"[^"]*"|'[^']*')/g, m => s(m, '#CE9178'));
+    h = h.replace(/(\/\/.*|#.*)/g, m => s(m, '#6A9955', true));
+    h = h.replace(/\b(const|let|var|function|return|if|else|for|while|class|import|export|from|await|async|def|in|try|except|with|as|new|this|print|switch|case|break|continue|throw|catch|finally|yield|static|extends|implements|interface|type|enum|namespace|module|declare|readonly|abstract|override|super|typeof|instanceof|void|delete|default)\b/g, m => s(m, '#569CD6'));
+    h = h.replace(/\b(true|false|null|undefined|None|True|False|NaN|Infinity)\b/g, m => s(m, '#569CD6'));
+    h = h.replace(/\b(\d+\.?\d*)\b/g, m => s(m, '#B5CEA8'));
+    h = h.replace(/\b([a-zA-Z_]\w*)(?=\()/g, m => s(m, '#DCDCAA'));
+    for (let i = ti - 1; i >= 0; i--) { const k = `${P}${i}___`; h = h.split(k).join(tokens[k]); }
+    return h;
+  }, []);
 
-        for (const file of files) {
-            try {
-                const filePath = file.name; // Just use name for single files
-                
-                // Avoid duplicates in file list
-                if (!newFileContents.has(filePath)) {
-                    const content = await file.text();
-                    newProjectFiles.push({ name: filePath, kind: 'file' });
-                    newFileContents.set(filePath, content);
-                }
+  const renderCodeBlock = useCallback((code, lang, blockId) => {
+    const isCollapsed = collapsedBlocks[blockId];
+    const hasWordWrap = Object.prototype.hasOwnProperty.call(wordWrapBlocks, blockId)
+      ? wordWrapBlocks[blockId]
+      : settings.codeWordWrap;
+    const useAndroidSafeLayout = isAndroid;
+    const shouldWrapCode = useAndroidSafeLayout ? true : hasWordWrap;
+    const lines = code.split('\n');
 
-                // Avoid duplicates in open tabs
-                if (!newOpenFileNames.includes(filePath)) {
-                    newOpenFileNames.push(filePath);
-                }
-                
-                if (!firstNewFile) {
-                    firstNewFile = filePath;
-                }
-            } catch (err) {
-                console.error("Read file error:", file.name, err);
-            }
-        }
-        
-        newProjectFiles.sort((a, b) => a.name.localeCompare(b.name));
-        setProjectFiles(newProjectFiles);
-        setFileContents(newFileContents);
-        setOpenFiles(newOpenFileNames);
-        
-        // Set active file to the first new file opened
-        if (firstNewFile) {
-            setActiveFileId(firstNewFile);
-        }
-        
-        hideLoader();
-        event.target.value = null; // Clear input
-    };
-    // ----- END FIX 1 -----
-
-
-    // --- FIX 2: Updated handleNewProject to create a default file ---
-  const handleNewProject = () => {
-    const defaultFileName = 'main.spy';
-    // Proper Spy multi-language format with code blocks
-    const defaultFileContent = `\`\`\`python
-print("Hello from Python in Spy!")
-\`\`\`
-
-\`\`\`java
-public class Main {
-    public static void main(String[] args) {
-        System.out.println("Java is ready!");
-}
-}
-\`\`\`
-
-\`\`\`cpp
-#include <iostream>
-int main() {
-    std::cout << "C++ says hi!" << std::endl;
-    return 0;
-}
-\`\`\`
-`;
-        // 1. Set state to reflect the new project
-        setProjectFiles([{ name: defaultFileName, kind: 'file' }]);
-        setOpenFiles([defaultFileName]);
-        setActiveFileId(defaultFileName);
-        
-        const newFileContents = new Map();
-        newFileContents.set(defaultFileName, defaultFileContent);
-        setFileContents(newFileContents);
-        
-        // 2. Update terminal
-        setTerminalOutput([
-            'New project created.',
-            'Opened default file: main.spy'
-        ]);
-        setActivePanel('notebook');
-    };
-    // ----- END FIX 2 -----
-     
-     const handleFileClick = (file) => { 
-         if (!file || file.kind !== 'file') return; const fileName = file.name; if (!fileContents.has(fileName)) { showModal("Error", "No content."); return; } if (!openFiles.includes(fileName)) { setOpenFiles([...openFiles, fileName]); } setActiveFileId(fileName);
-     };
-     const handleCloseTab = (e, fileNameToClose) => { 
-         e.stopPropagation(); const newOpenFiles = openFiles.filter(f => f !== fileNameToClose); setOpenFiles(newOpenFiles); if (activeFileId === fileNameToClose) { setActiveFileId(newOpenFiles[0] || null); }
-     };
-     const handleCodeChange = (e) => { 
-         if (!activeFileId) return; const newContents = new Map(fileContents); newContents.set(activeFileId, e.target.value); setFileContents(newContents);
-     };
-     const handleSave = () => { 
-         if (!activeFileId) { showModal("Error", "No file to save."); return; } const content = fileContents.get(activeFileId); if (typeof content === 'undefined') { showModal("Error", "No content."); return; } try { const blob = new Blob([content],{type:'text/plain;charset=utf-8'}); const link=document.createElement('a'); link.href=URL.createObjectURL(blob); link.download=activeFileId; document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(link.href); setShowSaveAlert(true); setTimeout(() => setShowSaveAlert(false), 2000); } catch (err) { showModal("Error", `Save failed: ${err.message}`); }
-     };
-
-    // ----- FIX 2: Replaced handleRunEngine logic -----
-     const handleRunEngine = () => { 
-         const fileContent = getCurrentCode(); 
-         if (!fileContent) return; // getCurrentCode shows its own modal
-
-         if (wsStatus !== 'Connected' || !wsRef.current) {
-             showModal("Engine Not Connected", "Please connect to your Spy Engine first. Use the 'Connect Spy Engine' button in the navigation menu.");
-             appendToTerminal(`Run Engine: Failed. Spy Engine (WebSocket) is not connected.`, 'error');
-             return;
-         }
-
-         // Use the existing WebSocket send logic
-         try {
-             wsRef.current.send(fileContent);
-             // Add friendly terminal output, hiding the raw JSON message
-             appendToTerminal(`Sending ${activeFileId} to Spy Engine...`, 'run_started');
-             // Removed: appendToTerminal(`WS Message Sent: {"type":"run_file","fileName":"${activeFileId}", "size":${fileContent.length}}`, 'connect_note');
-         } catch (e) {
-             appendToTerminal(`WebSocket Send Failed: ${e.message}`, 'error');
-             showModal("WS Send Error", e.message);
-         }
-     };
-     // ----- END FIX 2 -----
-
-     const getCurrentCode = () => { 
-          if (!activeFileId) { showModal("No File", "Open file."); return null; } const code=fileContents.get(activeFileId); if (typeof code==='undefined'||code.trim()==="") { showModal("Empty File", "No code."); return null; } return code;
-     };
-     const handleGenerateCode = async () => { 
-         if (!activeFileId) { showModal("No File", "Open file."); return; } if (!aiQuery) { showModal("Empty Prompt", "Enter prompt."); return; } const systemPrompt="Generate only raw code."; const generatedCode=await callFastAPI('/api/generate/text', { prompt: aiQuery }, 'chat'); 
-         if (generatedCode && !generatedCode.error) { 
-             const newContents=new Map(fileContents); 
-             const oldContent=newContents.get(activeFileId)||""; 
-             newContents.set(activeFileId, oldContent+"\n\n"+generatedCode.text); 
-             setFileContents(newContents); 
-             setAiQuery(""); 
-         }
-     };
-     const handleExplainCode = async () => { 
-         const code=getCurrentCode(); if (!code) return; const userQuery=`Explain:\n\`\`\`\n${code}\n\`\`\``; 
-         const systemPrompt="Explain code."; 
-         const explanation=await callFastAPI('/api/generate/text', { prompt: userQuery, system_instruction: systemPrompt }, 'chat'); 
-         if (explanation && !explanation.error) { showModal("AI Explanation", explanation.text); }
-     };
-     const handleCritiqueCode = async () => { 
-         const code=getCurrentCode(); if (!code) return; const userQuery=`Critique:\n\`\`\`\n${code}\n\`\`\``; 
-         const systemPrompt="Critique code."; 
-         const critique=await callFastAPI('/api/generate/text', { prompt: userQuery, system_instruction: systemPrompt }, 'chat'); 
-         if (critique && !critique.error) { showModal("AI Critique", critique.text); }
-     };
-     const handleFixErrors = async () => { 
-         const code=getCurrentCode(); if (!code) return; const userQuery=`Fix:\n\`\`\`\n${code}\n\`\`\``; 
-         const systemPrompt="Fix errors, return only raw code."; 
-         const fixedCode=await callFastAPI('/api/generate/text', { prompt: userQuery, system_instruction: systemPrompt }, 'chat'); 
-         if (fixedCode && !fixedCode.error) { 
-             const newContents=new Map(fileContents); 
-             newContents.set(activeFileId, fixedCode.text); 
-             setFileContents(newContents); 
-         }
-     };
-    // --- End File Handlers ---
-
-    // --- Auth Handlers (UPDATED) ---
-    const handleLoginSuccess = (userData) => {
-        setCurrentUser(userData);
-        setIsLoggedIn(true);
-        setActivePanel('settings'); // Redirect to settings after successful login/signup
-        setShowPrivacyModal(true); 
-        setOpenFiles([]); setActiveFileId(null); setFileContents(new Map()); setProjectFiles([]); // Reset project state
-    };
-
-    const handleLogout = () => {
-        setIsLoggedIn(false);
-        setCurrentUser(null);
-        setActivePanel('landing'); // Redirect to a functional, non-login page after logout
-    };
-    
-    const handleLoginClick = () => {
-        setActivePanel('login');
-    };
-
-    // --- New Navigation Wrapper (CRITICAL CHANGE) ---
-    const navigateToPanel = useCallback((panelName) => {
-        setIsSidebarOpen(false); // Close sidebar on navigation
-        
-        // If not logged in and trying to access settings/profile, redirect to login
-        if (!isLoggedIn && (panelName === 'settings')) {
-            setActivePanel('login');
-        } else if (activePanel === 'login' && panelName === 'settings' && !isLoggedIn) {
-             // Stay on login page if user tries to navigate to settings from login without succeeding
-             return;
-        } else {
-            setActivePanel(panelName);
-        }
-    }, [isLoggedIn, activePanel]);
-
-    // --- Handler for showing example modal ---
-    const handleShowExample = (example) => {
-        setCurrentExample(example);
-        setShowExampleModal(true);
-    };
-    
-    // --- Theme Handler ---
-    const handleThemeChange = (themeKey) => {
-        setCurrentTheme(themeKey);
-    };
-
-    // --- Scale Handler ---
-    const handleScaleChange = (scaleValue) => {
-        setAppScale(scaleValue);
-    };
-
-
-    // --- Render JSX (REFACTORED) ---
     return (
-        <>
-            {/* ... Hidden file input and Styles ... */}
-             {/* --- FIX 1: Added a new hidden input for single file uploads --- */}
-             <input type="file" multiple webkitdirectory="true" directory="true" ref={fileInputRef} onChange={handleFilesUploaded} className="hidden" accept=".spy,.py,.java,.cpp,.c,.h,.txt,.md,.js,.html,.css" />
-             <input type="file" multiple ref={singleFileInputRef} onChange={handleSingleFilesUploaded} className="hidden" accept=".spy,.py,.java,.cpp,.c,.h,.txt,.md,.js,.html,.css" />
-             
-             <style>{`
-                :root { 
-                    /* Base Theme Variables from Teal (Matching User Screenshots) */
-                    --spider-dark: #0a1d1d;
-                    --spider-med: #113a3a;
-                    --spider-light: #1e5f5f;
-                    --spider-neon-blue: #00ffff;
-                    --spider-glow: rgba(0, 255, 255, 0.5);
-                    --spider-text: #e0ffff;
-                    --spider-text-dim: #99cccc;
-                    --shadow-neon-blue: 0 0 15px 5px rgba(0, 255, 255, 0.3); 
-                    --shadow-neon-blue-sidebar: -5px 0 20px 0px rgba(0, 255, 255, 0.3);
-                    
-                    /* NEW Aesthetic Variables for Landing Page (using new defaults for teal) */
-                    --primary-bg: var(--spider-dark);
-                    --accent-teal: var(--spider-neon-blue);
-                    --secondary-accent: #FF9900; 
-                }
-                
-                /* Custom styles for futuristic glow effects (MAPPED TO THEME) */
-                .terminal-glow {
-                    box-shadow: 0 0 15px var(--accent-teal), 0 0 30px rgba(0, 255, 255, 0.3); 
-                    border: 1px solid rgba(0, 255, 255, 0.5);
-                    backdrop-filter: blur(5px);
-                    background: rgba(1, 26, 36, 0.8);
-                }
-
-                .feature-card {
-                    transition: all 0.3s ease;
-                    position: relative;
-                    overflow: hidden;
-                    background: rgba(1, 26, 36, 0.5);
-                    border: 1px solid rgba(0, 255, 255, 0.2);
-                }
-
-                .feature-card:hover {
-                    transform: translateY(-8px) scale(1.02);
-                    box-shadow: 0 10px 30px rgba(0, 255, 255, 0.4);
-                }
-
-                .feature-card::before {
-                    content: '';
-                    position: absolute;
-                    top: -50%;
-                    left: -50%;
-                    width: 200%;
-                    height: 200%;
-                    background: radial-gradient(circle, rgba(0, 255, 255, 0.1) 0%, rgba(0, 0, 0, 0) 70%);
-                    opacity: 0;
-                    transition: opacity 0.5s;
-                }
-
-                .feature-card:hover::before {
-                    opacity: 1;
-                }
-
-                .logo-glow {
-                    filter: drop-shadow(0 0 8px var(--accent-teal));
-                }
-
-                .arch-node {
-                    background-color: rgba(0, 255, 255, 0.1);
-                    border: 1px solid var(--accent-teal);
-                    box-shadow: 0 0 10px var(--accent-teal);
-                }
-                .arch-line {
-                    height: 2px;
-                    background-color: var(--accent-teal);
-                    box-shadow: 0 0 5px var(--accent-teal);
-                }
-
-                /* Existing styles */
-                ::-webkit-scrollbar { width: 8px; height: 8px; } ::-webkit-scrollbar-track { background: var(--spider-med); } ::-webkit-scrollbar-thumb { background: var(--spider-light); border-radius: 4px; } ::-webkit-scrollbar-thumb:hover { background: #4f46e5; }
-                input[type="file"] { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
-                .pattern-spider-web { background-image: linear-gradient(rgba(0,0,0,0.75), rgba(0,0,0,0.9)), radial-gradient(circle, transparent 1px, rgba(150, 0, 0, 0.15) 1px); background-size: cover, 30px 30px; }
-                .pattern-vfx-grid { background-image: linear-gradient(rgba(0,0,0,0.8), rgba(0,0,0,0.95)), linear-gradient(to right, rgba(0, 191, 255, 0.1) 1px, transparent 1px), linear-gradient(to bottom, rgba(0, 191, 255, 0.1) 1px, transparent 1px); background-size: cover, 50px 50px, 50px 50px; }
-                @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } } @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } } @keyframes fadeInDown { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
-                .animation-delay-300 { animation-delay: 300ms; }
-                #code-editor { overflow: auto !important; }
-                /* Custom animation for the menu */
-                @keyframes fadeInUpOnce {
-                    from { opacity: 0; transform: translateY(10px); }
-                    to { opacity: 1; transform: translateY(0); }
-                }
-                .animate-fade-in-up-once {
-                    animation: fadeInUpOnce 0.2s ease-out forwards;
-                }
-                
-                /* NEW: Floating Orb (Menu Button) styles - MATCHING MOBILE SCREENSHOT */
-                .nav-orb-toggle {
-                    transition: all 0.3s ease;
-                    background-color: var(--spider-neon-blue);
-                    box-shadow: 0 0 15px var(--spider-neon-blue);
-                    border: 2px solid var(--spider-dark); /* Ensure it stands out against the dark background */
-                }
-                .nav-orb-toggle:hover {
-                    transform: scale(1.1);
-                    opacity: 0.9;
-                }
-                .nav-orb-toggle svg {
-                     color: var(--spider-dark);
-                }
-                /* Mobile Header styles to match the mobile screenshot */
-                .mobile-header {
-                    background-color: var(--spider-med);
-                    border-bottom: 1px solid var(--spider-light);
-                    height: 56px; /* Typical Android app bar height */
-                }
-            `}</style>
-
-            {/* --- MAIN APPLICATION CONTAINER (Fullscreen + Scale) --- */}
-            <div 
-                className="flex flex-col min-h-screen w-screen overflow-hidden text-[var(--spider-text)] font-sans antialiased"
-                style={{
-                    backgroundColor: 'var(--spider-dark)',
-                    // Removed dynamic width/height adjustment for true full-screen fluid layout
-                }}
-            >
-                
-                {/* --- UNIVERSAL MOBILE HEADER (To match Android status bar/address bar context) --- */}
-                {/* We only render this when not on the landing or login page for a cleaner IDE feel */}
-                {(activePanel !== 'landing' && activePanel !== 'login') && (
-                    <div className="md:hidden mobile-header flex items-center justify-between px-4 flex-shrink-0">
-                         <div className="flex items-center space-x-2">
-                             {/* Mock Back Button / Folder Icon from Mobile Screenshot */}
-                 <svg
-  className="w-6 h-6 text-cyan-400"
-  viewBox="0 0 24 24"
-  fill="none"
-  stroke="currentColor"
-  strokeWidth="1.5"
-  strokeLinecap="round"
-  strokeLinejoin="round"
->
-  {/* Geometric Body (Faceted Processor Core) */}
-  <polygon
-    points="12 4, 15 7, 15 15, 12 18, 9 15, 9 7"
-    fill="rgba(0, 255, 255, 0.15)"
-    stroke="currentColor"
-    strokeWidth="1.5"
-  />
-  <circle cx="12" cy="12" r="3.5" fill="currentColor" fillOpacity="0.1" />
-  <path
-    d="M12 4 L 12 18"
-    stroke="currentColor"
-    strokeWidth="1"
-    strokeDasharray="2 2"
-    opacity="0.7"
-  />
-
-  {/* Legs (Circuit Traces) */}
-  {/* Top Left (L1, L2) */}
-  <path d="M9 7 L 3 1 L 1 4" />
-  <path d="M9 10 L 2 5 L 0 9" />
-  {/* Top Right (R1, R2) */}
-  <path d="M15 7 L 21 1 L 23 4" />
-  <path d="M15 10 L 22 5 L 24 9" />
-
-  {/* Bottom Left (L3, L4) */}
-  <path d="M9 15 L 3 23 L 1 20" />
-  <path d="M9 12 L 2 17 L 0 13" />
-  {/* Bottom Right (R3, R4) */}
-  <path d="M15 15 L 21 23 L 23 20" />
-  <path d="M15 12 L 22 17 L 24 13" />
-
-  {/* Connectors / Eyes (Small Dots) */}
-  <circle cx="10.5" cy="5.5" r="0.5" fill="currentColor" />
-  <circle cx="13.5" cy="5.5" r="0.5" fill="currentColor" />
-</svg>
-
-                            <span className="text-lg font-semibold text-white truncate">M4SPIDER</span>
-                         </div>
-                    </div>
-                )}
-                
-
-                {/* --- NEW Floating Navigation Orb (Menu Button) - FIXED TOP RIGHT --- */}
-                {/* Z-index is 90 to ensure it is always on top of the content and modals */}
-                <div id="nav-orb-container" className="fixed z-[90]" style={{ top: '16px', right: '16px' }}> 
-                    <button 
-                        id="nav-orb-toggle" 
-                        onClick={() => setIsSidebarOpen(true)}
-                        className="p-3 rounded-full nav-orb-toggle w-12 h-12 flex items-center justify-center"
-                        title="Open Navigation Menu"
-                    >
-                        {/* Hamburger Icon */}
-                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16m-7 6h7"></path></svg>
-                    </button>
-                </div>
-                {/* --- END Floating Navigation Orb --- */}
-
-                {/* --- Content Area (Renders the Active Page) --- */}
-                <div className="flex-grow h-full overflow-hidden relative"> 
-                    {/* Landing Page (Default View) */}
-                     <div className={`absolute inset-0 transition-opacity duration-300 ${activePanel === 'landing' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}> {activePanel === 'landing' && <LandingPage onNavigate={navigateToPanel} onShowExample={handleShowExample} />} </div>
-                    
-                    {/* Notebook App (Includes its own internal toolbar/action buttons) */}
-                    <div className={`absolute inset-0 transition-opacity duration-300 ${activePanel === 'notebook' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}> 
-                        {activePanel === 'notebook' && 
-                            <SpiderNotebookApp 
-                                 currentUser={currentUser} openFiles={openFiles} activeFileId={activeFileId} fileContents={fileContents} 
-                                 projectFiles={projectFiles} terminalOutput={terminalOutput} activeTerminalTab={activeTerminalTab} 
-                                 aiQuery={aiQuery} handleFileClick={handleFileClick} handleCloseTab={handleCloseTab} 
-                                 handleCodeChange={handleCodeChange} handleSave={handleSave} handleRunEngine={handleRunEngine} 
-                                 setAiQuery={setAiQuery} setActiveTerminalTab={setActiveTerminalTab} 
-                                 showModal={showModal} LockIcon={LockIcon} FolderIcon={FolderIcon} FileIcon={FileIcon} 
-                                 handleOpenProject={handleOpenProject} 
-                                 handleOpenFileClick={handleOpenFileClick} // --- FIX 1: Pass new handler
-                                 handleNewProject={handleNewProject}
-                                 callFastAPI={callFastAPI} // Pass the API function
-                                 // NEW WS PROPS
-                                 wsStatus={wsStatus}
-                            /> 
-                        } 
-                    </div>
-                    
-                    {/* AI App */}
-                    <div className={`absolute inset-0 transition-opacity duration-300 ${activePanel === 'ai' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}> 
-                        {activePanel === 'ai' && <SpiderAIApp 
-                            currentUser={currentUser} 
-                            showModal={showModal} 
-                            callFastAPI={callFastAPI}
-                            activeAIMode={activeAIMode}
-                            setActiveAIMode={setActiveAIMode}
-                            uploadedFile={uploadedFile}
-                            setUploadedFile={setUploadedFile}
-                            uploadedImage={uploadedImage}
-                            setUploadedImage={setUploadedImage}
-                        />} 
-                    </div>
-                    {/* --- ADD THIS NEW DOCS PANEL --- */}
-               <div className={`absolute inset-0 transition-opacity duration-300 ${activePanel === 'docs' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}> 
-
-    {/* CRITICAL FIX: When activePanel is 'docs', render a single wrapper 
-      that enforces full width/height and enables vertical scrolling. 
-    */}
-    {activePanel === 'docs' && (
-        <div className="w-full h-full overflow-y-auto">
-            <SpyDocs />
+      <div key={blockId} className="my-1.5 rounded-xl overflow-hidden border border-[#194A4A] bg-[#040C0C] w-full shadow-lg min-w-0 max-w-full">
+        <div className="flex items-center justify-between gap-2 px-4 py-2 bg-[#0A1A1A] border-b border-[#194A4A] min-w-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <button onClick={() => setCollapsedBlocks(prev => ({ ...prev, [blockId]: !prev[blockId] }))} className="text-[#529E98] hover:text-[#00E5FF] transition-colors">
+              {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+            </button>
+            <Code size={14} className="text-[#00E5FF]" />
+            <span className="text-[11px] font-mono uppercase tracking-wider text-[#00E5FF] truncate">{lang || 'code'}</span>
+            <span className="text-[10px] text-[#529E98] shrink-0">{lines.length} lines</span>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {!useAndroidSafeLayout && (
+              <button onClick={() => setWordWrapBlocks(prev => ({ ...prev, [blockId]: !hasWordWrap }))} className={`p-1 rounded ${hasWordWrap ? 'text-[#00E5FF]' : 'text-[#529E98]'} hover:text-[#00E5FF]`}><WrapText size={12} /></button>
+            )}
+            <button onClick={() => downloadFile(`code.${lang || 'txt'}`, code.trim())} className="text-[#529E98] hover:text-[#00E5FF] p-1 rounded"><Download size={12} /></button>
+            <button onClick={() => copyToClipboard(code.trim())} className="text-[#529E98] hover:text-[#00E5FF] flex items-center gap-1.5 text-xs font-medium"><Copy size={14} /> Copy</button>
+          </div>
         </div>
-    )}
-
-</div>
-       
-                    {/* VFX App */}
-                    <div className={`absolute inset-0 transition-opacity duration-300 ${activePanel === 'vfx' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}> {activePanel === 'vfx' && <SpiderVFXApp />} </div>
-                    
-                    {/* Login Page (Triggered by settings/profile click when logged out) */}
-                    <div className={`absolute inset-0 transition-opacity duration-300 ${activePanel === 'login' ? 'opacity-100 z-20' : 'opacity-0 z-0 pointer-events-none'}`}>
-                        {activePanel === 'login' && <LoginPage onLoginSuccess={handleLoginSuccess} />}
+        {!isCollapsed && (
+          useAndroidSafeLayout ? (
+            <div className="w-full min-w-0">
+              {lines.map((line, i) => (
+                <div key={i} className="flex w-full min-w-0 items-start hover:bg-[#0A1A1A]/50">
+                  {settings.codeLineNumbers && (
+                    <div className="px-3 py-0 text-right text-[#3A5A5A] text-[11px] select-none w-[45px] shrink-0 border-r border-[#194A4A]/30 bg-[#040C0C]">
+                      {i + 1}
                     </div>
-                    
-                    {/* Settings App (Accessible only when logged in, or via direct redirect from login) */}
-                    <div className={`absolute inset-0 transition-opacity duration-300 ${activePanel === 'settings' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}> 
-                        {activePanel === 'settings' && 
-                            <SettingsApp 
-                                currentUser={currentUser} 
-                                onLogout={handleLogout} 
-                                isLoggedIn={isLoggedIn} 
-                                onLoginClick={handleLoginClick} 
-                                currentTheme={currentTheme}
-                                onThemeChange={handleThemeChange}
-                                appScale={appScale} // Pass scale state
-                                onScaleChange={handleScaleChange} // Pass scale handler
-                            /> 
-                        } 
-                    </div>
+                  )}
+                  <div
+                    className={`px-4 py-0 text-[#D4D4D4] min-w-0 flex-1 overflow-hidden ${shouldWrapCode ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'}`}
+                    dangerouslySetInnerHTML={{ __html: highlightCode(line) }}
+                  />
                 </div>
+              ))}
+            </div>
+          ) : (
+            <div className="overflow-x-auto custom-scrollbar">
+              <table className="w-full text-[14px] leading-relaxed font-mono border-collapse">
+                <tbody>{lines.map((line, i) => (
+                  <tr key={i} className="hover:bg-[#0A1A1A]/50">
+                    {settings.codeLineNumbers && <td className="px-3 py-0 text-right text-[#3A5A5A] text-[11px] select-none w-[45px] border-r border-[#194A4A]/30 sticky left-0 bg-[#040C0C]">{i + 1}</td>}
+                    <td className={`px-4 py-0 text-[#D4D4D4] ${shouldWrapCode ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'}`} dangerouslySetInnerHTML={{ __html: highlightCode(line) }} />
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+          )
+        )}
+      </div>
+    );
+  }, [collapsedBlocks, wordWrapBlocks, copyToClipboard, downloadFile, highlightCode, isAndroid, settings.codeLineNumbers, settings.codeWordWrap]);
 
-                {/* --- Right Sidebar Component (Now responsible for all navigation + core actions) --- */}
-                {/* The Right Sidebar acts as the navigation menu triggered by the Floating Orb */}
-                <RightSidebar 
-                    isOpen={isSidebarOpen} 
-                    onClose={() => setIsSidebarOpen(false)} 
-                    onNavigate={navigateToPanel} 
-                    activePanel={activePanel} 
-                    isLoggedIn={isLoggedIn}
-                    // Pass Notebook actions to the sidebar
-                    onRun={handleRunEngine}
-                    onSave={handleSave}
-                    activeFileId={activeFileId}
-                    showSaveAlert={showSaveAlert}
-                    // NEW WS PROPS
-                    onWsConnect={handleWsConnect} 
-                    wsStatus={wsStatus}
-                />
-                {/* Increased z-index of overlay to 80, still below the orb (z-index 90) */}
-                {isSidebarOpen && <div className="fixed inset-0 bg-black bg-opacity-50 z-[80]" onClick={() => setIsSidebarOpen(false)}></div>}
+  const renderMessage = useCallback((text, msgIndex = 0) => {
+    if (!text) return null;
+    const lines = text.split('\n');
+    const rawBlocks = [];
+    let isCodeBlock = false, currentLang = '', currentContent = [];
 
-                {/* --- Modals (Keep below z-index 80/90) --- */}
-                 {isLoading && ( <div id="loader-overlay" className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-[60]"> <div className="w-16 h-16 border-4 border-[var(--spider-light)] border-t-[var(--spider-neon-blue)] rounded-full animate-spin"></div> <span className="ml-4 text-lg text-white">Loading...</span> </div> )}
-                 {isModalOpen && !showAboutModal && !showExampleModal && !showPrivacyModal && ( <div id="ai-modal" className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4"> <div className="bg-[var(--spider-med)] rounded-lg shadow-[var(--shadow-neon-blue)] w-full max-w-2xl max-h-[80vh] flex flex-col"> <div className="flex justify-between items-center p-4 border-b border-[var(--spider-light)]"><h3 className="text-lg font-semibold text-white">✨ {modalTitle}</h3><button id="modal-close-btn" onClick={hideModal} className="text-[var(--spider-text-dim)] hover:text-white text-3xl leading-none">&times;</button></div><div id="modal-content" className="p-6 text-[var(--spider-text)] overflow-y-auto space-y-4"><pre className="whitespace-pre-wrap font-sans text-sm">{modalText}</pre></div><div className="p-4 border-t border-[var(--spider-light)] text-right"><button id="modal-close-btn-bottom" onClick={hideModal} className="bg-[var(--spider-neon-blue)] text-[var(--spider-dark)] text-sm font-semibold px-4 py-1.5 rounded-md hover:opacity-90">Close</button></div></div></div> )}
-                 <AboutModal show={showAboutModal} onClose={() => setShowAboutModal(false)} />
-                 <ExampleModal show={showExampleModal} example={currentExample} onClose={() => setShowExampleModal(false)} />
-                 <PrivacyModal show={showPrivacyModal} onClose={() => setShowPrivacyModal(false)} />
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('```')) {
+        if (!isCodeBlock) {
+          if (currentContent.length > 0) { rawBlocks.push({ type: 'text', content: currentContent.join('\n') }); currentContent = []; }
+          isCodeBlock = true; currentLang = trimmed.substring(3).trim();
+        } else {
+          rawBlocks.push({ type: 'code', lang: currentLang, content: currentContent.join('\n') }); currentContent = []; isCodeBlock = false; currentLang = '';
+        }
+      } else currentContent.push(line);
+    }
+    if (currentContent.length > 0) rawBlocks.push({ type: isCodeBlock ? 'code' : 'text', lang: currentLang, content: currentContent.join('\n') });
+
+    const mergedBlocks = [];
+    for (const block of rawBlocks) {
+      if (block.type === 'text' && !block.content.trim()) continue;
+      const lb = mergedBlocks[mergedBlocks.length - 1];
+      if (block.type === 'code' && lb?.type === 'code' && lb.lang === block.lang) lb.content += '\n' + block.content;
+      else mergedBlocks.push(block);
+    }
+
+    let cbc = 0;
+    return mergedBlocks.map((block, index) => {
+      if (block.type === 'code') return renderCodeBlock(block.content, block.lang, `${msgIndex}_${cbc++}`);
+      const tc = block.content.trim();
+      if (!tc) return null;
+
+      const mt = {}; let mi = 0;
+      let processed = tc.replace(/(\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\])/g, (match) => {
+        const math = match.replace(/^\$\$|\$\$$/g, '').replace(/^\\\[|\\\]$/g, '').trim();
+        const token = `___MB_${mi}___`;
+        let rendered = `<div class="font-serif text-[#00E5FF] text-center my-4">${math}</div>`;
+        if (katexLoaded && window.katex) { try { rendered = `<div class="my-5 overflow-x-auto text-center">${window.katex.renderToString(math, { displayMode: true, throwOnError: true })}</div>`; } catch (e) { rendered = `<div class="text-red-400 text-center my-2 text-sm">[Math Error]</div>`; } }
+        mt[token] = rendered; mi++; return token;
+      });
+      processed = processed.replace(/(\$[^$\n]+\$|\\\([^()]+\\\))/g, (match) => {
+        const math = match.replace(/^\$|\$$/g, '').replace(/^\\\(|\\\)$/g, '').trim();
+        const token = `___MI_${mi}___`;
+        let rendered = `<span class="font-serif italic text-[#00E5FF]">${math}</span>`;
+        if (katexLoaded && window.katex) { try { rendered = `<span class="inline-block px-1">${window.katex.renderToString(math, { displayMode: false, throwOnError: true })}</span>`; } catch {} }
+        mt[token] = rendered; mi++; return token;
+      });
+
+      let html = processed.replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/\*\*(.*?)\*\*/g, '<strong class="text-white font-semibold">$1</strong>')
+        .replace(/\*(.*?)\*/g, '<em class="text-gray-300 italic">$1</em>')
+        .replace(/`([^`\n]+)`/g, '<code class="bg-[#194A4A]/50 text-[#00E5FF] px-1.5 py-0.5 rounded-md font-mono text-[13px] break-words">$1</code>')
+        .replace(/^ {0,3}###\s+(.*)$/gm, '<h3 class="text-lg font-bold text-[#00E5FF] mt-5 mb-2">$1</h3>')
+        .replace(/^ {0,3}##\s+(.*)$/gm, '<h2 class="text-xl font-bold text-white mt-6 mb-3 border-b border-[#194A4A] pb-2">$1</h2>')
+        .replace(/^ {0,3}#\s+(.*)$/gm, '<h1 class="text-2xl font-bold text-[#00E5FF] mt-6 mb-4">$1</h1>');
+
+      for (let i = 0; i < mi; i++) { html = html.replace(`___MB_${i}___`, mt[`___MB_${i}___`] || '').replace(`___MI_${i}___`, mt[`___MI_${i}___`] || ''); }
+      return <div key={index} className="whitespace-pre-wrap break-words leading-relaxed w-full min-w-0 max-w-full" dangerouslySetInnerHTML={{ __html: html }} />;
+    }).filter(Boolean);
+  }, [katexLoaded, renderCodeBlock]);
+
+  const getImageSrc = useCallback((data) => {
+    if (!data) return '';
+    if (data.startsWith('http') || data.startsWith('data:')) return data;
+    return `data:image/png;base64,${data}`;
+  }, []);
+
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // MEMOIZED VALUES
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+  const modeInfo = useMemo(() => {
+    if (forceMode === 'image_gen') return { icon: <Wand2 size={16} />, text: 'Image Generation', color: 'text-[#FFD700]' };
+    if (forceMode === 'image_edit') return { icon: <Wand2 size={16} />, text: 'Image Edit', color: 'text-[#FF6B6B]' };
+    if (forceMode === 'video_gen') return { icon: <Film size={16} />, text: `Video ${aspectRatio}`, color: 'text-[#7CE7FF]' };
+    if (selectedAIMode === 'pro') return { icon: <Zap size={16} className="fill-[#FFD700] text-[#FFD700]" />, text: 'Pro Mode', color: 'text-[#FFD700]', isPro: true };
+    if (selectedAIMode === 'reasoning') return { icon: <Brain size={16} />, text: 'Reasoning', color: 'text-[#00E5FF]' };
+    if (uploadedImages.length > 0) return { icon: <Eye size={16} />, text: `${uploadedImages.length} image(s)`, color: 'text-[#00E5FF]' };
+    if (uploadedFiles.length > 0) return { icon: <FileUp size={16} />, text: `${uploadedFiles.length} file(s)`, color: 'text-[#00E5FF]' };
+    return { icon: <MessageCircle size={16} className="fill-[#00E5FF]" />, text: 'Chat', color: 'text-[#00E5FF]' };
+  }, [aspectRatio, forceMode, selectedAIMode, uploadedImages.length, uploadedFiles.length]);
+
+  const visibleAuthUser = authUser || authSnapshot;
+  const visibleUserName = visibleAuthUser?.displayName || visibleAuthUser?.email || (authReady ? 'Spider User' : 'Loading account...');
+  const visibleUserPlan = visibleAuthUser ? 'M4 Spider account' : (authReady ? 'Guest chat mode' : 'Restoring session...');
+  const visibleUserInitial = visibleAuthUser?.displayName?.[0]?.toUpperCase() || visibleAuthUser?.email?.[0]?.toUpperCase() || (authReady ? 'S' : '.');
+
+  const handleChatSelect = useCallback((chat) => {
+    const latestChat = chatsRef.current.find(c => c.id === chat.id) || chat;
+    setCurrentChatId(latestChat.id);
+    setChatHistory(latestChat.messages || []);
+    setShowContinueButton(false);
+    setStreamingMessage(null);
+    setForceMode(null);
+    setActiveAIMode(null);
+  }, []);
+  const handleChatSelectMobile = useCallback((chat) => { handleChatSelect(chat); setIsMobileSidebarOpen(false); }, [handleChatSelect]);
+
+  const handleKeyDown = useCallback((e) => {
+    if (settings.sendWithEnter && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); }
+    else if (!settings.sendWithEnter && e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); handleSendMessage(); }
+  }, [handleSendMessage, settings.sendWithEnter]);
+
+  const hasUploads = uploadedFiles.length > 0 || uploadedImages.length > 0;
+  const totalUploads = uploadedFiles.length + uploadedImages.length;
+  const canSend = !isLoading && (message.trim() || uploadedFiles.length > 0 || uploadedImages.length > 0);
+
+  const placeholderText = useMemo(() => {
+    if (isListening) return 'Listening...';
+    if (forceMode === 'image_gen') return 'Describe the image...';
+    if (forceMode === 'video_gen') return 'Describe the video shot, camera movement, and mood...';
+    if (selectedAIMode === 'pro') return 'Message Spider AI Pro...';
+    return `Message Spider AI...`;
+  }, [isListening, forceMode, selectedAIMode]);
+
+  const applyStarterTemplate = useCallback((template) => {
+    setMessage(template.prompt);
+    if (template.aiMode === 'pro') {
+      setSelectedAIMode('pro');
+    } else {
+      setSelectedAIMode(prev => prev === 'pro' ? 'chat' : prev);
+    }
+    if (template.mode === 'image_gen') {
+      setForceMode('image_gen');
+    } else if (template.mode === 'image_edit') {
+      setForceMode('image_edit');
+    } else if (template.mode === 'video_gen') {
+      setForceMode('video_gen');
+    } else {
+      setForceMode(null);
+    }
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+    });
+  }, [setSelectedAIMode, setForceMode]);
+
+  const inputWrapperClass = useMemo(() => {
+    const base = 'flex-1 rounded-xl flex items-end px-3 md:px-4 py-2 border transition-colors min-w-0';
+    if (selectedAIMode === 'pro') return `${base} bg-[#1A2A1A] border-[#FFD700]/20 focus-within:border-[#FFD700]/50`;
+    if (forceMode) return `${base} bg-[#1A1A2A] border-[#FF6B6B]/20 focus-within:border-[#FF6B6B]/50`;
+    return `${base} bg-[#133838] border-transparent focus-within:border-[#194A4A]`;
+  }, [selectedAIMode, forceMode]);
+
+  const fontSizeClass = useMemo(() => {
+    const map = { small: 'text-[13px]', medium: 'text-[14px] md:text-[15px]', large: 'text-[16px] md:text-[17px]' };
+    return map[settings.fontSize] || map.medium;
+  }, [settings.fontSize]);
+  const composerFontSizeClass = useMemo(() => {
+    const map = { small: 'text-[13px]', medium: 'text-sm', large: 'text-[16px]' };
+    return map[settings.fontSize] || map.medium;
+  }, [settings.fontSize]);
+
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // SIDEBAR CHAT GROUP RENDERER
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  const renderChatGroup = (label, chatsArr, onSelect, icon) => {
+    if (chatsArr.length === 0) return null;
+    return (
+      <div className="mb-3">
+        <h3 className="text-[11px] text-[#529E98] font-semibold tracking-wider mb-1.5 px-2 nav-item flex items-center gap-1.5 uppercase">
+          {icon} {label}
+        </h3>
+        {chatsArr.map(chat => {
+          const isPinned = pinnedChats.includes(chat.id);
+          const isActive = currentChatId === chat.id;
+          return (
+            <div key={chat.id} className="relative group">
+              <div onClick={() => onSelect(chat)}
+                onContextMenu={(e) => { e.preventDefault(); setChatContextMenu({ chatId: chat.id, x: e.clientX, y: e.clientY }); }}
+                className={`nav-item cursor-pointer rounded-lg px-3 py-2 mx-1 transition-all flex items-center gap-2 ${isActive ? 'bg-[#194040]' : 'hover:bg-[#194040]/50'}`}>
+                {isPinned && <Pin size={10} className="text-[#FFD700] shrink-0" />}
+                <span className={`text-sm truncate flex-1 ${isActive ? 'text-white font-medium' : 'text-gray-300'}`}>{chat.title}</span>
+                <button onClick={(e) => { e.stopPropagation(); setChatContextMenu({ chatId: chat.id, x: e.clientX, y: e.clientY }); }}
+                  className="sidebar-btn opacity-0 group-hover:opacity-100 text-[#529E98] hover:text-white p-0.5 rounded transition-opacity shrink-0">
+                  <MoreHorizontal size={14} />
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // SIDEBAR CONTENT (ChatGPT style layout)
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  const renderSidebarContent = (onChatSelect, closeSidebar) => (
+    <div className="flex flex-col h-full">
+      {/* === TOP NAV SECTION (like ChatGPT) === */}
+      <div className="p-3 space-y-0.5">
+        {/* New Chat */}
+        <button onClick={handleNewChat}
+          className="sidebar-nav-btn font-medium">
+          <Plus size={18} className="text-[#529E98]" /> New chat
+        </button>
+
+        <button
+          onClick={() => { setActiveWorkspace('notebook'); closeSidebar?.(); }}
+          className={`sidebar-nav-btn font-medium ${activeWorkspace === 'notebook' ? 'active text-[#00E5FF]' : ''}`}
+        >
+          <Code size={18} className="text-[#529E98]" /> Spider Notebook
+        </button>
+
+        {/* Search chats */}
+        <button onClick={() => { setIsSearchOpen(true); setTimeout(() => searchInputRef.current?.focus(), 100); }}
+          className="sidebar-nav-btn">
+          <Search size={18} className="text-[#529E98]" /> Search chats
+          <span className="ml-auto text-[10px] text-[#529E98] bg-[#194040] px-1.5 py-0.5 rounded hidden md:inline">Cmd+K</span>
+        </button>
+
+        {/* Spider Lens */}
+        <button onClick={openLens} className="sidebar-nav-btn">
+          <Camera size={18} className="text-[#529E98]" /> Spider Lens
+        </button>
+
+        {/* Projects (Upload Folder) */}
+        <button onClick={() => folderInputRef.current?.click()} className="sidebar-nav-btn">
+          <FolderOpen size={18} className="text-[#529E98]" /> Projects
+        </button>
+      </div>
+
+      <div className="h-px bg-[#194040] mx-3" />
+
+      {/* === SEARCH BAR (shown when search is open) === */}
+      {isSearchOpen && (
+        <div className="p-3 pb-1">
+          <div className="flex items-center gap-2 bg-[#091E1E] border border-[#194A4A] rounded-lg px-3 py-2 focus-within:border-[#00E5FF]/50 transition-colors">
+            <Search size={14} className="text-[#529E98] shrink-0" />
+            <input ref={searchInputRef} type="text" value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search chats..."
+              className="bg-transparent text-sm text-white placeholder-[#529E98] outline-none w-full" />
+            {searchQuery && <button onClick={() => setSearchQuery('')} className="sidebar-btn text-[#529E98] hover:text-white shrink-0"><X size={12} /></button>}
+            <button onClick={() => { setIsSearchOpen(false); setSearchQuery(''); }} className="sidebar-btn text-[#529E98] hover:text-white shrink-0"><X size={14} /></button>
+          </div>
+          {searchQuery && (
+            <div className="flex gap-1 mt-2 flex-wrap">
+              {[{ id: 'all', label: 'All' }, { id: 'today', label: 'Today' }, { id: 'week', label: 'Week' }, { id: 'month', label: 'Month' }].map(f => (
+                <button key={f.id} onClick={() => setSearchFilter(f.id)}
+                  className={`sidebar-btn px-2 py-1 rounded text-[10px] font-medium transition-all ${searchFilter === f.id ? 'bg-[#00E5FF] text-black' : 'bg-[#194A4A] text-[#529E98] hover:text-white'}`}>
+                  {f.label}
+                </button>
+              ))}
+              <span className="text-[10px] text-[#529E98] self-center ml-1">{filteredChats.length} results</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* === CHAT LIST === */}
+      <div className="flex-1 overflow-y-auto px-2 py-2 custom-scrollbar">
+        {renderChatGroup('Pinned', groupedChats.pinned, onChatSelect, <Pin size={10} className="text-[#FFD700]" />)}
+        {renderChatGroup('Today', groupedChats.today, onChatSelect, null)}
+        {renderChatGroup('Yesterday', groupedChats.yesterday, onChatSelect, null)}
+        {renderChatGroup('Previous 7 Days', groupedChats.week, onChatSelect, null)}
+        {renderChatGroup('Previous 30 Days', groupedChats.month, onChatSelect, null)}
+        {renderChatGroup('Older', groupedChats.older, onChatSelect, null)}
+
+        {chatRestoreReady && chats.length === 0 && (
+          <div className="text-sm text-[#529E98] italic px-4 py-8 text-center">
+            No chats yet. Start a conversation!
+          </div>
+        )}
+      </div>
+
+      {/* === BOTTOM SECTION (like ChatGPT: user, settings, etc.) === */}
+      <div className="border-t border-[#194040] p-2 space-y-0.5">
+        {/* User Profile Button */}
+        <div className="relative">
+          <button onClick={() => setShowUserMenu(prev => !prev)}
+            className="sidebar-bottom-btn w-full">
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#00E5FF] to-[#194A4A] flex items-center justify-center text-white font-bold text-sm shrink-0">
+              {visibleUserInitial}
+            </div>
+            <div className="flex-1 text-left min-w-0">
+              <div className="text-sm text-gray-200 font-medium truncate">{visibleUserName}</div>
+              <div className="text-[10px] text-[#529E98]">{visibleUserPlan}</div>
+            </div>
+            <MoreHorizontal size={16} className="text-[#529E98] shrink-0" />
+          </button>
+
+          {/* User Dropdown Menu */}
+          {showUserMenu && (
+            <>
+              <div className="fixed inset-0 z-[55]" onClick={() => setShowUserMenu(false)} />
+              <div className="absolute bottom-full left-2 right-2 mb-1 bg-[#0B2A2A] border border-[#194A4A] rounded-xl shadow-[0_-10px_40px_rgba(0,0,0,0.5)] overflow-hidden z-[60] py-1 animate-slide-up">
+                <button onClick={() => { setShowSettings(true); setShowUserMenu(false); }}
+                  className="sidebar-bottom-btn w-full">
+                  <Settings size={16} className="text-[#529E98]" /> Settings
+                  <span className="ml-auto text-[10px] text-[#529E98] bg-[#194040] px-1.5 py-0.5 rounded hidden md:inline">Cmd+,</span>
+                </button>
+
+                <button onClick={() => { setShowSettings(true); setSettingsTab('help'); setShowUserMenu(false); }} className="sidebar-bottom-btn w-full">
+                  <HelpCircle size={16} className="text-[#529E98]" /> Help & FAQ
+                  <ChevronRight size={14} className="ml-auto text-[#529E98]" />
+                </button>
+
+                <button onClick={() => {
+                  if (authUser) handleAuthSignOut();
+                  else openAuthGate('Unlock image, video, and Pro tools');
+                }} className="sidebar-bottom-btn w-full">
+                  {authUser ? <LogOut size={16} className="text-[#529E98]" /> : <User size={16} className="text-[#529E98]" />}
+                  {authUser ? 'Sign out' : 'Sign in'}
+                </button>
+
+                <div className="h-px bg-[#194040] mx-2 my-1" />
+
+                <button onClick={() => { setConfirmDelete({ type: 'all' }); setShowUserMenu(false); }}
+                  className="sidebar-bottom-btn w-full text-red-400 hover:text-red-300">
+                  <Trash2 size={16} /> Clear all chats
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // SETTINGS MODAL (ChatGPT style - centered overlay with left tabs)
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  const renderSettings = () => {
+    if (!showSettings) return null;
+
+    const tabs = [
+      { id: 'general', label: 'General', icon: <Settings size={16} /> },
+      { id: 'appearance', label: 'Appearance', icon: <Palette size={16} /> },
+      { id: 'chat', label: 'Chat', icon: <MessageSquare size={16} /> },
+      { id: 'data', label: 'Data controls', icon: <Database size={16} /> },
+      { id: 'help', label: 'Help & FAQ', icon: <HelpCircle size={16} /> },
+    ];
+
+    const SettingToggle = ({ label, desc, value, onChange }) => (
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between py-4 border-b border-[#194040]/50 last:border-0">
+        <div className="pr-0 sm:pr-4">
+          <div className="text-sm font-medium text-gray-200">{label}</div>
+          {desc && <div className="text-xs text-[#529E98] mt-0.5">{desc}</div>}
+        </div>
+        <button onClick={() => onChange(!value)}
+          className={`sidebar-btn w-11 h-6 rounded-full transition-all relative shrink-0 self-start sm:self-center ${value ? 'bg-[#00E5FF]' : 'bg-[#194A4A]'}`}>
+          <div className={`w-5 h-5 rounded-full bg-white shadow-md absolute top-0.5 transition-all ${value ? 'left-5' : 'left-0.5'}`} />
+        </button>
+      </div>
+    );
+
+    const SettingSelect = ({ label, desc, value, options, onChange }) => (
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between py-4 border-b border-[#194040]/50 last:border-0">
+        <div className="pr-0 sm:pr-4">
+          <div className="text-sm font-medium text-gray-200">{label}</div>
+          {desc && <div className="text-xs text-[#529E98] mt-0.5">{desc}</div>}
+        </div>
+        <select value={value} onChange={(e) => onChange(e.target.value)}
+          className="bg-[#133838] border border-[#194A4A] text-gray-200 text-sm rounded-lg px-3 py-2 outline-none focus:border-[#00E5FF]/50 cursor-pointer min-w-[170px] max-w-full">
+          {options.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+        </select>
+      </div>
+    );
+
+    const FaqItem = ({ title, body }) => (
+      <div className="rounded-2xl border border-[#194040] bg-[#091E1E] p-4">
+        <div className="text-sm font-semibold text-white mb-2">{title}</div>
+        <p className="text-xs leading-6 text-[#7AB7B3] whitespace-pre-line">{body}</p>
+      </div>
+    );
+
+    return (
+      <div className="fixed inset-0 z-[95] flex items-start md:items-center justify-center bg-black/60 backdrop-blur-sm p-0 md:p-4 overflow-hidden" onClick={() => setShowSettings(false)}>
+        <div className="settings-dialog bg-[#0F2B2B] border-0 md:border border-[#194A4A] rounded-none md:rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.8)] animate-scale-in overflow-hidden grid grid-rows-[auto_1fr] md:grid-rows-1 md:grid-cols-[220px_minmax(0,1fr)] pt-[max(env(safe-area-inset-top),0px)]"
+          onClick={(e) => e.stopPropagation()}>
+
+          {/* Left Tab Navigation */}
+          <div className="border-b md:border-b-0 md:border-r border-[#194040] bg-[#0A2222] min-h-0">
+            <div className="hidden md:flex items-center justify-between px-4 py-4 border-b border-[#194040]">
+                <h2 className="text-base font-bold text-white">Settings</h2>
+                <button onClick={() => setShowSettings(false)} className="sidebar-btn text-[#529E98] hover:text-white p-1 rounded-lg hover:bg-[#194040]">
+                  <X size={18} />
+                </button>
+              </div>
+            <div className="hidden md:flex md:flex-col overflow-x-auto md:overflow-x-visible p-2 md:p-3 gap-1">
+              {tabs.map(tab => (
+                <button key={tab.id} onClick={() => setSettingsTab(tab.id)}
+                  className={`sidebar-btn flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap md:w-full text-left ${
+                    settingsTab === tab.id ? 'bg-[#194040] text-white' : 'text-[#9ca3af] hover:bg-[#194040]/50 hover:text-gray-200'
+                  }`}>
+                  {tab.icon} {tab.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Right Content */}
+          <div className="min-w-0 min-h-0 flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between px-4 md:px-6 py-4 border-b border-[#194040] bg-[#102B2B]/60 shrink-0">
+              <div>
+                <h2 className="text-base md:text-lg font-bold text-white">Settings</h2>
+                <p className="text-xs text-[#529E98] mt-0.5 capitalize">{settingsTab === 'data' ? 'Data controls' : settingsTab === 'help' ? 'Help & FAQ' : settingsTab}</p>
+              </div>
+              <button onClick={() => setShowSettings(false)} className="sidebar-btn text-[#529E98] hover:text-white p-1.5 rounded-lg hover:bg-[#194040]"><X size={18} /></button>
+            </div>
+
+            <div className="md:hidden px-4 py-3 border-b border-[#194040] bg-[#0D2525] shrink-0">
+              <label className="block text-[11px] font-semibold uppercase tracking-wide text-[#529E98] mb-2">Section</label>
+              <select
+                value={settingsTab}
+                onChange={(e) => setSettingsTab(e.target.value)}
+                className="w-full bg-[#133838] border border-[#194A4A] text-gray-200 text-sm rounded-xl px-3 py-3 outline-none focus:border-[#00E5FF]/50"
+              >
+                {tabs.map(tab => (
+                  <option key={tab.id} value={tab.id}>{tab.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 md:px-6 py-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] custom-scrollbar">
+              {settingsTab === 'general' && (
+                <div>
+                  <SettingToggle label="Send with Enter" desc="Press Enter to send, Shift+Enter for new line" value={settings.sendWithEnter} onChange={(v) => updateSetting('sendWithEnter', v)} />
+                  <SettingToggle label="Auto-scroll" desc="Automatically scroll to new messages" value={settings.autoScroll} onChange={(v) => updateSetting('autoScroll', v)} />
+                  <SettingToggle label="Sound effects" desc="Play sounds for notifications" value={settings.soundEnabled} onChange={(v) => updateSetting('soundEnabled', v)} />
+                  <SettingToggle label="Show timestamps" desc="Display time for each message" value={settings.showTimestamps} onChange={(v) => updateSetting('showTimestamps', v)} />
+                  <SettingSelect label="Default AI Mode" value={settings.defaultMode} onChange={(v) => updateSetting('defaultMode', v)}
+                    options={[{ value: 'chat', label: 'Chat' }, { value: 'pro', label: 'Pro' }, { value: 'reasoning', label: 'Reasoning' }]} />
+                </div>
+              )}
+
+              {settingsTab === 'appearance' && (
+                <div>
+                  <SettingSelect label="Font size" value={settings.fontSize} onChange={(v) => updateSetting('fontSize', v)}
+                    options={[{ value: 'small', label: 'Small' }, { value: 'medium', label: 'Medium' }, { value: 'large', label: 'Large' }]} />
+                  <SettingToggle label="Compact mode" desc="Reduce spacing between messages" value={settings.compactMode} onChange={(v) => updateSetting('compactMode', v)} />
+                  <SettingToggle label="Code line numbers" desc="Show line numbers in code blocks" value={settings.codeLineNumbers} onChange={(v) => updateSetting('codeLineNumbers', v)} />
+                  <SettingToggle label="Code word wrap" desc="Wrap long lines in code blocks" value={settings.codeWordWrap} onChange={(v) => updateSetting('codeWordWrap', v)} />
+                </div>
+              )}
+
+              {settingsTab === 'chat' && (
+                <div>
+                  <SettingSelect label="Streaming speed" value={settings.streamingSpeed} onChange={(v) => updateSetting('streamingSpeed', v)}
+                    options={[{ value: 'slow', label: 'Slow' }, { value: 'normal', label: 'Normal' }, { value: 'fast', label: 'Fast' }]} />
+
+                  <div className="py-4 border-b border-[#194040]/50">
+                    <div className="text-sm font-medium text-gray-200 mb-3">Chat statistics</div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="bg-[#091E1E] rounded-lg p-3 text-center">
+                        <div className="text-2xl font-bold text-[#00E5FF]">{chats.length}</div>
+                        <div className="text-xs text-[#529E98] mt-1">Total Chats</div>
+                      </div>
+                      <div className="bg-[#091E1E] rounded-lg p-3 text-center">
+                        <div className="text-2xl font-bold text-[#00E5FF]">{chats.reduce((s, c) => s + (c.messages?.length || 0), 0)}</div>
+                        <div className="text-xs text-[#529E98] mt-1">Total Messages</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {settingsTab === 'data' && (
+                <div>
+                  <SettingToggle label="Save chat history" desc="Store conversations locally in your browser" value={settings.saveHistory} onChange={(v) => updateSetting('saveHistory', v)} />
+
+                  <div className="py-4 border-b border-[#194040]/50">
+                    <div className="text-sm font-medium text-gray-200 mb-1">Export all chats</div>
+                    <div className="text-xs text-[#529E98] mb-3">Download all your conversations as a text file</div>
+                    <button onClick={() => {
+                      const all = chats.map(c => { const msgs = (c.messages || []).map(m => `[${m.role === 'user' ? 'You' : 'AI'}] ${m.content}`).join('\n\n'); return `=== ${c.title} ===\n${msgs}`; }).join('\n\n' + '='.repeat(50) + '\n\n');
+                      downloadFile('spider_ai_chats.txt', all); showModal('Exported', 'All chats exported.');
+                    }} className="sidebar-btn flex items-center gap-2 px-4 py-2 bg-[#194A4A] text-[#00E5FF] rounded-lg hover:bg-[#00E5FF] hover:text-black transition-colors text-sm font-medium">
+                      <Download size={14} /> Export
+                    </button>
+                  </div>
+
+                  <div className="py-4">
+                    <div className="text-sm font-medium text-red-400 mb-1 flex items-center gap-2"><AlertTriangle size={14} /> Danger zone</div>
+                    <div className="text-xs text-red-300/60 mb-3">These actions cannot be undone</div>
+                    <div className="flex gap-2 flex-wrap">
+                      <button onClick={() => setConfirmDelete({ type: 'all' })}
+                        className="sidebar-btn flex items-center gap-2 px-4 py-2 bg-red-500/15 text-red-400 rounded-lg hover:bg-red-500/25 transition-colors text-sm font-medium border border-red-500/20">
+                        <Trash2 size={14} /> Delete all chats
+                      </button>
+                      <button onClick={resetSettings}
+                        className="sidebar-btn flex items-center gap-2 px-4 py-2 bg-red-500/15 text-red-400 rounded-lg hover:bg-red-500/25 transition-colors text-sm font-medium border border-red-500/20">
+                        <RefreshCw size={14} /> Reset settings
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {settingsTab === 'help' && (
+                <div className="space-y-4">
+                  <div className="rounded-2xl border border-[#194040] bg-gradient-to-br from-[#102B2B] to-[#091E1E] p-5">
+                    <div className="flex items-center gap-2 text-[#00E5FF] mb-2">
+                      <HelpCircle size={16} />
+                      <span className="text-sm font-semibold">Spider AI Help Center</span>
+                    </div>
+                    <p className="text-sm leading-6 text-[#7AB7B3]">
+                      This section explains how Spider AI works today from a user-facing point of view without exposing private implementation details.
+                    </p>
+                    <a
+                      href={LEGAL_PAGE_PATH}
+                      className="mt-4 inline-flex items-center gap-2 rounded-xl border border-[#194A4A] bg-[#133838] px-3 py-2 text-xs font-semibold text-[#00E5FF] hover:bg-[#194A4A]"
+                    >
+                      <Shield size={14} />
+                      Privacy, Terms & Licenses page
+                    </a>
+                  </div>
+
+                  <FaqItem
+                    title="Why is video generation slow?"
+                    body={`Video jobs are slow mainly because video generation is one of the heaviest features in the app.\n\nA single request can involve:\n- prompt preparation\n- generation warmup\n- multi-frame rendering\n- optional finishing or export\n\nSo the main delay is generation work itself, not just the chat UI.`}
+                  />
+
+                  <FaqItem
+                    title="Is my data safe?"
+                    body={`Mostly yes, with a few clear boundaries.\n\nCurrent app behavior:\n- chats and settings can be stored locally in your browser for continuity\n- sign-in uses a hosted authentication provider\n- prompts and generation requests may be processed by connected AI services so results can be produced\n\nThat means some data stays on your device for convenience, while generation requests still go to the services used by the app.`}
+                  />
+
+                  <FaqItem
+                    title="From where is this app running?"
+                    body={`Spider AI runs as a web app connected to AI services for chat, image, and video features.\n\nDepending on deployment, generation can use cloud services, local runtimes, or a hybrid setup managed by the app owner.\n\nFrom a user point of view, Spider AI is a web-based AI product connected to the services needed to produce results.`}
+                  />
+
+                  <FaqItem
+                    title="What is the difference between Fast, Balanced, and Quality?"
+                    body={`Fast\n- optimized for speed\n- lighter output path\n- best for quick previews and testing ideas\n\nBalanced\n- middle ground between speed and visual detail\n- better polish than Fast\n- good default for everyday use\n\nQuality\n- prioritizes cleaner final output\n- can take longer than the other modes\n- best when output quality matters more than turnaround time\n\nSo the difference is generation budget and finishing behavior, not just a renamed button.`}
+                  />
+
+                  <FaqItem
+                    title="Why do prompt understanding and quality sometimes vary?"
+                    body={`The current video model is powerful but still variable. The same prompt can look realistic once, then softer or more stylized on another run because of seed variance, prompt phrasing, duration, and model instability.\n\nBest results usually come from:\n- Shorter, clearer prompts\n- Fewer mixed ideas in one scene\n- Shorter durations for the cleanest clips\n- Using Balanced or Quality when you need more detail`}
+                  />
+
+                  <FaqItem
+                    title="Why do some tools ask me to log in?"
+                    body={`Free chat stays open without login.\n\nYour current UI only gates these tools behind sign-in:\n- Spider AI Pro\n- Create Image\n- Edit Image\n- Create Video\n\nThat is there to reduce spam and protect the heavier generation endpoints.`}
+                  />
+
+                  <FaqItem
+                    title="How to get the best video prompts"
+                    body={`The current video pipeline responds best to direct visual prompts instead of very long story paragraphs.\n\nBest format:\n- subject\n- action\n- environment\n- camera style\n- lighting or mood\n\nGood example:\nIron Man and Doctor Doom fighting in a destroyed science lab, realistic live action, cinematic sparks, handheld camera, dramatic blue-orange lighting, aggressive movement.\n\nWhat usually hurts results:\n- too many story beats in one prompt\n- long dialogue-heavy paragraphs\n- mixing many camera changes at once\n- asking for a very long scene in one shot`}
+                  />
+
+                  <FaqItem
+                    title="Why Pro exists"
+                    body={`Spider AI Pro exists to protect heavier AI features and keep the free chat experience lighter.\n\nWhy it exists:\n- to reduce spam on expensive generation features\n- to separate heavier requests from casual chat use\n- to keep free chat open without forcing every user into sign-in first\n\nSo Pro is part of the app's access and protection model, not just a visual badge.`}
+                  />
+
+                  <FaqItem
+                    title="Troubleshooting failed generations"
+                    body={`If image or video generation fails, these are the most likely reasons in the current app:\n\nVideo issues\n- video system not ready\n- backend disconnected\n- missing model files or redownload in progress\n- long jobs still queued behind another active job\n\nImage issues\n- model fallback path unavailable\n- temporary backend issue\n- prompt or image-edit model unavailable\n\nQuick things to try:\n- retry with a shorter prompt\n- switch to Fast first to test the pipeline\n- refresh and submit again after the backend reconnects\n- check if the video system says connected\n- sign in again if a gated tool stops unexpectedly\n\nIf a job reaches completed status but media does not open, it is usually a returned file path or preview issue rather than the whole generation failing.`}
+                  />
+                </div>
+              )}
 
             </div>
-        </>
+          </div>
+        </div>
+      </div>
     );
+  };
+
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // JSX
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+  const rootShellClass = isIPhone
+    ? 'iphone-shell'
+    : isAndroid
+      ? 'android-shell'
+      : 'h-screen';
+  const platformMainClass = isIPhone ? 'iphone-main' : isAndroid ? 'android-main' : '';
+  const platformHeaderClass = isIPhone ? 'iphone-mobile-header' : isAndroid ? 'android-mobile-header' : '';
+  const platformInputClass = isIPhone ? 'iphone-input-bar' : isAndroid ? 'android-input-bar' : '';
+  const platformSidebarClass = isIPhone ? 'iphone-sidebar' : isAndroid ? 'android-sidebar' : '';
+  const platformScrollClass = isIPhone ? 'iphone-scroll-lock' : isAndroid ? 'android-scroll-lock' : '';
+  const starterGridClass = 'grid grid-cols-2 gap-2 md:grid-cols-2 xl:grid-cols-3 md:gap-3 text-left';
+const starterCardClass = 'px-3 py-3 md:px-5 md:py-5 min-h-[148px] sm:min-h-[160px] md:min-h-[184px]';
+const starterTitleClass = 'text-[13px] md:text-[15px]';
+const starterBadgeClass = 'text-[9px] md:text-[10px]';
+const showStarterPromptText = true;
+
+  return (
+    <div className={`flex w-full bg-[#091E1E] text-white font-sans overflow-hidden ${rootShellClass}`}
+      onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop} ref={dropZoneRef}>
+      <style>{GLOBAL_STYLES}</style>
+
+      {/* DRAG OVERLAY */}
+      {isDragging && (
+        <div className="fixed inset-0 z-[80] bg-[#091E1E]/90 backdrop-blur-sm flex items-center justify-center pointer-events-none">
+          <div className="border-4 border-dashed border-[#00E5FF] rounded-3xl p-16 drag-active">
+            <FileUp size={64} className="text-[#00E5FF] mx-auto mb-4" />
+            <p className="text-2xl font-bold text-[#00E5FF] text-center">Drop files here</p>
+          </div>
+        </div>
+      )}
+
+      {/* TOAST MODAL */}
+      {modalInfo && (
+        <div className="fixed top-6 right-6 z-[100] bg-[#0B2A2A] border border-[#194A4A] rounded-xl shadow-[0_10px_40px_rgba(0,0,0,0.6)] p-4 max-w-sm animate-slide-up">
+          <div className="flex items-center justify-between mb-1">
+            <h4 className="text-sm font-bold text-[#00E5FF]">{modalInfo.title}</h4>
+            <button onClick={() => setModalInfo(null)} className="text-[#529E98] hover:text-white"><X size={14} /></button>
+          </div>
+          <p className="text-xs text-gray-300">{modalInfo.text}</p>
+        </div>
+      )}
+
+      {/* CONFIRM DELETE */}
+      {confirmDelete && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-[#0B2A2A] border border-red-500/30 rounded-2xl w-full max-w-sm shadow-[0_20px_60px_rgba(0,0,0,0.8)] animate-scale-in p-6 text-center">
+            <div className="w-14 h-14 rounded-full bg-red-500/20 flex items-center justify-center mx-auto mb-4"><Trash2 size={24} className="text-red-400" /></div>
+            <h3 className="text-lg font-bold text-white mb-2">
+              {confirmDelete.type === 'all' ? 'Delete All Chats?' : confirmDelete.type === 'message' ? 'Delete Message?' : 'Delete Chat?'}
+            </h3>
+            <p className="text-sm text-[#529E98] mb-6">
+              {confirmDelete.type === 'all'
+                ? `This will permanently delete all ${chats.length} chats.`
+                : confirmDelete.type === 'message'
+                  ? 'This message will be permanently deleted.'
+                  : 'This chat will be permanently deleted.'}
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setConfirmDelete(null)} className="sidebar-btn flex-1 px-4 py-2.5 bg-[#194A4A] text-white rounded-xl font-medium hover:bg-[#1A5A5A]">Cancel</button>
+              <button onClick={() => {
+                if (confirmDelete.type === 'all') handleDeleteAllChats();
+                else if (confirmDelete.type === 'message') confirmDeleteMessage(confirmDelete.messageIndex);
+                else handleDeleteChat(confirmDelete.chatId);
+              }}
+                className="sidebar-btn flex-1 px-4 py-2.5 bg-red-500 text-white rounded-xl font-bold hover:bg-red-600">Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showLegalNotice && (
+        <div className="fixed inset-0 z-[105] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="w-full max-w-2xl rounded-3xl border border-[#194A4A] bg-[#0B2A2A] shadow-[0_20px_60px_rgba(0,0,0,0.8)] overflow-hidden max-h-[min(88vh,720px)] flex flex-col">
+            <div className="border-b border-[#194A4A] bg-gradient-to-r from-[#102B2B] via-[#0B2A2A] to-[#102B2B] px-4 py-4 md:px-6 md:py-5 shrink-0">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-[#194A4A] bg-[#091E1E] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#7CE7FF]">
+                    Privacy / Terms / Licenses
+                  </div>
+                  <h3 className="text-lg font-bold text-white md:text-xl">Before you continue</h3>
+                  <p className="mt-1 text-xs leading-6 text-[#7AB7B3] md:text-sm">
+                    By continuing to use Spider AI, you acknowledge the current privacy notice, terms, and model/framework licensing summary available in Settings.
+                  </p>
+                </div>
+                <button onClick={() => setShowLegalNotice(false)} className="sidebar-btn rounded-lg p-2 text-[#529E98] hover:bg-[#194040] hover:text-white">
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-3 overflow-y-auto px-4 py-4 md:space-y-4 md:px-6 md:py-6">
+              <div className="rounded-2xl border border-[#194040] bg-[#091E1E] p-4">
+                <div className="text-sm font-semibold text-white mb-2">Privacy</div>
+                <ul className="space-y-1 text-[11px] leading-5 text-[#7AB7B3] md:space-y-1.5 md:text-xs md:leading-6">
+                  {LEGAL_SECTIONS.privacy.slice(0, 3).map((item) => <li key={item}>- {item}</li>)}
+                </ul>
+              </div>
+
+              <div className="rounded-2xl border border-[#194040] bg-[#091E1E] p-4">
+                <div className="text-sm font-semibold text-white mb-2">Terms</div>
+                <ul className="space-y-1 text-[11px] leading-5 text-[#7AB7B3] md:space-y-1.5 md:text-xs md:leading-6">
+                  {LEGAL_SECTIONS.terms.slice(0, 3).map((item) => <li key={item}>- {item}</li>)}
+                </ul>
+              </div>
+
+              <div className="flex flex-col gap-3 sm:flex-row pt-1">
+                <button
+                  onClick={() => {
+                    window.location.href = LEGAL_PAGE_PATH;
+                  }}
+                  className="sidebar-btn flex-1 rounded-2xl border border-[#194A4A] bg-[#133838] px-4 py-3 text-sm font-semibold text-[#00E5FF] hover:bg-[#194A4A]"
+                >
+                  Open legal page
+                </button>
+                <button
+                  onClick={acceptLegalNotice}
+                  className="sidebar-btn flex-1 rounded-2xl bg-[#00E5FF] px-4 py-3 text-sm font-bold text-black hover:bg-[#00CCE6]"
+                >
+                  Accept and continue
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAuthGate && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-3xl border border-[#194A4A] bg-[#0B2A2A] shadow-[0_20px_60px_rgba(0,0,0,0.8)] overflow-hidden">
+            <div className="border-b border-[#194A4A] bg-gradient-to-r from-[#102B2B] via-[#0B2A2A] to-[#102B2B] px-6 py-5">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-[#194A4A] bg-[#091E1E] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#7CE7FF]">
+                    M4 Spider
+                  </div>
+                  <h3 className="text-xl font-bold text-white">Sign in to continue</h3>
+                  <p className="mt-1 text-sm text-[#7AB7B3]">
+                    {authIntent || 'Unlock image generation, editing, video, and Pro tools without blocking free chat.'}
+                  </p>
+                </div>
+                <button onClick={() => setShowAuthGate(false)} className="sidebar-btn rounded-lg p-2 text-[#529E98] hover:bg-[#194040] hover:text-white">
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-4 px-6 py-6">
+              <button
+                onClick={handleGoogleSignIn}
+                disabled={authBusy}
+                className="sidebar-btn flex w-full items-center justify-center gap-3 rounded-2xl border border-[#194A4A] bg-white px-4 py-3 text-sm font-semibold text-black hover:bg-[#EAFBFF] disabled:opacity-60"
+              >
+                {authBusy ? <Loader2 size={16} className="animate-spin" /> : <GoogleMark size={18} />}
+                Continue with Google
+              </button>
+
+              <div className="flex items-center gap-3 text-xs text-[#529E98]">
+                <div className="h-px flex-1 bg-[#194040]" />
+                <span>M4 Spider login</span>
+                <div className="h-px flex-1 bg-[#194040]" />
+              </div>
+
+              <div className="flex rounded-xl bg-[#091E1E] p-1">
+                <button
+                  onClick={() => { setAuthScreen('signin'); setAuthError(''); }}
+                  className={`sidebar-btn flex-1 rounded-lg px-3 py-2 text-sm font-medium ${authScreen === 'signin' ? 'bg-[#00E5FF] text-black' : 'text-[#7AB7B3]'}`}
+                >
+                  Login
+                </button>
+                <button
+                  onClick={() => { setAuthScreen('signup'); setAuthError(''); }}
+                  className={`sidebar-btn flex-1 rounded-lg px-3 py-2 text-sm font-medium ${authScreen === 'signup' ? 'bg-[#00E5FF] text-black' : 'text-[#7AB7B3]'}`}
+                >
+                  Create account
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                <input
+                  type="email"
+                  value={authEmail}
+                  onChange={(e) => setAuthEmail(e.target.value)}
+                  placeholder="you@m4spider.com"
+                  className={`w-full rounded-2xl border border-[#194A4A] bg-[#091E1E] px-4 py-3 text-white outline-none focus:border-[#00E5FF] ${isIPhone ? 'iphone-nozoom' : ''}`}
+                />
+                <input
+                  type="password"
+                  value={authPassword}
+                  onChange={(e) => setAuthPassword(e.target.value)}
+                  placeholder="Password"
+                  className={`w-full rounded-2xl border border-[#194A4A] bg-[#091E1E] px-4 py-3 text-white outline-none focus:border-[#00E5FF] ${isIPhone ? 'iphone-nozoom' : ''}`}
+                />
+              </div>
+
+              {authError && (
+                <div className="rounded-2xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+                  {authError}
+                </div>
+              )}
+
+              <button
+                onClick={handleEmailAuth}
+                disabled={authBusy}
+                className="sidebar-btn flex w-full items-center justify-center gap-2 rounded-2xl bg-[#00E5FF] px-4 py-3 text-sm font-bold text-black hover:bg-[#00CCE6] disabled:opacity-60"
+              >
+                {authBusy ? <Loader2 size={16} className="animate-spin" /> : null}
+                {authScreen === 'signup' ? 'Create M4 Spider account' : 'Continue with M4 Spider'}
+              </button>
+
+              <p className="text-center text-xs leading-relaxed text-[#529E98]">
+                Free chat stays open. Login is only required for image generation, image editing, video creation, and Spider AI Pro.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CHAT CONTEXT MENU */}
+      {chatContextMenu && (
+        <>
+          <div className="fixed inset-0 z-[60]" onClick={() => setChatContextMenu(null)} />
+          <div className="fixed z-[65] bg-[#0B2A2A] border border-[#194A4A] rounded-xl shadow-[0_10px_40px_rgba(0,0,0,0.6)] overflow-hidden animate-scale-in py-1 w-48"
+            style={{ top: Math.min(chatContextMenu.y, window.innerHeight - 250), left: Math.min(chatContextMenu.x, window.innerWidth - 200) }}>
+            <button onClick={() => handlePinChat(chatContextMenu.chatId)} className="sidebar-bottom-btn w-full"><Pin size={14} className={pinnedChats.includes(chatContextMenu.chatId) ? 'text-[#FFD700]' : ''} /> {pinnedChats.includes(chatContextMenu.chatId) ? 'Unpin' : 'Pin'}</button>
+            <button onClick={() => handleRenameChat(chatContextMenu.chatId)} className="sidebar-bottom-btn w-full"><Edit3 size={14} /> Rename</button>
+            <button onClick={() => handleExportChat(chatContextMenu.chatId)} className="sidebar-bottom-btn w-full"><Download size={14} /> Export</button>
+            <div className="h-px bg-[#194040] mx-2 my-1" />
+            <button onClick={() => { setConfirmDelete({ type: 'single', chatId: chatContextMenu.chatId }); setChatContextMenu(null); }} className="sidebar-bottom-btn w-full text-red-400"><Trash2 size={14} /> Delete</button>
+          </div>
+        </>
+      )}
+
+      {/* SETTINGS */}
+      {renderSettings()}
+
+      {/* LENS MODAL */}
+      {showLensModal && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-[#0B2A2A] border border-[#194A4A] rounded-2xl w-full max-w-lg overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-[#194A4A] bg-[#102B2B]">
+              <div className="flex items-center gap-2 text-[#00E5FF]"><Camera size={18} /><span className="font-semibold text-sm">Spider Lens</span></div>
+              <button onClick={closeLens} className="sidebar-btn text-red-400 hover:text-red-300 p-1.5 rounded-lg"><X size={18} /></button>
+            </div>
+            <div className="relative bg-black aspect-video w-full overflow-hidden">
+              {!lensCapturedImage ? (
+                <>
+                  <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+                  <div className="absolute inset-0 pointer-events-none"><div className="lens-scan-line absolute left-0 right-0 h-[3px] bg-gradient-to-r from-transparent via-[#00E5FF] to-transparent opacity-60" /></div>
+                </>
+              ) : <img src={lensCapturedImage} alt="Captured" className="w-full h-full object-cover" />}
+              <canvas ref={canvasRef} className="hidden" />
+            </div>
+            <div className="px-5 py-4 flex items-center justify-center gap-4 bg-[#102B2B]">
+              {!lensCapturedImage ? (
+                <button onClick={captureLensPhoto} className="sidebar-btn w-16 h-16 rounded-full bg-[#00E5FF] hover:bg-[#00CCE6] flex items-center justify-center"><div className="w-12 h-12 rounded-full border-4 border-black/30" /></button>
+              ) : (
+                <>
+                  <button onClick={retakeLensPhoto} className="sidebar-btn flex items-center gap-2 px-5 py-2.5 bg-[#133838] border border-[#194A4A] rounded-xl text-[#00E5FF] text-sm font-medium"><RotateCcw size={16} /> Retake</button>
+                  <button onClick={useLensCapturedImage} className="sidebar-btn flex items-center gap-2 px-5 py-2.5 bg-[#00E5FF] rounded-xl text-black text-sm font-bold"><Eye size={16} /> Analyze</button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FILE PREVIEW */}
+      {previewFile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 md:p-6">
+          <div className="bg-[#0B2A2A] border border-[#194A4A] rounded-2xl w-full max-w-4xl h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between px-4 md:px-6 py-3 md:py-4 border-b border-[#194A4A] bg-[#102B2B] rounded-t-2xl">
+              <h3 className="font-semibold text-[#00E5FF] flex items-center gap-2 truncate text-sm"><FileUp size={18} /> {previewFile.name}</h3>
+              <div className="flex items-center gap-2 shrink-0">
+                <button onClick={() => downloadFile(previewFile.name, previewFile.content)} className="sidebar-btn flex items-center gap-2 text-sm bg-[#194A4A] text-[#00E5FF] hover:bg-[#00E5FF] hover:text-black px-3 py-2 rounded-lg"><Download size={16} /></button>
+                <button onClick={() => copyToClipboard(previewFile.content)} className="sidebar-btn flex items-center gap-2 text-sm bg-[#194A4A] text-[#00E5FF] hover:bg-[#00E5FF] hover:text-black px-3 py-2 rounded-lg"><Copy size={16} /></button>
+                <button onClick={() => setPreviewFile(null)} className="sidebar-btn text-red-400 hover:text-red-300 p-2 rounded-lg"><X size={20} /></button>
+              </div>
+            </div>
+            <div className="p-4 md:p-6 overflow-y-auto flex-1 font-mono text-sm text-gray-200 whitespace-pre-wrap bg-[#081717] rounded-b-2xl custom-scrollbar break-words">{previewFile.content}</div>
+          </div>
+        </div>
+      )}
+
+      {/* GLOBAL PLUS MENU */}
+      {isPlusMenuOpen && (
+        <>
+          <div className="fixed inset-0 z-[70] bg-black/35 backdrop-blur-[2px]" onClick={() => setIsPlusMenuOpen(false)} />
+          {isMobile ? (
+            <div className={`fixed left-3 right-3 z-[75] rounded-2xl border border-[#194040] bg-[#0B2A2A] shadow-[0_18px_60px_rgba(0,0,0,0.55)] py-2 animate-slide-up ${isIPhone ? 'bottom-[calc(84px+env(safe-area-inset-bottom))]' : isAndroid ? 'bottom-[86px]' : 'bottom-[84px]'}`}>
+              <button onClick={() => {
+                if (selectedAIMode === 'pro') {
+                  setSelectedAIMode('chat');
+                  setIsPlusMenuOpen(false);
+                  return;
+                }
+                if (!ensureModeAccess('pro', null, 'Use Spider AI Pro')) return;
+                setSelectedAIMode('pro');
+                setForceMode(null);
+                setIsPlusMenuOpen(false);
+              }} className={`sidebar-nav-btn px-4 py-3 text-sm ${selectedAIMode === 'pro' ? 'text-[#FFD700]' : 'text-[#00E5FF]'}`}>
+                <Zap size={16} className={selectedAIMode === 'pro' ? 'fill-[#FFD700] text-[#FFD700]' : 'fill-[#00E5FF]'} /> {selectedAIMode === 'pro' ? 'Pro Mode ON' : 'Spider AI Pro'}
+              </button>
+              <button onClick={() => { setSelectedAIMode('chat'); setForceMode(null); setIsPlusMenuOpen(false); }} className="sidebar-nav-btn px-4 py-3 text-sm"><MessageCircle size={16} className="text-[#529E98]" /> Chat Mode</button>
+              <button onClick={() => { setSelectedAIMode('reasoning'); setIsPlusMenuOpen(false); }} className={`sidebar-nav-btn px-4 py-3 text-sm ${selectedAIMode === 'reasoning' ? 'text-[#00E5FF]' : ''}`}><Brain size={16} className="text-[#529E98]" /> {selectedAIMode === 'reasoning' ? 'Active: ' : ''}Reasoning</button>
+              <div className="h-px bg-[#194040] my-1 mx-2" />
+              <button onClick={() => {
+                if (forceMode === 'image_gen') {
+                  setForceMode(null);
+                  setIsPlusMenuOpen(false);
+                  return;
+                }
+                if (!ensureModeAccess(selectedAIMode, 'image_gen', 'Create images')) return;
+                setForceMode('image_gen');
+                setIsPlusMenuOpen(false);
+              }} className={`sidebar-nav-btn px-4 py-3 text-sm ${forceMode === 'image_gen' ? 'text-[#FFD700]' : ''}`}><Wand2 size={16} className="text-[#529E98]" /> {forceMode === 'image_gen' ? 'Active: ' : ''}Create Image</button>
+              <button onClick={() => {
+                if (forceMode === 'image_edit') {
+                  setForceMode(null);
+                  setIsPlusMenuOpen(false);
+                  return;
+                }
+                if (!ensureModeAccess(selectedAIMode, 'image_edit', 'Edit images')) return;
+                setForceMode('image_edit');
+                setIsPlusMenuOpen(false);
+              }} className={`sidebar-nav-btn px-4 py-3 text-sm ${forceMode === 'image_edit' ? 'text-[#FF6B6B]' : ''}`}><ImageIcon size={16} className="text-[#529E98]" /> {forceMode === 'image_edit' ? 'Active: ' : ''}Edit Image</button>
+              <button onClick={() => {
+                if (forceMode === 'video_gen') {
+                  setForceMode(null);
+                  setIsPlusMenuOpen(false);
+                  return;
+                }
+                if (!ensureModeAccess(selectedAIMode, 'video_gen', 'Create videos')) return;
+                setForceMode('video_gen');
+                setIsPlusMenuOpen(false);
+              }} className={`sidebar-nav-btn px-4 py-3 text-sm ${forceMode === 'video_gen' ? 'text-[#7CE7FF]' : ''}`}><Film size={16} className="text-[#529E98]" /> {forceMode === 'video_gen' ? 'Active: ' : ''}Create Video</button>
+              <div className="h-px bg-[#194040] my-1 mx-2" />
+              <button onClick={() => { multiInputRef.current?.click(); setIsPlusMenuOpen(false); }} className="sidebar-nav-btn px-4 py-3 text-sm"><Paperclip size={16} className="text-[#529E98]" /> Upload Files</button>
+              <button onClick={() => { folderInputRef.current?.click(); setIsPlusMenuOpen(false); }} className="sidebar-nav-btn px-4 py-3 text-sm"><FolderUp size={16} className="text-[#529E98]" /> Upload Folder</button>
+            </div>
+          ) : (
+            <div className="fixed bottom-[96px] right-[max(24px,calc((100vw-1024px)/2+24px))] z-[75] w-60 rounded-xl border border-[#194040] bg-[#0B2A2A] shadow-[0_10px_40px_rgba(0,0,0,0.5)] py-2 animate-slide-up">
+              <button onClick={() => {
+                if (selectedAIMode === 'pro') {
+                  setSelectedAIMode('chat');
+                  setIsPlusMenuOpen(false);
+                  return;
+                }
+                if (!ensureModeAccess('pro', null, 'Use Spider AI Pro')) return;
+                setSelectedAIMode('pro');
+                setForceMode(null);
+                setIsPlusMenuOpen(false);
+              }} className={`sidebar-nav-btn px-4 py-2.5 text-sm ${selectedAIMode === 'pro' ? 'text-[#FFD700]' : 'text-[#00E5FF]'}`}>
+                <Zap size={16} className={selectedAIMode === 'pro' ? 'fill-[#FFD700] text-[#FFD700]' : 'fill-[#00E5FF]'} /> {selectedAIMode === 'pro' ? 'Pro Mode ON' : 'Spider AI Pro'}
+              </button>
+              <button onClick={() => { setSelectedAIMode('chat'); setForceMode(null); setIsPlusMenuOpen(false); }} className="sidebar-nav-btn px-4 py-2.5 text-sm"><MessageCircle size={16} className="text-[#529E98]" /> Chat Mode</button>
+              <button onClick={() => { setSelectedAIMode('reasoning'); setIsPlusMenuOpen(false); }} className={`sidebar-nav-btn px-4 py-2.5 text-sm ${selectedAIMode === 'reasoning' ? 'text-[#00E5FF]' : ''}`}><Brain size={16} className="text-[#529E98]" /> {selectedAIMode === 'reasoning' ? 'Active: ' : ''}Reasoning</button>
+              <div className="h-px bg-[#194040] my-1 mx-2" />
+              <button onClick={() => {
+                if (forceMode === 'image_gen') {
+                  setForceMode(null);
+                  setIsPlusMenuOpen(false);
+                  return;
+                }
+                if (!ensureModeAccess(selectedAIMode, 'image_gen', 'Create images')) return;
+                setForceMode('image_gen');
+                setIsPlusMenuOpen(false);
+              }} className={`sidebar-nav-btn px-4 py-2.5 text-sm ${forceMode === 'image_gen' ? 'text-[#FFD700]' : ''}`}><Wand2 size={16} className="text-[#529E98]" /> {forceMode === 'image_gen' ? 'Active: ' : ''}Create Image</button>
+              <button onClick={() => {
+                if (forceMode === 'image_edit') {
+                  setForceMode(null);
+                  setIsPlusMenuOpen(false);
+                  return;
+                }
+                if (!ensureModeAccess(selectedAIMode, 'image_edit', 'Edit images')) return;
+                setForceMode('image_edit');
+                setIsPlusMenuOpen(false);
+              }} className={`sidebar-nav-btn px-4 py-2.5 text-sm ${forceMode === 'image_edit' ? 'text-[#FF6B6B]' : ''}`}><ImageIcon size={16} className="text-[#529E98]" /> {forceMode === 'image_edit' ? 'Active: ' : ''}Edit Image</button>
+              <button onClick={() => {
+                if (forceMode === 'video_gen') {
+                  setForceMode(null);
+                  setIsPlusMenuOpen(false);
+                  return;
+                }
+                if (!ensureModeAccess(selectedAIMode, 'video_gen', 'Create videos')) return;
+                setForceMode('video_gen');
+                setIsPlusMenuOpen(false);
+              }} className={`sidebar-nav-btn px-4 py-2.5 text-sm ${forceMode === 'video_gen' ? 'text-[#7CE7FF]' : ''}`}><Film size={16} className="text-[#529E98]" /> {forceMode === 'video_gen' ? 'Active: ' : ''}Create Video</button>
+              <div className="h-px bg-[#194040] my-1 mx-2" />
+              <button onClick={() => { multiInputRef.current?.click(); setIsPlusMenuOpen(false); }} className="sidebar-nav-btn px-4 py-2.5 text-sm"><Paperclip size={16} className="text-[#529E98]" /> Upload Files</button>
+              <button onClick={() => { folderInputRef.current?.click(); setIsPlusMenuOpen(false); }} className="sidebar-nav-btn px-4 py-2.5 text-sm"><FolderUp size={16} className="text-[#529E98]" /> Upload Folder</button>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* MOBILE SIDEBAR OVERLAY */}
+      {isMobileSidebarOpen && <div className="mobile-sidebar-overlay" onClick={() => setIsMobileSidebarOpen(false)} />}
+
+      {/* MOBILE SIDEBAR */}
+      <div className={`mobile-sidebar-container fixed inset-y-0 left-0 z-50 w-[280px] mobile-sidebar ${isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'} ${platformSidebarClass}`}>
+        <div className="h-full bg-[#102B2B] flex flex-col border-r border-[#194040] shadow-[5px_0_30px_rgba(0,0,0,0.5)]">
+          {renderSidebarContent(handleChatSelectMobile, () => setIsMobileSidebarOpen(false))}
+        </div>
+      </div>
+
+      {/* DESKTOP SIDEBAR */}
+      <div className="desktop-sidebar w-[260px] shrink-0 bg-[#0F2424] flex flex-col border-r border-[#194040]">
+        {renderSidebarContent(handleChatSelect)}
+      </div>
+
+      {/* MAIN CONTENT */}
+      <div className={`flex-1 flex flex-col h-full relative min-w-0 bg-[#091E1E] ${platformMainClass}`}>
+
+        {/* MOBILE HEADER */}
+        <div className={`mobile-header hidden flex-none items-center justify-between px-4 py-3 bg-[#102B2B] border-b border-[#194040] z-30 ${platformHeaderClass}`}>
+          <button onClick={() => setIsMobileSidebarOpen(true)} className="sidebar-btn p-2 text-[#529E98] hover:text-[#00E5FF] rounded-lg hover:bg-[#194040]"><Menu size={22} /></button>
+          <div className="flex items-center gap-2">
+            <span className="text-[#00E5FF] font-bold text-base">{activeWorkspace === 'notebook' ? 'Spider Notebook' : 'Spider AI'}</span>
+            {selectedAIMode === 'pro' && <span className="pro-badge text-xs font-extrabold">PRO</span>}
+          </div>
+          <button onClick={handleNewChat} className="sidebar-btn p-2 text-[#529E98] hover:text-[#00E5FF] rounded-lg hover:bg-[#194040]"><Plus size={22} /></button>
+        </div>
+
+        {activeWorkspace !== 'notebook' && selectedAIMode === 'pro' && (
+          <div className="flex-none bg-gradient-to-r from-[#FFD700]/10 via-[#00E5FF]/10 to-[#FF6B6B]/10 border-b border-[#FFD700]/20 px-6 py-2 flex items-center justify-center gap-2">
+            <Zap size={14} className="fill-[#FFD700] text-[#FFD700]" />
+            <span className="text-xs font-bold pro-badge">SPIDER AI PRO</span>
+          </div>
+        )}
+
+        {activeWorkspace === 'notebook' ? (
+          <div className="flex-1 min-h-0">
+            <SpiderNotebook />
+          </div>
+        ) : (
+        <>
+        {/* MESSAGES */}
+        <div className={`flex-1 overflow-y-auto scroll-smooth w-full custom-scrollbar allow-select relative ${platformScrollClass}`} onClick={() => { if (chatContextMenu) setChatContextMenu(null); if (openMessageMenuIndex !== null) setOpenMessageMenuIndex(null); }}>
+          <div className={`w-full max-w-4xl mx-auto px-4 md:px-6 pt-6 md:pt-10 pb-6 flex flex-col ${settings.compactMode ? 'gap-2 md:gap-3' : 'gap-4 md:gap-6'}`}>
+
+            {chatRestoreReady && chatHistory.length === 0 && !streamingMessage && (
+              <div className="flex flex-col items-center justify-center py-16 text-center">
+                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[#00E5FF]/20 to-[#194A4A]/20 flex items-center justify-center mb-4 border border-[#194A4A]">
+                  <Sparkles size={28} className="text-[#00E5FF]" />
+                </div>
+                <h2 className="text-xl font-bold text-white mb-2">What can I help with?</h2>
+                <p className="text-sm text-[#529E98] max-w-md">Start typing, paste images with Ctrl+V, drag & drop files, or use the + menu for more tools.</p>
+                <div className="w-full max-w-xl md:max-w-3xl mt-8">
+                  <div className="flex items-center justify-between gap-3 mb-3 px-1">
+                    <span className="text-xs md:text-sm font-semibold uppercase tracking-[0.24em] text-[#7CE7FF]">Try a starter</span>
+                    <span className="text-[11px] md:text-xs text-[#529E98]">Tap once to auto-fill</span>
+                  </div>
+                  <div className={starterGridClass}>
+                    {STARTER_TEMPLATES.map((template, templateIndex) => (
+                      <button
+                        key={template.title}
+                        onClick={() => applyStarterTemplate(template)}
+                        className={`group relative overflow-hidden rounded-2xl border ${template.border} bg-gradient-to-br ${template.accent} ${starterCardClass} shadow-[0_10px_30px_rgba(0,0,0,0.18)] transition-all duration-300 hover:-translate-y-1 hover:border-[#00E5FF]/40 hover:shadow-[0_14px_36px_rgba(0,229,255,0.12)] animate-[pulse_4.2s_ease-in-out_infinite] h-full w-full min-w-0`}
+                        style={{ animationDelay: `${templateIndex * 0.45}s` }}
+                      >
+                        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.15),transparent_45%)] opacity-70" />
+                        <div className="relative flex h-full flex-col gap-2 md:gap-3">
+                          <div className="flex flex-col items-start gap-1.5 md:gap-2">
+                            <span className={`${starterTitleClass} font-semibold text-white break-words max-w-full leading-snug`}>
+                              {template.title}
+                            </span>
+                            <span className={`max-w-full rounded-full border border-white/10 bg-white/5 px-2 py-0.5 uppercase tracking-[0.14em] text-[#B5F8FF] whitespace-normal break-words ${starterBadgeClass}`}>
+                              Prompt
+                            </span>
+                          </div>
+                          <p className={`${showStarterPromptText ? 'block' : 'hidden'} text-[11px] sm:text-[11.5px] md:text-sm leading-relaxed text-[#CDEEEE] flex-1 break-words overflow-hidden line-clamp-4 sm:line-clamp-5`}>
+                            {template.prompt}
+                          </p>
+                          <span className="text-[10px] md:text-[11px] font-medium text-[#9EF5FF] group-hover:text-white transition-colors mt-auto">
+                            Tap to insert
+                          </span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {!chatRestoreReady && !streamingMessage && (
+              <div className="flex flex-col items-center justify-center py-20 text-center">
+                <div className="w-14 h-14 rounded-full border border-[#194A4A] bg-[#102B2B] flex items-center justify-center mb-4">
+                  <Loader2 size={24} className="animate-spin text-[#00E5FF]" />
+                </div>
+                <p className="text-sm text-[#529E98]">Restoring your chats...</p>
+              </div>
+            )}
+
+            {chatHistory.map((msg, index) => {
+              const isUser = msg.role === 'user';
+              const hasContent = msg.content?.trim().length > 0;
+              const isImage = msg.type === 'image' && msg.base64_image;
+              const isVideoJob = msg.type === 'video_job' && msg.videoJob;
+              const isError = msg.isError;
+              const isEditing = editingMessageIndex === index;
+              const videoJob = isVideoJob ? (videoJobs[msg.videoJobId] || msg.videoJob) : null;
+              const videoSrc = isVideoJob ? getVideoSrc(videoJob) : '';
+              const videoSources = isVideoJob ? getVideoSources(videoJob) : [];
+
+              return (
+                <div key={index} className={`flex flex-col max-w-[95%] md:max-w-[85%] min-w-0 ${isUser ? 'self-end items-end' : 'self-start items-start'}`}>
+                  {isUser && (msg.images || msg.files) && (
+                    <div className="flex flex-wrap gap-2 mb-2">
+                      {msg.images?.map((img, i) => <img key={i} src={img.preview} alt={img.name} className="max-w-[80px] md:max-w-[100px] rounded-lg border border-[#194A4A]" />)}
+                      {msg.files?.map((f, i) => (
+                        <div key={i} className="flex items-center gap-2 bg-[#091E1E] border border-[#194A4A] px-3 py-2 rounded-lg">
+                          <FileUp size={14} className="text-[#529E98]" /><span className="text-xs text-gray-300 truncate max-w-[120px]">{f.name}</span><span className="text-[10px] text-[#529E98]">{formatFileSize(f.size)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {settings.showTimestamps && msg.ts && (
+                    <div className={`text-[10px] text-[#529E98] mb-1 ${isUser ? 'mr-1' : 'ml-1'}`}>
+                      {formatTimestamp(msg.ts)}{msg.edited && <span className="ml-1 text-[#FFD700]">(edited)</span>}
+                    </div>
+                  )}
+
+                  {hasContent && (
+                    <div className="relative group">
+                      {isEditing ? (
+                        <div className="bg-[#133838] border-2 border-[#00E5FF] rounded-2xl p-3 min-w-[250px]">
+                          <textarea ref={editTextareaRef} value={editingMessageContent} onChange={(e) => setEditingMessageContent(e.target.value)}
+                            className={`w-full bg-transparent text-white outline-none resize-none min-h-[60px] ${composerFontSizeClass} ${isIPhone ? 'iphone-nozoom' : ''}`} rows={3} />
+                          <div className="flex justify-end gap-2 mt-2">
+                            <button onClick={handleCancelEdit} className="sidebar-btn px-3 py-1.5 text-xs text-[#529E98] hover:text-white bg-[#194A4A] rounded-lg">Cancel</button>
+                            <button onClick={() => handleSaveEdit(index)} className="sidebar-btn px-3 py-1.5 text-xs text-black bg-[#00E5FF] rounded-lg font-bold hover:bg-[#00CCE6] flex items-center gap-1"><Check size={12} /> Save & Send</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className={`px-4 md:px-5 py-3 md:py-3.5 rounded-2xl ${fontSizeClass} leading-relaxed shadow-sm min-w-0 max-w-full ${
+                          isUser ? 'bg-[#133838] text-white border border-[#194A4A] rounded-br-sm'
+                            : isError ? 'bg-[#2A1010] text-red-300 border border-red-500/30 rounded-bl-sm'
+                              : 'bg-[#0B2A2A] text-gray-200 border border-[#173A3A] rounded-bl-sm'
+                        }`}>
+                          <div className="w-full overflow-hidden flex flex-col gap-3 min-w-0 max-w-full break-words">{renderMessage(msg.content, index)}</div>
+                          {msg.isPartial && <div className="mt-2 text-[11px] text-yellow-500/70 italic">Response interrupted</div>}
+
+                          <div className={`relative mt-1.5 ${isUser ? 'text-right' : 'text-left'}`}>
+                            {isMobile ? (
+                              <>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setOpenMessageMenuIndex(prev => prev === index ? null : index);
+                                  }}
+                                  className="sidebar-btn rounded-md px-2 py-1 text-[#529E98] hover:bg-[#194A4A]/50 hover:text-white"
+                                >
+                                  <MoreHorizontal size={14} />
+                                </button>
+                                {openMessageMenuIndex === index && (
+                                  <div
+                                    onClick={(e) => e.stopPropagation()}
+                                    className={`absolute z-20 mt-2 flex min-w-[150px] flex-col rounded-xl border border-[#194A4A] bg-[#0B2A2A] p-1 shadow-[0_10px_30px_rgba(0,0,0,0.45)] ${isUser ? 'right-0' : 'left-0'}`}
+                                  >
+                                    {isUser && (
+                                      <>
+                                        <button onClick={() => { handleEditMessage(index); setOpenMessageMenuIndex(null); }} className="sidebar-bottom-btn w-full"><Edit3 size={14} /> Edit</button>
+                                        <button onClick={() => { setMessage(msg.content); setOpenMessageMenuIndex(null); }} className="sidebar-bottom-btn w-full"><RotateCcw size={14} /> Reuse</button>
+                                      </>
+                                    )}
+                                    {!isUser && <button onClick={() => { handleRegenerateResponse(index); setOpenMessageMenuIndex(null); }} className="sidebar-bottom-btn w-full"><RefreshCw size={14} /> Regenerate</button>}
+                                    {!isUser && renderFeedbackButtons(msg, index, true, true)}
+                                    <button onClick={() => { copyToClipboard(msg.content); setOpenMessageMenuIndex(null); }} className="sidebar-bottom-btn w-full"><Copy size={14} /> Copy</button>
+                                    <button onClick={() => handleDeleteMessage(index)} className="sidebar-bottom-btn w-full text-red-400 hover:text-red-300"><Trash2 size={14} /> Delete</button>
+                                  </div>
+                                )}
+                              </>
+                            ) : (
+                              <div className={`flex gap-1 transition-opacity opacity-0 group-hover:opacity-100 ${isUser ? 'justify-end' : 'justify-start'} flex-wrap`}>
+                                {isUser && (
+                                  <>
+                                    <button onClick={() => handleEditMessage(index)} className="sidebar-btn flex items-center gap-1 text-[11px] text-[#529E98] hover:text-[#00E5FF] px-2 py-1 rounded-md hover:bg-[#194A4A]/50"><Edit3 size={11} /> Edit</button>
+                                    <button onClick={() => setMessage(msg.content)} className="sidebar-btn flex items-center gap-1 text-[11px] text-[#529E98] hover:text-[#00E5FF] px-2 py-1 rounded-md hover:bg-[#194A4A]/50"><RotateCcw size={11} /> Reuse</button>
+                                  </>
+                                )}
+                                {!isUser && <button onClick={() => handleRegenerateResponse(index)} className="sidebar-btn flex items-center gap-1 text-[11px] text-[#529E98] hover:text-[#00E5FF] px-2 py-1 rounded-md hover:bg-[#194A4A]/50"><RefreshCw size={11} /> Regenerate</button>}
+                                {!isUser && renderFeedbackButtons(msg, index)}
+                                <button onClick={() => copyToClipboard(msg.content)} className="sidebar-btn flex items-center gap-1 text-[11px] text-[#529E98] hover:text-[#00E5FF] px-2 py-1 rounded-md hover:bg-[#194A4A]/50"><Copy size={11} /> Copy</button>
+                                <button onClick={() => handleDeleteMessage(index)} className="sidebar-btn flex items-center gap-1 text-[11px] text-[#529E98] hover:text-red-400 px-2 py-1 rounded-md hover:bg-red-500/10"><Trash2 size={11} /></button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {isImage && <img src={getImageSrc(msg.base64_image)} alt="Generated" className="max-w-full md:max-w-[400px] rounded-xl border border-[#00E5FF] shadow-[0_0_15px_rgba(0,229,255,0.15)] mt-1" />}
+                  {isVideoJob && (
+                    <div className="mt-2 w-full min-w-[280px] max-w-[560px] rounded-2xl border border-[#194A4A] bg-[#081818] p-4 shadow-[0_0_20px_rgba(0,229,255,0.08)]">
+                      <div className="flex items-start justify-between gap-3 mb-3">
+                        <div>
+                          <div className="text-sm font-semibold text-white flex items-center gap-2">
+                            <Film size={15} className="text-[#00E5FF]" />
+                            Video Generation
+                          </div>
+                          <div className="text-xs text-[#529E98] mt-1">
+                            {videoJob.aspect_ratio} | {formatVideoDurationLabel(videoJob.duration_seconds)} | {getVideoQualityLabel(videoJob)}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {['queued', 'running', 'cancelling', 'interrupted'].includes(String(videoJob.status || '').toLowerCase()) && (
+                            <button
+                              onClick={() => stopVideoJob(videoJob.id)}
+                              className="sidebar-btn inline-flex items-center gap-2 text-[11px] px-2.5 py-1.5 rounded-full bg-red-500/15 text-red-300 border border-red-500/30 hover:bg-red-500/25"
+                            >
+                              <Square size={12} /> Stop
+                            </button>
+                          )}
+                          <div className={`text-xs font-semibold px-2 py-1 rounded-full ${
+                            videoJob.status === 'completed' ? 'bg-emerald-500/15 text-emerald-300' :
+                            videoJob.status === 'failed' ? 'bg-red-500/15 text-red-300' :
+                            'bg-[#00E5FF]/10 text-[#7CE7FF]'
+                          }`}>
+                            {videoJob.status}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="w-full h-3 rounded-full bg-[#0B1C1C] border border-[#184444] overflow-hidden mb-2 shadow-[inset_0_0_0_1px_rgba(0,229,255,0.08)]">
+                        <div
+                          className="h-full bg-gradient-to-r from-[#00E5FF] via-[#36F3FF] to-[#9BF8FF] transition-all duration-500 shadow-[0_0_14px_rgba(0,229,255,0.45)]"
+                          style={{ width: `${Math.max(8, (videoJob.progress || 0) * 100)}%` }}
+                        />
+                      </div>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#529E98] mb-3">
+                        <span>ETA: {formatEtaCompact(videoJob)}</span>
+                        <span>Queue: {videoJob.queue_position || 0}</span>
+                        <span>{Math.round((videoJob.progress || 0) * 100)}%</span>
+                      </div>
+                      <div className="text-sm text-gray-200 mb-3">{videoJob.message || 'Waiting for worker...'}</div>
+                      {videoJob?.sourceImagePreview && (
+                        <div className="mb-3 rounded-xl border border-[#194A4A] bg-[#0B1E1E] p-2">
+                          <div className="text-[11px] font-semibold text-[#7CE7FF] mb-2">Image-to-video source</div>
+                          <div className="flex items-center gap-3">
+                            <img
+                              src={videoJob.sourceImagePreview}
+                              alt={videoJob.sourceImageName || 'Source image'}
+                              className="h-16 w-16 rounded-lg object-cover border border-[#194A4A]"
+                            />
+                            <div className="min-w-0">
+                              <div className="text-xs text-white truncate">{videoJob.sourceImageName || 'Uploaded image'}</div>
+                              <div className="text-[11px] text-[#529E98]">Using uploaded image as video starting frame</div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      {videoSources.length > 0 && (
+                        <div className="space-y-2">
+                          {brokenVideoPreviews[videoJob.id] ? (
+                            <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-3 text-xs text-red-300">
+                              Video file is missing or was deleted. Preview disabled to keep the app stable.
+                            </div>
+                          ) : !openVideoPreviews[videoJob.id] ? (
+                            <button
+                              onClick={() => setOpenVideoPreviews(prev => ({ ...prev, [videoJob.id]: true }))}
+                              className="sidebar-btn inline-flex items-center gap-2 text-xs px-3 py-2 rounded-lg bg-[#133838] text-[#7CE7FF] border border-[#194A4A] hover:bg-[#194A4A]"
+                            >
+                              <Eye size={13} /> Load preview
+                            </button>
+                          ) : (
+                            <div className="space-y-3">
+                              {videoSources.map((src, clipIndex) => (
+                                <div key={`${videoJob.id}-${clipIndex}`} className="space-y-2">
+                                  {videoSources.length > 1 && (
+                                    <div className="text-[11px] font-semibold text-[#7CE7FF]">Generated clip {clipIndex + 1}</div>
+                                  )}
+                                  <video
+                                    controls
+                                    preload="metadata"
+                                    className="w-full rounded-xl border border-[#194A4A] bg-black"
+                                    src={src}
+                                    onError={() => {
+                                      setBrokenVideoPreviews(prev => ({ ...prev, [videoJob.id]: true }));
+                                      setOpenVideoPreviews(prev => ({ ...prev, [videoJob.id]: false }));
+                                    }}
+                                  />
+                                  <a href={src} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-xs text-[#00E5FF] hover:text-white">
+                                    <Download size={13} /> Open clip {clipIndex + 1}
+                                  </a>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {videoJob.error && <div className="text-xs text-red-300 mt-2">{videoJob.error}</div>}
+                    </div>
+                  )}
+                  {msg.files?.length > 0 && !isUser && (
+                    <div className="mt-2 w-full">
+                      <div className="text-xs text-[#00E5FF] font-semibold mb-1 flex items-center gap-1"><Code size={12} /> Generated {msg.files.length} file(s)</div>
+                      <div className="flex flex-wrap gap-1">
+                        {msg.files.map((f, fi) => <button key={fi} onClick={() => setPreviewFile({ name: f.name, content: f.content })} className="sidebar-btn text-[10px] bg-[#133838] border border-[#194A4A] px-2 py-1 rounded text-gray-300 hover:text-[#00E5FF]">{f.name}</button>)}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {streamingMessage && (
+              <div className="flex flex-col max-w-[95%] md:max-w-[85%] min-w-0 self-start items-start">
+                <div className={`px-4 md:px-5 py-3 md:py-3.5 rounded-2xl ${fontSizeClass} leading-relaxed shadow-sm min-w-0 max-w-full bg-[#0B2A2A] text-gray-200 border border-[#173A3A] rounded-bl-sm`}>
+                  {streamingMessage.isThinking && !streamedContent ? (
+                    <div className="flex items-center gap-3 thinking-pulse"><Loader2 size={16} className="animate-spin text-[#00E5FF]" /><span className="text-sm text-[#529E98]">Thinking...</span></div>
+                  ) : (
+                    <div className="w-full overflow-hidden flex flex-col gap-3 min-w-0 max-w-full break-words streaming-cursor">{renderMessage(streamingMessage.content || '')}</div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {isLoading && !streamingMessage && (
+              <div className="bg-[#0B2A2A] text-[#529E98] px-5 py-4 rounded-2xl border border-[#173A3A] self-start rounded-bl-sm flex items-center gap-3">
+                <Loader2 size={18} className="animate-spin text-[#00E5FF]" /><span className="text-sm font-medium">Processing...</span>
+              </div>
+            )}
+
+            <div ref={messagesEndRef} />
+          </div>
+        </div>
+
+        {/* INPUT SECTION */}
+        <div className={`flex-none w-full bg-[#091E1E] p-3 md:p-6 pb-4 md:pb-8 border-t border-[#194040] z-20 relative ${platformInputClass}`}>
+          <div className="max-w-4xl mx-auto flex flex-col gap-2 relative w-full min-w-0">
+
+            {uploadProgress && (
+              <div className="flex items-center gap-2 px-3 py-2 bg-[#133838] border border-[#194A4A] rounded-lg text-xs text-[#00E5FF]"><Loader2 size={14} className="animate-spin" /> {uploadProgress}</div>
+            )}
+
+            <div className={`composer-control-strip flex items-center gap-2 text-xs md:text-sm font-semibold mb-1 ml-1 nav-item shrink-0 ${modeInfo.color}`}>
+              {modeInfo.icon}
+              {modeInfo.isPro ? <span className="pro-badge">{modeInfo.text}</span> : modeInfo.text}
+              {isListening && <span className="flex items-center gap-1 text-red-400 text-xs ml-2"><span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />Listening...</span>}
+            </div>
+
+            <input type="file" ref={fileInputRef} onChange={handleFileInputChange} className="hidden" />
+            <input type="file" accept="image/*" ref={imageInputRef} onChange={handleFileInputChange} className="hidden" multiple />
+            <input type="file" ref={folderInputRef} onChange={handleFolderInputChange} className="hidden" webkitdirectory="" multiple />
+            <input type="file" ref={multiInputRef} onChange={handleFileInputChange} className="hidden" multiple accept="*/*" />
+
+            <div className="flex flex-col gap-2 w-full relative z-20 min-w-0">
+              {forceMode === 'video_gen' && (
+                <div className="composer-control-strip flex flex-wrap items-center gap-2 rounded-xl border border-[#194A4A] bg-[#0E2424] px-3 py-2 text-xs text-[#529E98]">
+                  <span className="text-[#7CE7FF] font-semibold">Veo-style video</span>
+                  {selectedAIMode === 'pro' && videoQuality !== 'free' ? (
+                    <select value={aspectRatio} onChange={(e) => setAspectRatio(e.target.value)} className="bg-[#133838] text-white rounded-lg px-2 py-1 outline-none border border-[#194A4A]">
+                      {VIDEO_ASPECT_OPTIONS.map(option => <option key={option} value={option}>{option}</option>)}
+                    </select>
+                  ) : (
+                    <span className="bg-[#133838] text-white rounded-lg px-2 py-1 border border-[#194A4A]">480p</span>
+                  )}
+                  <select value={videoDuration} onChange={(e) => setVideoDuration(Number(e.target.value))} className="bg-[#133838] text-white rounded-lg px-2 py-1 outline-none border border-[#194A4A]">
+                    {visibleVideoDurations.map(option => <option key={option} value={option}>{formatVideoDurationLabel(option)}</option>)}
+                  </select>
+                  <select value={videoQuality} onChange={(e) => setVideoQuality(e.target.value)} className="bg-[#133838] text-white rounded-lg px-2 py-1 outline-none border border-[#194A4A]">
+                    {visibleVideoQualityOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                  <span className={`ml-auto text-[11px] ${videoBackendHealth?.runner_configured || videoBackendHealth?.runner_url_configured ? 'text-emerald-300' : 'text-yellow-300'}`}>
+                    {videoBackendHealth?.runner_configured || videoBackendHealth?.runner_url_configured
+                      ? 'Video system connected'
+                      : 'Video system not connected yet'}
+                  </span>
+                  {uploadedImages.length > 0 && (
+                    <div className="flex w-full items-center gap-3 rounded-xl border border-[#194A4A] bg-[#0B1C1C] px-2.5 py-2">
+                      <img
+                        src={uploadedImages[0].preview}
+                        alt={uploadedImages[0].name}
+                        className="h-12 w-12 rounded-lg object-cover border border-[#194A4A]"
+                      />
+                      <div className="min-w-0">
+                        <div className="text-[11px] font-semibold text-[#7CE7FF]">Image-to-video source ready</div>
+                        <div className="text-[11px] text-[#529E98] truncate">
+                          {uploadedImages[0].name}{uploadedImages.length > 1 ? ` + ${uploadedImages.length - 1} more image(s)` : ''}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              {hasUploads && (
+                <div className="flex flex-col gap-2 self-start ml-2 mb-1">
+                  {uploadedImages.length > 0 && (
+                    <div className="flex flex-wrap gap-2 items-end">
+                      {uploadedImages.map((img, i) => (
+                        <div key={i} className="relative group">
+                          <img src={img.preview} alt={img.name} className="h-14 w-14 object-cover rounded-lg border-2 border-[#194A4A]" />
+                          <button onClick={() => removeUploadedImage(i)} className="sidebar-btn absolute -top-2 -right-2 bg-red-500 rounded-full p-1 text-white hover:bg-red-600 shadow-md"><X size={10} strokeWidth={3} /></button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {uploadedFiles.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {uploadedFiles.map((f, i) => (
+                        <div key={i} className="relative group flex items-center gap-1.5 bg-[#133838] px-2.5 py-1.5 rounded-lg border border-[#194A4A]">
+                          <FileText size={12} className="text-[#529E98] shrink-0" />
+                          <button onClick={() => setPreviewFile(f)} className="text-[11px] text-gray-200 hover:text-[#00E5FF] truncate max-w-[120px]">{f.name}</button>
+                          <button onClick={() => removeUploadedFile(i)} className="sidebar-btn text-red-400 hover:text-red-300 ml-0.5 opacity-60 group-hover:opacity-100"><X size={10} strokeWidth={3} /></button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {totalUploads > 2 && <button onClick={clearAllUploads} className="sidebar-btn self-start text-[10px] text-red-400 hover:text-red-300 flex items-center gap-1 px-2 py-0.5 rounded hover:bg-red-500/10"><X size={10} /> Clear all ({totalUploads})</button>}
+                </div>
+              )}
+
+              <div className="flex items-end gap-1.5 md:gap-2.5 w-full min-w-0">
+                <div className={inputWrapperClass}>
+                  <textarea ref={textareaRef} value={message} onChange={(e) => setMessage(e.target.value)} onKeyDown={handleKeyDown}
+                    disabled={isStreaming || isLoading} rows={1}
+                    className={`auto-expand bg-transparent w-full outline-none text-white placeholder-[#529E98] min-w-0 disabled:opacity-50 py-0.5 ${composerFontSizeClass} ${isIPhone ? 'iphone-nozoom' : ''}`}
+                    placeholder={placeholderText} />
+                  <button onClick={openLens} className="sidebar-btn text-[#529E98] hover:text-[#00E5FF] ml-1 md:ml-2 shrink-0 mb-0.5"><Camera size={16} /></button>
+                  <button onClick={() => multiInputRef.current?.click()} className="sidebar-btn text-[#529E98] hover:text-[#00E5FF] ml-1 shrink-0 mb-0.5"><Paperclip size={16} /></button>
+                </div>
+
+                <button onClick={handleMicToggle}
+                  className={`sidebar-btn w-11 h-11 shrink-0 rounded-xl flex items-center justify-center transition-all ${isListening ? 'bg-red-500 text-white mic-active hover:bg-red-600' : 'bg-[#133838] text-[#529E98] hover:text-[#00E5FF] hover:bg-[#194A4A]'}`}>
+                  {isListening ? <MicOff size={18} /> : <Mic size={18} />}
+                </button>
+
+                <button onClick={() => setIsPlusMenuOpen(p => !p)}
+                  className={`sidebar-btn w-11 h-11 shrink-0 rounded-xl flex items-center justify-center transition-all relative z-30 ${isPlusMenuOpen ? 'bg-[#194A4A] text-[#00E5FF]' : 'bg-[#133838] text-[#529E98] hover:text-[#00E5FF] hover:bg-[#194A4A]'}`}>
+                  <Plus size={20} className={`transition-transform duration-300 ${isPlusMenuOpen ? 'rotate-45 scale-110' : ''}`} />
+                </button>
+
+                {isStreaming ? (
+                  <button onClick={handleStopGeneration} className="sidebar-btn bg-red-500 w-11 h-11 shrink-0 rounded-xl flex items-center justify-center text-white shadow-[0_0_15px_rgba(239,68,68,0.3)] hover:bg-red-600">
+                    <Square size={16} fill="white" />
+                  </button>
+                ) : (
+                  <button onClick={handleSendMessage} disabled={!canSend}
+                    className={`sidebar-btn w-11 h-11 shrink-0 rounded-xl flex items-center justify-center text-black disabled:opacity-50 disabled:cursor-not-allowed transition-all ${
+                      selectedAIMode === 'pro' ? 'bg-[#FFD700] hover:bg-[#E6C200]' : 'bg-[#00E5FF] hover:bg-[#00CCE6]'
+                    }`}>
+                    {isLoading ? <Loader2 size={18} className="animate-spin text-black" /> : (
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M4 22h16" /><path d="M12 2v20" /><path d="M12 2l-8 14h16z" className="fill-black" />
+                      </svg>
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+        </>
+        )}
+      </div>
+    </div>
+  );
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
