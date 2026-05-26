@@ -282,7 +282,7 @@ const SearchBarOverlay = ({ isOpen, onClose, setSearchQuery }) => {
 
 
 // --- Header Component (FIXED BUTTON STYLE AND ICON) ---
-const Header = ({ onMenuClick, onSearchClick }) => (
+const Header = ({ onMenuClick, onSearchClick, onBack }) => (
   <header className="sticky top-0 z-20 w-full border-b border-gray-800 bg-gray-950 text-white mobile-header">
     <nav className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
       <div className="flex items-center gap-3">
@@ -305,6 +305,13 @@ const Header = ({ onMenuClick, onSearchClick }) => (
         <span className="text-xl font-bold">SpyLanguage Docs</span>
       </div>
       <div className="flex items-center gap-4">
+        <button
+          type="button"
+          onClick={onBack}
+          className="rounded-full border border-cyan-600/70 px-4 py-2 text-sm font-semibold text-cyan-300 hover:bg-cyan-500/10 hover:text-white transition-colors"
+        >
+          Back to Home
+        </button>
         {/* Search Button */}
         <button
           aria-label="Search"
@@ -2374,7 +2381,7 @@ const AppFooter = ({ setPage, currentPage }) => (
 );
 
 // --- Main App Component ---
-export default function App() {
+export default function App({ onBack = () => {} }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false); 
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState('advanced'); // Changed default to 'advanced' for this context
@@ -2456,6 +2463,7 @@ export default function App() {
       <Header 
         onMenuClick={() => setIsSidebarOpen(true)}
         onSearchClick={() => setIsSearchOpen(true)} 
+        onBack={onBack}
       />
 
       {/* --- MOBILE NAVIGATION SIDEBAR --- */}
