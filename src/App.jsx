@@ -555,7 +555,7 @@ const LandingPage = ({ onNavigate, onShowExample }) => {
                                 className="px-8 py-3 rounded-lg font-bold text-lg text-black bg-cyan-400 hover:bg-cyan-300 transition-all shadow-lg logo-glow"
                                 style={{ backgroundColor: 'var(--spider-neon-blue)', color: 'var(--spider-dark)', boxShadow: `0 0 15px var(--spider-neon-blue)` }}
                             >
-                                Get M4 Spider Launcher to Download SpiderNotebook for Windows
+                                Download SpiderNotebook for Windows
                             </button>
                             <button 
                                 onClick={() => onNavigate('docs')} 
