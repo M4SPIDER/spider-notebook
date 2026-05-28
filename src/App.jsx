@@ -240,16 +240,7 @@ const LoginPage = ({ onLoginSuccess }) => {
     const [isSignUpMode, setIsSignUpMode] = useState(false); // New state to control default view
 
     // User's provided Firebase configuration as a fallback
-    const USER_FIREBASE_CONFIG = {
-        apiKey: "AIzaSyBS1aGZZ2RDx2RKji1jOO-7spiY5QzJjh8",
-        authDomain: "m4-spider.firebaseapp.com",
-        projectId: "m4-spider",
-        storageBucket: "m4-spider.firebasestorage.app",
-        messagingSenderId: "154970150789",
-        appId: "1:154970150789:web:60796710cacca377edd6ec",
-        measurementId: "G-TGTWRTF7EX"
-    };
-
+    
     // --- Firebase Auth Setup (MANDATORY for real persistence) ---
     const [auth, setAuth] = useState(null);
     useEffect(() => {
