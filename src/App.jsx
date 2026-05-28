@@ -108,7 +108,7 @@ const examples = [
     { id: 3, title: "Java Greeting", code: `java {\n  public class Main {\n    public static void main(String[] args) {\n      System.out.println("Java is ready!");\n    }\n  }\n}`, output: "Java is ready!" }
 ];
 
-const SPIDER_INSTALLER_URL = 'https://github.com/M4SPIDER/spider-notebook/releases/download/spider/M4.Spidernotebook.installer.exe';
+const SPIDER_INSTALLER_URL = 'https://github.com/M4SPIDER/spider-notebook/releases/download/spider/M4.SpidernotebookInstaller.exe';
 
 const initialTerminalOutput = [
     'Welcome to SpiderNoteBook!',
