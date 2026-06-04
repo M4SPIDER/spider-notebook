@@ -1,3 +1,4 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@config "../tailwind.config.js";
+/* This is the magic line for Tailwind v4 Manual Dark Mode */
+@custom-variant dark (&:where(.dark, .dark *));
