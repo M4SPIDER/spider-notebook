@@ -2,3 +2,11 @@
 @config "../tailwind.config.js";
 /* This is the magic line for Tailwind v4 Manual Dark Mode */
 @custom-variant dark (&:where(.dark, .dark *));
+
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+*::-webkit-scrollbar {
+  display: none;
+}
