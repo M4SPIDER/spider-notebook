@@ -28,6 +28,7 @@ import {
 import SpyDocs from './SpyDocs';
 import SpiderCloud from './cloud';
 import SpiderChip from './chip';
+import SpiderNotebookAgent from './spidernotebook';
 
 const CyberStyles = () => (
   <style dangerouslySetInnerHTML={{ __html: `
@@ -368,6 +369,7 @@ export default function App() {
   const [showSpyDocs, setShowSpyDocs] = useState(false);
   const [showCloud, setShowCloud] = useState(false);
   const [showChip, setShowChip] = useState(false);
+  const [showNotebook, setShowNotebook] = useState(false);
   const [previousPage, setPreviousPage] = useState('home');
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -392,27 +394,62 @@ export default function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
 
+    const handlePopState = () => {
+      const state = window.history.state;
+      if (state) {
+        if (state.overlay === 'spydocs') {
+          setShowSpyDocs(true); setShowCloud(false); setShowChip(false); setShowNotebook(false);
+          setCurrentPage(state.page || 'about');
+        } else if (state.overlay === 'cloud') {
+          setShowSpyDocs(false); setShowCloud(true); setShowChip(false); setShowNotebook(false);
+          setCurrentPage(state.page || 'about');
+        } else if (state.overlay === 'chip') {
+          setShowSpyDocs(false); setShowCloud(false); setShowChip(true); setShowNotebook(false);
+          setCurrentPage(state.page || 'about');
+        } else if (state.overlay === 'notebook') {
+          setShowSpyDocs(false); setShowCloud(false); setShowChip(false); setShowNotebook(true);
+          setCurrentPage(state.page || 'products');
+        } else {
+          setShowSpyDocs(false); setShowCloud(false); setShowChip(false); setShowNotebook(false);
+          setCurrentPage(state.page || 'home');
+        }
+        setPreviousPage(state.previousPage || 'home');
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+
+    window.history.replaceState({ page: 'home', previousPage: 'home' }, '', '');
+
     return () => {
       window.removeEventListener('scroll', handleScroll);
       window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('popstate', handlePopState);
     };
   }, []);
 
   const navigateTo = (page) => {
+    setShowSpyDocs(false);
+    setShowCloud(false);
+    setShowChip(false);
+    setShowNotebook(false);
     setCurrentPage(page);
+    setPreviousPage(currentPage);
     setMobileMenuOpen(false);
     setSearchQuery('');
     window.scrollTo({ top: 0, behavior: 'instant' });
+    window.history.pushState({ page, previousPage: currentPage }, '', `#${page}`);
   };
 
-  const openOverlay = (setter) => {
+  const openOverlay = (setter, overlayName) => {
     setPreviousPage(currentPage);
     setter(true);
+    window.history.pushState({ page: currentPage, previousPage: currentPage, overlay: overlayName }, '', `#${overlayName}`);
   };
 
   const closeOverlay = (setter) => {
     setter(false);
     setCurrentPage(previousPage);
+    window.history.pushState({ page: previousPage, previousPage }, '', `#${previousPage}`);
   };
 
   const productData = useMemo(() => [
@@ -424,6 +461,15 @@ export default function App() {
       color: "cyan",
       icon: Terminal,
       highlights: ["Deep contextual awareness", "Built-in dynamic sandbox preview", "Instant module installs"]
+    },
+    {
+      id: "notebookagent",
+      title: "M4 Spider Notebook AI Agent",
+      desc: "Intelligent AI coding agent with real-time code analysis, multi-language sandbox execution, and autonomous debugging capabilities. Your always-on development partner.",
+      status: "LIVE",
+      color: "teal",
+      icon: Brain,
+      highlights: ["Autonomous code analysis", "Multi-language sandbox execution", "Real-time debugging & suggestions"]
     },
     {
       id: "maps",
@@ -937,14 +983,14 @@ export default function App() {
                   {[
                     { phase: "Today", desc: "Active software products & custom client architecture deployments." },
                     { phase: "AI Platforms", desc: "Intelligent core networks supporting custom language interfaces.", href: "https://ai.m4spider.com", actionLabel: "LAUNCH PLATFORM", badge: "LIVE" },
-                    { phase: "Developer Tools", desc: "Robust compilers, IDE systems (M4 Spider Notebook), & debug modules.", onClick: () => openOverlay(setShowCloud), actionLabel: "LAUNCH CLOUD", badge: "ACTIVE" },
-                    { phase: "Cloud Infrastructure", desc: "High efficiency serverless networks & edge deployment points.", onClick: () => openOverlay(setShowCloud), actionLabel: "LAUNCH CLOUD", badge: "LIVE" },
+                    { phase: "Developer Tools", desc: "Robust compilers, IDE systems (M4 Spider Notebook), & debug modules.", onClick: () => openOverlay(setShowCloud, 'cloud'), actionLabel: "LAUNCH CLOUD", badge: "ACTIVE" },
+                    { phase: "Cloud Infrastructure", desc: "High efficiency serverless networks & edge deployment points.", onClick: () => openOverlay(setShowCloud, 'cloud'), actionLabel: "LAUNCH CLOUD", badge: "LIVE" },
                     { phase: "Operating Systems", desc: "Microkernel architectures running secure system primitives." },
                     { phase: "Game Technologies", desc: "Custom structural graphics rendering pipelines (Spy Engine)." },
-                    { phase: "Programming Language", desc: "Type-safe, high speed low-level development compilation language.", onClick: () => openOverlay(setShowSpyDocs), actionLabel: "VIEW DOCS", badge: "LIVE" },
+                    { phase: "Programming Language", desc: "Type-safe, high speed low-level development compilation language.", onClick: () => openOverlay(setShowSpyDocs, 'spydocs'), actionLabel: "VIEW DOCS", badge: "LIVE" },
                     { phase: "Developer Marketplace", desc: "Decentralized plugins & tools marketplace ecosystem." },
                     { phase: "Future Hardware", desc: "High capacity hardware targets engineered to process complex workloads." },
-                    { phase: "Custom AI Chips", desc: "Proprietary physical silicon chip structures built specifically for AI.", onClick: () => openOverlay(setShowChip), actionLabel: "VIEW CHIP", badge: "R&D" }
+                    { phase: "Custom AI Chips", desc: "Proprietary physical silicon chip structures built specifically for AI.", onClick: () => openOverlay(setShowChip, 'chip'), actionLabel: "VIEW CHIP", badge: "R&D" }
                   ].map((step, idx) => (
                     step.onClick ? (
                       <button key={idx} onClick={step.onClick} className="relative pl-6 group block text-left w-full cursor-pointer">
@@ -1156,80 +1202,68 @@ export default function App() {
         {/* ======================================= */}
         {currentPage === 'people' && (
           <div className="page-fade-in max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-            <div className="space-y-4 text-center max-w-3xl mx-auto mb-16">
-              <span className="text-xs font-mono tracking-widest text-cyan-400 uppercase block">&gt;_ DECENTRALIZED_INTELLIGENCE</span>
-              <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight">System Architects</h1>
-              <p className="text-sm text-slate-400 leading-relaxed font-sans">
-                Our technology ecosystem is powered by a specialized group of system designers. To preserve research security and product engineering confidentiality, we operate without personal profiling.
+            <div className="space-y-4 text-center max-w-3xl mx-auto mb-20">
+              <span className="text-xs font-mono tracking-widest text-cyan-400 uppercase block">&gt;_ LEADERSHIP_TEAM</span>
+              <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight">The Minds Behind <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-teal-300">M4 Spider</span></h1>
+              <p className="text-sm text-slate-400 leading-relaxed font-sans max-w-xl mx-auto">
+                A focused leadership team driving innovation across AI, engineering, and operations — building technology that scales.
               </p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl mx-auto">
               {[
                 { 
-                  role: "Lead Compiler Architect", 
-                  dept: "Spy Language Core", 
-                  nodes: "NODE_01_HYD", 
-                  desc: "Designing highly optimized, type-safe compilers utilizing zero-cost pointer tracking and target hardware optimizations.",
-                  signals: ["AST Parser Arrays", "Native LLVM Targets", "Zero Pointer Safety"]
+                  name: "Valuvajjala Vivek Vardhan Rao", 
+                  role: "CEO & Founder",
+                  initials: "VV",
+                  desc: "Visionary leader driving M4 Spider's mission to build intelligent software ecosystems. Spearheading product strategy, AI research, and platform development.",
+                  tags: ["Vision & Strategy", "Product Architecture", "AI Research"]
                 },
                 { 
-                  role: "Head of Neural Systems", 
-                  dept: "Spider AI Platform", 
-                  nodes: "NODE_02_REMOTE", 
-                  desc: "Overseeing custom LLM tuning, text-to-image synthesis pipelines, and high-concurrency neural node coordination layers.",
-                  signals: ["Model Fine-Tuning", "Vector Matrix Maps", "Parallel Processing Hooks"]
+                  name: "Apikonda Varun Raj", 
+                  role: "Chief Product Evangelist",
+                  initials: "AV",
+                  desc: "Product engineering leader driving technical excellence across all platforms. Architecting scalable systems and ensuring product quality from concept to deployment.",
+                  tags: ["Product Architecture", "Technical Leadership", "System Design"]
                 },
                 { 
-                  role: "Principal Kernel Architect", 
-                  dept: "Spider OS Core", 
-                  nodes: "NODE_03_BLR", 
-                  desc: "Developing decentralized microkernel operating system scheduling cores with robust native memory compartment controls.",
-                  signals: ["Microkernel Security", "I/O Multiplex Pipelines", "Thread Scheduler Algorithms"]
-                },
-                { 
-                  role: "Lead Graphics Engineer", 
-                  dept: "Spy Engine Render Core", 
-                  nodes: "NODE_04_HYD", 
-                  desc: "Pioneering custom raymarching shader routines, scene parsing engines, and zero-latency graphics hardware buffers.",
-                  signals: ["Metal & Vulkan Pipeline", "Procedural Shader Nodes", "Matrix Transformations"]
-                },
-                { 
-                  role: "Core Geospatial Developer", 
-                  dept: "Spider Maps Vector Hub", 
-                  nodes: "NODE_05_HYD", 
-                  desc: "Compiling massive vector layout arrays to render seamless, beautiful geographical projections with zero layout shifts.",
-                  signals: ["Vector Map Tiling", "Precision Coordinate Data", "Dynamic Route Indexing"]
-                },
-                { 
-                  role: "Cloud Infrastructure Specialist", 
-                  dept: "Spider Cloud Platforms", 
-                  nodes: "NODE_06_REMOTE", 
-                  desc: "Developing self-healing clusters, automated edge routing logic, and global decentralized object server nodes.",
-                  signals: ["Serverless Routines", "Secure Node Encryption", "Micro-Service Packets"]
+                  name: "Shaik Fareed", 
+                  role: "Chief Operations Officer",
+                  initials: "SF",
+                  desc: "Operations strategist ensuring seamless execution across all verticals. Optimizing workflows, infrastructure reliability, and business process efficiency.",
+                  tags: ["Operations Strategy", "Process Optimization", "Business Growth"]
                 }
               ].map((member, idx) => (
                 <div 
                   key={idx} 
-                  className="glass-morphism rounded-2xl p-6 border border-slate-800 hover:border-cyan-400/40 hover:shadow-[0_0_20px_rgba(0,239,255,0.05)] transition-all duration-300 relative group overflow-hidden"
+                  className="group relative rounded-2xl overflow-hidden transition-all duration-500"
                 >
-                  <div className="absolute inset-0 bg-gradient-to-b from-cyan-950/5 to-transparent"></div>
-                  <div className="w-14 h-14 rounded-xl bg-[#030d17] border border-slate-800 flex items-center justify-center text-cyan-400 mb-6 relative overflow-hidden">
-                    <div className="absolute inset-1 rounded-lg border border-dashed border-cyan-500/30 animate-spin mobile-no-spin"></div>
-                    <Cpu className="w-5 h-5 z-10" />
-                  </div>
-                  <div className="space-y-4">
-                    <div>
-                      <span className="text-[10px] font-mono text-teal-400 uppercase tracking-wider">{member.dept} • {member.nodes}</span>
-                      <h3 className="text-base font-bold font-mono text-white mt-1 group-hover:text-cyan-400 transition-colors">{member.role}</h3>
+                  <div className="absolute inset-0 bg-gradient-to-b from-slate-900/90 to-slate-950/95 border border-slate-800/60 rounded-2xl group-hover:border-cyan-500/30 transition-colors duration-500"></div>
+                  <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-cyan-500/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                  
+                  <div className="relative p-8 space-y-6">
+                    <div className="flex items-start justify-between">
+                      <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-cyan-500/20 to-teal-500/10 border border-cyan-500/20 flex items-center justify-center group-hover:from-cyan-500/30 group-hover:to-teal-500/20 transition-all duration-500">
+                        <span className="text-lg font-bold text-cyan-400 font-mono">{member.initials}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                        <span className="text-[9px] font-mono text-emerald-400/70 uppercase tracking-wider">Active</span>
+                      </div>
                     </div>
+
+                    <div className="space-y-1">
+                      <h3 className="text-base font-bold text-white group-hover:text-cyan-400 transition-colors duration-300">{member.name}</h3>
+                      <span className="text-[11px] font-mono text-cyan-400/80 uppercase tracking-wider">{member.role}</span>
+                    </div>
+
                     <p className="text-xs text-slate-400 leading-relaxed font-sans">{member.desc}</p>
-                    <div className="pt-4 border-t border-slate-900/80 space-y-2">
-                      <span className="text-[9px] font-mono text-slate-500 uppercase tracking-widest block">CORE SKILL MATRIX</span>
+
+                    <div className="pt-4 border-t border-slate-800/50">
                       <div className="flex flex-wrap gap-1.5">
-                        {member.signals.map((sig, sIdx) => (
-                          <span key={sIdx} className="text-[8px] font-mono bg-slate-950 border border-slate-800 text-cyan-400 px-2.5 py-0.5 rounded-md">
-                            {sig}
+                        {member.tags.map((tag, tIdx) => (
+                          <span key={tIdx} className="text-[9px] font-mono bg-slate-900/80 border border-slate-700/40 text-slate-300 px-2.5 py-1 rounded-md group-hover:border-cyan-500/20 group-hover:text-cyan-300 transition-all duration-300">
+                            {tag}
                           </span>
                         ))}
                       </div>
@@ -1237,6 +1271,13 @@ export default function App() {
                   </div>
                 </div>
               ))}
+            </div>
+
+            <div className="mt-20 text-center">
+              <div className="inline-flex items-center gap-3 px-6 py-3 rounded-xl bg-slate-900/50 border border-slate-800/50">
+                <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
+                <span className="text-xs font-mono text-slate-400 tracking-wider">M4 SPIDER TECHNOLOGIES • EST. 2024</span>
+              </div>
             </div>
           </div>
         )}
@@ -1406,24 +1447,31 @@ export default function App() {
               <div className="flex gap-3 pt-2">
                 {selectedProduct.id === 'language' ? (
                   <button 
-                    onClick={() => { setSelectedProduct(null); openOverlay(setShowSpyDocs); }}
+                    onClick={() => { setSelectedProduct(null); openOverlay(setShowSpyDocs, 'spydocs'); }}
                     className="flex-1 bg-gradient-to-r from-cyan-400 to-teal-400 text-slate-950 font-bold font-mono text-xs py-2.5 rounded-lg tracking-wider text-center"
                   >
                     VIEW DOCS
                   </button>
                 ) : selectedProduct.id === 'cloud' ? (
                   <button 
-                    onClick={() => { setSelectedProduct(null); openOverlay(setShowCloud); }}
+                    onClick={() => { setSelectedProduct(null); openOverlay(setShowCloud, 'cloud'); }}
                     className="flex-1 bg-gradient-to-r from-cyan-400 to-teal-400 text-slate-950 font-bold font-mono text-xs py-2.5 rounded-lg tracking-wider text-center"
                   >
                     VISIT CLOUD
                   </button>
                 ) : selectedProduct.id === 'chip' ? (
                   <button 
-                    onClick={() => { setSelectedProduct(null); openOverlay(setShowChip); }}
+                    onClick={() => { setSelectedProduct(null); openOverlay(setShowChip, 'chip'); }}
                     className="flex-1 bg-gradient-to-r from-cyan-400 to-teal-400 text-slate-950 font-bold font-mono text-xs py-2.5 rounded-lg tracking-wider text-center"
                   >
                     VIEW CHIP
+                  </button>
+                ) : selectedProduct.id === 'notebookagent' ? (
+                  <button 
+                    onClick={() => { setSelectedProduct(null); openOverlay(setShowNotebook, 'notebook'); }}
+                    className="flex-1 bg-gradient-to-r from-cyan-400 to-teal-400 text-slate-950 font-bold font-mono text-xs py-2.5 rounded-lg tracking-wider text-center"
+                  >
+                    LAUNCH AGENT
                   </button>
                 ) : (
                   <button 
@@ -1464,6 +1512,12 @@ export default function App() {
         </div>
       )}
 
+      {showNotebook && (
+        <div className="fixed inset-0 z-50 bg-black overflow-y-auto">
+          <SpiderNotebookAgent onBack={() => closeOverlay(setShowNotebook)} />
+        </div>
+      )}
+
       {}
       <footer className="bg-[#020509] border-t border-slate-900 py-12 relative z-10 text-xs text-slate-400 font-mono mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 md:grid-cols-12 gap-8">
@@ -1497,6 +1551,7 @@ export default function App() {
             <ul className="space-y-1.5 text-xs text-slate-400">
               <li><a href="https://maps.m4spider.com" target="_blank" rel="noreferrer" className="hover:text-cyan-400 transition-colors">Spider Maps</a></li>
               <li><a href="https://ai.m4spider.com" target="_blank" rel="noreferrer" className="hover:text-cyan-400 transition-colors">Spider AI</a></li>
+              <li><button onClick={() => { openOverlay(setShowNotebook, 'notebook'); }} className="hover:text-cyan-400 transition-colors text-left">M4 Spider Notebook AI Agent</button></li>
               <li><button onClick={() => navigateTo('projects')} className="hover:text-cyan-400 transition-colors text-left">Delivered Operations</button></li>
               <li><button onClick={() => navigateTo('people')} className="hover:text-cyan-400 transition-colors text-left">System Architects</button></li>
             </ul>
