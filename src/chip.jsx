@@ -56,14 +56,10 @@ const CyberStyles = () => (
     }
     .glass-morphism {
       background: rgba(4, 9, 7, 0.92);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
       border: 1px solid rgba(34, 197, 94, 0.15);
     }
     .glass-premium {
       background: linear-gradient(135deg, rgba(3, 12, 6, 0.95) 0%, rgba(1, 4, 2, 0.98) 100%);
-      backdrop-filter: blur(24px);
-      -webkit-backdrop-filter: blur(24px);
       border: 1px solid rgba(34, 197, 94, 0.25);
       box-shadow: 0 25px 60px rgba(0, 0, 0, 0.85);
     }
@@ -90,8 +86,6 @@ const CyberStyles = () => (
     }
     .scrolled-nav {
       background: rgba(3, 8, 4, 0.95);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
       border-bottom: 1px solid rgba(34, 197, 94, 0.3);
       padding-top: 0.75rem;
       padding-bottom: 0.75rem;
@@ -104,20 +98,7 @@ const CyberStyles = () => (
     .subtle-highlight-text {
       color: #22c55e; /* Crisp Spider Green */
     }
-    @media (max-width: 768px) {
-      .scrolled-nav {
-        backdrop-filter: blur(8px);
-        -webkit-backdrop-filter: blur(8px);
-      }
-      .glass-morphism {
-        backdrop-filter: blur(8px);
-        -webkit-backdrop-filter: blur(8px);
-      }
-      .glass-premium {
-        backdrop-filter: blur(8px);
-        -webkit-backdrop-filter: blur(8px);
-      }
-    }
+    @media (max-width: 768px) {}
   `}} />
 );
 
@@ -899,7 +880,7 @@ const SpiderCloud = ({ onBack }) => {
   );
 };
 
-export default function App() {
+export default function SpiderChip({ onBack = () => {} }) {
   const [currentPage, setCurrentPage] = useState('home'); 
   const navRef = useRef(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -1107,10 +1088,19 @@ export default function App() {
       <nav ref={navRef} className="fixed top-0 left-0 w-full z-50 transition-all duration-300 bg-transparent py-5">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between">
           
-          <div 
-            onClick={() => navigateTo('home')} 
-            className="flex items-center space-x-3 cursor-pointer group"
-          >
+          <div className="flex items-center space-x-3">
+            <button 
+              onClick={onBack}
+              className="p-1.5 rounded-lg border border-emerald-500/30 bg-[#020904] hover:bg-emerald-500/10 transition-colors"
+            >
+              <svg className="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <div 
+              onClick={() => navigateTo('home')} 
+              className="flex items-center space-x-3 cursor-pointer group"
+            >
             <div className="relative flex items-center justify-center w-10 h-10 rounded-lg border border-emerald-500/30 bg-[#020904] transition-all group-hover:border-emerald-400 group-hover:shadow-[0_0_15px_rgba(34,197,94,0.3)]">
               <span className="text-emerald-400 font-mono text-base font-bold">S</span>
               <div className="absolute inset-0 rounded-lg bg-gradient-to-tr from-emerald-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
@@ -1122,6 +1112,7 @@ export default function App() {
               <span className="text-[9px] font-mono tracking-widest text-emerald-400 uppercase">
                 PROPRIETARY R&D SILICON
               </span>
+            </div>
             </div>
           </div>
 
@@ -1856,7 +1847,7 @@ export default function App() {
 
       {/* Selected Architectural Module Spec Modal */}
       {selectedArch && (
-        <div className="fixed inset-0 z-50 bg-zinc-950/90 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
+        <div className="fixed inset-0 z-50 bg-zinc-950/90 flex items-center justify-center p-4 animate-fadeIn">
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-2xl w-full p-8 relative overflow-hidden shadow-2xl">
             <button 
               onClick={() => setSelectedArch(null)}
@@ -1903,7 +1894,7 @@ export default function App() {
 
       {/* Selected Research Manuscript Abstract Modal */}
       {selectedPaper && (
-        <div className="fixed inset-0 z-50 bg-zinc-950/90 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
+        <div className="fixed inset-0 z-50 bg-zinc-950/90 flex items-center justify-center p-4 animate-fadeIn">
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-3xl w-full p-8 relative shadow-2xl">
             <button 
               onClick={() => setSelectedPaper(null)}

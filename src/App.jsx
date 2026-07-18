@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import SpyDocs from './SpyDocs';
 import SpiderCloud from './cloud';
+import SpiderChip from './chip';
 
 const CyberStyles = () => (
   <style dangerouslySetInnerHTML={{ __html: `
@@ -46,15 +47,11 @@ const CyberStyles = () => (
       text-shadow: 0 0 10px rgba(0, 242, 254, 0.5);
     }
     .glass-morphism {
-      background: rgba(3, 10, 18, 0.75);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
+      background: rgba(3, 10, 18, 0.92);
       border: 1px solid rgba(255, 255, 255, 0.05);
     }
     .glass-premium {
-      background: linear-gradient(135deg, rgba(4, 18, 31, 0.8) 0%, rgba(2, 6, 12, 0.95) 100%);
-      backdrop-filter: blur(24px);
-      -webkit-backdrop-filter: blur(24px);
+      background: linear-gradient(135deg, rgba(4, 18, 31, 0.95) 0%, rgba(2, 6, 12, 0.98) 100%);
       border: 1px solid rgba(0, 242, 254, 0.15);
       box-shadow: 0 25px 60px rgba(0, 0, 0, 0.6);
     }
@@ -80,27 +77,13 @@ const CyberStyles = () => (
       to { opacity: 1; transform: translateY(0); }
     }
     .scrolled-nav {
-      background: rgba(3, 10, 18, 0.75);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
+      background: rgba(3, 10, 18, 0.92);
       border-bottom: 1px solid rgba(0, 242, 254, 0.2);
       padding-top: 0.75rem;
       padding-bottom: 0.75rem;
       box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
     }
     @media (max-width: 768px) {
-      .scrolled-nav {
-        backdrop-filter: blur(6px);
-        -webkit-backdrop-filter: blur(6px);
-      }
-      .glass-morphism {
-        backdrop-filter: blur(6px);
-        -webkit-backdrop-filter: blur(6px);
-      }
-      .glass-premium {
-        backdrop-filter: blur(8px);
-        -webkit-backdrop-filter: blur(8px);
-      }
       .mobile-no-spin {
         animation: none !important;
       }
@@ -384,6 +367,10 @@ export default function App() {
   const [showProductDetails, setShowProductDetails] = useState(true);
   const [showSpyDocs, setShowSpyDocs] = useState(false);
   const [showCloud, setShowCloud] = useState(false);
+  const [showChip, setShowChip] = useState(false);
+  const [previousPage, setPreviousPage] = useState('home');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     const handleScroll = () => {
@@ -396,13 +383,36 @@ export default function App() {
       }
     };
     window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
+
+    const handleKeyDown = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setSearchOpen(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
   }, []);
 
   const navigateTo = (page) => {
     setCurrentPage(page);
     setMobileMenuOpen(false);
-    window.scrollTo({ top: 0, behavior: 'instant' }); // Snappy true page opening behavior
+    setSearchQuery('');
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  };
+
+  const openOverlay = (setter) => {
+    setPreviousPage(currentPage);
+    setter(true);
+  };
+
+  const closeOverlay = (setter) => {
+    setter(false);
+    setCurrentPage(previousPage);
   };
 
   const productData = useMemo(() => [
@@ -486,6 +496,15 @@ export default function App() {
       color: "purple",
       icon: Monitor,
       highlights: ["Procedural geometry workflows", "Realtime dynamic physical renders", "AI-assisted canvas mapping"]
+    },
+    {
+      id: "chip",
+      title: "Spider Chip",
+      desc: "Next-generation AI co-processor designed for intelligent computing, machine learning, robotics, and edge AI applications. Engineered with proprietary Verilog microarchitecture.",
+      status: "R&D",
+      color: "emerald",
+      icon: Cpu,
+      highlights: ["Proprietary Verilog microarchitecture", "NPU cores for matrix-vector operations", "PCIe Gen4 x4 co-processing"]
     }
   ], []);
 
@@ -569,8 +588,17 @@ export default function App() {
               PEOPLE
             </button>
             <button 
+              onClick={() => setSearchOpen(!searchOpen)}
+              className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg border border-slate-800/50 text-slate-400 hover:text-cyan-400 hover:border-cyan-500/30 transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <span className="text-[10px] font-mono text-slate-600 hidden lg:inline">⌘K</span>
+            </button>
+            <button 
               onClick={() => navigateTo('contact')} 
-              className="ml-4 px-4 py-2 rounded-lg border border-cyan-500/30 hover:border-cyan-400 text-xs font-bold text-cyan-400 bg-cyan-950/20 transition-all duration-300"
+              className="ml-2 px-4 py-2 rounded-lg border border-cyan-500/30 hover:border-cyan-400 text-xs font-bold text-cyan-400 bg-cyan-950/20 transition-all duration-300"
             >
               GET IN TOUCH
             </button>
@@ -588,6 +616,16 @@ export default function App() {
 
         {mobileMenuOpen && (
           <div className="absolute top-full left-0 w-full glass-morphism border-b border-cyan-500/20 py-5 px-6 flex flex-col space-y-4 animate-fadeIn z-50">
+            <button 
+              onClick={() => { setMobileMenuOpen(false); setSearchOpen(true); }}
+              className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl border border-slate-700/50 bg-slate-900/40 text-sm text-slate-500 hover:text-slate-300 hover:border-cyan-500/30 transition-colors text-left"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              Search pages, products...
+              <span className="ml-auto text-[9px] font-mono border border-slate-700/50 px-1.5 py-0.5 rounded">⌘K</span>
+            </button>
             <button onClick={() => navigateTo('home')} className="text-left py-2 font-semibold text-sm text-slate-200 hover:text-cyan-400">&gt; HOME</button>
             <button onClick={() => navigateTo('about')} className="text-left py-2 font-semibold text-sm text-slate-200 hover:text-cyan-400">&gt; ABOUT US</button>
             <button onClick={() => navigateTo('products')} className="text-left py-2 font-semibold text-sm text-slate-200 hover:text-cyan-400">&gt; PRODUCTS</button>
@@ -598,6 +636,123 @@ export default function App() {
           </div>
         )}
       </nav>
+
+      {searchOpen && (
+        <div className="fixed inset-0 z-[60] bg-black/70 flex items-start justify-center pt-[12vh] px-4" onClick={() => { setSearchOpen(false); setSearchQuery(''); }}>
+          <div className="w-full max-w-lg glass-morphism border border-cyan-500/20 rounded-2xl shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center px-5 py-4 border-b border-slate-800/50">
+              <svg className="w-5 h-5 text-slate-500 mr-3 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input 
+                type="text" 
+                placeholder="Search pages, products, services..." 
+                autoFocus
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && searchQuery.trim()) {
+                    const q = searchQuery.toLowerCase();
+                    const pages = ['home', 'about', 'products', 'services', 'projects', 'people', 'contact'];
+                    const products = ['Spider Maps', 'Spy Language', 'Spider Cloud', 'Spider AI', 'Spider Chip', 'Spider VFX'];
+                    const services = ['Custom Software Development', 'AI Solutions', 'Enterprise Applications', 'Web Development', 'Mobile Development', 'Cloud Solutions', 'UI / UX Design', 'Technical Consulting'];
+                    const match = pages.find(p => p.includes(q)) || 
+                      (products.find(p => p.toLowerCase().includes(q)) && 'products') ||
+                      (services.find(s => s.toLowerCase().includes(q)) && 'services') ||
+                      'home';
+                    navigateTo(match);
+                    setSearchQuery('');
+                    setSearchOpen(false);
+                  } else if (e.key === 'Escape') {
+                    setSearchOpen(false);
+                    setSearchQuery('');
+                  }
+                }}
+                className="flex-1 bg-transparent text-white text-sm outline-none placeholder-slate-500 font-sans"
+              />
+              <span className="text-[9px] font-mono text-slate-600 border border-slate-700/50 px-1.5 py-0.5 rounded ml-2">ESC</span>
+            </div>
+            <div className="max-h-[50vh] overflow-y-auto p-2">
+              {searchQuery ? (
+                <div className="space-y-0.5">
+                  {[
+                    { label: 'Home', page: 'home' },
+                    { label: 'About', page: 'about' },
+                    { label: 'Products', page: 'products' },
+                    { label: 'Services', page: 'services' },
+                    { label: 'Projects', page: 'projects' },
+                    { label: 'People', page: 'people' },
+                    { label: 'Contact', page: 'contact' },
+                    { label: 'Spider Maps', page: 'products' },
+                    { label: 'Spy Language', page: 'products' },
+                    { label: 'Spider Cloud', page: 'products' },
+                    { label: 'Spider AI', page: 'products' },
+                    { label: 'Spider Chip', page: 'products' },
+                    { label: 'Spider VFX', page: 'products' },
+                  ].filter(item => item.label.toLowerCase().includes(searchQuery.toLowerCase())).map((item) => (
+                    <button 
+                      key={item.label}
+                      onClick={() => { navigateTo(item.page); setSearchOpen(false); setSearchQuery(''); }}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-sans text-slate-300 hover:bg-cyan-500/10 hover:text-white transition-colors text-left"
+                    >
+                      <span>{item.label}</span>
+                    </button>
+                  ))}
+                  {(() => {
+                    const q = searchQuery.toLowerCase();
+                    const pages = ['home', 'about', 'products', 'services', 'projects', 'people', 'contact'];
+                    const products = ['Spider Maps', 'Spy Language', 'Spider Cloud', 'Spider AI', 'Spider Chip', 'Spider VFX'];
+                    const services = ['Custom Software Development', 'AI Solutions', 'Enterprise Applications', 'Web Development', 'Mobile Development', 'Cloud Solutions', 'UI / UX Design', 'Technical Consulting'];
+                    const hasMatch = pages.some(p => p.includes(q)) || products.some(p => p.toLowerCase().includes(q)) || services.some(s => s.toLowerCase().includes(q));
+                    if (!hasMatch) {
+                      return <div className="px-4 py-6 text-center text-xs text-slate-600 font-sans">No results found</div>;
+                    }
+                    return null;
+                  })()}
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <div className="px-3 py-1.5 text-[10px] font-mono text-slate-600 tracking-widest uppercase">Quick Links</div>
+                  {[
+                    { label: 'Home', page: 'home' },
+                    { label: 'About', page: 'about' },
+                    { label: 'Products', page: 'products' },
+                    { label: 'Services', page: 'services' },
+                    { label: 'Projects', page: 'projects' },
+                    { label: 'People', page: 'people' },
+                    { label: 'Contact', page: 'contact' },
+                  ].map((item) => (
+                    <button 
+                      key={item.label}
+                      onClick={() => { navigateTo(item.page); setSearchOpen(false); setSearchQuery(''); }}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-sans text-slate-300 hover:bg-cyan-500/10 hover:text-white transition-colors text-left"
+                    >
+                      <span>{item.label}</span>
+                    </button>
+                  ))}
+                  <div className="px-3 py-1.5 mt-2 text-[10px] font-mono text-slate-600 tracking-widest uppercase">Products</div>
+                  {[
+                    { label: 'Spider Maps', page: 'products' },
+                    { label: 'Spy Language', page: 'products' },
+                    { label: 'Spider Cloud', page: 'products' },
+                    { label: 'Spider AI', page: 'products' },
+                    { label: 'Spider Chip', page: 'products' },
+                    { label: 'Spider VFX', page: 'products' },
+                  ].map((item) => (
+                    <button 
+                      key={item.label}
+                      onClick={() => { navigateTo(item.page); setSearchOpen(false); setSearchQuery(''); }}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-sans text-slate-300 hover:bg-cyan-500/10 hover:text-white transition-colors text-left"
+                    >
+                      <span>{item.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {}
       <main className="flex-1 relative z-10 pt-20">
@@ -782,14 +937,14 @@ export default function App() {
                   {[
                     { phase: "Today", desc: "Active software products & custom client architecture deployments." },
                     { phase: "AI Platforms", desc: "Intelligent core networks supporting custom language interfaces.", href: "https://ai.m4spider.com", actionLabel: "LAUNCH PLATFORM", badge: "LIVE" },
-                    { phase: "Developer Tools", desc: "Robust compilers, IDE systems (M4 Spider Notebook), & debug modules.", onClick: () => setShowCloud(true), actionLabel: "LAUNCH CLOUD", badge: "ACTIVE" },
-                    { phase: "Cloud Infrastructure", desc: "High efficiency serverless networks & edge deployment points.", onClick: () => setShowCloud(true), actionLabel: "LAUNCH CLOUD", badge: "LIVE" },
+                    { phase: "Developer Tools", desc: "Robust compilers, IDE systems (M4 Spider Notebook), & debug modules.", onClick: () => openOverlay(setShowCloud), actionLabel: "LAUNCH CLOUD", badge: "ACTIVE" },
+                    { phase: "Cloud Infrastructure", desc: "High efficiency serverless networks & edge deployment points.", onClick: () => openOverlay(setShowCloud), actionLabel: "LAUNCH CLOUD", badge: "LIVE" },
                     { phase: "Operating Systems", desc: "Microkernel architectures running secure system primitives." },
                     { phase: "Game Technologies", desc: "Custom structural graphics rendering pipelines (Spy Engine)." },
-                    { phase: "Programming Language", desc: "Type-safe, high speed low-level development compilation language." },
+                    { phase: "Programming Language", desc: "Type-safe, high speed low-level development compilation language.", onClick: () => openOverlay(setShowSpyDocs), actionLabel: "VIEW DOCS", badge: "LIVE" },
                     { phase: "Developer Marketplace", desc: "Decentralized plugins & tools marketplace ecosystem." },
                     { phase: "Future Hardware", desc: "High capacity hardware targets engineered to process complex workloads." },
-                    { phase: "Custom AI Chips", desc: "Proprietary physical silicon chip structures built specifically for AI." }
+                    { phase: "Custom AI Chips", desc: "Proprietary physical silicon chip structures built specifically for AI.", onClick: () => openOverlay(setShowChip), actionLabel: "VIEW CHIP", badge: "R&D" }
                   ].map((step, idx) => (
                     step.onClick ? (
                       <button key={idx} onClick={step.onClick} className="relative pl-6 group block text-left w-full cursor-pointer">
@@ -1178,7 +1333,7 @@ export default function App() {
       </main>
 
       {selectedProduct && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fadeIn">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 animate-fadeIn">
           <div className={`w-full ${selectedProduct.id === 'maps' && !showProductDetails ? 'max-w-4xl h-[85vh]' : selectedProduct.id === 'maps' ? 'max-w-2xl' : 'max-w-lg'} glass-premium rounded-2xl overflow-hidden relative border border-cyan-500/30 transition-all duration-300`}>
             <button 
               onClick={() => setSelectedProduct(null)}
@@ -1213,9 +1368,9 @@ export default function App() {
                       OPEN FULL <ArrowUpRight className="w-2.5 h-2.5" />
                     </a>
                   </div>
-                </div>
-              </div>
-            )}
+          </div>
+        </div>
+      )}
 
             {(!selectedProduct.id || selectedProduct.id !== 'maps' || showProductDetails) && (
             <div className="p-6 sm:p-8 space-y-6">
@@ -1251,17 +1406,24 @@ export default function App() {
               <div className="flex gap-3 pt-2">
                 {selectedProduct.id === 'language' ? (
                   <button 
-                    onClick={() => { setSelectedProduct(null); setShowSpyDocs(true); }}
+                    onClick={() => { setSelectedProduct(null); openOverlay(setShowSpyDocs); }}
                     className="flex-1 bg-gradient-to-r from-cyan-400 to-teal-400 text-slate-950 font-bold font-mono text-xs py-2.5 rounded-lg tracking-wider text-center"
                   >
                     VIEW DOCS
                   </button>
                 ) : selectedProduct.id === 'cloud' ? (
                   <button 
-                    onClick={() => { setSelectedProduct(null); setShowCloud(true); }}
+                    onClick={() => { setSelectedProduct(null); openOverlay(setShowCloud); }}
                     className="flex-1 bg-gradient-to-r from-cyan-400 to-teal-400 text-slate-950 font-bold font-mono text-xs py-2.5 rounded-lg tracking-wider text-center"
                   >
                     VISIT CLOUD
+                  </button>
+                ) : selectedProduct.id === 'chip' ? (
+                  <button 
+                    onClick={() => { setSelectedProduct(null); openOverlay(setShowChip); }}
+                    className="flex-1 bg-gradient-to-r from-cyan-400 to-teal-400 text-slate-950 font-bold font-mono text-xs py-2.5 rounded-lg tracking-wider text-center"
+                  >
+                    VIEW CHIP
                   </button>
                 ) : (
                   <button 
@@ -1286,13 +1448,19 @@ export default function App() {
 
       {showSpyDocs && (
         <div className="fixed inset-0 z-50 bg-black overflow-y-auto">
-          <SpyDocs onBack={() => setShowSpyDocs(false)} />
+          <SpyDocs onBack={() => closeOverlay(setShowSpyDocs)} />
         </div>
       )}
 
       {showCloud && (
         <div className="fixed inset-0 z-50 bg-black overflow-y-auto">
-          <SpiderCloud onBack={() => setShowCloud(false)} />
+          <SpiderCloud onBack={() => closeOverlay(setShowCloud)} />
+        </div>
+      )}
+
+      {showChip && (
+        <div className="fixed inset-0 z-50 bg-black overflow-y-auto">
+          <SpiderChip onBack={() => closeOverlay(setShowChip)} />
         </div>
       )}
 
