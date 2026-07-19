@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 
 const Icons = {
@@ -89,6 +89,230 @@ const Icons = {
   )
 };
 
+const isMobileDevice = () => typeof window !== 'undefined' && window.innerWidth < 768;
+
+const LivingMotherboardCanvas = () => {
+  const canvasRef = useRef(null);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    let animationFrameId;
+    const mobile = isMobileDevice();
+    let paused = false;
+    let scrollTimeout;
+    let width = (canvas.width = window.innerWidth);
+    let height = (canvas.height = window.innerHeight);
+
+    const handleResize = () => {
+      if (!canvas) return;
+      width = canvas.width = window.innerWidth;
+      height = canvas.height = window.innerHeight;
+    };
+    window.addEventListener('resize', handleResize, { passive: true });
+
+    const handleScroll = () => {
+      if (!paused) { paused = true; cancelAnimationFrame(animationFrameId); }
+      clearTimeout(scrollTimeout);
+      scrollTimeout = setTimeout(() => { paused = false; animationFrameId = requestAnimationFrame(renderLoop); }, 200);
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+
+    const numRays = mobile ? 18 : 50;
+    let rays = [];
+
+    const createRay = () => {
+      const edge = Math.floor(Math.random() * 4);
+      let x, y, angle;
+      const speed = 1.5 + Math.random() * 4;
+      const len = 60 + Math.random() * 200;
+      const cyan = Math.random() > 0.3;
+      if (edge === 0) { x = Math.random() * width; y = -20; angle = Math.PI / 2 + (Math.random() - 0.5) * 0.6; }
+      else if (edge === 1) { x = width + 20; y = Math.random() * height; angle = Math.PI + (Math.random() - 0.5) * 0.6; }
+      else if (edge === 2) { x = Math.random() * width; y = height + 20; angle = -Math.PI / 2 + (Math.random() - 0.5) * 0.6; }
+      else { x = -20; y = Math.random() * height; angle = (Math.random() - 0.5) * 0.6; }
+      const tipX = x + Math.cos(angle) * len;
+      const tipY = y + Math.sin(angle) * len;
+      return { x, y, tipX, tipY, angle, speed, len, opacity: 0.3 + Math.random() * 0.5, cyan, progress: 0, trail: 0.02 + Math.random() * 0.03 };
+    };
+
+    for (let i = 0; i < numRays; i++) {
+      const ray = createRay();
+      ray.progress = Math.random();
+      rays.push(ray);
+    }
+
+    let time = 0;
+
+    const renderLoop = () => {
+      if (paused) return;
+      ctx.clearRect(0, 0, width, height);
+      time += 0.016;
+
+      for (let i = rays.length - 1; i >= 0; i--) {
+        const r = rays[i];
+        r.progress += r.trail;
+        if (r.progress > 1.05) { rays[i] = createRay(); continue; }
+
+        const headX = r.x + (r.tipX - r.x) * r.progress;
+        const headY = r.y + (r.tipY - r.y) * r.progress;
+        const tailProgress = Math.max(0, r.progress - 0.25);
+        const tailX = r.x + (r.tipX - r.x) * tailProgress;
+        const tailY = r.y + (r.tipY - r.y) * tailProgress;
+
+        const fadeIn = Math.min(r.progress * 4, 1);
+        const fadeOut = r.progress > 0.7 ? 1 - (r.progress - 0.7) / 0.3 : 1;
+        const alpha = r.opacity * fadeIn * fadeOut;
+
+        if (alpha <= 0.01) continue;
+
+        const grad = ctx.createLinearGradient(tailX, tailY, headX, headY);
+        if (r.cyan) {
+          grad.addColorStop(0, `rgba(0, 242, 255, 0)`);
+          grad.addColorStop(0.6, `rgba(0, 242, 255, ${alpha * 0.6})`);
+          grad.addColorStop(1, `rgba(0, 242, 255, ${alpha})`);
+        } else {
+          grad.addColorStop(0, `rgba(45, 212, 191, 0)`);
+          grad.addColorStop(0.6, `rgba(45, 212, 191, ${alpha * 0.6})`);
+          grad.addColorStop(1, `rgba(45, 212, 191, ${alpha})`);
+        }
+
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = mobile ? 1 : 1.5;
+        ctx.beginPath();
+        ctx.moveTo(tailX, tailY);
+        ctx.lineTo(headX, headY);
+        ctx.stroke();
+
+        if (r.progress < 0.95) {
+          ctx.fillStyle = r.cyan ? `rgba(0, 242, 255, ${alpha * 0.8})` : `rgba(45, 212, 191, ${alpha * 0.8})`;
+          ctx.beginPath();
+          ctx.arc(headX, headY, mobile ? 1 : 2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      while (rays.length < numRays) rays.push(createRay());
+
+      animationFrameId = requestAnimationFrame(renderLoop);
+    };
+
+    animationFrameId = requestAnimationFrame(renderLoop);
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('scroll', handleScroll);
+      clearTimeout(scrollTimeout);
+    };
+  }, []);
+  return <canvas ref={canvasRef} className="fixed top-0 left-0 w-full h-full pointer-events-none z-0" />;
+};
+
+const CyberStyles = () => (
+  <style dangerouslySetInnerHTML={{ __html: `
+    @keyframes pageFadeIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .page-fade-in {
+      opacity: 0;
+      animation: pageFadeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+    @keyframes slideUp {
+      from { opacity: 0; transform: translateY(24px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .slide-up { opacity: 0; animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+    .slide-up-delay-1 { animation-delay: 0.1s; }
+    .slide-up-delay-2 { animation-delay: 0.2s; }
+    .slide-up-delay-3 { animation-delay: 0.3s; }
+    .slide-up-delay-4 { animation-delay: 0.4s; }
+    .slide-up-delay-5 { animation-delay: 0.5s; }
+    @keyframes fadeInScale {
+      from { opacity: 0; transform: scale(0.95); }
+      to { opacity: 1; transform: scale(1); }
+    }
+    .fade-in-scale { animation: fadeInScale 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+    @keyframes shimmer {
+      0% { background-position: -200% 0; }
+      100% { background-position: 200% 0; }
+    }
+    .shimmer-border {
+      position: relative;
+      overflow: hidden;
+    }
+    .shimmer-border::before {
+      content: '';
+      position: absolute;
+      top: -1px; left: -1px; right: -1px; bottom: -1px;
+      background: linear-gradient(90deg, transparent, rgba(0,242,255,0.3), transparent);
+      background-size: 200% 100%;
+      animation: shimmer 3s infinite linear;
+      border-radius: inherit;
+      z-index: -1;
+    }
+    @keyframes glowPulse {
+      0%, 100% { box-shadow: 0 0 20px rgba(0, 242, 255, 0.1); }
+      50% { box-shadow: 0 0 40px rgba(0, 242, 255, 0.25); }
+    }
+    .glow-pulse { animation: glowPulse 4s infinite ease-in-out; }
+    @keyframes neonGlowTeal {
+      0%, 100% { box-shadow: 0 0 15px rgba(0, 242, 254, 0.15), inset 0 0 10px rgba(0, 242, 254, 0.05); }
+      50% { box-shadow: 0 0 25px rgba(0, 242, 254, 0.35), inset 0 0 15px rgba(0, 242, 254, 0.1); }
+    }
+    .glass-morphism {
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .premium-scrollbar::-webkit-scrollbar { width: 5px; }
+    .premium-scrollbar::-webkit-scrollbar-track { background: rgba(2, 6, 12, 0.5); }
+    .premium-scrollbar::-webkit-scrollbar-thumb { background: rgba(0, 242, 254, 0.3); border-radius: 4px; }
+    .premium-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(0, 242, 254, 0.6); }
+    @keyframes float {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-8px); }
+    }
+    .float { animation: float 3s ease-in-out infinite; }
+    .scrolled-nav {
+      background: rgba(0, 0, 0, 0.6) !important;
+      border-bottom: 1px solid rgba(0, 242, 254, 0.2) !important;
+    }
+    @keyframes borderTrace {
+      0% { background-position: 0% 50%; }
+      100% { background-position: 200% 50%; }
+    }
+    .cyber-border {
+      border: 1px solid transparent;
+      background-clip: padding-box;
+      position: relative;
+    }
+    .cyber-border::after {
+      content: '';
+      position: absolute;
+      inset: -1px;
+      border-radius: inherit;
+      background: linear-gradient(90deg, transparent, rgba(0,242,255,0.2), transparent, rgba(0,245,165,0.15), transparent);
+      background-size: 200% 100%;
+      animation: borderTrace 4s linear infinite;
+      z-index: -1;
+      mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      mask-composite: exclude;
+      -webkit-mask-composite: xor;
+      padding: 1px;
+    }
+    @keyframes circuitPulse {
+      0%, 100% { opacity: 0.4; }
+      50% { opacity: 1; }
+    }
+    .circuit-pulse { animation: circuitPulse 2s ease-in-out infinite; }
+    @media (max-width: 768px) {
+      .mobile-no-spin { animation: none !important; }
+      .mobile-no-ping { animation: none !important; }
+    }
+  `}} />
+);
+
 
 export default function App({ onBack }) {
   const [currentView, setCurrentView] = useState('landing');
@@ -100,6 +324,7 @@ export default function App({ onBack }) {
   const [toast, setToast] = useState({ visible: false, title: '', desc: '' });
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [docsActiveSection, setDocsActiveSection] = useState('overview');
+  const navRef = useRef(null);
 
 
   // Platform detection logic (strictly on-load parameters)
@@ -118,6 +343,28 @@ export default function App({ onBack }) {
       setDetectedOS("Universal Computer Environment Platform Supported");
       setOsIcon('desktop');
     }
+  }, []);
+
+  const scrollToSection = (id) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      window.history.pushState(null, '', `#${id}`);
+    }
+  };
+
+  useEffect(() => {
+    const handleScroll = () => {
+      if (navRef.current) {
+        if (window.scrollY > 30) {
+          navRef.current.classList.add('scrolled-nav');
+        } else {
+          navRef.current.classList.remove('scrolled-nav');
+        }
+      }
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
 
@@ -141,10 +388,12 @@ export default function App({ onBack }) {
 
 
   return (
-    <div className="font-sans text-slate-900 bg-white min-h-screen selection:bg-cyan-500/20 selection:text-slate-900 overflow-x-hidden antialiased">
+    <div className="font-sans text-white min-h-screen selection:bg-cyan-400 selection:text-slate-950 overflow-x-hidden antialiased">
+      <LivingMotherboardCanvas />
+      <CyberStyles />
       
       {}
-      <nav className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-slate-100 transition-all">
+      <nav ref={navRef} className="sticky top-0 z-50 bg-black/50 border-b border-cyan-500/15 transition-all duration-300">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div class="flex items-center justify-between h-20">
             {/* Logo */}
@@ -152,55 +401,55 @@ export default function App({ onBack }) {
               {onBack && (
                 <button 
                   onClick={onBack}
-                  className="w-9 h-9 rounded-xl border border-slate-200 flex items-center justify-center text-slate-500 hover:text-cyan-600 hover:border-cyan-300 transition-all"
+                  className="w-9 h-9 rounded-xl border border-slate-700 flex items-center justify-center text-slate-400 hover:text-cyan-400 hover:border-cyan-300 transition-all"
                 >
                   ←
                 </button>
               )}
               <a href="#" className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gradient-to-tr from-cyan-500 to-cyan-600 rounded-xl flex items-center justify-center shadow-lg shadow-cyan-500/20">
+              <div className="w-10 h-10 bg-white/[0.04] rounded-xl flex items-center justify-center border border-cyan-500/30 shadow-lg shadow-cyan-500/10">
                 <Icons.Spider />
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="text-xl font-bold tracking-tight text-slate-900">SpiderNotebook</span>
-                  <span className="text-[10px] bg-cyan-100 text-cyan-800 px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider">Local IDE</span>
+                  <span className="text-xl font-bold tracking-tight text-white">SpiderNotebook</span>
+                  <span className="text-[10px] bg-cyan-500/20 text-cyan-400 px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider">Local IDE</span>
                 </div>
-                <span className="block text-xs text-slate-500 tracking-wide font-medium">Secure AI Workspace</span>
+                <span className="block text-xs text-slate-400 tracking-wide font-medium">Secure AI Workspace</span>
               </div>
             </a>
             </div>
 
 
             {/* Nav Directory (Desktop) */}
-            <div className="hidden md:flex items-center gap-8 text-sm font-semibold text-slate-600">
+            <div className="hidden md:flex items-center gap-8 text-sm font-semibold text-slate-400">
               <button 
                 onClick={() => setCurrentView('landing')} 
-                className={`transition-colors ${currentView === 'landing' ? 'text-cyan-600' : 'hover:text-cyan-600'}`}
+                className={`transition-colors ${currentView === 'landing' ? 'text-cyan-400' : 'hover:text-cyan-400'}`}
               >
                 Product
               </button>
               <button 
                 onClick={() => { setCurrentView('docs'); setDocsActiveSection('overview'); }} 
-                className={`flex items-center gap-1.5 transition-colors ${currentView === 'docs' ? 'text-cyan-600' : 'hover:text-cyan-600'}`}
+                className={`flex items-center gap-1.5 transition-colors ${currentView === 'docs' ? 'text-cyan-400' : 'hover:text-cyan-400'}`}
               >
                 <Icons.BookOpen className="w-4 h-4 text-cyan-500" />
                 Docs & APIs
               </button>
-              <a href="#overview" onClick={() => setCurrentView('landing')} className="hover:text-cyan-600 transition-colors">Overview</a>
-              <a href="#features" onClick={() => setCurrentView('landing')} className="hover:text-cyan-600 transition-colors">Capabilities</a>
-              <a href="#roi" onClick={() => setCurrentView('landing')} className="hover:text-cyan-600 transition-colors">ROI Estimator</a>
+              <button onClick={() => { scrollToSection('overview'); }} className="hover:text-cyan-400 transition-colors">Overview</button>
+              <button onClick={() => { scrollToSection('features'); }} className="hover:text-cyan-400 transition-colors">Capabilities</button>
+              <button onClick={() => { scrollToSection('roi'); }} className="hover:text-cyan-400 transition-colors">ROI Estimator</button>
             </div>
 
 
             {/* Action CTA */}
             <div className="hidden md:flex items-center gap-4">
-              <a 
-                href="#download" 
-                className="inline-flex items-center justify-center px-5 py-2.5 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700 text-white text-xs font-bold tracking-wider rounded-xl transition-all shadow-lg shadow-cyan-500/20"
+              <button 
+                onClick={() => scrollToSection('download')} 
+                className="inline-flex items-center justify-center px-5 py-2.5 bg-gradient-to-r from-cyan-400 to-teal-400 hover:from-cyan-300 hover:to-teal-300 text-slate-950 text-xs font-bold tracking-wider rounded-xl transition-all shadow-lg shadow-cyan-500/20"
               >
                 <Icons.Download className="w-4 h-4 mr-2" /> Download Free
-              </a>
+              </button>
             </div>
 
 
@@ -208,7 +457,7 @@ export default function App({ onBack }) {
             <div className="md:hidden">
               <button 
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                className="p-2 rounded-lg text-slate-600 hover:bg-slate-50"
+                className="p-2 rounded-lg text-slate-400 hover:bg-white/[0.04]"
               >
                 {mobileMenuOpen ? <Icons.X /> : <Icons.Menu />}
               </button>
@@ -219,20 +468,19 @@ export default function App({ onBack }) {
 
         {/* Mobile Directory Dropdown */}
         {mobileMenuOpen && (
-          <div className="md:hidden border-t border-slate-100 bg-white px-4 pt-4 pb-6 space-y-3">
-            <a href="#overview" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-sm font-semibold text-slate-600">Overview</a>
-            <button onClick={() => { setCurrentView('landing'); setMobileMenuOpen(false); }} className="block py-2 text-sm font-semibold text-slate-600 text-left">Product</button>
-            <button onClick={() => { setCurrentView('docs'); setDocsActiveSection('overview'); setMobileMenuOpen(false); }} className="block py-2 text-sm font-semibold text-slate-600 text-left">Docs & APIs</button>
-            <a href="#features" onClick={() => setCurrentView('landing')} className="block py-2 text-sm font-semibold text-slate-600">Capabilities</a>
-            <a href="#specs" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-sm font-semibold text-slate-600">Specifications</a>
-            <a href="#faq" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-sm font-semibold text-slate-600">FAQ</a>
-            <a 
-              href="#download" 
-              onClick={() => setMobileMenuOpen(false)}
-              className="flex items-center justify-center w-full py-3 bg-cyan-500 text-white font-bold text-xs uppercase tracking-wider rounded-xl"
+          <div className="md:hidden border-t border-slate-800 bg-transparent/70 px-4 pt-4 pb-6 space-y-3">
+            <button onClick={() => { scrollToSection('overview'); setMobileMenuOpen(false); }} className="block py-2 text-sm font-semibold text-slate-400 text-left">Overview</button>
+            <button onClick={() => { setCurrentView('landing'); setMobileMenuOpen(false); }} className="block py-2 text-sm font-semibold text-slate-400 text-left">Product</button>
+            <button onClick={() => { setCurrentView('docs'); setDocsActiveSection('overview'); setMobileMenuOpen(false); }} className="block py-2 text-sm font-semibold text-slate-400 text-left">Docs & APIs</button>
+            <button onClick={() => { scrollToSection('features'); setMobileMenuOpen(false); }} className="block py-2 text-sm font-semibold text-slate-400 text-left">Capabilities</button>
+            <button onClick={() => { scrollToSection('specs'); setMobileMenuOpen(false); }} className="block py-2 text-sm font-semibold text-slate-400 text-left">Specifications</button>
+            <button onClick={() => { scrollToSection('faq'); setMobileMenuOpen(false); }} className="block py-2 text-sm font-semibold text-slate-400 text-left">FAQ</button>
+            <button 
+              onClick={() => { scrollToSection('download'); setMobileMenuOpen(false); }}
+              className="flex items-center justify-center w-full py-3 bg-cyan-500/100 text-white font-bold text-xs uppercase tracking-wider rounded-xl"
             >
               <Icons.Download className="w-4 h-4 mr-2" /> Download Free
-            </a>
+            </button>
           </div>
         )}
       </nav>
@@ -240,9 +488,9 @@ export default function App({ onBack }) {
 
       {currentView === 'landing' && (
       <>
-      <header className="relative pt-12 pb-20 lg:pt-20 lg:pb-32 bg-gradient-to-b from-slate-50 via-white to-white overflow-hidden">
+      <header className="relative pt-12 pb-20 lg:pt-20 lg:pb-32 overflow-hidden page-fade-in">
         {/* Soft cyan decorative glow background vector */}
-        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-cyan-500/5 rounded-full blur-3xl pointer-events-none"></div>
+        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-cyan-500/100/5 rounded-full blur-3xl pointer-events-none"></div>
 
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
@@ -250,27 +498,27 @@ export default function App({ onBack }) {
             
             {/* Left Content Column */}
             <div className="lg:col-span-6 space-y-8 text-center lg:text-left">
-              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-cyan-500/10 text-cyan-800 rounded-full text-xs font-bold uppercase tracking-wider">
-                <span className="w-2 h-2 rounded-full bg-cyan-500 animate-pulse"></span>
+              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-cyan-500/100/10 text-cyan-400 rounded-full text-xs font-bold uppercase tracking-wider">
+                <span className="w-2 h-2 rounded-full bg-cyan-500/100 animate-pulse"></span>
                 Secure Local Sandbox IDE & Agent
               </div>
 
 
-              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight leading-tight text-slate-900">
+              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight leading-tight text-white">
                 Stop Browsing.<br />
                 <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-600 to-cyan-500">Start Commanding.</span>
               </h1>
 
 
-              <p className="text-lg text-slate-500 leading-relaxed font-normal max-w-xl mx-auto lg:mx-0">
+              <p className="text-lg text-slate-400 leading-relaxed font-normal max-w-xl mx-auto lg:mx-0">
                 SpiderNotebook is a secure, local-first AI agent and workspace designed to compile, refactor, and debug your directories with absolute code privacy. It executes operations entirely on your local machine.
               </p>
 
 
               {/* Dynamic OS Signature Detection Card */}
-              <div className="p-4 bg-white border border-slate-100 rounded-2xl max-w-lg mx-auto lg:mx-0 flex items-center justify-between shadow-premium shadow-slate-100">
+              <div className="p-4 bg-transparent border border-slate-800 rounded-2xl max-w-lg mx-auto lg:mx-0 flex items-center justify-between shadow-premium shadow-slate-950">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-cyan-500">
+                  <div className="w-10 h-10 rounded-xl bg-white/[0.04] flex items-center justify-center text-cyan-500">
                     {osIcon === 'windows' && <Icons.Windows className="w-6 h-6" />}
                     {osIcon === 'apple' && <Icons.Apple className="w-6 h-6" />}
                     {osIcon === 'linux' && <Icons.Linux className="w-6 h-6" />}
@@ -278,7 +526,7 @@ export default function App({ onBack }) {
                   </div>
                   <div className="text-left">
                     <span className="block text-[10px] uppercase text-slate-400 font-bold tracking-wider">DETECTED COMPILER PLATFORM</span>
-                    <span className="font-bold text-xs text-slate-800">{detectedOS}</span>
+                    <span className="font-bold text-xs text-slate-300">{detectedOS}</span>
                   </div>
                 </div>
                 <span className="px-3 py-1 bg-emerald-50 text-[10px] text-emerald-600 font-bold uppercase rounded-lg border border-emerald-100 flex items-center gap-1.5">
@@ -289,13 +537,13 @@ export default function App({ onBack }) {
 
               {/* Call-to-actions */}
               <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4">
-                <a 
-                  href="#download" 
-                  className="w-full sm:w-auto flex items-center justify-center gap-3 bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm px-8 py-4 rounded-xl transition-all shadow-xl shadow-slate-900/10"
+                <button 
+                  onClick={() => scrollToSection('download')}
+                  className="w-full sm:w-auto flex items-center justify-center gap-3 bg-gradient-to-r from-cyan-400 to-teal-400 hover:from-cyan-300 hover:to-teal-300 text-slate-950 font-bold text-sm px-8 py-4 rounded-xl transition-all shadow-lg shadow-cyan-500/20"
                 >
                   <span>Get Local Desktop Build</span>
                   <Icons.ArrowRight />
-                </a>
+                </button>
               </div>
 
 
@@ -311,37 +559,37 @@ export default function App({ onBack }) {
 
 
       {}
-      <section id="overview" className="py-24 border-t border-slate-100 bg-white scroll-mt-20">
+      <section id="overview" className="py-24 border-t border-slate-800 bg-transparent scroll-mt-20 page-fade-in">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-16 items-center">
             
             {/* Context Paragraph Copy Block */}
             <div className="lg:col-span-7 space-y-6">
-              <span className="font-bold text-xs text-cyan-600 tracking-widest uppercase block">// SECTION 01: PRODUCT OVERVIEW</span>
-              <h2 class="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-900">
+              <span className="font-bold text-xs text-cyan-400 tracking-widest uppercase block">// SECTION 01: PRODUCT OVERVIEW</span>
+              <h2 class="text-3xl sm:text-4xl font-extrabold tracking-tight text-white">
                 Other AI chatbots talk.<br />
                 <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-600 to-cyan-500">This one WORKS.</span>
               </h2>
               
-              <p className="text-slate-500 text-base sm:text-lg leading-relaxed">
+              <p className="text-slate-400 text-base sm:text-lg leading-relaxed">
                 SpiderNotebook is a local AI development agent that compiles, refactors, and tests software structures right in your local workspace. Instead of copying-and-pasting block templates continuously from browser tabs into your files, let SpiderNotebook command your sandbox securely on your machine.
               </p>
 
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4">
-                <div className="p-5 rounded-2xl border border-slate-100 bg-white shadow-premium">
-                  <span className="text-cyan-700 block font-bold text-sm mb-1.5">
+                <div className="p-5 rounded-2xl border border-slate-800 bg-transparent shadow-premium">
+                  <span className="text-cyan-300 block font-bold text-sm mb-1.5">
                     <Icons.Terminal className="inline w-4 h-4 mr-1.5 text-cyan-500" /> Integrated Sandbox Environment
                   </span>
-                  <p className="text-slate-500 text-xs leading-relaxed">
+                  <p className="text-slate-400 text-xs leading-relaxed">
                     Combines secure local workspace mapping with compilation, terminal routing execution, and active diagnostic layers.
                   </p>
                 </div>
-                <div className="p-5 rounded-2xl border border-slate-100 bg-white shadow-premium">
-                  <span className="text-cyan-700 block font-bold text-sm mb-1.5">
+                <div className="p-5 rounded-2xl border border-slate-800 bg-transparent shadow-premium">
+                  <span className="text-cyan-300 block font-bold text-sm mb-1.5">
                     <Icons.Lock className="inline w-4 h-4 mr-1.5 text-cyan-500" /> Absolute Source Code Privacy
                   </span>
-                  <p className="text-slate-500 text-xs leading-relaxed">
+                  <p className="text-slate-400 text-xs leading-relaxed">
                     Runs entirely on your machine. Zero proprietary logic layers or API tokens are transmitted to external cloud systems.
                   </p>
                 </div>
@@ -350,11 +598,11 @@ export default function App({ onBack }) {
 
 
             {}
-            <div id="roi" className="lg:col-span-5 p-8 bg-slate-50 border border-slate-100 rounded-3xl shadow-premium scroll-mt-24">
-              <h3 className="font-bold text-sm text-slate-800 uppercase tracking-wider mb-2 flex items-center gap-2">
+            <div id="roi" className="lg:col-span-5 p-8 bg-white/[0.04] border border-slate-800 rounded-3xl shadow-premium scroll-mt-24">
+              <h3 className="font-bold text-sm text-slate-300 uppercase tracking-wider mb-2 flex items-center gap-2">
                 <Icons.Calculator className="text-cyan-500" /> Developer Productivity Savings Estimator
               </h3>
-              <p className="text-xs text-slate-500 mb-6 font-medium">
+              <p className="text-xs text-slate-400 mb-6 font-medium">
                 Calculate the operational hours and dollar-value savings from shifting automated diagnostics to SpiderNotebook's local workspace.
               </p>
 
@@ -364,8 +612,8 @@ export default function App({ onBack }) {
                 {/* Dev Count Input Range */}
                 <div>
                   <div className="flex justify-between text-xs font-bold mb-2">
-                    <span className="text-slate-700">Team Size (Engineers)</span>
-                    <span className="text-cyan-600">{devCount} Developers</span>
+                    <span className="text-slate-400">Team Size (Engineers)</span>
+                    <span className="text-cyan-400">{devCount} Developers</span>
                   </div>
                   <input 
                     type="range" 
@@ -373,7 +621,7 @@ export default function App({ onBack }) {
                     max="50" 
                     value={devCount} 
                     onChange={(e) => setDevCount(parseInt(e.target.value))}
-                    className="w-full accent-cyan-500 bg-slate-200 h-1.5 rounded-lg cursor-pointer" 
+                    className="w-full accent-cyan-500 bg-white/10 h-1.5 rounded-lg cursor-pointer" 
                   />
                 </div>
 
@@ -381,8 +629,8 @@ export default function App({ onBack }) {
                 {/* Hours Saved Input Range */}
                 <div>
                   <div className="flex justify-between text-xs font-bold mb-2">
-                    <span className="text-slate-700">Hours Saved / Week Per Developer</span>
-                    <span className="text-cyan-600">{hoursSaved} Hours</span>
+                    <span className="text-slate-400">Hours Saved / Week Per Developer</span>
+                    <span className="text-cyan-400">{hoursSaved} Hours</span>
                   </div>
                   <input 
                     type="range" 
@@ -390,20 +638,20 @@ export default function App({ onBack }) {
                     max="25" 
                     value={hoursSaved} 
                     onChange={(e) => setHoursSaved(parseInt(e.target.value))}
-                    className="w-full accent-cyan-500 bg-slate-200 h-1.5 rounded-lg cursor-pointer" 
+                    className="w-full accent-cyan-500 bg-white/10 h-1.5 rounded-lg cursor-pointer" 
                   />
                 </div>
 
 
                 {/* Dynamic Value Readout Display */}
-                <div className="pt-6 border-t border-slate-200/60 grid grid-cols-2 gap-4 text-center">
-                  <div className="p-3 bg-white rounded-2xl border border-slate-100 shadow-sm">
+                <div className="pt-6 border-t border-slate-700/60 grid grid-cols-2 gap-4 text-center">
+                  <div className="p-3 bg-transparent rounded-2xl border border-slate-800 shadow-sm">
                     <span className="block text-[10px] font-bold text-slate-400 uppercase">Monthly Saved Hours</span>
-                    <span className="text-2xl font-black text-slate-800">{monthlyHoursSaved} hrs</span>
+                    <span className="text-2xl font-black text-slate-300">{monthlyHoursSaved} hrs</span>
                   </div>
-                  <div className="p-3 bg-white rounded-2xl border border-slate-100 shadow-sm">
+                  <div className="p-3 bg-transparent rounded-2xl border border-slate-800 shadow-sm">
                     <span className="block text-[10px] font-bold text-slate-400 uppercase">Estimated Savings</span>
-                    <span className="text-2xl font-black text-cyan-600">${estimatedSavings.toLocaleString()}</span>
+                    <span className="text-2xl font-black text-cyan-400">${estimatedSavings.toLocaleString()}</span>
                   </div>
                 </div>
 
@@ -423,15 +671,15 @@ export default function App({ onBack }) {
 
 
       {}
-      <section id="features" className="py-24 bg-slate-50/50 border-t border-b border-slate-100 scroll-mt-20">
+      <section id="features" className="py-24 bg-transparent/40 border-t border-b border-slate-800 scroll-mt-20 page-fade-in">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           
           <div className="text-center space-y-4 max-w-2xl mx-auto mb-20">
-            <span className="font-bold text-xs text-cyan-600 tracking-widest uppercase block">// SECTION 02: CAPABILITIES</span>
-            <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-900">
+            <span className="font-bold text-xs text-cyan-400 tracking-widest uppercase block">// SECTION 02: CAPABILITIES</span>
+            <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-white">
               Engineered for Secure Development Velocity
             </h2>
-            <p className="text-slate-500 text-sm sm:text-base leading-relaxed">
+            <p className="text-slate-400 text-sm sm:text-base leading-relaxed">
               Designed from the ground up for high-performance offline compilation, advanced sandbox isolation, and local code assistance.
             </p>
           </div>
@@ -440,72 +688,72 @@ export default function App({ onBack }) {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             
             {/* Feature 1 */}
-            <div className="p-8 bg-white border border-slate-100 rounded-2xl shadow-premium hover:-translate-y-1 transition-all duration-300">
-              <div className="w-12 h-12 rounded-xl bg-cyan-50 text-cyan-600 flex items-center justify-center mb-6 shadow-inner">
+            <div className="p-8 bg-transparent border border-slate-800 rounded-2xl shadow-premium hover:-translate-y-1 hover:border-cyan-500/30 hover:shadow-[0_0_20px_rgba(0,242,255,0.08)] transition-all duration-300 slide-up slide-up-delay-1">
+              <div className="w-12 h-12 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center mb-6 shadow-inner">
                 <Icons.Terminal />
               </div>
-              <h3 className="text-slate-900 font-bold text-lg mb-2">🔍 Local Code Exploration</h3>
-              <p className="text-slate-500 text-sm leading-relaxed">
+              <h3 className="text-white font-bold text-lg mb-2">🔍 Local Code Exploration</h3>
+              <p className="text-slate-400 text-sm leading-relaxed">
                 Prompt SpiderNotebook to search your active directory structure. It instantly maps out references, dependencies, and index patterns.
               </p>
             </div>
 
 
             {/* Feature 2 */}
-            <div className="p-8 bg-white border border-slate-100 rounded-2xl shadow-premium hover:-translate-y-1 transition-all duration-300">
-              <div className="w-12 h-12 rounded-xl bg-cyan-50 text-cyan-600 flex items-center justify-center mb-6 shadow-inner">
+            <div className="p-8 bg-transparent border border-slate-800 rounded-2xl shadow-premium hover:-translate-y-1 hover:border-cyan-500/30 hover:shadow-[0_0_20px_rgba(0,242,255,0.08)] transition-all duration-300 slide-up slide-up-delay-2">
+              <div className="w-12 h-12 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center mb-6 shadow-inner">
                 <Icons.Cpu />
               </div>
-              <h3 className="text-slate-900 font-bold text-lg mb-2">👁️ Visual Code Diagnostics</h3>
-              <p className="text-slate-500 text-sm leading-relaxed">
+              <h3 className="text-white font-bold text-lg mb-2">👁️ Visual Code Diagnostics</h3>
+              <p className="text-slate-400 text-sm leading-relaxed">
                 The agent parses code graphs to visually map and explain logical execution, ensuring memory allocations and references are sound.
               </p>
             </div>
 
 
             {/* Feature 3 */}
-            <div className="p-8 bg-white border border-slate-100 rounded-2xl shadow-premium hover:-translate-y-1 transition-all duration-300">
-              <div className="w-12 h-12 rounded-xl bg-cyan-50 text-cyan-600 flex items-center justify-center mb-6 shadow-inner">
+            <div className="p-8 bg-transparent border border-slate-800 rounded-2xl shadow-premium hover:-translate-y-1 hover:border-cyan-500/30 hover:shadow-[0_0_20px_rgba(0,242,255,0.08)] transition-all duration-300 slide-up slide-up-delay-3">
+              <div className="w-12 h-12 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center mb-6 shadow-inner">
                 <Icons.Sparkles />
               </div>
-              <h3 className="text-slate-900 font-bold text-lg mb-2">⌨️ Smart Boilerplate Generation</h3>
-              <p className="text-slate-500 text-sm leading-relaxed">
+              <h3 className="text-white font-bold text-lg mb-2">⌨️ Smart Boilerplate Generation</h3>
+              <p className="text-slate-400 text-sm leading-relaxed">
                 Directly scaffolding functions, interface parameters, and modular layers. Generates robust blueprints conforming to local styles.
               </p>
             </div>
 
 
             {/* Feature 4 */}
-            <div className="p-8 bg-white border border-slate-100 rounded-2xl shadow-premium hover:-translate-y-1 transition-all duration-300">
-              <div className="w-12 h-12 rounded-xl bg-cyan-50 text-cyan-600 flex items-center justify-center mb-6 shadow-inner">
+            <div className="p-8 bg-transparent border border-slate-800 rounded-2xl shadow-premium hover:-translate-y-1 hover:border-cyan-500/30 hover:shadow-[0_0_20px_rgba(0,242,255,0.08)] transition-all duration-300 slide-up slide-up-delay-4">
+              <div className="w-12 h-12 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center mb-6 shadow-inner">
                 <Icons.Shield />
               </div>
-              <h3 className="text-slate-900 font-bold text-lg mb-2">🛡️ Local Safety Shield</h3>
-              <p className="text-slate-500 text-sm leading-relaxed">
+              <h3 className="text-white font-bold text-lg mb-2">🛡️ Local Safety Shield</h3>
+              <p className="text-slate-400 text-sm leading-relaxed">
                 Restricts all file executions inside isolated processes. No external networks or cloud environments receive your proprietary code.
               </p>
             </div>
 
 
             {/* Feature 5 */}
-            <div className="p-8 bg-white border border-slate-100 rounded-2xl shadow-premium hover:-translate-y-1 transition-all duration-300">
-              <div className="w-12 h-12 rounded-xl bg-cyan-50 text-cyan-600 flex items-center justify-center mb-6 shadow-inner">
+            <div className="p-8 bg-transparent border border-slate-800 rounded-2xl shadow-premium hover:-translate-y-1 hover:border-cyan-500/30 hover:shadow-[0_0_20px_rgba(0,242,255,0.08)] transition-all duration-300 slide-up slide-up-delay-5">
+              <div className="w-12 h-12 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center mb-6 shadow-inner">
                 <Icons.Download />
               </div>
-              <h3 className="text-slate-900 font-bold text-lg mb-2">⚡ Multi-Language Workspace</h3>
-              <p className="text-slate-500 text-sm leading-relaxed">
+              <h3 className="text-white font-bold text-lg mb-2">⚡ Multi-Language Workspace</h3>
+              <p className="text-slate-400 text-sm leading-relaxed">
                 Comprehensive offline workspace support for compiling and validating structures in Python, Node.js, C++, Rust, and Go.
               </p>
             </div>
 
 
             {/* Feature 6 */}
-            <div className="p-8 bg-white border border-slate-100 rounded-2xl shadow-premium hover:-translate-y-1 transition-all duration-300">
-              <div className="w-12 h-12 rounded-xl bg-cyan-50 text-cyan-600 flex items-center justify-center mb-6 shadow-inner">
+            <div className="p-8 bg-transparent border border-slate-800 rounded-2xl shadow-premium hover:-translate-y-1 hover:border-cyan-500/30 hover:shadow-[0_0_20px_rgba(0,242,255,0.08)] transition-all duration-300 slide-up slide-up-delay-5">
+              <div className="w-12 h-12 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center mb-6 shadow-inner">
                 <Icons.Lock />
               </div>
-              <h3 className="text-slate-900 font-bold text-lg mb-2">💾 Session Persistence</h3>
-              <p className="text-slate-500 text-sm leading-relaxed">
+              <h3 className="text-white font-bold text-lg mb-2">💾 Session Persistence</h3>
+              <p className="text-slate-400 text-sm leading-relaxed">
                 Safeguards your project history and console logs locally. Resume deep development sessions instantly upon workspace restart.
               </p>
             </div>
@@ -519,15 +767,15 @@ export default function App({ onBack }) {
 
 
       {}
-      <section className="py-24 bg-white">
+      <section className="py-24 bg-transparent page-fade-in">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           
           <div className="text-center space-y-4 max-w-2xl mx-auto mb-20">
-            <span className="font-bold text-xs text-cyan-600 tracking-widest uppercase block">// SECTION 03: WORKFLOW AGENT</span>
-            <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-900">
+            <span className="font-bold text-xs text-cyan-400 tracking-widest uppercase block">// SECTION 03: WORKFLOW AGENT</span>
+            <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-white">
               How SpiderNotebook Performs
             </h2>
-            <p className="text-slate-500 text-sm sm:text-base leading-relaxed font-medium italic">
+            <p className="text-slate-400 text-sm sm:text-base leading-relaxed font-medium italic">
               "You're the boss. It's the hands."
             </p>
           </div>
@@ -541,12 +789,12 @@ export default function App({ onBack }) {
               { num: "04", title: "Generates Drafts", desc: "Assembles correctly structured functions, clean boilerplate sections, and optimization options." },
               { num: "05", title: "Review & Merge", desc: "Examine generated code and test outcomes, then finalize updates securely." }
             ].map((step, idx) => (
-              <div key={idx} className="p-6 bg-slate-50 border border-slate-100 rounded-2xl flex flex-col items-center text-center shadow-premium relative">
-                <div className="w-10 h-10 bg-slate-900 text-white text-xs font-bold rounded-full flex items-center justify-center mb-4 border-4 border-white shadow-md">
+              <div key={idx} className="p-6 bg-white/[0.04] border border-slate-800 rounded-2xl flex flex-col items-center text-center shadow-premium relative">
+                <div className="w-10 h-10 bg-white/[0.04] text-white text-xs font-bold rounded-full flex items-center justify-center mb-4 border-4 border-slate-700 shadow-md">
                   {step.num}
                 </div>
-                <span className="text-slate-900 font-extrabold text-base mb-1.5">{step.title}</span>
-                <p className="text-slate-500 text-xs leading-relaxed">{step.desc}</p>
+                <span className="text-white font-extrabold text-base mb-1.5">{step.title}</span>
+                <p className="text-slate-400 text-xs leading-relaxed">{step.desc}</p>
               </div>
             ))}
           </div>
@@ -557,15 +805,15 @@ export default function App({ onBack }) {
 
 
       {}
-      <section className="py-24 bg-slate-50/50 border-t border-b border-slate-100">
+      <section className="py-24 bg-transparent/40 border-t border-b border-slate-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           
           <div className="text-center space-y-4 max-w-2xl mx-auto mb-16">
-            <span className="font-bold text-xs text-cyan-600 tracking-widest uppercase block">// SECTION 04: USE CASES</span>
-            <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-900">
+            <span className="font-bold text-xs text-cyan-400 tracking-widest uppercase block">// SECTION 04: USE CASES</span>
+            <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-white">
               Engineered for Enterprise Development Use
             </h2>
-            <p className="text-slate-500 text-sm leading-relaxed">
+            <p className="text-slate-400 text-sm leading-relaxed">
               Designed to optimize complex and monotonous coding tasks without exposing local assets to external clouds.
             </p>
           </div>
@@ -589,16 +837,16 @@ export default function App({ onBack }) {
                 badge: "Context-Aware"
               }
             ].map((uc, idx) => (
-              <div key={idx} className="bg-white border border-slate-100 rounded-2xl p-8 shadow-premium flex flex-col justify-between hover:border-cyan-200 transition-all">
+              <div key={idx} className="bg-transparent border border-slate-800 rounded-2xl p-8 shadow-premium flex flex-col justify-between hover:border-cyan-500/30 transition-all">
                 <div className="space-y-4">
-                  <div className="w-10 h-10 rounded-xl bg-cyan-50 text-cyan-600 flex items-center justify-center shadow-inner">
+                  <div className="w-10 h-10 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center shadow-inner">
                     <Icons.Sparkles className="w-5 h-5" />
                   </div>
-                  <h4 className="text-slate-900 font-bold text-base">{uc.title}</h4>
-                  <p className="text-slate-500 text-xs leading-relaxed">{uc.desc}</p>
+                  <h4 className="text-white font-bold text-base">{uc.title}</h4>
+                  <p className="text-slate-400 text-xs leading-relaxed">{uc.desc}</p>
                 </div>
                 <div className="mt-6 pt-4 border-t border-slate-50 flex">
-                  <span className="text-[10px] text-cyan-700 font-bold uppercase tracking-wider bg-cyan-50 px-3 py-1 rounded-full">
+                  <span className="text-[10px] text-cyan-300 font-bold uppercase tracking-wider bg-cyan-500/10 px-3 py-1 rounded-full">
                     {uc.badge}
                   </span>
                 </div>
@@ -612,63 +860,63 @@ export default function App({ onBack }) {
 
 
       {}
-      <section className="py-24 bg-white">
+      <section className="py-24 bg-transparent page-fade-in">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-16 items-center">
             
             <div className="lg:col-span-6 space-y-6">
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-cyan-50 text-cyan-700 rounded-full text-xs font-bold uppercase tracking-wider">
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-cyan-500/10 text-cyan-300 rounded-full text-xs font-bold uppercase tracking-wider">
                 <Icons.Lock className="w-4 h-4" /> Local Isolation Architecture
               </div>
-              <h3 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-900">
+              <h3 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-white">
                 Privacy isn't a feature.<br />
                 <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-600 to-cyan-500">It is the architecture.</span>
               </h3>
               
-              <p className="text-slate-500 leading-relaxed text-sm">
+              <p className="text-slate-400 leading-relaxed text-sm">
                 Most AI coding tools stream entire repository directories directly to external cloud hosts. SpiderNotebook executes all parsing and compilation passes on your device, ensuring intellectual property never leaves your local machine.
               </p>
 
 
-              <blockquote className="border-l-4 border-cyan-500 pl-4 italic text-slate-600 font-medium text-xs">
+              <blockquote className="border-l-4 border-cyan-500 pl-4 italic text-slate-400 font-medium text-xs">
                 "We don't just respect your privacy. We ARCHITECT it."
               </blockquote>
 
 
-              <div className="space-y-3 text-xs font-semibold text-slate-600 pt-2">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                  <span className="flex items-center gap-2 text-slate-800">
+              <div className="space-y-3 text-xs font-semibold text-slate-400 pt-2">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <span className="flex items-center gap-2 text-slate-300">
                     <Icons.Check className="text-emerald-500" /> Source Code Storage
                   </span>
-                  <span className="text-cyan-700 font-bold uppercase">100% Local Disk</span>
+                  <span className="text-cyan-300 font-bold uppercase">100% Local Disk</span>
                 </div>
-                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                  <span className="flex items-center gap-2 text-slate-800">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <span className="flex items-center gap-2 text-slate-300">
                     <Icons.Check className="text-emerald-500" /> Local Subprocess Execution
                   </span>
-                  <span className="text-cyan-700 font-bold uppercase">Device Container</span>
+                  <span className="text-cyan-300 font-bold uppercase">Device Container</span>
                 </div>
-                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                  <span className="flex items-center gap-2 text-slate-800">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <span className="flex items-center gap-2 text-slate-300">
                     <Icons.Check className="text-emerald-500" /> Environment Keys & Configs
                   </span>
-                  <span className="text-cyan-700 font-bold uppercase">Never Transmitted</span>
+                  <span className="text-cyan-300 font-bold uppercase">Never Transmitted</span>
                 </div>
               </div>
             </div>
 
 
-            <div className="lg:col-span-6 bg-slate-50 border border-slate-100 p-8 rounded-3xl shadow-premium flex flex-col justify-center items-center text-center space-y-6">
-              <div className="w-16 h-16 rounded-full bg-cyan-50 text-cyan-600 flex items-center justify-center text-2xl shadow-inner">
+            <div className="lg:col-span-6 bg-white/[0.04] border border-slate-800 p-8 rounded-3xl shadow-premium flex flex-col justify-center items-center text-center space-y-6">
+              <div className="w-16 h-16 rounded-full bg-cyan-500/10 text-cyan-400 flex items-center justify-center text-2xl shadow-inner">
                 <Icons.Shield className="w-8 h-8" />
               </div>
               <div className="space-y-2">
-                <h4 className="font-extrabold text-slate-900 text-lg">Zero-Knowledge Secure Sandboxing</h4>
-                <p className="text-xs text-slate-500 max-w-sm mx-auto leading-relaxed">
+                <h4 className="font-extrabold text-white text-lg">Zero-Knowledge Secure Sandboxing</h4>
+                <p className="text-xs text-slate-400 max-w-sm mx-auto leading-relaxed">
                   Your code runs exclusively in local sub-processes on your hardware, preventing data leaks.
                 </p>
               </div>
-              <div className="px-5 py-3 bg-white border border-slate-200 rounded-2xl text-[10px] font-mono text-slate-500 shadow-sm">
+              <div className="px-5 py-3 bg-transparent border border-slate-700 rounded-2xl text-[10px] font-mono text-slate-400 shadow-sm">
                 <span className="text-emerald-600 font-bold">● HOST ISOLATION PROMPT LAYER</span> | SECURE LOGICAL SANDBOX
               </div>
             </div>
@@ -680,55 +928,55 @@ export default function App({ onBack }) {
 
 
       {}
-      <section id="specs" className="py-24 bg-slate-50/50 border-t border-b border-slate-100 scroll-mt-20">
+      <section id="specs" className="py-24 bg-transparent/40 border-t border-b border-slate-800 scroll-mt-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           
           <div className="text-center space-y-4 max-w-2xl mx-auto mb-20">
-            <span className="font-bold text-xs text-cyan-600 tracking-widest uppercase block">// SECTION 05: BENCHMARKS</span>
-            <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-900">
+            <span className="font-bold text-xs text-cyan-400 tracking-widest uppercase block">// SECTION 05: BENCHMARKS</span>
+            <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-white">
               Why SpiderNotebook?
             </h2>
-            <p className="text-slate-500 text-sm leading-relaxed">
+            <p className="text-slate-400 text-sm leading-relaxed">
               Compare core workspace capabilities and parameters with conventional cloud-dependent code generation extensions.
             </p>
           </div>
 
 
-          <div className="overflow-x-auto rounded-3xl border border-slate-100 bg-white shadow-premium max-w-5xl mx-auto">
+          <div className="overflow-x-auto rounded-3xl border border-slate-800 bg-transparent shadow-premium max-w-5xl mx-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-slate-900 text-white font-bold text-xs uppercase tracking-wider border-b border-slate-800">
+                <tr className="bg-white/[0.04] text-white font-bold text-xs uppercase tracking-wider border-b border-slate-800">
                   <th className="p-6">Feature Core Profile</th>
                   <th className="p-6 text-slate-400">Other AI Agents</th>
-                  <th className="p-6 text-cyan-400 bg-slate-850">SpiderNotebook</th>
+                  <th className="p-6 text-cyan-400">SpiderNotebook</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-xs sm:text-sm text-slate-800 font-medium">
+              <tbody className="divide-y divide-slate-800 text-xs sm:text-sm text-slate-300 font-medium">
                 <tr>
                   <td className="p-6 font-bold">Execution Sandbox Engine</td>
-                  <td className="p-6 text-slate-500">Static chat suggestions</td>
-                  <td className="p-6 bg-cyan-50/25 text-cyan-800 font-semibold flex items-center gap-2">
+                  <td className="p-6 text-slate-400">Static chat suggestions</td>
+                  <td className="p-6 bg-cyan-500/10 text-cyan-400 font-semibold flex items-center gap-2">
                     <Icons.Check /> Dynamic IDE sandbox execution
                   </td>
                 </tr>
                 <tr>
                   <td className="p-6 font-bold">Security Model Boundaries</td>
-                  <td className="p-6 text-slate-500">Transmits data to cloud</td>
-                  <td className="p-6 bg-cyan-50/25 text-cyan-800 font-semibold">
+                  <td className="p-6 text-slate-400">Transmits data to cloud</td>
+                  <td className="p-6 bg-cyan-500/10 text-cyan-400 font-semibold">
                     <span className="flex items-center gap-2"><Icons.Check /> 100% Local sandbox execution</span>
                   </td>
                 </tr>
                 <tr>
                   <td className="p-6 font-bold">Test Suite Execution Output</td>
-                  <td className="p-6 text-slate-500">None (suggests syntax only)</td>
-                  <td className="p-6 bg-cyan-50/25 text-cyan-800 font-semibold">
+                  <td className="p-6 text-slate-400">None (suggests syntax only)</td>
+                  <td className="p-6 bg-cyan-500/10 text-cyan-400 font-semibold">
                     <span className="flex items-center gap-2"><Icons.Check /> Real-time console diagnostics</span>
                   </td>
                 </tr>
                 <tr>
                   <td className="p-6 font-bold">System Memory Overhead</td>
-                  <td className="p-6 text-slate-500">Requires resource-intensive clusters</td>
-                  <td className="p-6 bg-cyan-50/25 text-cyan-800 font-bold">
+                  <td className="p-6 text-slate-400">Requires resource-intensive clusters</td>
+                  <td className="p-6 bg-cyan-500/10 text-cyan-400 font-bold">
                     <span className="flex items-center gap-2"><Icons.Check /> Fully optimized on 8GB RAM</span>
                   </td>
                 </tr>
@@ -738,13 +986,13 @@ export default function App({ onBack }) {
 
 
           {/* System Requirements Parameters display */}
-          <div className="max-w-4xl mx-auto mt-16 bg-white border border-slate-100 p-8 sm:p-12 rounded-3xl shadow-premium">
+          <div className="max-w-4xl mx-auto mt-16 bg-transparent border border-slate-800 p-8 sm:p-12 rounded-3xl shadow-premium">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-sm">
               <div>
-                <span className="block font-bold text-slate-900 uppercase tracking-wider text-xs mb-4 flex items-center gap-2">
+                <span className="block font-bold text-white uppercase tracking-wider text-xs mb-4 flex items-center gap-2">
                   <Icons.Desktop className="text-cyan-500" /> Supported Platforms
                 </span>
-                <ul className="space-y-3 text-slate-500 font-semibold">
+                <ul className="space-y-3 text-slate-400 font-semibold">
                   <li className="flex items-center gap-2"><Icons.Check /> Microsoft Windows 10 & 11 (x64)</li>
                   <li className="flex items-center gap-2"><Icons.Check /> macOS Intel & Apple Silicon (ARM64)</li>
                   <li className="flex items-center gap-2"><Icons.Check /> Linux major distributions (x64 AppImage)</li>
@@ -752,10 +1000,10 @@ export default function App({ onBack }) {
               </div>
               
               <div>
-                <span className="block font-bold text-slate-900 uppercase tracking-wider text-xs mb-4 flex items-center gap-2">
+                <span className="block font-bold text-white uppercase tracking-wider text-xs mb-4 flex items-center gap-2">
                   <Icons.Cpu className="text-cyan-500" /> Local System Pre-requisites
                 </span>
-                <ul className="space-y-3 text-slate-500 font-semibold">
+                <ul className="space-y-3 text-slate-400 font-semibold">
                   <li className="flex items-center gap-2"><Icons.Check /> Minimum Memory: 4 GB System RAM</li>
                   <li className="flex items-center gap-2"><Icons.Check /> Recommended Memory: 8 GB System RAM</li>
                   <li className="flex items-center gap-2"><Icons.Check /> Local Storage: ~500MB workspace disk space</li>
@@ -770,15 +1018,15 @@ export default function App({ onBack }) {
 
 
       {}
-      <section id="faq" className="py-24 bg-white border-b border-slate-100 scroll-mt-20">
+      <section id="faq" className="py-24 bg-transparent border-b border-slate-800 scroll-mt-20">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
           
           <div className="text-center space-y-4 mb-16">
-            <span className="font-bold text-xs text-cyan-600 tracking-widest uppercase block">// SECTION 07: FAQ</span>
-            <h2 className="text-3xl font-extrabold tracking-tight text-slate-900">
+            <span className="font-bold text-xs text-cyan-400 tracking-widest uppercase block">// SECTION 07: FAQ</span>
+            <h2 className="text-3xl font-extrabold tracking-tight text-white">
               Frequently Asked Questions
             </h2>
-            <p className="text-slate-500 text-sm leading-relaxed">
+            <p className="text-slate-400 text-sm leading-relaxed">
               Find comprehensive answers on deployment, local integrations, and data security.
             </p>
           </div>
@@ -799,18 +1047,18 @@ export default function App({ onBack }) {
                 a: "SpiderNotebook uses isolated sub-processes on your local machine to safely run and compile the targeted code blocks. This guarantees code checks and diagnostic logs compile with speed and accuracy without risk to your host OS architecture."
               }
             ].map((item, idx) => (
-              <div key={idx} className="border border-slate-200/60 rounded-2xl bg-slate-50/50 overflow-hidden">
+              <div key={idx} className="border border-slate-700/60 rounded-2xl bg-transparent/40 overflow-hidden">
                 <button 
                   onClick={() => toggleFAQ(idx)}
-                  className="w-full flex items-center justify-between p-5 text-left font-bold text-slate-800 hover:bg-slate-50 transition-colors"
+                  className="w-full flex items-center justify-between p-5 text-left font-bold text-slate-300 hover:bg-white/[0.04] transition-colors"
                 >
                   <span>{item.q}</span>
-                  <span className="text-cyan-600 font-extrabold text-lg">
+                  <span className="text-cyan-400 font-extrabold text-lg">
                     {openFAQ === idx ? '−' : '+'}
                   </span>
                 </button>
                 {openFAQ === idx && (
-                  <div className="p-5 bg-white border-t border-slate-200/60 text-slate-500 text-xs leading-relaxed">
+                  <div className="p-5 bg-transparent border-t border-slate-700/60 text-slate-400 text-xs leading-relaxed">
                     {item.a}
                   </div>
                 )}
@@ -824,8 +1072,8 @@ export default function App({ onBack }) {
 
 
       {}
-      <section id="download" className="py-24 bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 text-white overflow-hidden relative scroll-mt-20">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(6,182,212,0.06)_0%,transparent_100%)] pointer-events-none"></div>
+      <section id="download" className="py-24 text-white overflow-hidden relative scroll-mt-20">
+        <div className="absolute inset-0 pointer-events-none"></div>
 
 
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 text-center space-y-8 relative z-10">
@@ -843,7 +1091,7 @@ export default function App({ onBack }) {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl mx-auto pt-4 text-xs text-left">
             
             {/* Windows Card */}
-            <div className="p-6 bg-slate-900/60 border border-slate-800 rounded-3xl flex flex-col justify-between space-y-6 shadow-premium hover:border-cyan-500/30 transition-all">
+            <div className="p-6 bg-white/[0.04] border border-slate-800 rounded-3xl flex flex-col justify-between space-y-6 shadow-premium hover:border-cyan-500/30 transition-all">
               <div className="space-y-4">
                 <span className="text-4xl text-cyan-400 block"><Icons.Windows className="w-10 h-10" /></span>
                 <h4 className="font-bold text-white text-base">Microsoft Windows</h4>
@@ -857,13 +1105,13 @@ export default function App({ onBack }) {
                   href="https://apps.microsoft.com/detail/9ngj207gmk74" 
                   target="_blank" 
                   rel="noopener noreferrer"
-                  className="block w-full py-3 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-center rounded-xl transition-colors"
+                  className="block w-full py-3 bg-cyan-500/100 hover:bg-cyan-400 text-slate-950 font-bold text-center rounded-xl transition-colors"
                 >
                   Get from Microsoft Store
                 </a>
                 <button 
                   onClick={() => triggerToast("Windows Executable Setup", "Your standalone setup.exe installer compilation has begun!")}
-                  className="block w-full py-2.5 bg-slate-950 hover:bg-slate-900 text-slate-300 font-semibold text-center rounded-xl transition-colors border border-slate-800"
+                  className="block w-full py-2.5 bg-transparent hover:bg-white/[0.04] text-slate-300 font-semibold text-center rounded-xl transition-colors border border-slate-800"
                 >
                   Download Offline Installer (.exe)
                 </button>
@@ -872,7 +1120,7 @@ export default function App({ onBack }) {
 
 
             {/* macOS Card */}
-            <div className="p-6 bg-slate-900/60 border border-slate-800 rounded-3xl flex flex-col justify-between space-y-6 shadow-premium hover:border-cyan-500/30 transition-all">
+            <div className="p-6 bg-white/[0.04] border border-slate-800 rounded-3xl flex flex-col justify-between space-y-6 shadow-premium hover:border-cyan-500/30 transition-all">
               <div className="space-y-4">
                 <span className="text-4xl text-cyan-400 block"><Icons.Apple className="w-10 h-10" /></span>
                 <h4 className="font-bold text-white text-base">Apple macOS</h4>
@@ -884,13 +1132,13 @@ export default function App({ onBack }) {
               <div className="space-y-2">
                 <button 
                   onClick={() => triggerToast("macOS Apple Silicon DMG", "Compiling local build for Apple Silicon (M-series)...")}
-                  className="block w-full py-3 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-center rounded-xl transition-colors"
+                  className="block w-full py-3 bg-cyan-500/100 hover:bg-cyan-400 text-slate-950 font-bold text-center rounded-xl transition-colors"
                 >
                   Download Apple Silicon (.dmg)
                 </button>
                 <button 
                   onClick={() => triggerToast("macOS Intel DMG", "Compiling standalone legacy build for Intel macOS x64 architectures...")}
-                  className="block w-full py-2.5 bg-slate-950 hover:bg-slate-900 text-slate-300 font-semibold text-center rounded-xl transition-colors border border-slate-800"
+                  className="block w-full py-2.5 bg-transparent hover:bg-white/[0.04] text-slate-300 font-semibold text-center rounded-xl transition-colors border border-slate-800"
                 >
                   Download Intel Version (.dmg)
                 </button>
@@ -899,7 +1147,7 @@ export default function App({ onBack }) {
 
 
             {/* Linux Card */}
-            <div className="p-6 bg-slate-900/60 border border-slate-800 rounded-3xl flex flex-col justify-between space-y-6 shadow-premium hover:border-cyan-500/30 transition-all">
+            <div className="p-6 bg-white/[0.04] border border-slate-800 rounded-3xl flex flex-col justify-between space-y-6 shadow-premium hover:border-cyan-500/30 transition-all">
               <div className="space-y-4">
                 <span className="text-4xl text-cyan-400 block"><Icons.Linux className="w-10 h-10" /></span>
                 <h4 className="font-bold text-white text-base">Linux Core</h4>
@@ -911,13 +1159,13 @@ export default function App({ onBack }) {
               <div className="space-y-2">
                 <button 
                   onClick={() => triggerToast("Linux Standalone AppImage", "Preparing standalone AppImage mirror container payload...")}
-                  className="block w-full py-3 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-center rounded-xl transition-colors"
+                  className="block w-full py-3 bg-cyan-500/100 hover:bg-cyan-400 text-slate-950 font-bold text-center rounded-xl transition-colors"
                 >
                   Download AppImage (.AppImage)
                 </button>
                 <button 
                   onClick={() => triggerToast("Linux Tarball Archive", "Generating offline tar.gz binaries mirror file...")}
-                  className="block w-full py-2.5 bg-slate-950 hover:bg-slate-900 text-slate-300 font-semibold text-center rounded-xl transition-colors border border-slate-800"
+                  className="block w-full py-2.5 bg-transparent hover:bg-white/[0.04] text-slate-300 font-semibold text-center rounded-xl transition-colors border border-slate-800"
                 >
                   Download Archive (.tar.gz)
                 </button>
@@ -945,7 +1193,7 @@ export default function App({ onBack }) {
             
             {/* DOCS SIDEBAR */}
             <aside className="lg:col-span-3 space-y-6">
-              <div className="p-5 bg-slate-50 border border-slate-100 rounded-2xl space-y-4">
+              <div className="p-5 bg-white/[0.04] border border-slate-800 rounded-2xl space-y-4">
                 <span className="block text-[10px] font-bold text-slate-400 tracking-wider uppercase">
                   Workspace Documentation
                 </span>
@@ -963,8 +1211,8 @@ export default function App({ onBack }) {
                       onClick={() => setDocsActiveSection(sec.id)}
                       className={`block w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold transition-all ${
                         docsActiveSection === sec.id
-                          ? 'bg-cyan-50 text-cyan-800 border-l-4 border-cyan-500'
-                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                          ? 'bg-cyan-500/10 text-cyan-400 border-l-4 border-cyan-500'
+                          : 'text-slate-400 hover:bg-white/5 hover:text-white'
                       }`}
                     >
                       {sec.label}
@@ -986,31 +1234,31 @@ export default function App({ onBack }) {
             </aside>
 
             {/* DOCS CONTENT WINDOW */}
-            <main className="lg:col-span-9 bg-white border border-slate-100 rounded-3xl p-8 lg:p-12 shadow-sm min-h-[600px] space-y-8">
+            <main className="lg:col-span-9 bg-white/[0.04] border border-slate-800 rounded-3xl p-8 lg:p-12 shadow-sm min-h-[600px] space-y-8">
               
               {docsActiveSection === 'overview' && (
                 <article className="space-y-6">
-                  <div className="border-b border-slate-100 pb-4">
-                    <span className="text-[10px] font-bold text-cyan-600 uppercase tracking-widest block mb-2">Documentation — Section 01</span>
-                    <h2 className="text-2xl lg:text-3xl font-extrabold text-slate-900">Platform Overview</h2>
+                  <div className="border-b border-slate-800 pb-4">
+                    <span className="text-xs font-mono tracking-widest text-cyan-400 uppercase block mb-2">Documentation — Section 01</span>
+                    <h2 className="text-2xl lg:text-3xl font-extrabold text-white">Platform Overview</h2>
                   </div>
-                  <p className="text-sm text-slate-500 leading-relaxed">
+                  <p className="text-sm text-slate-400 leading-relaxed">
                     SpiderNotebook operates as an architectural wrapper built around <strong>Spider Code Engine</strong>, a sandboxed local-execution workspace pipeline. Traditional coding copilots stream your live active file parameters and surrounding database tables to external servers for query completions.
                   </p>
-                  <p className="text-sm text-slate-500 leading-relaxed">
+                  <p className="text-sm text-slate-400 leading-relaxed">
                     By relying on local container boundaries and self-hosted model engines, SpiderNotebook prevents code exfiltration and secures mission-critical proprietary logic from third-party leakage vectors.
                   </p>
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                    <div className="p-5 bg-slate-50 border border-slate-100 rounded-2xl space-y-2">
-                      <span className="font-extrabold text-xs text-slate-800 block">The Local Loop</span>
-                      <p className="text-xs text-slate-500 leading-relaxed">
+                    <div className="p-5 bg-white/[0.04] border border-slate-800 rounded-2xl space-y-2">
+                      <span className="font-extrabold text-xs text-slate-300 block">The Local Loop</span>
+                      <p className="text-xs text-slate-400 leading-relaxed">
                         LLM calls are routed over an offline system interface directly to the active compiler runtime, yielding near-zero network latency.
                       </p>
                     </div>
-                    <div className="p-5 bg-slate-50 border border-slate-100 rounded-2xl space-y-2">
-                      <span className="font-extrabold text-xs text-slate-800 block">Spider Code Engine</span>
-                      <p className="text-xs text-slate-500 leading-relaxed">
+                    <div className="p-5 bg-white/[0.04] border border-slate-800 rounded-2xl space-y-2">
+                      <span className="font-extrabold text-xs text-slate-300 block">Spider Code Engine</span>
+                      <p className="text-xs text-slate-400 leading-relaxed">
                         A portable daemon controlling standard process execution flags on Windows, macOS, and Linux to run tests safely.
                       </p>
                     </div>
@@ -1020,44 +1268,44 @@ export default function App({ onBack }) {
 
               {docsActiveSection === 'models' && (
                 <article className="space-y-6">
-                  <div className="border-b border-slate-100 pb-4">
-                    <span className="text-[10px] font-bold text-cyan-600 uppercase tracking-widest block mb-2">Documentation — Section 02</span>
-                    <h2 className="text-2xl lg:text-3xl font-extrabold text-slate-900">Proprietary AI Models</h2>
+                  <div className="border-b border-slate-800 pb-4">
+                    <span className="text-xs font-mono tracking-widest text-cyan-400 uppercase block mb-2">Documentation — Section 02</span>
+                    <h2 className="text-2xl lg:text-3xl font-extrabold text-white">Proprietary AI Models</h2>
                   </div>
-                  <p className="text-sm text-slate-500 leading-relaxed">
+                  <p className="text-sm text-slate-400 leading-relaxed">
                     SpiderNotebook comes preconfigured with two high-efficiency, specialized language models optimized to run offline.
                   </p>
 
                   <div className="space-y-6 mt-6">
                     {/* Model 1 */}
-                    <div className="p-6 bg-slate-50 border border-slate-100 rounded-2xl space-y-3">
+                    <div className="p-6 bg-white/[0.04] border border-slate-800 rounded-2xl space-y-3">
                       <div className="flex items-center justify-between flex-wrap gap-2">
-                        <h4 className="font-bold text-slate-900 text-sm">Mimo v2.5 — Primary Intelligence Model</h4>
-                        <span className="px-2.5 py-0.5 bg-cyan-100 text-cyan-800 text-[10px] font-bold rounded-full uppercase">Core Engine</span>
+                        <h4 className="font-bold text-white text-sm">Mimo v2.5 — Primary Intelligence Model</h4>
+                        <span className="px-2.5 py-0.5 bg-cyan-500/20 text-cyan-400 text-[10px] font-bold rounded-full uppercase">Core Engine</span>
                       </div>
-                      <p className="text-xs text-slate-500 leading-relaxed">
+                      <p className="text-xs text-slate-400 leading-relaxed">
                         Mimo v2.5 is our primary large-scale reasoning model. Powers deep code analysis, multi-file refactoring, architecture suggestions, test generation, and complex debugging across all supported languages.
                       </p>
-                      <div className="grid grid-cols-3 gap-2 text-center text-[10px] font-mono text-slate-500">
-                        <div className="bg-white p-2 rounded-xl border border-slate-150"><strong>Context</strong> 250k tokens</div>
-                        <div className="bg-white p-2 rounded-xl border border-slate-150"><strong>Specialization</strong> Full-stack reasoning</div>
-                        <div className="bg-white p-2 rounded-xl border border-slate-150"><strong>Latency</strong> Optimized inference</div>
+                      <div className="grid grid-cols-3 gap-2 text-center text-[10px] font-mono text-slate-400">
+                        <div className="bg-transparent p-2 rounded-xl border border-slate-800"><strong>Context</strong> 250k tokens</div>
+                        <div className="bg-transparent p-2 rounded-xl border border-slate-800"><strong>Specialization</strong> Full-stack reasoning</div>
+                        <div className="bg-transparent p-2 rounded-xl border border-slate-800"><strong>Latency</strong> Optimized inference</div>
                       </div>
                     </div>
 
                     {/* Model 2 */}
-                    <div className="p-6 bg-slate-50 border border-slate-100 rounded-2xl space-y-3">
+                    <div className="p-6 bg-white/[0.04] border border-slate-800 rounded-2xl space-y-3">
                       <div className="flex items-center justify-between flex-wrap gap-2">
-                        <h4 className="font-bold text-slate-900 text-sm">DeepSeek v4 — Fast Completion Engine</h4>
-                        <span className="px-2.5 py-0.5 bg-slate-200 text-slate-800 text-[10px] font-bold rounded-full uppercase">Low Latency</span>
+                        <h4 className="font-bold text-white text-sm">DeepSeek v4 — Fast Completion Engine</h4>
+                        <span className="px-2.5 py-0.5 bg-cyan-500/10 text-cyan-300 text-[10px] font-bold rounded-full uppercase">Low Latency</span>
                       </div>
-                      <p className="text-xs text-slate-500 leading-relaxed">
+                      <p className="text-xs text-slate-400 leading-relaxed">
                         Optimized for real-time autocomplete, inline suggestions, and lightning-fast code completions. Built for speed with a massive 250k context window for deep project understanding.
                       </p>
-                      <div className="grid grid-cols-3 gap-2 text-center text-[10px] font-mono text-slate-500">
-                        <div className="bg-white p-2 rounded-xl border border-slate-150"><strong>Context</strong> 250k tokens</div>
-                        <div className="bg-white p-2 rounded-xl border border-slate-150"><strong>Specialization</strong> Fast completions</div>
-                        <div className="bg-white p-2 rounded-xl border border-slate-150"><strong>Latency</strong> Millisecond response</div>
+                      <div className="grid grid-cols-3 gap-2 text-center text-[10px] font-mono text-slate-400">
+                        <div className="bg-transparent p-2 rounded-xl border border-slate-800"><strong>Context</strong> 250k tokens</div>
+                        <div className="bg-transparent p-2 rounded-xl border border-slate-800"><strong>Specialization</strong> Fast completions</div>
+                        <div className="bg-transparent p-2 rounded-xl border border-slate-800"><strong>Latency</strong> Millisecond response</div>
                       </div>
                     </div>
                   </div>
@@ -1066,19 +1314,19 @@ export default function App({ onBack }) {
 
               {docsActiveSection === 'backend' && (
                 <article className="space-y-6">
-                  <div className="border-b border-slate-100 pb-4">
-                    <span className="text-[10px] font-bold text-cyan-600 uppercase tracking-widest block mb-2">Documentation — Section 03</span>
-                    <h2 className="text-2xl lg:text-3xl font-extrabold text-slate-900">Backend API & Requests</h2>
+                  <div className="border-b border-slate-800 pb-4">
+                    <span className="text-xs font-mono tracking-widest text-cyan-400 uppercase block mb-2">Documentation — Section 03</span>
+                    <h2 className="text-2xl lg:text-3xl font-extrabold text-white">Backend API & Requests</h2>
                   </div>
-                  <p className="text-sm text-slate-500 leading-relaxed">
+                  <p className="text-sm text-slate-400 leading-relaxed">
                     The <strong>Spider Code Engine</strong> local daemon exposes secure internal endpoints. Developers can interface with this backend using standard REST calls. Below are structured layouts for compiler and chat payloads.
                   </p>
 
                   <div className="space-y-4">
-                    <span className="block font-bold text-slate-800 text-xs uppercase tracking-wider">
+                    <span className="block font-bold text-slate-300 text-xs uppercase tracking-wider">
                       1. Trigger Local Sandbox Compilation Request
                     </span>
-                    <div className="bg-slate-900 text-slate-100 p-5 rounded-2xl font-mono text-xs overflow-x-auto">
+                    <div className="bg-white/[0.04] text-slate-100 p-5 rounded-2xl font-mono text-xs overflow-x-auto">
                       <span className="text-cyan-400">POST</span> /api/v1/sandbox/compile
                       <pre className="mt-4 text-slate-300">
 {`{
@@ -1090,10 +1338,10 @@ export default function App({ onBack }) {
                       </pre>
                     </div>
 
-                    <span className="block font-bold text-slate-800 text-xs uppercase tracking-wider pt-2">
+                    <span className="block font-bold text-slate-300 text-xs uppercase tracking-wider pt-2">
                       2. Code Analysis Prompt Payload
                     </span>
-                    <div className="bg-slate-900 text-slate-100 p-5 rounded-2xl font-mono text-xs overflow-x-auto">
+                    <div className="bg-white/[0.04] text-slate-100 p-5 rounded-2xl font-mono text-xs overflow-x-auto">
                       <span className="text-cyan-400">POST</span> /api/v1/models/generate
                       <pre className="mt-4 text-slate-300">
 {`{
@@ -1112,16 +1360,16 @@ export default function App({ onBack }) {
 
               {docsActiveSection === 'custom' && (
                 <article className="space-y-6">
-                  <div className="border-b border-slate-100 pb-4">
-                    <span className="text-[10px] font-bold text-cyan-600 uppercase tracking-widest block mb-2">Documentation — Section 04</span>
-                    <h2 className="text-2xl lg:text-3xl font-extrabold text-slate-900">Custom Provider Configuration</h2>
+                  <div className="border-b border-slate-800 pb-4">
+                    <span className="text-xs font-mono tracking-widest text-cyan-400 uppercase block mb-2">Documentation — Section 04</span>
+                    <h2 className="text-2xl lg:text-3xl font-extrabold text-white">Custom Provider Configuration</h2>
                   </div>
-                  <p className="text-sm text-slate-500 leading-relaxed">
+                  <p className="text-sm text-slate-400 leading-relaxed">
                     Configure any OpenAI-compatible provider directly inside SpiderNotebook. Connect your own inference servers, hosted APIs, or private model endpoints.
                   </p>
 
                   {/* Live Form Preview */}
-                  <div className="bg-slate-900 rounded-2xl p-6 space-y-5">
+                  <div className="bg-white/[0.04] rounded-2xl p-6 space-y-5">
                     <div className="flex items-center gap-2 mb-2">
                       <span className="w-2 h-2 rounded-full bg-cyan-400"></span>
                       <span className="text-[10px] font-bold text-cyan-400 tracking-wider uppercase">Custom Provider</span>
@@ -1134,16 +1382,16 @@ export default function App({ onBack }) {
                     {/* Provider ID */}
                     <div className="space-y-1.5">
                       <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Provider ID</label>
-                      <div className="bg-slate-800 border border-slate-700 rounded-xl px-4 py-3">
+                      <div className="bg-white/5 border border-slate-700 rounded-xl px-4 py-3">
                         <span className="text-sm text-white font-mono">myprovider</span>
                       </div>
-                      <span className="text-[9px] text-slate-500">Lowercase letters, numbers, hyphens, or underscores</span>
+                      <span className="text-[9px] text-slate-400">Lowercase letters, numbers, hyphens, or underscores</span>
                     </div>
 
                     {/* Display Name */}
                     <div className="space-y-1.5">
                       <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Display name</label>
-                      <div className="bg-slate-800 border border-slate-700 rounded-xl px-4 py-3">
+                      <div className="bg-white/5 border border-slate-700 rounded-xl px-4 py-3">
                         <span className="text-sm text-white font-mono">My AI Provider</span>
                       </div>
                     </div>
@@ -1151,7 +1399,7 @@ export default function App({ onBack }) {
                     {/* Base URL */}
                     <div className="space-y-1.5">
                       <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Base URL</label>
-                      <div className="bg-slate-800 border border-slate-700 rounded-xl px-4 py-3">
+                      <div className="bg-white/5 border border-slate-700 rounded-xl px-4 py-3">
                         <span className="text-sm text-cyan-400 font-mono">https://api.myprovider.com/v1</span>
                       </div>
                     </div>
@@ -1159,10 +1407,10 @@ export default function App({ onBack }) {
                     {/* API Key */}
                     <div className="space-y-1.5">
                       <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">API key</label>
-                      <div className="bg-slate-800 border border-slate-700 rounded-xl px-4 py-3">
-                        <span className="text-sm text-slate-500 font-mono italic">••••••••••••••••</span>
+                      <div className="bg-white/5 border border-slate-700 rounded-xl px-4 py-3">
+                        <span className="text-sm text-slate-400 font-mono italic">••••••••••••••••</span>
                       </div>
-                      <span className="text-[9px] text-slate-500">Optional. Leave empty if you manage auth via headers.</span>
+                      <span className="text-[9px] text-slate-400">Optional. Leave empty if you manage auth via headers.</span>
                     </div>
 
                     {/* Models */}
@@ -1170,14 +1418,14 @@ export default function App({ onBack }) {
                       <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Models</label>
                       <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1">
-                          <span className="text-[9px] text-slate-500 uppercase">ID</span>
-                          <div className="bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5">
+                          <span className="text-[9px] text-slate-400 uppercase">ID</span>
+                          <div className="bg-white/5 border border-slate-700 rounded-xl px-4 py-2.5">
                             <span className="text-xs text-white font-mono">model-id</span>
                           </div>
                         </div>
                         <div className="space-y-1">
-                          <span className="text-[9px] text-slate-500 uppercase">Name</span>
-                          <div className="bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5">
+                          <span className="text-[9px] text-slate-400 uppercase">Name</span>
+                          <div className="bg-white/5 border border-slate-700 rounded-xl px-4 py-2.5">
                             <span className="text-xs text-white font-mono">Display Name</span>
                           </div>
                         </div>
@@ -1186,29 +1434,29 @@ export default function App({ onBack }) {
 
                     {/* Headers */}
                     <div className="space-y-2">
-                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Headers <span className="text-slate-600">(optional)</span></label>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Headers <span className="text-slate-400">(optional)</span></label>
                       <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1">
-                          <span className="text-[9px] text-slate-500 uppercase">Header</span>
-                          <div className="bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5">
+                          <span className="text-[9px] text-slate-400 uppercase">Header</span>
+                          <div className="bg-white/5 border border-slate-700 rounded-xl px-4 py-2.5">
                             <span className="text-xs text-slate-400 font-mono">Header-Name</span>
                           </div>
                         </div>
                         <div className="space-y-1">
-                          <span className="text-[9px] text-slate-500 uppercase">Value</span>
-                          <div className="bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5">
+                          <span className="text-[9px] text-slate-400 uppercase">Value</span>
+                          <div className="bg-white/5 border border-slate-700 rounded-xl px-4 py-2.5">
                             <span className="text-xs text-slate-400 font-mono">value</span>
                           </div>
                         </div>
                       </div>
                     </div>
 
-                    <button className="w-full py-3 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs uppercase tracking-wider rounded-xl transition-colors mt-4">
+                    <button className="w-full py-3 bg-cyan-500/100 hover:bg-cyan-400 text-slate-950 font-bold text-xs uppercase tracking-wider rounded-xl transition-colors mt-4">
                       Submit Configuration
                     </button>
                   </div>
 
-                  <div className="flex items-start gap-2 text-xs text-slate-500 mt-4">
+                  <div className="flex items-start gap-2 text-xs text-slate-400 mt-4">
                     <Icons.Check className="text-emerald-500 w-4 h-4 mt-0.5 flex-shrink-0" />
                     <span>Once submitted, SpiderNotebook validates the endpoint and makes your custom models available in the model selector instantly.</span>
                   </div>
@@ -1217,28 +1465,28 @@ export default function App({ onBack }) {
 
               {docsActiveSection === 'github' && (
                 <article className="space-y-6">
-                  <div className="border-b border-slate-100 pb-4">
-                    <span className="text-[10px] font-bold text-cyan-600 uppercase tracking-widest block mb-2">Documentation — Section 05</span>
-                    <h2 className="text-2xl lg:text-3xl font-extrabold text-slate-900">GitHub Enterprise Sync</h2>
+                  <div className="border-b border-slate-800 pb-4">
+                    <span className="text-xs font-mono tracking-widest text-cyan-400 uppercase block mb-2">Documentation — Section 05</span>
+                    <h2 className="text-2xl lg:text-3xl font-extrabold text-white">GitHub Enterprise Sync</h2>
                   </div>
-                  <p className="text-sm text-slate-500 leading-relaxed">
+                  <p className="text-sm text-slate-400 leading-relaxed">
                     Safely commit code and synchronize workspace states directly through our agent commands without sharing private configuration keys on-cloud.
                   </p>
 
                   <div className="space-y-4 mt-6">
-                    <div className="p-5 bg-slate-50 border border-slate-100 rounded-2xl space-y-3">
-                      <h4 className="font-bold text-slate-900 text-xs">Authenticating Local Repositories</h4>
-                      <p className="text-xs text-slate-500 leading-relaxed">
+                    <div className="p-5 bg-white/[0.04] border border-slate-800 rounded-2xl space-y-3">
+                      <h4 className="font-bold text-white text-xs">Authenticating Local Repositories</h4>
+                      <p className="text-xs text-slate-400 leading-relaxed">
                         SpiderNotebook uses your system's SSH keys or local keychain credentials to connect with GitHub, GitHub Enterprise, or GitLab. We do not store, intercept, or request passwords. All authentication procedures are delegated directly to your machine's secure command-line shell.
                       </p>
                     </div>
 
-                    <div className="p-5 bg-slate-50 border border-slate-100 rounded-2xl space-y-3">
-                      <h4 className="font-bold text-slate-900 text-xs">Direct Git Command Payload Execution</h4>
-                      <p className="text-xs text-slate-500 leading-relaxed">
+                    <div className="p-5 bg-white/[0.04] border border-slate-800 rounded-2xl space-y-3">
+                      <h4 className="font-bold text-white text-xs">Direct Git Command Payload Execution</h4>
+                      <p className="text-xs text-slate-400 leading-relaxed">
                         Instruct SpiderNotebook to commit optimizations via local shells:
                       </p>
-                      <div className="bg-slate-900 text-slate-100 p-4 rounded-xl font-mono text-[11px]">
+                      <div className="bg-white/[0.04] text-slate-100 p-4 rounded-xl font-mono text-[11px]">
                         $ spideragent run "Refactor vector boundaries inside main.cpp, run validation, and commit changes"
                       </div>
                     </div>
@@ -1253,55 +1501,55 @@ export default function App({ onBack }) {
 
 
       {}
-      <footer className="bg-white border-t border-slate-100 text-slate-500 py-16 text-sm">
+      <footer className="bg-[#020509] border-t border-slate-800 text-slate-400 py-16 text-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 md:grid-cols-4 gap-12">
           
           <div className="space-y-4">
             <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 bg-gradient-to-tr from-cyan-500 to-cyan-600 rounded-lg flex items-center justify-center text-white font-extrabold text-sm shadow-md">
+              <div className="w-8 h-8 bg-white/[0.04] rounded-lg flex items-center justify-center border border-cyan-500/30 text-cyan-400 font-extrabold text-sm shadow-md">
                 S
               </div>
-              <span className="text-slate-900 font-bold text-base">SpiderNotebook</span>
+              <span className="text-white font-bold text-base">SpiderNotebook</span>
             </div>
             <p className="text-xs leading-relaxed">
               A secure, local AI coding agent and workspace designed to compile, refactor, and debug your directories with absolute code privacy.
             </p>
-            <div className="flex gap-4 text-base text-cyan-600 pt-2 font-semibold">
-              <a href="#" className="hover:text-slate-900">GitHub</a>
-              <a href="#" className="hover:text-slate-900">Discord</a>
-              <a href="#" className="hover:text-slate-900">Reddit</a>
-              <a href="#" className="hover:text-slate-900">Twitter</a>
+            <div className="flex gap-4 text-base text-cyan-400 pt-2 font-semibold">
+              <a href="#" className="hover:text-white">GitHub</a>
+              <a href="#" className="hover:text-white">Discord</a>
+              <a href="#" className="hover:text-white">Reddit</a>
+              <a href="#" className="hover:text-white">Twitter</a>
             </div>
           </div>
 
 
           <div className="space-y-3.5">
-            <span className="block text-slate-900 font-bold tracking-wider uppercase text-xs">Directories</span>
+            <span className="block text-white font-bold tracking-wider uppercase text-xs">Directories</span>
             <ul className="space-y-2.5 text-xs font-semibold">
-              <li><a href="#overview" className="hover:text-cyan-600">Overview</a></li>
-              <li><a href="#features" className="hover:text-cyan-600">Core Features</a></li>
-              <li><a href="#specs" className="hover:text-cyan-600">Requirements</a></li>
+              <li><button onClick={() => scrollToSection('overview')} className="hover:text-cyan-400">Overview</button></li>
+              <li><button onClick={() => scrollToSection('features')} className="hover:text-cyan-400">Core Features</button></li>
+              <li><button onClick={() => scrollToSection('specs')} className="hover:text-cyan-400">Requirements</button></li>
             </ul>
           </div>
 
 
           <div className="space-y-3.5">
-            <span className="block text-slate-900 font-bold tracking-wider uppercase text-xs">Publisher Details</span>
+            <span className="block text-white font-bold tracking-wider uppercase text-xs">Publisher Details</span>
             <p className="text-xs leading-relaxed font-semibold">
               M4Spider Corp<br />
               Hyderabad, Telangana, India<br />
-              Email Support: <a href="mailto:vvvr8412@gmail.com" className="text-cyan-600 hover:underline">vvvr8412@gmail.com</a>
+              Email Support: <a href="mailto:vvvr8412@gmail.com" className="text-cyan-400 hover:underline">vvvr8412@gmail.com</a>
             </p>
           </div>
 
 
           <div className="space-y-3.5">
-            <span className="block text-slate-900 font-bold tracking-wider uppercase text-xs">Enterprise Deployment</span>
-            <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl">
+            <span className="block text-white font-bold tracking-wider uppercase text-xs">Enterprise Deployment</span>
+            <div className="p-4 bg-white/[0.04] border border-slate-800 rounded-2xl">
               <span className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-600">
                 <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span> Microsoft Store Verified
               </span>
-              <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed">
+              <p className="text-[11px] text-slate-400 mt-1.5 leading-relaxed">
                 Conforms with default Windows application sandbox parameters to ensure optimal hardware isolated runtime security.
               </p>
             </div>
@@ -1311,7 +1559,7 @@ export default function App({ onBack }) {
         </div>
 
 
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-16 pt-8 border-t border-slate-100 text-center text-[11px] text-slate-400 space-y-1.5 font-medium">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-16 pt-8 border-t border-slate-800 text-center text-[11px] text-slate-400 space-y-1.5 font-medium">
           <p>© 2026 M4Spider. Built with 🕷️ in India. Windows, macOS, Linux, and associated systems trademarks are properties of their respective owners.</p>
         </div>
       </footer>
@@ -1319,13 +1567,13 @@ export default function App({ onBack }) {
 
       {/* Toast Notification Container */}
       {toast.visible && (
-        <div className="fixed bottom-6 right-6 z-50 animate-bounce-short bg-white border border-slate-200 p-5 rounded-2xl shadow-2xl flex items-center gap-4 max-w-sm">
-          <div className="w-10 h-10 rounded-xl bg-cyan-50 text-cyan-500 flex items-center justify-center text-base shadow-inner">
+        <div className="fixed bottom-6 right-6 z-50 animate-bounce-short bg-transparent border border-slate-700 p-5 rounded-2xl shadow-2xl flex items-center gap-4 max-w-sm">
+          <div className="w-10 h-10 rounded-xl bg-cyan-500/10 text-cyan-500 flex items-center justify-center text-base shadow-inner">
             <Icons.Download className="w-5 h-5" />
           </div>
           <div className="text-left">
-            <span className="block text-xs font-extrabold text-slate-900">{toast.title}</span>
-            <span className="block text-[11px] text-slate-500">{toast.desc}</span>
+            <span className="block text-xs font-extrabold text-white">{toast.title}</span>
+            <span className="block text-[11px] text-slate-400">{toast.desc}</span>
           </div>
         </div>
       )}

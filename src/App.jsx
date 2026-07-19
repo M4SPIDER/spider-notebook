@@ -911,7 +911,7 @@ export default function App() {
                 <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight">About M4 Spider Technologies</h1>
                 
                 <p className="text-slate-300 leading-relaxed font-sans">
-                  M4 Spider Technologies Pvt. Ltd. is an Indian technology startup focused on building innovative software products while helping businesses accelerate their growth through custom software development.
+                  M4 Spider Technologies is an Indian technology startup focused on building innovative software products while helping businesses accelerate their growth through custom software development.
                 </p>
                 
                 <p className="text-slate-300 leading-relaxed font-sans">
@@ -1310,7 +1310,7 @@ export default function App() {
                   <div className="flex items-start space-x-3 p-3 bg-slate-950/80 border border-slate-900 rounded-lg">
                     <MapPin className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
                     <span className="text-slate-300 leading-relaxed font-sans">
-                      M4 Spider Technologies Pvt. Ltd.<br />
+                      M4 Spider Technologies<br />
                       India (Central Ecosystem Hub)
                     </span>
                   </div>
@@ -1568,7 +1568,7 @@ export default function App() {
         </div>
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-12 pt-6 border-t border-slate-900 flex flex-col sm:flex-row items-center justify-between gap-4 text-[10px] text-slate-600">
-          <span>Copyright © 2026 M4 Spider Technologies Pvt. Ltd. All rights reserved.</span>
+          <span>Copyright © 2026 M4 Spider Technologies All rights reserved.</span>
           <div className="flex space-x-4">
             <span className="hover:text-white cursor-pointer transition-colors">PRIVACY CODE</span>
             <span className="hover:text-white cursor-pointer transition-colors">SYSTEM UTILITIES</span>
