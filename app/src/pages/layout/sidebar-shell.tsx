@@ -15,6 +15,32 @@ import { toggleBrowser, openBrowserWithUrl } from "@/context/browser-panel"
 import { useSpiderUsage } from "@/context/spider-usage"
 import { useAuth } from "@/context/auth"
 
+const AVATAR_PALETTE = [
+  "#2563EB", // Royal Blue
+  "#7C3AED", // Vivid Purple
+  "#DB2777", // Bright Rose
+  "#EA580C", // Warm Orange
+  "#059669", // Emerald Green
+  "#0891B2", // Cyan Teal
+  "#D97706", // Deep Amber
+  "#4F46E5", // Indigo
+  "#DC2626", // Crimson Red
+  "#9333EA", // Violet
+  "#0D9488", // Teal
+  "#C026D3", // Fuchsia
+]
+
+function getInitialColor(seed: string): string {
+  if (!seed) return AVATAR_PALETTE[0]
+  let hash = 0
+  for (let i = 0; i < seed.length; i++) {
+    hash = seed.charCodeAt(i) + ((hash << 5) - hash)
+    hash |= 0
+  }
+  const index = Math.abs(hash) % AVATAR_PALETTE.length
+  return AVATAR_PALETTE[index]
+}
+
 export const SidebarContent = (props: {
   mobile?: boolean
   opened: Accessor<boolean>
