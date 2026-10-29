@@ -329,7 +329,7 @@ export const SidebarContent = (props: {
                   {usage.planName()}
                 </span>
               </div>
-              <div class="truncate text-[11px]" style={{ color: "rgba(255, 255, 255, 0.6)" }}>{displayEmail()}</div>
+              <div class="truncate text-[11px]" style={{ color: "#18181b" }}>{displayEmail()}</div>
             </div>
 
             <div
