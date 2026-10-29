@@ -1,0 +1,15 @@
+node_modules/
+dist/
+out/
+.turbo/
+*.log
+*.db
+*.db-journal
+*.tsbuildinfo
+.DS_Store
+Thumbs.db
+
+*.exe
+*.asar
+desktop/msix/*.exe
+desktop/msix/resources/app.asar

@@ -1,0 +1,457 @@
+import { Component, Show, createMemo, createResource, type JSX } from "solid-js"
+import { Button } from "@opencode-ai/ui/button"
+import { Select } from "@opencode-ai/ui/select"
+import { Switch } from "@opencode-ai/ui/switch"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { useParams } from "@solidjs/router"
+import { useLanguage } from "@/context/language"
+import { usePermission } from "@/context/permission"
+import { usePlatform } from "@/context/platform"
+import { useServerSync } from "@/context/server-sync"
+import { useServerSDK } from "@/context/server-sdk"
+import { useUpdaterAction } from "./updater-action"
+import { useSettings } from "@/context/settings"
+import { useTheme } from "@opencode-ai/ui/theme/context"
+import { decode64 } from "@/utils/base64"
+import { SettingsList } from "./settings-list"
+
+type ShellOption = {
+  path: string
+  name: string
+  acceptable: boolean
+}
+
+type ShellSelectOption = {
+  id: string
+  value: string
+  label: string
+}
+
+export const SettingsGeneral: Component = () => {
+  const language = useLanguage()
+  const permission = usePermission()
+  const platform = usePlatform()
+  const dialog = useDialog()
+  const params = useParams()
+  const settings = useSettings()
+  const theme = useTheme()
+
+  const updater = useUpdaterAction()
+
+  const dir = createMemo(() => decode64(params.dir))
+  const accepting = createMemo(() => {
+    const value = dir()
+    if (!value) return false
+    if (!params.id) return permission.isAutoAcceptingDirectory(value)
+    return permission.isAutoAccepting(params.id, value)
+  })
+
+  const toggleAccept = (checked: boolean) => {
+    const value = dir()
+    if (!value) return
+
+    if (!params.id) {
+      if (permission.isAutoAcceptingDirectory(value) === checked) return
+      permission.toggleAutoAcceptDirectory(value)
+      return
+    }
+
+    if (checked) {
+      permission.enableAutoAccept(params.id, value)
+      return
+    }
+
+    permission.disableAutoAccept(params.id, value)
+  }
+  const desktop = createMemo(() => platform.platform === "desktop")
+
+  const serverSync = useServerSync()
+  const serverSdk = useServerSDK()
+
+  const [shells] = createResource(
+    () =>
+      serverSdk.client.pty
+        .shells()
+        .then((res) => res.data ?? [])
+        .catch(() => [] as ShellOption[]),
+    { initialValue: [] as ShellOption[] },
+  )
+
+  const autoOption = { id: "auto", value: "", label: language.t("settings.general.row.shell.autoDefault") }
+  const currentShell = createMemo(() => serverSync.data.config.shell ?? "")
+
+  const shellOptions = createMemo<ShellSelectOption[]>(() => {
+    const list = shells.latest
+    const current = serverSync.data.config.shell
+
+    const nameCounts = new Map<string, number>()
+    for (const s of list) {
+      nameCounts.set(s.name, (nameCounts.get(s.name) || 0) + 1)
+    }
+
+    const options = [
+      autoOption,
+      ...list.map((s) => {
+        const ambiguousName = (nameCounts.get(s.name) || 0) > 1
+        const text = ambiguousName ? s.path : s.name
+        const label = s.acceptable ? text : `${text} (${language.t("settings.general.row.shell.terminalOnly")})`
+        return {
+          id: s.path,
+          // Prefer name over path - "bash" is much cleaner than the explicit full route even when it may change due to PATH.
+          value: ambiguousName ? s.path : s.name,
+          label,
+        }
+      }),
+    ]
+
+    if (current && !options.some((o) => o.value === current)) {
+      options.push({ id: current, value: current, label: current })
+    }
+
+    return options
+  })
+
+  const languageOptions = createMemo(() =>
+    language.locales.map((locale) => ({
+      value: locale,
+      label: language.label(locale),
+    })),
+  )
+
+  const themeOptions = createMemo(() =>
+    theme.ids().map((id) => ({
+      value: id,
+      label: theme.name(id),
+    })),
+  )
+
+  const colorSchemeOptions = createMemo(() => [
+    { value: "system" as const, label: "System" },
+    { value: "light" as const, label: "Light" },
+    { value: "dark" as const, label: "Dark" },
+  ])
+
+  const GeneralSection = () => (
+    <div class="flex flex-col gap-1">
+      <SettingsList>
+        <SettingsRow
+          title={language.t("settings.general.row.language.title")}
+          description={language.t("settings.general.row.language.description")}
+        >
+          <Select
+            data-action="settings-language"
+            options={languageOptions()}
+            current={languageOptions().find((o) => o.value === language.locale())}
+            value={(o) => o.value}
+            label={(o) => o.label}
+            onSelect={(option) => option && language.setLocale(option.value)}
+            variant="secondary"
+            size="small"
+            triggerVariant="settings"
+          />
+        </SettingsRow>
+
+        <SettingsRow
+          title={language.t("settings.general.row.theme.title")}
+          description={language.t("settings.general.row.theme.description")}
+        >
+          <Select
+            data-action="settings-theme"
+            options={themeOptions()}
+            current={themeOptions().find((o) => o.value === theme.themeId())}
+            value={(o) => o.value}
+            label={(o) => o.label}
+            onSelect={(option) => option && theme.setTheme(option.value)}
+            variant="secondary"
+            size="small"
+            triggerVariant="settings"
+            triggerStyle={{ "min-width": "180px" }}
+          />
+        </SettingsRow>
+
+        <SettingsRow
+          title="Color Scheme"
+          description="Switch between light, dark, or system appearance."
+        >
+          <Select
+            data-action="settings-color-scheme"
+            options={colorSchemeOptions()}
+            current={colorSchemeOptions().find((o) => o.value === theme.colorScheme())}
+            value={(o) => o.value}
+            label={(o) => o.label}
+            onSelect={(option) => option && theme.setColorScheme(option.value)}
+            variant="secondary"
+            size="small"
+            triggerVariant="settings"
+          />
+        </SettingsRow>
+
+        <SettingsRow
+          title={language.t("command.permissions.autoaccept.enable")}
+          description={language.t("toast.permissions.autoaccept.on.description")}
+        >
+          <div data-action="settings-auto-accept-permissions">
+            <Switch checked={accepting()} disabled={!dir()} onChange={toggleAccept} />
+          </div>
+        </SettingsRow>
+
+        <SettingsRow
+          title={language.t("settings.general.row.shell.title")}
+          description={language.t("settings.general.row.shell.description")}
+        >
+          <Select
+            data-action="settings-shell"
+            options={shellOptions()}
+            current={shellOptions().find((o) => o.value === currentShell()) ?? autoOption}
+            value={(o) => o.id}
+            label={(o) => o.label}
+            onSelect={(option) => {
+              if (!option) return
+              if (option.value === currentShell()) return
+              serverSync.updateConfig({ shell: option.value })
+            }}
+            variant="secondary"
+            size="small"
+            triggerVariant="settings"
+            triggerStyle={{ "min-width": "180px" }}
+          />
+        </SettingsRow>
+
+        <SettingsRow
+          title={language.t("settings.general.row.reasoningSummaries.title")}
+          description={language.t("settings.general.row.reasoningSummaries.description")}
+        >
+          <div data-action="settings-feed-reasoning-summaries">
+            <Switch
+              checked={settings.general.showReasoningSummaries()}
+              onChange={(checked) => settings.general.setShowReasoningSummaries(checked)}
+            />
+          </div>
+        </SettingsRow>
+
+        <SettingsRow
+          title={language.t("settings.general.row.shellToolPartsExpanded.title")}
+          description={language.t("settings.general.row.shellToolPartsExpanded.description")}
+        >
+          <div data-action="settings-feed-shell-tool-parts-expanded">
+            <Switch
+              checked={settings.general.shellToolPartsExpanded()}
+              onChange={(checked) => settings.general.setShellToolPartsExpanded(checked)}
+            />
+          </div>
+        </SettingsRow>
+
+        <SettingsRow
+          title={language.t("settings.general.row.editToolPartsExpanded.title")}
+          description={language.t("settings.general.row.editToolPartsExpanded.description")}
+        >
+          <div data-action="settings-feed-edit-tool-parts-expanded">
+            <Switch
+              checked={settings.general.editToolPartsExpanded()}
+              onChange={(checked) => settings.general.setEditToolPartsExpanded(checked)}
+            />
+          </div>
+        </SettingsRow>
+
+        <SettingsRow
+          title={language.t("settings.general.row.newLayoutDesigns.title")}
+          description={language.t("settings.general.row.newLayoutDesigns.description")}
+        >
+          <div data-action="settings-new-layout-designs">
+            <Switch
+              checked={settings.general.newLayoutDesigns()}
+              onChange={(checked) => {
+                settings.general.setNewLayoutDesigns(checked)
+                if (!checked) return
+                void import("@/components/settings-v2").then((module) => {
+                  dialog.show(() => <module.DialogSettings />)
+                })
+              }}
+            />
+          </div>
+        </SettingsRow>
+      </SettingsList>
+    </div>
+  )
+
+  const AdvancedSection = () => (
+    <div class="flex flex-col gap-1">
+      <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.general.section.advanced")}</h3>
+
+      <SettingsList>
+        <SettingsRow
+          title={language.t("settings.general.row.showFileTree.title")}
+          description={language.t("settings.general.row.showFileTree.description")}
+        >
+          <div data-action="settings-show-file-tree">
+            <Switch
+              checked={settings.general.showFileTree()}
+              onChange={(checked) => settings.general.setShowFileTree(checked)}
+            />
+          </div>
+        </SettingsRow>
+
+        <SettingsRow
+          title={language.t("settings.general.row.showNavigation.title")}
+          description={language.t("settings.general.row.showNavigation.description")}
+        >
+          <div data-action="settings-show-navigation">
+            <Switch
+              checked={settings.general.showNavigation()}
+              onChange={(checked) => settings.general.setShowNavigation(checked)}
+            />
+          </div>
+        </SettingsRow>
+
+        <SettingsRow
+          title={language.t("settings.general.row.showSearch.title")}
+          description={language.t("settings.general.row.showSearch.description")}
+        >
+          <div data-action="settings-show-search">
+            <Switch
+              checked={settings.general.showSearch()}
+              onChange={(checked) => settings.general.setShowSearch(checked)}
+            />
+          </div>
+        </SettingsRow>
+
+        <SettingsRow
+          title={language.t("settings.general.row.showStatus.title")}
+          description={language.t("settings.general.row.showStatus.description")}
+        >
+          <div data-action="settings-show-status">
+            <Switch
+              checked={settings.general.showStatus()}
+              onChange={(checked) => settings.general.setShowStatus(checked)}
+            />
+          </div>
+        </SettingsRow>
+
+        <SettingsRow
+          title={language.t("settings.general.row.showCustomAgents.title")}
+          description={language.t("settings.general.row.showCustomAgents.description")}
+        >
+          <div data-action="settings-show-custom-agents">
+            <Switch
+              checked={settings.general.showCustomAgents()}
+              onChange={(checked) => settings.general.setShowCustomAgents(checked)}
+            />
+          </div>
+        </SettingsRow>
+      </SettingsList>
+    </div>
+  )
+
+  const NotificationsSection = () => (
+    <div class="flex flex-col gap-1">
+      <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.general.section.notifications")}</h3>
+
+      <SettingsList>
+        <SettingsRow
+          title={language.t("settings.general.notifications.agent.title")}
+          description={language.t("settings.general.notifications.agent.description")}
+        >
+          <div data-action="settings-notifications-agent">
+            <Switch
+              checked={settings.notifications.agent()}
+              onChange={(checked) => settings.notifications.setAgent(checked)}
+            />
+          </div>
+        </SettingsRow>
+
+        <SettingsRow
+          title={language.t("settings.general.notifications.permissions.title")}
+          description={language.t("settings.general.notifications.permissions.description")}
+        >
+          <div data-action="settings-notifications-permissions">
+            <Switch
+              checked={settings.notifications.permissions()}
+              onChange={(checked) => settings.notifications.setPermissions(checked)}
+            />
+          </div>
+        </SettingsRow>
+
+        <SettingsRow
+          title={language.t("settings.general.notifications.errors.title")}
+          description={language.t("settings.general.notifications.errors.description")}
+        >
+          <div data-action="settings-notifications-errors">
+            <Switch
+              checked={settings.notifications.errors()}
+              onChange={(checked) => settings.notifications.setErrors(checked)}
+            />
+          </div>
+        </SettingsRow>
+      </SettingsList>
+    </div>
+  )
+
+  const UpdatesSection = () => (
+    <div class="flex flex-col gap-1">
+      <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.general.section.updates")}</h3>
+
+      <SettingsList>
+        <SettingsRow
+          title={language.t("settings.general.row.releaseNotes.title")}
+          description={language.t("settings.general.row.releaseNotes.description")}
+        >
+          <div data-action="settings-release-notes">
+            <Switch
+              checked={settings.general.releaseNotes()}
+              onChange={(checked) => settings.general.setReleaseNotes(checked)}
+            />
+          </div>
+        </SettingsRow>
+
+        <SettingsRow
+          title={language.t("settings.updates.row.check.title")}
+          description={language.t("settings.updates.row.check.description")}
+        >
+          <Button size="small" variant="secondary" disabled={!updater.action().run} onClick={updater.run}>
+            {language.t(updater.action().label)}
+          </Button>
+        </SettingsRow>
+      </SettingsList>
+    </div>
+  )
+
+  return (
+    <div class="flex flex-col h-full overflow-y-auto no-scrollbar px-4 pb-10 sm:px-10 sm:pb-10">
+      <div class="sticky top-0 z-10 bg-[linear-gradient(to_bottom,var(--surface-stronger-non-alpha)_calc(100%_-_24px),transparent)]">
+        <div class="flex flex-col gap-1 pt-6 pb-8">
+          <h2 class="text-16-medium text-text-strong">{language.t("settings.tab.general")}</h2>
+        </div>
+      </div>
+
+      <div class="flex flex-col gap-8 w-full">
+        <GeneralSection />
+
+        <NotificationsSection />
+
+        <UpdatesSection />
+
+        <Show when={desktop()}>
+          <AdvancedSection />
+        </Show>
+      </div>
+    </div>
+  )
+}
+
+interface SettingsRowProps {
+  title: string | JSX.Element
+  description: string | JSX.Element
+  children: JSX.Element
+}
+
+const SettingsRow: Component<SettingsRowProps> = (props) => {
+  return (
+    <div class="flex flex-wrap items-center gap-4 py-3 border-b border-border-weak-base last:border-none sm:flex-nowrap">
+      <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span class="text-14-medium text-text-strong">{props.title}</span>
+        <span class="text-12-regular text-text-weak">{props.description}</span>
+      </div>
+      <div class="flex w-full justify-end sm:w-auto sm:shrink-0">{props.children}</div>
+    </div>
+  )
+}

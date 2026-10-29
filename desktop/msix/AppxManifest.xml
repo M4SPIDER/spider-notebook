@@ -1,0 +1,65 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+         xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+         xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+         IgnorableNamespaces="uap rescap">
+  <Identity Name="M4Spider.M4Spidernotebook"
+            Publisher="CN=28E6B732-ABC5-4E63-80F8-8293EBEF56C2"
+            Version="3.0.2.0" />
+  <Properties>
+    <DisplayName>M4Spidernotebook</DisplayName>
+    <PublisherDisplayName>M4 Spider</PublisherDisplayName>
+    <Logo>images\icon.png</Logo>
+    <Description>A powerful AI-powered notebook with integrated browser and coding environment.</Description>
+  </Properties>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop"
+                        MinVersion="10.0.17763.0"
+                        MaxVersionTested="10.0.22621.0" />
+  </Dependencies>
+  <Resources>
+    <Resource Language="en-US" />
+  </Resources>
+  <Applications>
+    <Application Id="App"
+                 Executable="M4 Spider Notebook.exe"
+                 EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements DisplayName="M4Spidernotebook"
+                          Description="A powerful AI-powered notebook with integrated browser and coding environment."
+                          BackgroundColor="transparent"
+                          Square150x150Logo="images\icon.png"
+                          Square44x44Logo="images\icon.png">
+        <uap:DefaultTile Wide310x150Logo="images\icon.png"
+                         Square71x71Logo="images\icon.png"
+                         Square310x310Logo="images\icon.png" />
+        <uap:SplashScreen Image="images\splash.png" />
+      </uap:VisualElements>
+    </Application>
+  </Applications>
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+    <Capability Name="internetClient" />
+  </Capabilities>
+</Package>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

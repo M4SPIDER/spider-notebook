@@ -1,0 +1,36 @@
+Browse the web using a live browser. Requires the Spider Browser panel to be open in the desktop app.
+
+IMPORTANT: Always search for specific content. NEVER click the first result. Use the search box to find exact content.
+
+Workflow for finding specific content:
+1. navigate to the website
+2. snapshot to find the search input
+3. click the search input
+4. type the exact search query
+5. press Enter to submit
+6. snapshot to see results
+7. scroll if needed to find exact match
+8. click the correct result by matching title text
+
+Actions:
+- navigate: Go to a URL.
+- snapshot: List all interactive elements with CSS selectors.
+- screenshot: Take a screenshot.
+- text: Get all page text.
+- click: Click element by CSS selector.
+- type: Type text into element by CSS selector.
+- press: Press a key (e.g. "Enter") on the focused element.
+- scroll: Scroll page (up/down/top/bottom).
+- back: Go back in browser history.
+- forward: Go forward in browser history.
+
+Example - Play "Vaari Jaavan" on YouTube:
+1. navigate("https://youtube.com")
+2. snapshot → find "#search" input
+3. click("#search")
+4. type("#search", "Vaari Jaavan")
+5. press("Enter")
+6. snapshot → find result with "Vaari Jaavan" in title
+7. click that specific result link
+
+NEVER skip search. ALWAYS type the exact name then press Enter.

@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Spider Browser v3</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #091E1E; color: #e0f2f1; height: 100vh; display: flex; flex-direction: column; overflow: hidden; user-select: none; }
+
+    /* Tab Bar */
+    .tab-bar { display: flex; align-items: end; background: #0B2A2A; padding: 4px 8px 0; gap: 2px; flex-shrink: 0; }
+    .tab { display: flex; align-items: center; gap: 6px; padding: 6px 12px; min-width: 100px; max-width: 180px; font-size: 11px; font-weight: 600; border-radius: 8px 8px 0 0; cursor: pointer; transition: all 0.15s; color: #529E98; }
+    .tab.active { background: #091E1E; color: #e0f2f1; border: 1px solid #194A4A; border-bottom: none; }
+    .tab:hover:not(.active) { background: #133838; }
+    .tab .title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tab .close { opacity: 0; padding: 2px; border-radius: 4px; font-size: 10px; }
+    .tab:hover .close { opacity: 1; }
+    .tab .close:hover { background: #194A4A; }
+    .tab-add { padding: 6px 10px; border-radius: 8px; cursor: pointer; color: #529E98; font-size: 14px; }
+    .tab-add:hover { background: #133838; }
+
+    /* Toolbar */
+    .toolbar { display: flex; align-items: center; gap: 6px; background: #0B2A2A; padding: 6px 10px; border-bottom: 1px solid #194A4A; flex-shrink: 0; }
+    .toolbar button { background: none; border: none; color: #529E98; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+    .toolbar button:hover { background: #133838; }
+    .toolbar button:disabled { opacity: 0.2; cursor: default; }
+    .url-bar { flex: 1; display: flex; align-items: center; background: #091E1E; border: 1px solid #194A4A; border-radius: 8px; padding: 0 10px; }
+    .url-bar input { flex: 1; background: none; border: none; color: #e0f2f1; padding: 8px 8px; font-size: 13px; font-family: monospace; outline: none; }
+    .url-bar input::placeholder { color: #529E98; }
+    .url-bar .lock { color: #00E5FF; font-size: 12px; margin-right: 4px; }
+    .engine-select { background: #133838; border: none; color: #00E5FF; font-size: 10px; font-weight: 700; padding: 4px 8px; border-radius: 4px; text-transform: uppercase; outline: none; cursor: pointer; }
+
+    /* Content */
+    .content { flex: 1; position: relative; overflow: hidden; background: #fff; }
+    .content webview { width: 100%; height: 100%; border: none; }
+
+    /* New Tab Page */
+    .new-tab { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; background: #091E1E; padding: 40px; }
+    .new-tab h1 { font-size: 42px; font-weight: 900; font-style: italic; letter-spacing: -1px; margin-bottom: 8px; }
+    .new-tab h1 span { color: #00E5FF; }
+    .new-tab .subtitle { color: #529E98; font-size: 11px; font-family: monospace; letter-spacing: 3px; margin-bottom: 40px; }
+    .new-tab .search-box { width: 100%; max-width: 560px; position: relative; margin-bottom: 40px; }
+    .new-tab .search-box input { width: 100%; background: #0B2A2A; border: 2px solid #194A4A; border-radius: 24px; padding: 16px 24px 16px 50px; color: #e0f2f1; font-size: 16px; font-weight: 600; outline: none; transition: border-color 0.2s; }
+    .new-tab .search-box input:focus { border-color: #00E5FF; }
+    .new-tab .search-box input::placeholder { color: #529E98; }
+    .new-tab .search-box .icon { position: absolute; left: 18px; top: 50%; transform: translateY(-50%); color: #00E5FF; font-size: 16px; }
+    .bookmarks { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; max-width: 560px; width: 100%; }
+    .bookmark { display: flex; flex-direction: column; align-items: center; padding: 16px; background: #0B2A2A; border: 1px solid #194A4A; border-radius: 16px; cursor: pointer; transition: all 0.2s; }
+    .bookmark:hover { border-color: #00E5FF; transform: translateY(-2px); }
+    .bookmark .icon { font-size: 24px; margin-bottom: 8px; }
+    .bookmark .name { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #529E98; }
+    .bookmark:hover .name { color: #e0f2f1; }
+
+    /* Loading bar */
+    .loading-bar { position: absolute; top: 0; left: 0; right: 0; height: 2px; z-index: 10; overflow: hidden; }
+    .loading-bar .bar { height: 100%; background: #00E5FF; animation: load 1.5s ease-out; transform-origin: left; }
+    @keyframes load { 0% { transform: translateX(-100%) scaleX(0); } 50% { transform: translateX(-20%) scaleX(0.5); } 100% { transform: translateX(0%) scaleX(1); } }
+  </style>
+</head>
+<body>
+  <!-- Tab Bar -->
+  <div class="tab-bar" id="tabBar"></div>
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <button id="btnBack" disabled>←</button>
+    <button id="btnForward" disabled>→</button>
+    <button id="btnReload">↻</button>
+    <button id="btnHome">⌂</button>
+    <div class="url-bar">
+      <span class="lock">🔒</span>
+      <input type="text" id="urlInput" placeholder="Search or enter URL...">
+    </div>
+    <select class="engine-select" id="engineSelect">
+      <option value="google">Google</option>
+      <option value="bing">Bing</option>
+      <option value="duck">Duck</option>
+    </select>
+  </div>
+
+  <!-- Content -->
+  <div class="content" id="content"></div>
+
+  <script>
+    const ENGINES = {
+      google: 'https://www.google.com/search?q=',
+      bing: 'https://www.bing.com/search?q=',
+      duck: 'https://duckduckgo.com/?q='
+    };
+    const BOOKMARKS = [
+      { name: 'Google', url: 'https://www.google.com', icon: '🔍' },
+      { name: 'YouTube', url: 'https://www.youtube.com', icon: '📺' },
+      { name: 'GitHub', url: 'https://github.com', icon: '💻' },
+      { name: 'Wikipedia', url: 'https://en.wikipedia.org', icon: '📚' },
+    ];
+
+    let tabs = [{ id: 1, title: 'New Tab', url: '', history: [], historyIdx: -1, loading: false }];
+    let activeId = 1;
+    let engine = 'google';
+
+    const tabBar = document.getElementById('tabBar');
+    const content = document.getElementById('content');
+    const urlInput = document.getElementById('urlInput');
+    const btnBack = document.getElementById('btnBack');
+    const btnForward = document.getElementById('btnForward');
+    const btnReload = document.getElementById('btnReload');
+    const btnHome = document.getElementById('btnHome');
+    const engineSelect = document.getElementById('engineSelect');
+
+    function activeTab() { return tabs.find(t => t.id === activeId); }
+
+    function renderTabs() {
+      tabBar.innerHTML = '';
+      tabs.forEach(t => {
+        const div = document.createElement('div');
+        div.className = 'tab' + (t.id === activeId ? ' active' : '');
+        div.innerHTML = `<span class="title">${t.title}</span><span class="close" onclick="closeTab(event,${t.id})">✕</span>`;
+        div.onclick = () => switchTab(t.id);
+        tabBar.appendChild(div);
+      });
+      const add = document.createElement('div');
+      add.className = 'tab-add';
+      add.textContent = '+';
+      add.onclick = createTab;
+      tabBar.appendChild(add);
+    }
+
+    function renderContent() {
+      const tab = activeTab();
+      if (!tab || !tab.url) {
+        content.innerHTML = `
+          <div class="new-tab">
+            <h1>SPIDER <span>v3</span></h1>
+            <div class="subtitle">SYSTEM_ONLINE_SECURE</div>
+            <div class="search-box">
+              <span class="icon">🔍</span>
+              <input type="text" id="homeSearch" placeholder="Search with ${engine.toUpperCase()}..." autofocus>
+            </div>
+            <div class="bookmarks">
+              ${BOOKMARKS.map(b => `<div class="bookmark" onclick="navigate('${b.url}')"><div class="icon">${b.icon}</div><div class="name">${b.name}</div></div>`).join('')}
+            </div>
+          </div>`;
+        document.getElementById('homeSearch')?.addEventListener('keydown', e => {
+          if (e.key === 'Enter' && e.target.value) navigate(e.target.value);
+        });
+      } else {
+        content.innerHTML = `
+          ${tab.loading ? '<div class="loading-bar"><div class="bar"></div></div>' : ''}
+          <webview id="webview" src="${tab.url}" partition="persist:spider"></webview>`;
+        const wv = document.getElementById('webview');
+        wv.addEventListener('did-navigate', () => { tab.loading = false; renderTabs(); });
+        wv.addEventListener('did-navigate-in-page', () => { tab.loading = false; renderTabs(); });
+      }
+      btnBack.disabled = !tab || tab.historyIdx <= 0;
+      btnForward.disabled = !tab || tab.historyIdx >= tab.history.length - 1;
+    }
+
+    function navigate(raw) {
+      let url = raw.trim();
+      if (!url) return;
+      if (url.startsWith('http://') || url.startsWith('https://')) {
+        // already has scheme — use as-is
+      } else if (/^(localhost|127\.|::1|\[|0\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.)/.test(url) || /^\d{1,3}(\.\d{1,3}){3}(:\d+)?(\/|$)/.test(url)) {
+        url = 'http://' + url;
+      } else if (url.includes('.') && !url.includes(' ')) {
+        url = 'https://' + url;
+      } else {
+        url = ENGINES[engine] + encodeURIComponent(url);
+      }
+      const tab = activeTab();
+      tab.history = tab.history.slice(0, tab.historyIdx + 1);
+      tab.history.push(url);
+      tab.historyIdx = tab.history.length - 1;
+      tab.url = url;
+      tab.title = url.split('/')[2] || url;
+      tab.loading = true;
+      urlInput.value = url;
+      renderTabs();
+      renderContent();
+    }
+
+    function switchTab(id) { activeId = id; const t = activeTab(); urlInput.value = t?.url || ''; renderTabs(); renderContent(); }
+    function createTab() { const id = Date.now(); tabs.push({ id, title: 'New Tab', url: '', history: [], historyIdx: -1, loading: false }); activeId = id; urlInput.value = ''; renderTabs(); renderContent(); }
+    function closeTab(e, id) { e.stopPropagation(); if (tabs.length === 1) { const t = tabs[0]; t.url = ''; t.title = 'New Tab'; t.history = []; t.historyIdx = -1; urlInput.value = ''; renderTabs(); renderContent(); return; } tabs = tabs.filter(t => t.id !== id); if (activeId === id) activeId = tabs[tabs.length - 1].id; switchTab(activeId); }
+
+    urlInput.addEventListener('keydown', e => { if (e.key === 'Enter') navigate(urlInput.value); });
+    engineSelect.addEventListener('change', e => engine = e.target.value);
+    btnBack.addEventListener('click', () => { const t = activeTab(); if (t && t.historyIdx > 0) { t.historyIdx--; t.url = t.history[t.historyIdx]; t.title = t.url.split('/')[2] || t.url; urlInput.value = t.url; renderTabs(); renderContent(); } });
+    btnForward.addEventListener('click', () => { const t = activeTab(); if (t && t.historyIdx < t.history.length - 1) { t.historyIdx++; t.url = t.history[t.historyIdx]; t.title = t.url.split('/')[2] || t.url; urlInput.value = t.url; renderTabs(); renderContent(); } });
+    btnReload.addEventListener('click', () => { const wv = document.getElementById('webview'); if (wv) wv.reload(); });
+    document.getElementById('btnHome').addEventListener('click', () => { const t = activeTab(); t.url = ''; t.title = 'New Tab'; t.history = []; t.historyIdx = -1; urlInput.value = ''; renderTabs(); renderContent(); });
+
+    renderTabs();
+    renderContent();
+  </script>
+</body>
+</html>

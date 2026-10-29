@@ -1,0 +1,3 @@
+browser-host/
+x64/Release/*
+!x64/Release/spider-browser-host.exe

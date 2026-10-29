@@ -1,0 +1,83 @@
+{
+  "$schema": "https://opencode.ai/desktop-theme.json",
+  "name": "Pure White",
+  "id": "pure-white",
+  "light": {
+    "palette": {
+      "neutral": "#ffffff",
+      "ink": "#1a1a1a",
+      "primary": "#3b7dd8",
+      "success": "#3d9a57",
+      "warning": "#d68c27",
+      "error": "#d1383d",
+      "info": "#318795"
+    },
+    "overrides": {
+      "text-weak": "#888888",
+      "syntax-comment": "#999999",
+      "syntax-keyword": "#d68c27",
+      "syntax-string": "#3d9a57",
+      "syntax-primitive": "#3b7dd8",
+      "syntax-variable": "#d1383d",
+      "syntax-property": "#318795",
+      "syntax-type": "#b0851f",
+      "syntax-constant": "#3b7dd8",
+      "syntax-operator": "#318795",
+      "syntax-punctuation": "#666666",
+      "syntax-object": "#d1383d",
+      "markdown-heading": "#3b7dd8",
+      "markdown-text": "#1a1a1a",
+      "markdown-link": "#3b7dd8",
+      "markdown-link-text": "#318795",
+      "markdown-code": "#3d9a57",
+      "markdown-block-quote": "#b0851f",
+      "markdown-emph": "#b0851f",
+      "markdown-strong": "#d68c27",
+      "markdown-horizontal-rule": "#cccccc",
+      "markdown-list-item": "#3b7dd8",
+      "markdown-list-enumeration": "#318795",
+      "markdown-image": "#3b7dd8",
+      "markdown-image-text": "#318795",
+      "markdown-code-block": "#1a1a1a"
+    }
+  },
+  "dark": {
+    "palette": {
+      "neutral": "#ffffff",
+      "ink": "#1a1a1a",
+      "primary": "#3b7dd8",
+      "success": "#3d9a57",
+      "warning": "#d68c27",
+      "error": "#d1383d",
+      "info": "#318795"
+    },
+    "overrides": {
+      "text-weak": "#888888",
+      "syntax-comment": "#999999",
+      "syntax-keyword": "#d68c27",
+      "syntax-string": "#3d9a57",
+      "syntax-primitive": "#3b7dd8",
+      "syntax-variable": "#d1383d",
+      "syntax-property": "#318795",
+      "syntax-type": "#b0851f",
+      "syntax-constant": "#3b7dd8",
+      "syntax-operator": "#318795",
+      "syntax-punctuation": "#666666",
+      "syntax-object": "#d1383d",
+      "markdown-heading": "#3b7dd8",
+      "markdown-text": "#1a1a1a",
+      "markdown-link": "#3b7dd8",
+      "markdown-link-text": "#318795",
+      "markdown-code": "#3d9a57",
+      "markdown-block-quote": "#b0851f",
+      "markdown-emph": "#b0851f",
+      "markdown-strong": "#d68c27",
+      "markdown-horizontal-rule": "#cccccc",
+      "markdown-list-item": "#3b7dd8",
+      "markdown-list-enumeration": "#318795",
+      "markdown-image": "#3b7dd8",
+      "markdown-image-text": "#318795",
+      "markdown-code-block": "#1a1a1a"
+    }
+  }
+}

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=M4 Spider Notebook
+Exec=/opt/M4 Spider Notebook/ai.m4spider.desktop %U
+Terminal=false
+Type=Application
+Icon=ai.m4spider.desktop
+StartupWMClass=ai.m4spider.desktop
+NoDisplay=true
+Comment=AI coding agent
+Categories=Development;

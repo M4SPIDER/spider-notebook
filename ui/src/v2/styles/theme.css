@@ -1,0 +1,337 @@
+:root {
+  color-scheme: dark;
+
+  /* ── Background ── */
+  --v2-background-bg-base: #091E1E;
+  --v2-background-bg-deep: #050f0f;
+  --v2-background-bg-layer-01: #0B2A2A;
+  --v2-background-bg-layer-02: #133838;
+  --v2-background-bg-layer-03: #194A4A;
+  --v2-background-bg-layer-04: #225858;
+  --v2-background-bg-inverse: #e0f2f1;
+  --v2-background-bg-contrast: #00E5FF;
+  --v2-background-bg-button-neutral: #133838;
+  --v2-background-bg-accent: #00E5FF;
+
+  /* ── Text ── */
+  --v2-text-text-base: #e0f2f1;
+  --v2-text-text-muted: #529E98;
+  --v2-text-text-faint: #3d7a75;
+  --v2-text-text-inverse: #091E1E;
+  --v2-text-text-contrast: #ffffff;
+  --v2-text-text-accent: #00E5FF;
+  --v2-text-text-accent-hover: #66F0FF;
+
+  /* ── Icon ── */
+  --v2-icon-icon-base: #529E98;
+  --v2-icon-icon-muted: #3d7a75;
+  --v2-icon-icon-inverse: #091E1E;
+  --v2-icon-icon-contrast: #e0f2f1;
+  --v2-icon-icon-accent: #00E5FF;
+  --v2-icon-icon-accent-hover: #66F0FF;
+
+  /* ── Border ── */
+  --v2-border-border-muted: #133838;
+  --v2-border-border-base: #194A4A;
+  --v2-border-border-strong: #225858;
+  --v2-border-border-inverse: #e0f2f1;
+  --v2-border-border-focus: #00E5FF;
+
+  /* ── Overlay ── */
+  --v2-overlay-simple-overlay-hover: rgba(0,229,255,0.06);
+  --v2-overlay-simple-overlay-pressed: rgba(0,229,255,0.1);
+  --v2-overlay-simple-overlay-contrast-hover: rgba(9,30,30,0.5);
+  --v2-overlay-simple-overlay-contrast-pressed: rgba(9,30,30,0.7);
+  --v2-overlay-simple-overlay-scrim: rgba(9,30,30,0.6);
+  --v2-overlay-gradient-depth-overlay-depth-top: rgba(9,30,30,1);
+  --v2-overlay-gradient-depth-overlay-depth-bot: rgba(9,30,30,0);
+  --v2-overlay-simple-tab-active-scrim: #091E1E00;
+  --v2-overlay-simple-tab-hover-scrim: #13383800;
+  --v2-overlay-simple-tab-scrim: #091E1E00;
+
+  /* ── State ── */
+  --v2-state-bg-success: rgba(0,229,160,0.1);
+  --v2-state-fg-success: #00E5A0;
+  --v2-state-border-success: rgba(0,229,160,0.3);
+  --v2-state-bg-warning: rgba(255,200,0,0.1);
+  --v2-state-fg-warning: #FFC800;
+  --v2-state-border-warning: rgba(255,200,0,0.3);
+  --v2-state-bg-danger: rgba(255,80,80,0.1);
+  --v2-state-fg-danger: #FF5050;
+  --v2-state-border-danger: rgba(255,80,80,0.3);
+  --v2-state-bg-info: rgba(0,229,255,0.1);
+  --v2-state-fg-info: #00E5FF;
+  --v2-state-border-info: rgba(0,229,255,0.3);
+
+  /* ── Project avatar (fixed; theme-independent) ── */
+  --v2-avatar-fg: #ffffffff;
+  --v2-avatar-bg-orange: #ee7330ff;
+  --v2-avatar-border-orange: #d16427ff;
+  --v2-avatar-bg-yellow: #e7af36ff;
+  --v2-avatar-border-yellow: #cb9f34ff;
+  --v2-avatar-bg-cyan: #0891b2ff;
+  --v2-avatar-border-cyan: #0e7490ff;
+  --v2-avatar-bg-green: #2eaf5aff;
+  --v2-avatar-border-green: #198b43ff;
+  --v2-avatar-bg-red: #d92e3cff;
+  --v2-avatar-border-red: #b82d35ff;
+  --v2-avatar-bg-pink: #e4429eff;
+  --v2-avatar-border-pink: #c83d8bff;
+  --v2-avatar-bg-blue: #3250dfff;
+  --v2-avatar-border-blue: #2c47c8ff;
+  --v2-avatar-bg-purple: #623be2ff;
+  --v2-avatar-border-purple: #5230c2ff;
+  --v2-avatar-bg-gray: #133838ff;
+  --v2-avatar-border-gray: #194A4Aff;
+
+  /* ── Elevation ── */
+  --v2-elevation-raised:
+    0px 2px 4px 0px rgba(0,0,0,0.3), 0px 1px 2px -1px rgba(0,0,0,0.2),
+    0px 0px 0px 0.5px rgba(0,229,255,0.08), 0px 0px 0px 0px rgba(0,0,0,0);
+  --v2-elevation-floating:
+    0px 8px 16px 0px rgba(0,0,0,0.3), 0px 4px 8px 0px rgba(0,0,0,0.2),
+    0px 0px 0px 0.5px rgba(0,229,255,0.08), 0px 0px 0px 0px rgba(0,0,0,0);
+  --v2-elevation-overlay:
+    0px 16px 32px 0px rgba(0,0,0,0.3), 0px 8px 16px 0px rgba(0,0,0,0.2),
+    0px 0px 0px 0.5px rgba(0,229,255,0.08), 0px 0px 0px 0px rgba(0,0,0,0);
+  --v2-elevation-button-neutral:
+    0px 1px 1.5px 0px rgba(0,0,0,0.2), 0px 0px 0px 0.5px rgba(0,229,255,0.1),
+    0px 0px 0px 0px rgba(0,0,0,0);
+  --v2-elevation-button-contrast:
+    0px 1px 1.5px 0px rgba(0,0,0,0.2), 0px 0px 0px 0.5px rgba(0,229,255,0.2),
+    inset 0px 1px 2px 0px rgba(255,255,255,0.05), inset 0px -1px 2px 0px rgba(0,0,0,0.1),
+    0px 0px 0px 0px rgba(0,0,0,0);
+  --v2-elevation-elements: 0px 0.5px 0.5px 0px rgba(0,229,255,0.06);
+  --v2-elevation-switch-off:
+    inset 0px 1px 1px 0px rgba(0,0,0,0.2), inset 0px 0.5px 0.5px 0px rgba(0,0,0,0.2),
+    inset 0px 0px 0px 0.5px rgba(0,229,255,0.1);
+  --v2-elevation-switch-on:
+    inset 0px 2px 2px 0px rgba(0,0,0,0.2), inset 0px 1px 1px 0px rgba(0,0,0,0.2),
+    inset 0px 0px 0px 0.5px rgba(0,229,255,0.2);
+
+  /* ── Illustration ── */
+  --v2-illustration-illustration-layer-01: #0B2A2A;
+  --v2-illustration-illustration-layer-02: #133838;
+  --v2-illustration-illustration-layer-03: #194A4A;
+
+  --font-family-text: "Inter", sans-serif;
+  --v2-font-family-sans: "Inter", sans-serif;
+}
+
+/* Explicit light mode via data attribute (overrides OS dark preference) */
+[data-color-scheme="light"] {
+  color-scheme: light;
+
+  --v2-background-bg-base: #f9fafb;
+  --v2-background-bg-deep: #f3f4f6;
+  --v2-background-bg-layer-01: #e5e7eb;
+  --v2-background-bg-layer-02: #d1d5db;
+  --v2-background-bg-layer-03: #9ca3af;
+  --v2-background-bg-layer-04: #6b7280;
+  --v2-background-bg-inverse: #091E1E;
+  --v2-background-bg-contrast: #00E5FF;
+  --v2-background-bg-button-neutral: #e5e7eb;
+  --v2-background-bg-accent: #00B8D4;
+
+  --v2-text-text-base: #091E1E;
+  --v2-text-text-muted: #529E98;
+  --v2-text-text-faint: #3d7a75;
+  --v2-text-text-inverse: #e0f2f1;
+  --v2-text-text-contrast: #ffffff;
+  --v2-text-text-accent: #00B8D4;
+  --v2-text-text-accent-hover: #0097A7;
+
+  --v2-icon-icon-base: #37474F;
+  --v2-icon-icon-muted: #78909C;
+  --v2-icon-icon-inverse: #091E1E;
+  --v2-icon-icon-contrast: #091E1E;
+  --v2-icon-icon-accent: #00B8D4;
+  --v2-icon-icon-accent-hover: #0097A7;
+
+  --v2-border-border-muted: #d1d5db;
+  --v2-border-border-base: #9ca3af;
+  --v2-border-border-strong: #6b7280;
+  --v2-border-border-inverse: #091E1E;
+  --v2-border-border-focus: #00B8D4;
+
+  --v2-overlay-simple-overlay-hover: rgba(0,184,212,0.06);
+  --v2-overlay-simple-overlay-pressed: rgba(0,184,212,0.1);
+  --v2-overlay-simple-overlay-contrast-hover: rgba(9,30,30,0.06);
+  --v2-overlay-simple-overlay-contrast-pressed: rgba(9,30,30,0.1);
+  --v2-overlay-simple-overlay-scrim: rgba(9,30,30,0.4);
+  --v2-overlay-gradient-depth-overlay-depth-top: rgba(249,250,251,1);
+  --v2-overlay-gradient-depth-overlay-depth-bot: rgba(249,250,251,0);
+  --v2-overlay-simple-tab-active-scrim: #f9fafb00;
+  --v2-overlay-simple-tab-hover-scrim: #e5e7eb00;
+  --v2-overlay-simple-tab-scrim: #f9fafb00;
+
+  --v2-state-bg-success: rgba(0,200,120,0.1);
+  --v2-state-fg-success: #00C878;
+  --v2-state-border-success: rgba(0,200,120,0.3);
+  --v2-state-bg-warning: rgba(255,180,0,0.1);
+  --v2-state-fg-warning: #FFB400;
+  --v2-state-border-warning: rgba(255,180,0,0.3);
+  --v2-state-bg-danger: rgba(255,60,60,0.1);
+  --v2-state-fg-danger: #FF3C3C;
+  --v2-state-border-danger: rgba(255,60,60,0.3);
+  --v2-state-bg-info: rgba(0,184,212,0.1);
+  --v2-state-fg-info: #00B8D4;
+  --v2-state-border-info: rgba(0,184,212,0.3);
+
+  --v2-elevation-raised:
+    0px 2px 4px 0px rgba(0,0,0,0.06), 0px 1px 2px -1px rgba(0,0,0,0.04),
+    0px 0px 0px 0.5px rgba(0,0,0,0.04), 0px 0px 0px 0px rgba(0,0,0,0);
+  --v2-elevation-floating:
+    0px 8px 16px 0px rgba(0,0,0,0.06), 0px 4px 8px 0px rgba(0,0,0,0.04),
+    0px 0px 0px 0.5px rgba(0,0,0,0.04), 0px 0px 0px 0px rgba(0,0,0,0);
+  --v2-elevation-overlay:
+    0px 16px 32px 0px rgba(0,0,0,0.06), 0px 8px 16px 0px rgba(0,0,0,0.04),
+    0px 0px 0px 0.5px rgba(0,0,0,0.04), 0px 0px 0px 0px rgba(0,0,0,0);
+  --v2-elevation-button-neutral:
+    0px 1px 1.5px 0px rgba(0,0,0,0.04), 0px 0px 0px 0.5px rgba(0,0,0,0.06),
+    0px 0px 0px 0px rgba(0,0,0,0);
+  --v2-elevation-button-contrast:
+    0px 1px 1.5px 0px rgba(0,0,0,0.06), 0px 0px 0px 0.5px #091E1E,
+    inset 0px 1px 2px 0px rgba(255,255,255,0.06), inset 0px -1px 2px 0px rgba(0,0,0,0.03),
+    0px 0px 0px 0px rgba(0,0,0,0);
+  --v2-elevation-elements: 0px 0.5px 0.5px 0px rgba(0,0,0,0.03);
+  --v2-elevation-switch-off:
+    inset 0px 1px 1px 0px rgba(0,0,0,0.06), inset 0px 0.5px 0.5px 0px rgba(0,0,0,0.06),
+    inset 0px 0px 0px 0.5px rgba(0,0,0,0.08);
+  --v2-elevation-switch-on:
+    inset 0px 2px 2px 0px rgba(0,0,0,0.06), inset 0px 1px 1px 0px rgba(0,0,0,0.06),
+    inset 0px 0px 0px 0.5px rgba(0,0,0,0.12);
+
+  --v2-illustration-illustration-layer-01: #d1d5db;
+  --v2-illustration-illustration-layer-02: #9ca3af;
+  --v2-illustration-illustration-layer-03: #6b7280;
+
+  --v2-avatar-fg: #ffffffff;
+  --v2-avatar-bg-orange: #ee7330ff;
+  --v2-avatar-border-orange: #d16427ff;
+  --v2-avatar-bg-yellow: #e7af36ff;
+  --v2-avatar-border-yellow: #cb9f34ff;
+  --v2-avatar-bg-cyan: #0096b8ff;
+  --v2-avatar-border-cyan: #007d9bff;
+  --v2-avatar-bg-green: #2eaf5aff;
+  --v2-avatar-border-green: #198b43ff;
+  --v2-avatar-bg-red: #d92e3cff;
+  --v2-avatar-border-red: #b82d35ff;
+  --v2-avatar-bg-pink: #e4429eff;
+  --v2-avatar-border-pink: #c83d8bff;
+  --v2-avatar-bg-blue: #3250dfff;
+  --v2-avatar-border-blue: #2c47c8ff;
+  --v2-avatar-bg-purple: #623be2ff;
+  --v2-avatar-border-purple: #5230c2ff;
+  --v2-avatar-bg-gray: #d1d5dbff;
+  --v2-avatar-border-gray: #9ca3afff;
+}
+
+/* Explicit dark mode via data attribute (Storybook toggle, runtime JS) */
+[data-color-scheme="dark"] {
+  color-scheme: dark;
+
+  --v2-background-bg-base: #091E1E;
+  --v2-background-bg-deep: #050f0f;
+  --v2-background-bg-layer-01: #0B2A2A;
+  --v2-background-bg-layer-02: #133838;
+  --v2-background-bg-layer-03: #194A4A;
+  --v2-background-bg-layer-04: #225858;
+  --v2-background-bg-inverse: #e0f2f1;
+  --v2-background-bg-contrast: #00E5FF;
+  --v2-background-bg-button-neutral: #133838;
+  --v2-background-bg-accent: #00E5FF;
+
+  --v2-text-text-base: #e0f2f1;
+  --v2-text-text-muted: #529E98;
+  --v2-text-text-faint: #3d7a75;
+  --v2-text-text-inverse: #091E1E;
+  --v2-text-text-contrast: #ffffff;
+  --v2-text-text-accent: #00E5FF;
+  --v2-text-text-accent-hover: #66F0FF;
+
+  --v2-icon-icon-base: #529E98;
+  --v2-icon-icon-muted: #3d7a75;
+  --v2-icon-icon-inverse: #091E1E;
+  --v2-icon-icon-contrast: #e0f2f1;
+  --v2-icon-icon-accent: #00E5FF;
+  --v2-icon-icon-accent-hover: #66F0FF;
+
+  --v2-border-border-muted: #133838;
+  --v2-border-border-base: #194A4A;
+  --v2-border-border-strong: #225858;
+  --v2-border-border-inverse: #e0f2f1;
+  --v2-border-border-focus: #00E5FF;
+
+  --v2-overlay-simple-overlay-hover: rgba(0,229,255,0.06);
+  --v2-overlay-simple-overlay-pressed: rgba(0,229,255,0.1);
+  --v2-overlay-simple-overlay-contrast-hover: rgba(9,30,30,0.5);
+  --v2-overlay-simple-overlay-contrast-pressed: rgba(9,30,30,0.7);
+  --v2-overlay-simple-overlay-scrim: rgba(9,30,30,0.6);
+  --v2-overlay-gradient-depth-overlay-depth-top: rgba(9,30,30,1);
+  --v2-overlay-gradient-depth-overlay-depth-bot: rgba(9,30,30,0);
+  --v2-overlay-simple-tab-active-scrim: #091E1E00;
+  --v2-overlay-simple-tab-hover-scrim: #13383800;
+  --v2-overlay-simple-tab-scrim: #091E1E00;
+
+  --v2-state-bg-success: rgba(0,229,160,0.1);
+  --v2-state-fg-success: #00E5A0;
+  --v2-state-border-success: rgba(0,229,160,0.3);
+  --v2-state-bg-warning: rgba(255,200,0,0.1);
+  --v2-state-fg-warning: #FFC800;
+  --v2-state-border-warning: rgba(255,200,0,0.3);
+  --v2-state-bg-danger: rgba(255,80,80,0.1);
+  --v2-state-fg-danger: #FF5050;
+  --v2-state-border-danger: rgba(255,80,80,0.3);
+  --v2-state-bg-info: rgba(0,229,255,0.1);
+  --v2-state-fg-info: #00E5FF;
+  --v2-state-border-info: rgba(0,229,255,0.3);
+
+  --v2-avatar-fg: #ffffffff;
+  --v2-avatar-bg-orange: #ee7330ff;
+  --v2-avatar-border-orange: #d16427ff;
+  --v2-avatar-bg-yellow: #e7af36ff;
+  --v2-avatar-border-yellow: #cb9f34ff;
+  --v2-avatar-bg-cyan: #0891b2ff;
+  --v2-avatar-border-cyan: #0e7490ff;
+  --v2-avatar-bg-green: #2eaf5aff;
+  --v2-avatar-border-green: #198b43ff;
+  --v2-avatar-bg-red: #d92e3cff;
+  --v2-avatar-border-red: #b82d35ff;
+  --v2-avatar-bg-pink: #e4429eff;
+  --v2-avatar-border-pink: #c83d8bff;
+  --v2-avatar-bg-blue: #3250dfff;
+  --v2-avatar-border-blue: #2c47c8ff;
+  --v2-avatar-bg-purple: #623be2ff;
+  --v2-avatar-border-purple: #5230c2ff;
+  --v2-avatar-bg-gray: #133838ff;
+  --v2-avatar-border-gray: #194A4Aff;
+
+  --v2-elevation-raised:
+    0px 2px 4px 0px rgba(0,0,0,0.3), 0px 1px 2px -1px rgba(0,0,0,0.2),
+    0px 0px 0px 0.5px rgba(0,229,255,0.08), 0px 0px 0px 0px rgba(0,0,0,0);
+  --v2-elevation-floating:
+    0px 8px 16px 0px rgba(0,0,0,0.3), 0px 4px 8px 0px rgba(0,0,0,0.2),
+    0px 0px 0px 0.5px rgba(0,229,255,0.08), 0px 0px 0px 0px rgba(0,0,0,0);
+  --v2-elevation-overlay:
+    0px 16px 32px 0px rgba(0,0,0,0.3), 0px 8px 16px 0px rgba(0,0,0,0.2),
+    0px 0px 0px 0.5px rgba(0,229,255,0.08), 0px 0px 0px 0px rgba(0,0,0,0);
+  --v2-elevation-button-neutral:
+    0px 1px 1.5px 0px rgba(0,0,0,0.2), 0px 0px 0px 0.5px rgba(0,229,255,0.1),
+    0px 0px 0px 0px rgba(0,0,0,0);
+  --v2-elevation-button-contrast:
+    0px 1px 1.5px 0px rgba(0,0,0,0.2), 0px 0px 0px 0.5px rgba(0,229,255,0.2),
+    inset 0px 1px 2px 0px rgba(255,255,255,0.05), inset 0px -1px 2px 0px rgba(0,0,0,0.1),
+    0px 0px 0px 0px rgba(0,0,0,0);
+  --v2-elevation-elements: 0px 0.5px 0.5px 0px rgba(0,229,255,0.06);
+  --v2-elevation-switch-off:
+    inset 0px 1px 1px 0px rgba(0,0,0,0.2), inset 0px 0.5px 0.5px 0px rgba(0,0,0,0.2),
+    inset 0px 0px 0px 0.5px rgba(0,229,255,0.1);
+  --v2-elevation-switch-on:
+    inset 0px 2px 2px 0px rgba(0,0,0,0.2), inset 0px 1px 1px 0px rgba(0,0,0,0.2),
+    inset 0px 0px 0px 0.5px rgba(0,229,255,0.2);
+
+  --v2-illustration-illustration-layer-01: #0B2A2A;
+  --v2-illustration-illustration-layer-02: #133838;
+  --v2-illustration-illustration-layer-03: #194A4A;
+}

@@ -1,0 +1,83 @@
+{
+  "$schema": "https://opencode.ai/desktop-theme.json",
+  "name": "Pure Black",
+  "id": "pure-black",
+  "light": {
+    "palette": {
+      "neutral": "#1a1a1a",
+      "ink": "#e0e0e0",
+      "primary": "#6ba3d6",
+      "success": "#6bab73",
+      "warning": "#c9a54e",
+      "error": "#c26b6b",
+      "info": "#6ba3d6"
+    },
+    "overrides": {
+      "text-weak": "#999999",
+      "syntax-comment": "#666666",
+      "syntax-keyword": "#c9a54e",
+      "syntax-string": "#6bab73",
+      "syntax-primitive": "#6ba3d6",
+      "syntax-variable": "#c26b6b",
+      "syntax-property": "#7fb8c0",
+      "syntax-type": "#c9a54e",
+      "syntax-constant": "#6ba3d6",
+      "syntax-operator": "#7fb8c0",
+      "syntax-punctuation": "#999999",
+      "syntax-object": "#c26b6b",
+      "markdown-heading": "#6ba3d6",
+      "markdown-text": "#e0e0e0",
+      "markdown-link": "#6ba3d6",
+      "markdown-link-text": "#7fb8c0",
+      "markdown-code": "#6bab73",
+      "markdown-block-quote": "#999999",
+      "markdown-emph": "#c9a54e",
+      "markdown-strong": "#6ba3d6",
+      "markdown-horizontal-rule": "#444444",
+      "markdown-list-item": "#6ba3d6",
+      "markdown-list-enumeration": "#7fb8c0",
+      "markdown-image": "#6ba3d6",
+      "markdown-image-text": "#7fb8c0",
+      "markdown-code-block": "#e0e0e0"
+    }
+  },
+  "dark": {
+    "palette": {
+      "neutral": "#000000",
+      "ink": "#e0e0e0",
+      "primary": "#6ba3d6",
+      "success": "#6bab73",
+      "warning": "#c9a54e",
+      "error": "#c26b6b",
+      "info": "#7fb8c0"
+    },
+    "overrides": {
+      "text-weak": "#808080",
+      "syntax-comment": "#666666",
+      "syntax-keyword": "#c9a54e",
+      "syntax-string": "#6bab73",
+      "syntax-primitive": "#6ba3d6",
+      "syntax-variable": "#c26b6b",
+      "syntax-property": "#7fb8c0",
+      "syntax-type": "#c9a54e",
+      "syntax-constant": "#6ba3d6",
+      "syntax-operator": "#7fb8c0",
+      "syntax-punctuation": "#e0e0e0",
+      "syntax-object": "#c26b6b",
+      "markdown-heading": "#6ba3d6",
+      "markdown-text": "#e0e0e0",
+      "markdown-link": "#6ba3d6",
+      "markdown-link-text": "#7fb8c0",
+      "markdown-code": "#6bab73",
+      "markdown-block-quote": "#808080",
+      "markdown-emph": "#c9a54e",
+      "markdown-strong": "#6ba3d6",
+      "markdown-horizontal-rule": "#333333",
+      "markdown-list-item": "#6ba3d6",
+      "markdown-list-enumeration": "#7fb8c0",
+      "markdown-image": "#6ba3d6",
+      "markdown-image-text": "#7fb8c0",
+      "markdown-code-block": "#e0e0e0"
+    }
+  }
+}

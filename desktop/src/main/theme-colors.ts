@@ -1,0 +1,51 @@
+const themeColorMap: Record<string, Record<string, string>> = {
+  "pure-white": {
+    "--spider-bg": "#f8f7f7",
+    "--spider-bg-toolbar": "#ffffff",
+    "--spider-bg-surface": "#ffffff",
+    "--spider-bg-hover": "#f0f0f0",
+    "--spider-border": "#e0e0e0",
+    "--spider-text": "#1a1a1a",
+    "--spider-text-secondary": "#888888",
+    "--spider-accent": "#06b6d4",
+    "--spider-accent-hover": "#0891b2",
+    "--spider-input-bg": "#ffffff",
+    "--spider-tab-active-bg": "#f8f7f7",
+    "--spider-toast-bg": "#06b6d4",
+    "--spider-toast-text": "#ffffff",
+  },
+  "dark-amoled": {
+    "--spider-bg": "#000000",
+    "--spider-bg-toolbar": "#050505",
+    "--spider-bg-surface": "#050505",
+    "--spider-bg-hover": "#0a0a0a",
+    "--spider-border": "#111111",
+    "--spider-text": "#f1f5f9",
+    "--spider-text-secondary": "#94a3b8",
+    "--spider-accent": "#06b6d4",
+    "--spider-accent-hover": "#22d3ee",
+    "--spider-input-bg": "#050505",
+    "--spider-tab-active-bg": "#000000",
+    "--spider-toast-bg": "#06b6d4",
+    "--spider-toast-text": "#000000",
+  },
+  m4spider: {
+    "--spider-bg": "#091E1E",
+    "--spider-bg-toolbar": "#0B2A2A",
+    "--spider-bg-surface": "#0B2A2A",
+    "--spider-bg-hover": "#133838",
+    "--spider-border": "#194A4A",
+    "--spider-text": "#e0f2f1",
+    "--spider-text-secondary": "#529E98",
+    "--spider-accent": "#00E5FF",
+    "--spider-accent-hover": "#00E5FF",
+    "--spider-input-bg": "#091E1E",
+    "--spider-tab-active-bg": "#091E1E",
+    "--spider-toast-bg": "#00E5FF",
+    "--spider-toast-text": "#091E1E",
+  },
+}
+
+export function resolveThemeColors(themeId: string): Record<string, string> {
+  return themeColorMap[themeId] || themeColorMap["m4spider"]
+}
