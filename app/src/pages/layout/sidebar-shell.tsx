@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, Show, type Accessor, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, onCleanup, Show, type Accessor, type JSX } from "solid-js"
 import {
   DragDropProvider,
   DragDropSensors,
@@ -11,7 +11,8 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { type LocalProject } from "@/context/layout"
-import { toggleBrowser } from "@/context/browser-panel"
+import { toggleBrowser, openBrowserWithUrl } from "@/context/browser-panel"
+import { useSpiderUsage } from "@/context/spider-usage"
 import { useAuth } from "@/context/auth"
 
 export const SidebarContent = (props: {
@@ -53,6 +54,34 @@ export const SidebarContent = (props: {
   const [deleteLoading, setDeleteLoading] = createSignal(false)
   const [newChatMenuOpen, setNewChatMenuOpen] = createSignal(false)
   const auth = useAuth()
+  const usage = useSpiderUsage()
+  let profileContainer: HTMLDivElement | undefined
+
+  function formatMetricNum(n: number | undefined): string {
+    if (n === undefined || n === null) return "0"
+    if (n < 0) return "∞"
+    if (n >= 1_000_000) return (n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1) + "M"
+    if (n >= 1_000) return (n / 1_000).toFixed(n % 1_000 === 0 ? 0 : 1) + "K"
+    return n.toLocaleString()
+  }
+
+  createEffect(() => {
+    if (!profileOpen()) return
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setProfileOpen(false)
+    }
+    const handleClick = (e: MouseEvent) => {
+      if (profileContainer && !profileContainer.contains(e.target as Node)) {
+        setProfileOpen(false)
+      }
+    }
+    window.addEventListener("keydown", handleKey)
+    window.addEventListener("mousedown", handleClick)
+    onCleanup(() => {
+      window.removeEventListener("keydown", handleKey)
+      window.removeEventListener("mousedown", handleClick)
+    })
+  })
   const authUser = auth.user
   const logout = auth.logout
 
@@ -214,55 +243,291 @@ export const SidebarContent = (props: {
           </DragDropProvider>
         </div>
 
-        <div class="shrink-0 px-3 py-4" style={{ "border-top": "1px solid var(--surface-weaker)" }}>
+        <div
+          ref={(el) => {
+            profileContainer = el
+          }}
+          class="relative shrink-0 px-3 py-3"
+          style={{ "border-top": "1px solid var(--surface-weaker)" }}
+        >
+          {/* User Profile Button in Sidebar (Clean & Compact to leave full room for chats) */}
           <button
             type="button"
-            class="group flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition"
-            style={{ color: "var(--text-base)" }}
+            class="group flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition"
+            style={{
+              color: "var(--text-base)",
+              "background-color": profileOpen() ? "var(--surface-weak)" : "transparent",
+            }}
             aria-expanded={profileOpen()}
             onClick={() => setProfileOpen((open) => !open)}
-            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "var(--surface-weak)")}
-            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+            onMouseEnter={(e) => {
+              if (!profileOpen()) e.currentTarget.style.backgroundColor = "var(--surface-weak)"
+            }}
+            onMouseLeave={(e) => {
+              if (!profileOpen()) e.currentTarget.style.backgroundColor = "transparent"
+            }}
           >
-            <div class="flex size-7 shrink-0 items-center justify-center rounded-full text-[13px] font-semibold" style={{ "background-color": "var(--surface-brand-base)", color: "var(--text-on-brand-base)" }}>
-              {initial()}
+            <div class="relative shrink-0">
+              <div
+                class="flex size-8 items-center justify-center rounded-full text-[13px] font-bold shadow-sm"
+                style={{
+                  background: "linear-gradient(135deg, #E5C158 0%, #8C6D1F 100%)",
+                  color: "#031516",
+                }}
+              >
+                {initial()}
+              </div>
+              <span class="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full border-2 border-[var(--background-base)] bg-emerald-400 shadow-sm" />
             </div>
+
             <div class="min-w-0 flex-1">
-              <div class="truncate text-[14px] font-medium">{displayName()}</div>
+              <div class="flex items-center gap-1.5">
+                <span class="truncate text-[13px] font-semibold">{displayName()}</span>
+                <span
+                  class="rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider"
+                  style={{
+                    "background-color": usage.isFreePlan()
+                      ? "rgba(212, 175, 55, 0.12)"
+                      : "rgba(16, 185, 129, 0.15)",
+                    color: usage.isFreePlan() ? "#D4AF37" : "#10b981",
+                    border: usage.isFreePlan()
+                      ? "1px solid rgba(212, 175, 55, 0.28)"
+                      : "1px solid rgba(16, 185, 129, 0.25)",
+                  }}
+                >
+                  {usage.planName()}
+                </span>
+              </div>
               <div class="truncate text-[11px]" style={{ color: "var(--text-weak)" }}>{displayEmail()}</div>
             </div>
-            <Icon name="dot-grid" size="small" style={{ color: "var(--text-weak)" }} class="opacity-80 group-hover:opacity-100" />
+
+            <div
+              class="shrink-0 transition-transform duration-200"
+              style={{
+                transform: profileOpen() ? "rotate(180deg)" : "rotate(0deg)",
+                color: "var(--text-weak)",
+              }}
+            >
+              <Icon name="chevron-down" size="small" />
+            </div>
           </button>
+
+          {/* Redesigned Floating Popup Card — Only Shown When Profile Icon is Pressed */}
           <Show when={profileOpen()}>
-            <div class="mt-2 rounded-lg p-1 shadow-sm" style={{ "background-color": "var(--surface-base)", border: "1px solid var(--surface-weaker)" }}>
-              <button
-                type="button"
-                class="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-[13px] transition"
-                style={{ color: "var(--text-base)" }}
-                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "var(--surface-weak)")}
-                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
-                onClick={props.onOpenSettings}
+            <div
+              class="absolute bottom-[calc(100%+8px)] left-3 right-3 z-50 rounded-2xl p-3 shadow-2xl backdrop-blur-xl"
+              style={{
+                "background-color": "var(--surface-base)",
+                border: "1px solid var(--surface-weaker)",
+                "box-shadow": "0 12px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(212, 175, 55, 0.18)",
+              }}
+            >
+              {/* Header inside popup */}
+              <div
+                class="flex items-center gap-2.5 rounded-xl p-2 mb-2"
+                style={{ "background-color": "rgba(255, 255, 255, 0.03)" }}
               >
-                <Icon name="settings-gear" size="small" style={{ color: "var(--text-weak)" }} />
-                Settings
-              </button>
+                <div
+                  class="flex size-8 shrink-0 items-center justify-center rounded-full text-[13px] font-bold"
+                  style={{
+                    background: "linear-gradient(135deg, #E5C158 0%, #8C6D1F 100%)",
+                    color: "#031516",
+                  }}
+                >
+                  {initial()}
+                </div>
+                <div class="min-w-0 flex-1">
+                  <div class="truncate text-[13px] font-semibold" style={{ color: "var(--text-base)" }}>
+                    {displayName()}
+                  </div>
+                  <div class="truncate text-[11px]" style={{ color: "var(--text-weak)" }}>
+                    {displayEmail()}
+                  </div>
+                </div>
+                <span
+                  class="shrink-0 rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider"
+                  style={{
+                    "background-color": usage.isFreePlan()
+                      ? "rgba(212, 175, 55, 0.12)"
+                      : "rgba(16, 185, 129, 0.15)",
+                    color: usage.isFreePlan() ? "#D4AF37" : "#10b981",
+                    border: usage.isFreePlan()
+                      ? "1px solid rgba(212, 175, 55, 0.28)"
+                      : "1px solid rgba(16, 185, 129, 0.25)",
+                  }}
+                >
+                  {usage.planName()}
+                </span>
+              </div>
+
+              {/* Plan & Usage Meter Inside Popup Card */}
+              <div
+                class="mb-2.5 rounded-xl p-2.5"
+                style={{
+                  "background-color": "rgba(212, 175, 55, 0.05)",
+                  border: "1px solid rgba(212, 175, 55, 0.22)",
+                }}
+              >
+                {/* Quota Header & Sync */}
+                <div class="flex items-center justify-between text-[11px] mb-1.5" style={{ color: "var(--text-weak)" }}>
+                  <span class="font-medium" style={{ color: "#D4AF37" }}>Usage Quota</span>
+                  <div class="flex items-center gap-1.5">
+                    <Show when={usage.data()?.resetsInDays !== undefined}>
+                      <span class="text-[10px]">{usage.data()!.resetsInDays}d until reset</span>
+                    </Show>
+                    <button
+                      type="button"
+                      title="Sync latest usage from AI Studio"
+                      class="p-1 rounded hover:bg-white/5 transition flex items-center justify-center"
+                      onClick={() => usage.refresh()}
+                    >
+                      <Icon
+                        name="reset"
+                        size="small"
+                        classList={{ "animate-spin": usage.loading() }}
+                        style={{ color: "#D4AF37" }}
+                      />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Progress Bar */}
+                <div
+                  class="h-1.5 w-full overflow-hidden rounded-full my-1.5"
+                  style={{ "background-color": "rgba(255, 255, 255, 0.08)" }}
+                >
+                  <div
+                    class="h-full rounded-full transition-all duration-500"
+                    style={{
+                      width: usage.isUnlimited() ? "100%" : `${Math.min(100, Math.max(usage.usagePercent(), 3))}%`,
+                      background: usage.isUnlimited()
+                        ? "linear-gradient(90deg, #10b981, #D4AF37)"
+                        : usage.usagePercent() >= 90
+                        ? "linear-gradient(90deg, #ef4444, #f43f5e)"
+                        : usage.usagePercent() >= 75
+                        ? "linear-gradient(90deg, #f59e0b, #eab308)"
+                        : "linear-gradient(90deg, #B8860B, #E5C158)",
+                    }}
+                  />
+                </div>
+
+                {/* Tokens and Requests breakdown */}
+                <div class="flex items-center justify-between text-[11px]" style={{ color: "var(--text-weak)" }}>
+                  <div>
+                    <span class="font-medium" style={{ color: "var(--text-base)" }}>
+                      {formatMetricNum(usage.data()?.tokensUsed ?? 0)}
+                    </span>
+                    <span> / {formatMetricNum(usage.data()?.tokenLimit ?? 100)} tokens</span>
+                  </div>
+                  <div class="font-semibold">
+                    <Show when={!usage.isUnlimited()} fallback={<span style={{ color: "#10b981" }}>Unlimited</span>}>
+                      <span style={{ color: usage.usagePercent() >= 90 ? "#ef4444" : "var(--text-base)" }}>
+                        {usage.usagePercent()}%
+                      </span>
+                    </Show>
+                  </div>
+                </div>
+
+                <div class="mt-1 flex items-center justify-between text-[10.5px]" style={{ color: "var(--text-weak)" }}>
+                  <span>Reqs: {formatMetricNum(usage.data()?.totalRequests ?? 0)} / {formatMetricNum(usage.data()?.requestLimit ?? 10)}</span>
+                  <Show when={usage.loading()}>
+                    <span style={{ color: "#D4AF37" }}>Syncing...</span>
+                  </Show>
+                </div>
+              </div>
+
+              {/* Upgrade & Manage Plan Button */}
               <button
                 type="button"
-                class="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-[13px] transition"
+                class="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-[12px] font-medium transition mb-2"
+                style={{
+                  "background-color": "rgba(212, 175, 55, 0.10)",
+                  color: "#D4AF37",
+                  border: "1px solid rgba(212, 175, 55, 0.32)",
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(212, 175, 55, 0.20)")}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "rgba(212, 175, 55, 0.10)")}
+                onClick={() => {
+                  setProfileOpen(false)
+                  openBrowserWithUrl("https://aistudio.m4spider.com")
+                }}
+              >
+                <span>Upgrade & Manage Plan</span>
+                <span style={{ "font-size": "12px" }}>↗</span>
+              </button>
+
+              <div class="my-1.5 h-px" style={{ "background-color": "var(--surface-weaker)" }} />
+
+              {/* Navigation Actions */}
+              <button
+                type="button"
+                class="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-[13px] transition"
                 style={{ color: "var(--text-base)" }}
                 onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "var(--surface-weak)")}
                 onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
-                onClick={props.onOpenHelp}
+                onClick={() => {
+                  setProfileOpen(false)
+                  props.onOpenSettings()
+                }}
+              >
+                <div class="flex items-center gap-2.5">
+                  <Icon name="settings-gear" size="small" style={{ color: "var(--text-weak)" }} />
+                  <span>Settings</span>
+                </div>
+                <Show when={props.settingsKeybind()}>
+                  <kbd
+                    class="rounded px-1.5 py-0.5 text-[10px] font-mono"
+                    style={{ "background-color": "var(--surface-weaker)", color: "var(--text-weak)" }}
+                  >
+                    {props.settingsKeybind()}
+                  </kbd>
+                </Show>
+              </button>
+
+              <button
+                type="button"
+                class="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] transition"
+                style={{ color: "var(--text-base)" }}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "var(--surface-weak)")}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+                onClick={() => {
+                  setProfileOpen(false)
+                  props.onOpenHelp()
+                }}
               >
                 <Icon name="help" size="small" style={{ color: "var(--text-weak)" }} />
-                Help
+                <span>Help & Documentation</span>
               </button>
-              <div class="my-1 h-px" style={{ "background-color": "var(--surface-weaker)" }} />
+
+              <div class="my-1.5 h-px" style={{ "background-color": "var(--surface-weaker)" }} />
+
+              {/* Danger Actions */}
               <button
                 type="button"
-                class="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-[13px] transition"
+                class="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] transition"
+                style={{ color: "var(--text-base)" }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = "rgba(239, 68, 68, 0.1)"
+                  e.currentTarget.style.color = "#ef4444"
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = "transparent"
+                  e.currentTarget.style.color = "var(--text-base)"
+                }}
+                onClick={() => {
+                  setProfileOpen(false)
+                  logout()
+                }}
+              >
+                <span style={{ "font-size": "14px", transform: "scaleX(-1)", display: "inline-block" }}>➔</span>
+                <span>Sign out</span>
+              </button>
+
+              <button
+                type="button"
+                class="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] transition"
                 style={{ color: "#ef4444" }}
-                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "var(--surface-weak)")}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(239, 68, 68, 0.15)")}
                 onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
                 onClick={() => {
                   setProfileOpen(false)
@@ -270,19 +535,7 @@ export const SidebarContent = (props: {
                 }}
               >
                 <Icon name="trash" size="small" style={{ color: "#ef4444" }} />
-                Delete account
-              </button>
-              <div class="my-1 h-px" style={{ "background-color": "var(--surface-weaker)" }} />
-              <button
-                type="button"
-                class="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-[13px] transition"
-                style={{ color: "#ef4444" }}
-                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "var(--surface-weak)")}
-                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
-                onClick={logout}
-              >
-                <span style={{ color: "#ef4444", "font-size": "14px" }}>&#x2192;</span>
-                Sign out
+                <span>Delete account</span>
               </button>
             </div>
           </Show>
