@@ -93,6 +93,7 @@ export const SidebarContent = (props: {
   })
   const displayEmail = createMemo(() => authUser()?.email || "")
   const initial = createMemo(() => (displayName() ?? "M").charAt(0).toUpperCase())
+  const initialColor = createMemo(() => getInitialColor(displayEmail() || displayName() || "User"))
 
   async function handleDeleteAccount() {
     if (!deletePassword()) {
@@ -269,10 +270,14 @@ export const SidebarContent = (props: {
           >
             <div class="relative shrink-0">
               <div
-                class="flex size-8 items-center justify-center rounded-full text-[13px] font-bold shadow-sm"
+                class="flex size-8 items-center justify-center font-bold shadow-sm"
                 style={{
-                  background: "linear-gradient(135deg, #E5C158 0%, #8C6D1F 100%)",
-                  color: "#031516",
+                  background: "#FFFFFF",
+                  color: initialColor(),
+                  "border-radius": "9999px",
+                  border: "1px solid rgba(0, 0, 0, 0.08)",
+                  "box-shadow": "0 2px 6px rgba(0, 0, 0, 0.12)",
+                  "font-size": "14px",
                 }}
               >
                 {initial()}
@@ -315,23 +320,31 @@ export const SidebarContent = (props: {
           {/* Redesigned Floating Popup Card — Only Shown When Profile Icon is Pressed */}
           <Show when={profileOpen()}>
             <div
-              class="absolute bottom-[calc(100%+8px)] left-3 right-3 z-50 rounded-2xl p-3 shadow-2xl backdrop-blur-xl"
+              class="absolute bottom-[calc(100%+8px)] left-3 right-3 z-50 p-3 shadow-2xl backdrop-blur-xl"
               style={{
                 "background-color": "var(--surface-base)",
                 border: "1px solid var(--surface-weaker)",
-                "box-shadow": "0 12px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(212, 175, 55, 0.18)",
+                "border-radius": "22px",
+                "box-shadow": "0 16px 48px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(0, 0, 0, 0.08)",
               }}
             >
               {/* Header inside popup */}
               <div
-                class="flex items-center gap-2.5 rounded-xl p-2 mb-2"
-                style={{ "background-color": "rgba(255, 255, 255, 0.03)" }}
+                class="flex items-center gap-2.5 p-2 mb-2"
+                style={{
+                  "background-color": "rgba(255, 255, 255, 0.03)",
+                  "border-radius": "14px",
+                }}
               >
                 <div
-                  class="flex size-8 shrink-0 items-center justify-center rounded-full text-[13px] font-bold"
+                  class="flex size-9 shrink-0 items-center justify-center font-bold shadow-sm"
                   style={{
-                    background: "linear-gradient(135deg, #E5C158 0%, #8C6D1F 100%)",
-                    color: "#031516",
+                    background: "#FFFFFF",
+                    color: initialColor(),
+                    "border-radius": "9999px",
+                    border: "1px solid rgba(0, 0, 0, 0.08)",
+                    "box-shadow": "0 2px 8px rgba(0, 0, 0, 0.15)",
+                    "font-size": "15px",
                   }}
                 >
                   {initial()}
@@ -345,14 +358,15 @@ export const SidebarContent = (props: {
                   </div>
                 </div>
                 <span
-                  class="shrink-0 rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider"
+                  class="shrink-0 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider"
                   style={{
+                    "border-radius": "8px",
                     "background-color": usage.isFreePlan()
-                      ? "rgba(212, 175, 55, 0.12)"
+                      ? "#141417"
                       : "rgba(16, 185, 129, 0.15)",
-                    color: usage.isFreePlan() ? "#D4AF37" : "#10b981",
+                    color: usage.isFreePlan() ? "#FBE49D" : "#10b981",
                     border: usage.isFreePlan()
-                      ? "1px solid rgba(212, 175, 55, 0.28)"
+                      ? "1px solid rgba(212, 175, 55, 0.45)"
                       : "1px solid rgba(16, 185, 129, 0.25)",
                   }}
                 >
@@ -362,30 +376,34 @@ export const SidebarContent = (props: {
 
               {/* Plan & Usage Meter Inside Popup Card */}
               <div
-                class="mb-2.5 rounded-xl p-2.5"
+                class="mb-2.5 p-3"
                 style={{
-                  "background-color": "rgba(212, 175, 55, 0.05)",
-                  border: "1px solid rgba(212, 175, 55, 0.22)",
+                  background: "linear-gradient(160deg, #121216 0%, #08080a 100%)",
+                  border: "1px solid #D4AF37",
+                  "border-radius": "16px",
+                  "box-shadow": "0 6px 20px rgba(0, 0, 0, 0.7), inset 0 0 0 1px rgba(255, 223, 115, 0.2), 0 0 14px rgba(212, 175, 55, 0.15)",
                 }}
               >
                 {/* Quota Header & Sync */}
-                <div class="flex items-center justify-between text-[11px] mb-1.5" style={{ color: "var(--text-weak)" }}>
-                  <span class="font-medium" style={{ color: "#D4AF37" }}>Usage Quota</span>
+                <div class="flex items-center justify-between text-[11px] mb-2">
+                  <span class="font-bold tracking-wide text-[11.5px]" style={{ color: "#FBE49D", "text-shadow": "0 1px 4px rgba(0,0,0,0.9), 0 0 8px rgba(243, 210, 120, 0.35)" }}>
+                    Usage Quota
+                  </span>
                   <div class="flex items-center gap-1.5">
                     <Show when={usage.data()?.resetsInDays !== undefined}>
-                      <span class="text-[10px]">{usage.data()!.resetsInDays}d until reset</span>
+                      <span class="text-[10px]" style={{ color: "#C5A059" }}>{usage.data()!.resetsInDays}d until reset</span>
                     </Show>
                     <button
                       type="button"
                       title="Sync latest usage from AI Studio"
-                      class="p-1 rounded hover:bg-white/5 transition flex items-center justify-center"
+                      class="p-1 rounded hover:bg-white/10 transition flex items-center justify-center"
                       onClick={() => usage.refresh()}
                     >
                       <Icon
                         name="reset"
                         size="small"
                         classList={{ "animate-spin": usage.loading() }}
-                        style={{ color: "#D4AF37" }}
+                        style={{ color: "#FBE49D" }}
                       />
                     </button>
                   </div>
@@ -393,45 +411,51 @@ export const SidebarContent = (props: {
 
                 {/* Progress Bar */}
                 <div
-                  class="h-1.5 w-full overflow-hidden rounded-full my-1.5"
-                  style={{ "background-color": "rgba(255, 255, 255, 0.08)" }}
+                  class="h-2 w-full overflow-hidden my-2"
+                  style={{
+                    "border-radius": "9999px",
+                    "background-color": "#040405",
+                    border: "1px solid rgba(212, 175, 55, 0.35)",
+                  }}
                 >
                   <div
-                    class="h-full rounded-full transition-all duration-500"
+                    class="h-full transition-all duration-500"
                     style={{
+                      "border-radius": "9999px",
                       width: usage.isUnlimited() ? "100%" : `${Math.min(100, Math.max(usage.usagePercent(), 3))}%`,
                       background: usage.isUnlimited()
-                        ? "linear-gradient(90deg, #10b981, #D4AF37)"
+                        ? "linear-gradient(90deg, #10b981, #FBE49D)"
                         : usage.usagePercent() >= 90
                         ? "linear-gradient(90deg, #ef4444, #f43f5e)"
                         : usage.usagePercent() >= 75
                         ? "linear-gradient(90deg, #f59e0b, #eab308)"
-                        : "linear-gradient(90deg, #B8860B, #E5C158)",
+                        : "linear-gradient(90deg, #8C6D1F 0%, #D4AF37 35%, #FFF0B8 70%, #D4AF37 100%)",
+                      "box-shadow": "0 0 10px rgba(243, 210, 120, 0.5)",
                     }}
                   />
                 </div>
 
                 {/* Tokens and Requests breakdown */}
-                <div class="flex items-center justify-between text-[11px]" style={{ color: "var(--text-weak)" }}>
+                <div class="flex items-center justify-between text-[11px]" style={{ color: "rgba(255, 255, 255, 0.75)" }}>
                   <div>
-                    <span class="font-medium" style={{ color: "var(--text-base)" }}>
+                    <span class="font-bold text-white">
                       {formatMetricNum(usage.data()?.tokensUsed ?? 0)}
                     </span>
-                    <span> / {formatMetricNum(usage.data()?.tokenLimit ?? 100)} tokens</span>
+                    <span style={{ color: "#C5A059" }}> / {formatMetricNum(usage.data()?.tokenLimit ?? 100)} tokens</span>
                   </div>
-                  <div class="font-semibold">
+                  <div class="font-bold">
                     <Show when={!usage.isUnlimited()} fallback={<span style={{ color: "#10b981" }}>Unlimited</span>}>
-                      <span style={{ color: usage.usagePercent() >= 90 ? "#ef4444" : "var(--text-base)" }}>
+                      <span style={{ color: usage.usagePercent() >= 90 ? "#ef4444" : "#FBE49D" }}>
                         {usage.usagePercent()}%
                       </span>
                     </Show>
                   </div>
                 </div>
 
-                <div class="mt-1 flex items-center justify-between text-[10.5px]" style={{ color: "var(--text-weak)" }}>
-                  <span>Reqs: {formatMetricNum(usage.data()?.totalRequests ?? 0)} / {formatMetricNum(usage.data()?.requestLimit ?? 10)}</span>
+                <div class="mt-1.5 flex items-center justify-between text-[10.5px]" style={{ color: "rgba(255, 255, 255, 0.6)" }}>
+                  <span>Reqs: <strong class="text-white font-medium">{formatMetricNum(usage.data()?.totalRequests ?? 0)}</strong> <span style={{ color: "#C5A059" }}>/ {formatMetricNum(usage.data()?.requestLimit ?? 10)}</span></span>
                   <Show when={usage.loading()}>
-                    <span style={{ color: "#D4AF37" }}>Syncing...</span>
+                    <span style={{ color: "#FBE49D" }}>Syncing...</span>
                   </Show>
                 </div>
               </div>
@@ -439,21 +463,31 @@ export const SidebarContent = (props: {
               {/* Upgrade & Manage Plan Button */}
               <button
                 type="button"
-                class="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-[12px] font-medium transition mb-2"
+                class="flex w-full items-center justify-between px-3.5 py-2.5 text-left text-[12px] font-bold tracking-wide transition-all mb-2"
                 style={{
-                  "background-color": "rgba(212, 175, 55, 0.10)",
-                  color: "#D4AF37",
-                  border: "1px solid rgba(212, 175, 55, 0.32)",
+                  background: "linear-gradient(180deg, #1c1c22 0%, #0a0a0d 100%)",
+                  color: "#FBE49D",
+                  "border-radius": "14px",
+                  border: "1px solid #D4AF37",
+                  "box-shadow": "0 3px 10px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 223, 115, 0.25)",
                 }}
-                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(212, 175, 55, 0.20)")}
-                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "rgba(212, 175, 55, 0.10)")}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "linear-gradient(180deg, #2a2a33 0%, #131318 100%)"
+                  e.currentTarget.style.borderColor = "#FFF0B8"
+                  e.currentTarget.style.boxShadow = "0 0 16px rgba(212, 175, 55, 0.5), inset 0 0 6px rgba(255, 223, 115, 0.2)"
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "linear-gradient(180deg, #1c1c22 0%, #0a0a0d 100%)"
+                  e.currentTarget.style.borderColor = "#D4AF37"
+                  e.currentTarget.style.boxShadow = "0 3px 10px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 223, 115, 0.25)"
+                }}
                 onClick={() => {
                   setProfileOpen(false)
                   openBrowserWithUrl("https://aistudio.m4spider.com")
                 }}
               >
                 <span>Upgrade & Manage Plan</span>
-                <span style={{ "font-size": "12px" }}>↗</span>
+                <span style={{ "font-size": "13px", color: "#FFF0B8" }}>↗</span>
               </button>
 
               <div class="my-1.5 h-px" style={{ "background-color": "var(--surface-weaker)" }} />
