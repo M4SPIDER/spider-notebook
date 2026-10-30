@@ -50,6 +50,7 @@ export type RemoteInfo = {
 
 export type ElectronAPI = {
   getRemoteInfo: () => Promise<RemoteInfo>
+  setRemoteEnabled: (enabled: boolean) => Promise<RemoteInfo>
   killSidecar: () => Promise<void>
   installCli: () => Promise<string>
   awaitInitialization: () => Promise<ServerReadyData>

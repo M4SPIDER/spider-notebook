@@ -58,12 +58,32 @@ type Deps = {
   recordFatalRendererError: (error: FatalRendererError) => Promise<void> | void
 }
 
+let remoteAccessEnabled = false
+export function isRemoteAccessEnabled() { return remoteAccessEnabled }
+
 export function registerIpcHandlers(deps: Deps) {
   const updaterSubscriptions = createUpdaterSubscriptions()
   app.once("will-quit", updaterSubscriptions.clear)
 
   ipcMain.handle("kill-sidecar", () => deps.killSidecar())
   ipcMain.handle("await-initialization", () => deps.awaitInitialization())
+
+  ipcMain.handle("set-remote-enabled", (_event, enabled: boolean) => {
+    remoteAccessEnabled = Boolean(enabled)
+    if (globalThis.__rebindBridge__) {
+      globalThis.__rebindBridge__(remoteAccessEnabled)
+    }
+    const ip = getLocalNetworkIp()
+    return {
+      enabled: remoteAccessEnabled,
+      ip,
+      port: 4098,
+      pin: "SPIDER-8492",
+      url: `http://${ip}:4098/remote`,
+      active: remoteAccessEnabled,
+    }
+  })
+
   ipcMain.handle("get-remote-info", () => {
     const ip = getLocalNetworkIp()
     return {

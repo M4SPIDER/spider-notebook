@@ -12,6 +12,7 @@ const updaterHandler = (_: unknown, state: UpdaterState) => {
 
 const api: ElectronAPI = {
   getRemoteInfo: () => ipcRenderer.invoke("get-remote-info"),
+  setRemoteEnabled: (enabled: boolean) => ipcRenderer.invoke("set-remote-enabled", enabled),
   killSidecar: () => ipcRenderer.invoke("kill-sidecar"),
   installCli: () => ipcRenderer.invoke("install-cli"),
   awaitInitialization: () => ipcRenderer.invoke("await-initialization"),

@@ -14,6 +14,7 @@ import { type LocalProject } from "@/context/layout"
 import { toggleBrowser, openBrowserWithUrl } from "@/context/browser-panel"
 import { useSpiderUsage } from "@/context/spider-usage"
 import { useAuth } from "@/context/auth"
+import { useTheme } from "@opencode-ai/ui/theme/context"
 
 const AVATAR_PALETTE = [
   "#2563EB", // Royal Blue
@@ -81,6 +82,8 @@ export const SidebarContent = (props: {
   const [newChatMenuOpen, setNewChatMenuOpen] = createSignal(false)
   const auth = useAuth()
   const usage = useSpiderUsage()
+  const theme = useTheme()
+  const isDark = createMemo(() => theme.mode() === "dark")
   let profileContainer: HTMLDivElement | undefined
 
   function formatMetricNum(n: number | undefined): string {
@@ -308,8 +311,7 @@ export const SidebarContent = (props: {
               >
                 {initial()}
               </div>
-              <span class="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full border-2 border-[var(--background-base)] bg-emerald-400 shadow-sm" />
-            </div>
+                          </div>
 
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-1.5">
@@ -348,10 +350,12 @@ export const SidebarContent = (props: {
             <div
               class="absolute bottom-[calc(100%+8px)] left-3 right-3 z-50 p-3 shadow-2xl backdrop-blur-xl"
               style={{
-                "background-color": "var(--surface-base)",
-                border: "1px solid var(--surface-weaker)",
+                "background-color": isDark() ? "#121214" : "var(--surface-base)",
+                border: isDark() ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid var(--surface-weaker)",
                 "border-radius": "22px",
-                "box-shadow": "0 18px 50px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--surface-weaker)",
+                "box-shadow": isDark()
+                  ? "0 18px 50px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.08)"
+                  : "0 14px 40px rgba(0, 0, 0, 0.12), 0 0 0 1px var(--surface-weaker)",
                 color: "var(--text-base)",
               }}
             >
@@ -359,7 +363,7 @@ export const SidebarContent = (props: {
               <div
                 class="flex items-center gap-2.5 p-2 mb-2"
                 style={{
-                  "background-color": "rgba(255, 255, 255, 0.03)",
+                  "background-color": isDark() ? "rgba(255, 255, 255, 0.03)" : "rgba(0, 0, 0, 0.03)",
                   "border-radius": "14px",
                 }}
               >
@@ -388,12 +392,14 @@ export const SidebarContent = (props: {
                   class="shrink-0 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider"
                   style={{
                     "border-radius": "8px",
-                    "background-color": usage.isFreePlan()
-                      ? "#141417"
-                      : "rgba(16, 185, 129, 0.15)",
-                    color: usage.isFreePlan() ? "#FBE49D" : "#10b981",
+                    "background-color": isDark()
+                      ? (usage.isFreePlan() ? "#141417" : "rgba(16, 185, 129, 0.15)")
+                      : (usage.isFreePlan() ? "rgba(212, 175, 55, 0.12)" : "rgba(16, 185, 129, 0.15)"),
+                    color: isDark()
+                      ? (usage.isFreePlan() ? "#FBE49D" : "#10b981")
+                      : (usage.isFreePlan() ? "#996515" : "#059669"),
                     border: usage.isFreePlan()
-                      ? "1px solid rgba(212, 175, 55, 0.45)"
+                      ? (isDark() ? "1px solid rgba(212, 175, 55, 0.45)" : "1px solid rgba(212, 175, 55, 0.35)")
                       : "1px solid rgba(16, 185, 129, 0.25)",
                   }}
                 >
@@ -405,32 +411,44 @@ export const SidebarContent = (props: {
               <div
                 class="mb-2.5 p-3"
                 style={{
-                  background: "linear-gradient(160deg, #121216 0%, #08080a 100%)",
-                  border: "1px solid #D4AF37",
+                  background: isDark()
+                    ? "linear-gradient(160deg, #121216 0%, #08080a 100%)"
+                    : "#FFFDF0",
+                  border: isDark() ? "1px solid #D4AF37" : "1px solid rgba(212, 175, 55, 0.38)",
                   "border-radius": "16px",
-                  "box-shadow": "0 6px 20px rgba(0, 0, 0, 0.7), inset 0 0 0 1px rgba(255, 223, 115, 0.2), 0 0 14px rgba(212, 175, 55, 0.15)",
+                  "box-shadow": isDark()
+                    ? "0 6px 20px rgba(0, 0, 0, 0.7), inset 0 0 0 1px rgba(255, 223, 115, 0.2), 0 0 14px rgba(212, 175, 55, 0.15)"
+                    : "0 4px 14px rgba(212, 175, 55, 0.08)",
                 }}
               >
                 {/* Quota Header & Sync */}
                 <div class="flex items-center justify-between text-[11px] mb-2">
-                  <span class="font-bold tracking-wide text-[11.5px]" style={{ color: "#FBE49D", "text-shadow": "0 1px 4px rgba(0,0,0,0.9), 0 0 8px rgba(243, 210, 120, 0.35)" }}>
+                  <span
+                    class="font-bold tracking-wide text-[11.5px]"
+                    style={{
+                      color: isDark() ? "#FBE49D" : "#996515",
+                      "text-shadow": isDark() ? "0 1px 4px rgba(0,0,0,0.9), 0 0 8px rgba(243, 210, 120, 0.35)" : "none",
+                    }}
+                  >
                     Usage Quota
                   </span>
                   <div class="flex items-center gap-1.5">
                     <Show when={usage.data()?.resetsInDays !== undefined}>
-                      <span class="text-[10px]" style={{ color: "#C5A059" }}>{usage.data()!.resetsInDays}d until reset</span>
+                      <span class="text-[10px]" style={{ color: isDark() ? "#C5A059" : "#7A5C1E" }}>
+                        {usage.data()!.resetsInDays}d until reset
+                      </span>
                     </Show>
                     <button
                       type="button"
                       title="Sync latest usage from AI Studio"
-                      class="p-1 rounded hover:bg-white/10 transition flex items-center justify-center"
+                      class="p-1 rounded hover:bg-black/5 dark:hover:bg-white/10 transition flex items-center justify-center"
                       onClick={() => usage.refresh()}
                     >
                       <Icon
                         name="reset"
                         size="small"
                         classList={{ "animate-spin": usage.loading() }}
-                        style={{ color: "#FBE49D" }}
+                        style={{ color: isDark() ? "#FBE49D" : "#996515" }}
                       />
                     </button>
                   </div>
@@ -441,8 +459,8 @@ export const SidebarContent = (props: {
                   class="h-2 w-full overflow-hidden my-2"
                   style={{
                     "border-radius": "9999px",
-                    "background-color": "#040405",
-                    border: "1px solid rgba(212, 175, 55, 0.35)",
+                    "background-color": isDark() ? "#040405" : "rgba(0, 0, 0, 0.06)",
+                    border: isDark() ? "1px solid rgba(212, 175, 55, 0.35)" : "1px solid rgba(212, 175, 55, 0.25)",
                   }}
                 >
                   <div
@@ -451,38 +469,52 @@ export const SidebarContent = (props: {
                       "border-radius": "9999px",
                       width: usage.isUnlimited() ? "100%" : `${Math.min(100, Math.max(usage.usagePercent(), 3))}%`,
                       background: usage.isUnlimited()
-                        ? "linear-gradient(90deg, #10b981, #FBE49D)"
+                        ? (isDark() ? "linear-gradient(90deg, #10b981, #FBE49D)" : "linear-gradient(90deg, #059669, #D4AF37)")
                         : usage.usagePercent() >= 90
                         ? "linear-gradient(90deg, #ef4444, #f43f5e)"
                         : usage.usagePercent() >= 75
                         ? "linear-gradient(90deg, #f59e0b, #eab308)"
-                        : "linear-gradient(90deg, #8C6D1F 0%, #D4AF37 35%, #FFF0B8 70%, #D4AF37 100%)",
-                      "box-shadow": "0 0 10px rgba(243, 210, 120, 0.5)",
+                        : isDark()
+                        ? "linear-gradient(90deg, #8C6D1F 0%, #D4AF37 35%, #FFF0B8 70%, #D4AF37 100%)"
+                        : "linear-gradient(90deg, #D4AF37 0%, #B8860B 100%)",
+                      "box-shadow": isDark() ? "0 0 10px rgba(243, 210, 120, 0.5)" : "none",
                     }}
                   />
                 </div>
 
                 {/* Tokens and Requests breakdown */}
-                <div class="flex items-center justify-between text-[11px]" style={{ color: "rgba(255, 255, 255, 0.75)" }}>
+                <div
+                  class="flex items-center justify-between text-[11px]"
+                  style={{ color: isDark() ? "rgba(255, 255, 255, 0.75)" : "var(--text-weak)" }}
+                >
                   <div>
-                    <span class="font-bold text-white">
+                    <span class="font-bold" style={{ color: isDark() ? "#FFFFFF" : "var(--text-base)" }}>
                       {formatMetricNum(usage.data()?.tokensUsed ?? 0)}
                     </span>
-                    <span style={{ color: "#C5A059" }}> / {formatMetricNum(usage.data()?.tokenLimit ?? 100)} tokens</span>
+                    <span style={{ color: isDark() ? "#C5A059" : "#7A5C1E" }}>
+                      {" "}
+                      / {formatMetricNum(usage.data()?.tokenLimit ?? 100)} tokens
+                    </span>
                   </div>
                   <div class="font-bold">
-                    <Show when={!usage.isUnlimited()} fallback={<span style={{ color: "#10b981" }}>Unlimited</span>}>
-                      <span style={{ color: usage.usagePercent() >= 90 ? "#ef4444" : "#FBE49D" }}>
+                    <Show when={!usage.isUnlimited()} fallback={<span style={{ color: isDark() ? "#10b981" : "#059669" }}>Unlimited</span>}>
+                      <span style={{ color: usage.usagePercent() >= 90 ? "#ef4444" : (isDark() ? "#FBE49D" : "#996515") }}>
                         {usage.usagePercent()}%
                       </span>
                     </Show>
                   </div>
                 </div>
 
-                <div class="mt-1.5 flex items-center justify-between text-[10.5px]" style={{ color: "rgba(255, 255, 255, 0.6)" }}>
-                  <span>Reqs: <strong class="text-white font-medium">{formatMetricNum(usage.data()?.totalRequests ?? 0)}</strong> <span style={{ color: "#C5A059" }}>/ {formatMetricNum(usage.data()?.requestLimit ?? 10)}</span></span>
+                <div
+                  class="mt-1.5 flex items-center justify-between text-[10.5px]"
+                  style={{ color: isDark() ? "rgba(255, 255, 255, 0.6)" : "var(--text-weak)" }}
+                >
+                  <span>
+                    Reqs: <strong class="font-medium" style={{ color: isDark() ? "#FFFFFF" : "var(--text-base)" }}>{formatMetricNum(usage.data()?.totalRequests ?? 0)}</strong>{" "}
+                    <span style={{ color: isDark() ? "#C5A059" : "#7A5C1E" }}>/ {formatMetricNum(usage.data()?.requestLimit ?? 10)}</span>
+                  </span>
                   <Show when={usage.loading()}>
-                    <span style={{ color: "#FBE49D" }}>Syncing...</span>
+                    <span style={{ color: isDark() ? "#FBE49D" : "#996515" }}>Syncing...</span>
                   </Show>
                 </div>
               </div>
@@ -492,21 +524,36 @@ export const SidebarContent = (props: {
                 type="button"
                 class="flex w-full items-center justify-between px-3.5 py-2.5 text-left text-[12px] font-bold tracking-wide transition-all mb-2"
                 style={{
-                  background: "linear-gradient(180deg, #1c1c22 0%, #0a0a0d 100%)",
-                  color: "#FBE49D",
+                  background: isDark()
+                    ? "linear-gradient(180deg, #1c1c22 0%, #0a0a0d 100%)"
+                    : "#FFFDF0",
+                  color: isDark() ? "#FBE49D" : "#996515",
                   "border-radius": "14px",
-                  border: "1px solid #D4AF37",
-                  "box-shadow": "0 3px 10px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 223, 115, 0.25)",
+                  border: isDark() ? "1px solid #D4AF37" : "1px solid rgba(212, 175, 55, 0.38)",
+                  "box-shadow": isDark()
+                    ? "0 3px 10px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 223, 115, 0.25)"
+                    : "0 2px 6px rgba(212, 175, 55, 0.08)",
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "linear-gradient(180deg, #2a2a33 0%, #131318 100%)"
-                  e.currentTarget.style.borderColor = "#FFF0B8"
-                  e.currentTarget.style.boxShadow = "0 0 16px rgba(212, 175, 55, 0.5), inset 0 0 6px rgba(255, 223, 115, 0.2)"
+                  if (isDark()) {
+                    e.currentTarget.style.background = "linear-gradient(180deg, #2a2a33 0%, #131318 100%)"
+                    e.currentTarget.style.borderColor = "#FFF0B8"
+                    e.currentTarget.style.boxShadow = "0 0 16px rgba(212, 175, 55, 0.5), inset 0 0 6px rgba(255, 223, 115, 0.2)"
+                  } else {
+                    e.currentTarget.style.background = "rgba(212, 175, 55, 0.16)"
+                    e.currentTarget.style.borderColor = "rgba(212, 175, 55, 0.5)"
+                  }
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "linear-gradient(180deg, #1c1c22 0%, #0a0a0d 100%)"
-                  e.currentTarget.style.borderColor = "#D4AF37"
-                  e.currentTarget.style.boxShadow = "0 3px 10px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 223, 115, 0.25)"
+                  if (isDark()) {
+                    e.currentTarget.style.background = "linear-gradient(180deg, #1c1c22 0%, #0a0a0d 100%)"
+                    e.currentTarget.style.borderColor = "#D4AF37"
+                    e.currentTarget.style.boxShadow = "0 3px 10px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 223, 115, 0.25)"
+                  } else {
+                    e.currentTarget.style.background = "#FFFDF0"
+                    e.currentTarget.style.borderColor = "rgba(212, 175, 55, 0.38)"
+                    e.currentTarget.style.boxShadow = "0 2px 6px rgba(212, 175, 55, 0.08)"
+                  }
                 }}
                 onClick={() => {
                   setProfileOpen(false)
@@ -514,7 +561,7 @@ export const SidebarContent = (props: {
                 }}
               >
                 <span>Upgrade & Manage Plan</span>
-                <span style={{ "font-size": "13px", color: "#FFF0B8" }}>↗</span>
+                <span style={{ "font-size": "13px", color: isDark() ? "#FFF0B8" : "#996515" }}>↗</span>
               </button>
 
               <div class="my-1.5 h-px" style={{ "background-color": "var(--surface-weaker)" }} />

@@ -1,3 +1,4 @@
+import { setupMobileRemoteRoutes } from "./mobile-remote"
 const MOBILE_REMOTE_HTML = "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no\">\n  <title>M4 Spider — Phone Remote Control</title>\n  <style>\n    :root {\n      --bg: #09090b;\n      --card: #18181b;\n      --border: rgba(212, 175, 55, 0.35);\n      --gold: #FBE49D;\n      --accent: #D4AF37;\n      --text: #F4F4F5;\n      --text-muted: #A1A1AA;\n    }\n    * { box-sizing: border-box; margin: 0; padding: 0; }\n    body {\n      background: var(--bg);\n      color: var(--text);\n      font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif;\n      min-height: 100vh;\n      display: flex;\n      flex-direction: column;\n      padding: 16px;\n    }\n    header {\n      display: flex;\n      align-items: center;\n      justify-content: space-between;\n      padding-bottom: 14px;\n      border-bottom: 1px solid var(--border);\n      margin-bottom: 18px;\n    }\n    .brand {\n      display: flex;\n      align-items: center;\n      gap: 10px;\n    }\n    .logo {\n      width: 32px;\n      height: 32px;\n      border-radius: 50%;\n      background: #FFFFFF;\n      color: #EA580C;\n      display: flex;\n      align-items: center;\n      justify-content: center;\n      font-weight: 900;\n      font-size: 16px;\n      box-shadow: 0 2px 8px rgba(0,0,0,0.4);\n    }\n    .title {\n      font-size: 15px;\n      font-weight: 700;\n      color: var(--gold);\n      letter-spacing: 0.5px;\n    }\n    .badge {\n      display: inline-flex;\n      align-items: center;\n      gap: 5px;\n      padding: 4px 10px;\n      background: rgba(16, 185, 129, 0.15);\n      color: #10B981;\n      border: 1px solid rgba(16, 185, 129, 0.3);\n      border-radius: 999px;\n      font-size: 11px;\n      font-weight: 600;\n    }\n    .pulse {\n      width: 6px;\n      height: 6px;\n      border-radius: 50%;\n      background: #10B981;\n      box-shadow: 0 0 8px #10B981;\n    }\n    .card {\n      background: var(--card);\n      border: 1px solid var(--border);\n      border-radius: 16px;\n      padding: 16px;\n      margin-bottom: 14px;\n      box-shadow: 0 8px 24px rgba(0,0,0,0.4);\n    }\n    .card-title {\n      font-size: 13px;\n      font-weight: 700;\n      color: var(--gold);\n      margin-bottom: 8px;\n      display: flex;\n      align-items: center;\n      justify-content: space-between;\n    }\n    textarea {\n      width: 100%;\n      height: 90px;\n      background: #0d0d0f;\n      border: 1px solid rgba(255, 255, 255, 0.12);\n      border-radius: 12px;\n      color: #FFFFFF;\n      padding: 12px;\n      font-size: 14px;\n      outline: none;\n      resize: none;\n      margin-bottom: 10px;\n      transition: border-color 0.2s;\n    }\n    textarea:focus {\n      border-color: var(--accent);\n    }\n    .btn {\n      width: 100%;\n      padding: 12px;\n      border-radius: 12px;\n      font-size: 14px;\n      font-weight: 700;\n      border: none;\n      cursor: pointer;\n      display: flex;\n      align-items: center;\n      justify-content: center;\n      gap: 8px;\n      transition: 0.2s;\n    }\n    .btn-gold {\n      background: linear-gradient(135deg, #B8860B 0%, #D4AF37 50%, #FFDF73 100%);\n      color: #0d0d0f;\n      box-shadow: 0 4px 14px rgba(212, 175, 55, 0.35);\n    }\n    .btn-gold:active {\n      transform: scale(0.98);\n    }\n    .actions {\n      display: grid;\n      grid-template-columns: 1fr 1fr;\n      gap: 10px;\n    }\n    .btn-secondary {\n      background: rgba(255, 255, 255, 0.05);\n      border: 1px solid rgba(255, 255, 255, 0.1);\n      color: var(--text);\n      padding: 10px;\n      font-size: 12px;\n      font-weight: 600;\n    }\n    .log-box {\n      background: #0d0d0f;\n      border: 1px solid rgba(255, 255, 255, 0.08);\n      border-radius: 12px;\n      padding: 12px;\n      font-family: monospace;\n      font-size: 12px;\n      color: #10B981;\n      min-height: 80px;\n      max-height: 180px;\n      overflow-y: auto;\n      white-space: pre-wrap;\n    }\n    footer {\n      margin-top: auto;\n      text-align: center;\n      font-size: 11px;\n      color: var(--text-muted);\n      padding-top: 16px;\n    }\n  </style>\n</head>\n<body>\n  <header>\n    <div class=\"brand\">\n      <div class=\"logo\">S</div>\n      <div>\n        <div class=\"title\">M4 SPIDER</div>\n        <div style=\"font-size: 10px; color: var(--text-muted);\">Remote Mobile Control</div>\n      </div>\n    </div>\n    <div class=\"badge\">\n      <div class=\"pulse\"></div>\n      Connected\n    </div>\n  </header>\n\n  <div class=\"card\">\n    <div class=\"card-title\">\n      <span>Send Prompt to PC</span>\n      <span style=\"font-size: 11px; color: var(--accent);\">AI Agent</span>\n    </div>\n    <textarea id=\"promptInput\" placeholder=\"Type instructions or task for M4 Spider...\"></textarea>\n    <button class=\"btn btn-gold\" id=\"sendBtn\" onclick=\"sendPrompt()\">\n      <span>⚡ Send to Notebook</span>\n    </button>\n  </div>\n\n  <div class=\"card\">\n    <div class=\"card-title\">Quick Actions</div>\n    <div class=\"actions\">\n      <button class=\"btn btn-secondary\" onclick=\"triggerAction('browser')\">🌐 Open Browser</button>\n      <button class=\"btn btn-secondary\" onclick=\"triggerAction('screenshot')\">📷 Capture Screen</button>\n      <button class=\"btn btn-secondary\" onclick=\"triggerAction('status')\">🔍 Check Status</button>\n      <button class=\"btn btn-secondary\" onclick=\"triggerAction('ping')\">⚡ Test Latency</button>\n    </div>\n  </div>\n\n  <div class=\"card\">\n    <div class=\"card-title\">Console Output</div>\n    <div class=\"log-box\" id=\"logBox\">Connected to M4 Spider Notebook Desktop session.\nReady for commands.</div>\n  </div>\n\n  <footer>\n    M4 Spider Notebook • Local Network Bridge :4098\n  </footer>\n\n  <script>\n    function log(msg) {\n      const box = document.getElementById('logBox');\n      box.textContent += '\\n> ' + msg;\n      box.scrollTop = box.scrollHeight;\n    }\n\n    async function sendPrompt() {\n      const input = document.getElementById('promptInput');\n      const text = input.value.trim();\n      if (!text) return;\n      log('Sending prompt: ' + text);\n      input.value = '';\n      try {\n        const res = await fetch('/api/prompt', {\n          method: 'POST',\n          headers: { 'Content-Type': 'application/json' },\n          body: JSON.stringify({ prompt: text })\n        });\n        const data = await res.json();\n        log('Delivered: ' + (data.status || 'OK'));\n      } catch (e) {\n        log('Delivery response: Sent successfully to desktop.');\n      }\n    }\n\n    async function triggerAction(action) {\n      log('Triggering ' + action + '...');\n      try {\n        const res = await fetch('/', {\n          method: 'POST',\n          headers: { 'Content-Type': 'application/json' },\n          body: JSON.stringify({ action: action })\n        });\n        const data = await res.json();\n        log(action + ' result: ' + JSON.stringify(data));\n      } catch (e) {\n        log(action + ' dispatched to desktop window.');\n      }\n    }\n  </script>\n</body>\n</html>";
 import { randomUUID } from "node:crypto"
 import { mkdirSync, rmSync } from "node:fs"
@@ -339,16 +340,16 @@ const main = Effect.gen(function* () {
   const BROWSER_BRIDGE_PORT = 4098
   let browserPanelReady = false
   const browserBridge = http.createServer(async (req, res) => {
-    res.setHeader("Content-Type", "application/json")
     res.setHeader("Access-Control-Allow-Origin", "*")
-    res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS")
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
     res.setHeader("Access-Control-Allow-Headers", "Content-Type")
     if (req.method === "OPTIONS") { res.writeHead(200); res.end(); return }
 
-    if (req.method === "GET") {
-      res.setHeader("Content-Type", "text/html; charset=utf-8")
-      res.writeHead(200)
-      res.end(MOBILE_REMOTE_HTML)
+    const wins = BrowserWindow.getAllWindows()
+    const mainWin = wins.find(w => !w.isDestroyed() && w.getTitle().includes("M4 Spider")) ?? wins[0] ?? null
+
+    // Setup mobile remote routes (GET / or /remote, GET /api/screenshot)
+    if (setupMobileRemoteRoutes(req, res, mainWin)) {
       return
     }
 
@@ -357,29 +358,27 @@ const main = Effect.gen(function* () {
       for await (const chunk of req) body += chunk
       try {
         const parsed = JSON.parse(body)
-        const wins = BrowserWindow.getAllWindows()
-        const mainWin = wins.find(w => !w.isDestroyed() && w.getTitle().includes("M4 Spider")) ?? wins[0]
         if (mainWin) {
           mainWin.webContents.send("remote-prompt", parsed.prompt || "")
         }
+        res.setHeader("Content-Type", "application/json")
         res.writeHead(200)
         res.end(JSON.stringify({ status: "success", received: parsed.prompt }))
         return
       } catch (err: any) {
+        res.setHeader("Content-Type", "application/json")
         res.writeHead(400)
         res.end(JSON.stringify({ error: err.message }))
         return
       }
     }
 
+    res.setHeader("Content-Type", "application/json")
     let body = ""
     for await (const chunk of req) body += chunk
     let cmd: any
     try { cmd = JSON.parse(body) } catch { res.writeHead(400); res.end(JSON.stringify({ error: "invalid JSON" })); return }
-
     // Forward command to the main window's renderer which controls the webview
-    const wins = BrowserWindow.getAllWindows()
-    const mainWin = wins.find(w => !w.isDestroyed() && w.getTitle().includes("M4 Spider")) ?? wins[0]
     if (!mainWin) { res.writeHead(503); res.end(JSON.stringify({ error: "no window" })); return }
 
     // Auto-open Spider Browser panel if not already open
@@ -425,9 +424,16 @@ const main = Effect.gen(function* () {
       res.end(JSON.stringify({ error: e?.message ?? String(e) }))
     }
   })
-  browserBridge.listen(BROWSER_BRIDGE_PORT, "0.0.0.0", () => {
-    writeLog("browser-bridge", "started", { port: BROWSER_BRIDGE_PORT })
-  })
+    const startBridgeServer = (bindAll: boolean) => {
+    try { browserBridge.close() } catch {}
+    const host = bindAll ? "0.0.0.0" : "127.0.0.1"
+    browserBridge.listen(BROWSER_BRIDGE_PORT, host, () => {
+      writeLog("browser-bridge", "started", { port: BROWSER_BRIDGE_PORT, host })
+    })
+  }
+
+  (globalThis as any).__rebindBridge__ = startBridgeServer
+  startBridgeServer(false)
   browserBridge.unref()
 
   void updater.start()
