@@ -325,6 +325,90 @@ render(() => {
     menuTrigger = (id) => cmd.trigger(id)
 
     const theme = useTheme()
+    const prompt = usePrompt()
+    const layout = useLayout()
+
+    // Expose Spider Remote Desktop Bridge for mobile pairing, prompt execution & reply sync
+    ;(window as any).__spiderDesktopBridge__ = {
+      getProjectInfo: () => {
+        try {
+          const projects = layout.projects()
+          const p = projects[0]
+          const dir = p?.worktree || ''
+          const name = p?.name || (dir ? dir.split(/[\\/]/).pop() : '') || 'spider-notebook'
+          return {
+            name: name,
+            dir: dir,
+            projects: projects.map(x => ({ name: x.name, dir: x.worktree }))
+          }
+        } catch (e) {
+          return { name: 'spider-notebook', dir: '', projects: [] }
+        }
+      },
+      submitPrompt: (text: string) => {
+        try {
+          if (!text || !text.trim()) return false
+          const cleanText = text.trim()
+          prompt.set([{ type: "text", content: cleanText, start: 0, end: cleanText.length }], cleanText.length)
+
+          const editor = document.querySelector('[contenteditable="true"]') as HTMLElement | null
+          if (editor) {
+            editor.textContent = cleanText
+            editor.dispatchEvent(new Event('input', { bubbles: true }))
+          }
+
+          setTimeout(() => {
+            const submitBtn = document.querySelector('button[data-action="prompt-submit"], form button[type="submit"]') as HTMLButtonElement | null
+            if (submitBtn && !submitBtn.disabled) {
+              submitBtn.click()
+            } else {
+              const form = editor?.closest('form')
+              if (form && form.requestSubmit) form.requestSubmit()
+            }
+          }, 80)
+          return true
+        } catch (e) {
+          return false
+        }
+      },
+      getMessages: () => {
+        try {
+          const parts = document.querySelectorAll('[data-component="user-message"], [data-component="text-part"], [data-component="reasoning-part"], [data-slot="diagnostic"]')
+          const msgs: any[] = []
+          parts.forEach((el, idx) => {
+            const comp = el.getAttribute('data-component')
+            const isUser = comp === 'user-message'
+            const isReasoning = comp === 'reasoning-part'
+            const isDiag = el.getAttribute('data-slot') === 'diagnostic'
+            const text = (el.textContent || (el as HTMLElement).innerText || '').trim()
+            if (text && text.length > 0) {
+              msgs.push({
+                id: 'desktop_msg_' + idx,
+                role: isUser ? 'user' : 'assistant',
+                sender: isUser ? 'user' : 'ai',
+                content: text,
+                text: text,
+                isReasoning: isReasoning,
+                isError: isDiag,
+                ts: Date.now()
+              })
+            }
+          })
+          return msgs
+        } catch (e) {
+          return []
+        }
+      }
+    }
+
+    onMount(() => {
+      const handleRemotePrompt = (e: any) => {
+        const text = e.detail || ''
+        if (text) (window as any).__spiderDesktopBridge__?.submitPrompt(text)
+      }
+      window.addEventListener('spider-remote-prompt', handleRemotePrompt)
+      onCleanup(() => window.removeEventListener('spider-remote-prompt', handleRemotePrompt))
+    })
 
     createEffect(() => {
       theme.themeId()

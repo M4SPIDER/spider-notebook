@@ -56,7 +56,16 @@ const MIME_MAP: Record<string, string> = {
 }
 
 // In-memory conversation state for Spider Mobile client
-let mobileChatStore = {
+let mobileChatStore: {
+  revision: number
+  host_user: { uid: string; displayName: string; email: string; isAnonymous: boolean }
+  active_chat_id: string
+  project_name: string
+  project_dir: string
+  chats: Array<{ id: string; title: string; createdAt: number; messages: any[] }>
+} = {
+  project_name: "spider-notebook",
+  project_dir: "",
   revision: 1,
   host_user: {
     uid: "m4_spider_user",
@@ -101,11 +110,15 @@ export async function setupMobileRemoteRoutes(req: any, res: any, mainWin: Brows
 
   // 2. Spider AI Remote Info API
   if (pathname === "/api/remote/info") {
+    const cwd = getWorkspaceDir()
+    const folderName = path.basename(cwd)
     res.setHeader("Content-Type", "application/json")
     res.writeHead(200)
     res.end(JSON.stringify({
       status: "active",
       device_name: "M4 Spider Notebook (Desktop)",
+      project_name: mobileChatStore.project_name || folderName,
+      project_dir: mobileChatStore.project_dir || cwd,
       active: true,
       port: 4098,
       pin: "SPIDER-8492",
@@ -131,65 +144,87 @@ export async function setupMobileRemoteRoutes(req: any, res: any, mainWin: Brows
 
   // 4. Spider AI Remote Chats GET (Real-time sync with desktop project & session)
   if (pathname === "/api/remote/chats" && method === "GET") {
+    const cwd = getWorkspaceDir()
+    const folderName = path.basename(cwd)
+
     if (mainWin && !mainWin.isDestroyed()) {
       try {
-        const desktopState = await mainWin.webContents.executeJavaScript(`
+        const desktopData = await mainWin.webContents.executeJavaScript(`
           (function() {
             try {
-              let projectName = '';
-              const title = document.title || '';
-              if (title && !title.includes('Untitled')) {
-                projectName = title.replace(/\\s*[-—|].*$/, '').trim();
-              }
-              const projEl = document.querySelector('[data-project-name], header [data-component="breadcrumb"], header h1, header h2');
-              if (projEl && projEl.innerText) {
-                projectName = projEl.innerText.trim();
+              let info = null;
+              let msgs = [];
+              if (window.__spiderDesktopBridge__) {
+                info = window.__spiderDesktopBridge__.getProjectInfo();
+                msgs = window.__spiderDesktopBridge__.getMessages();
               }
 
-              const messageNodes = document.querySelectorAll('[data-component="message-part"], [data-component="message"], article');
-              const msgs = [];
-              messageNodes.forEach((node, idx) => {
-                const isUser = node.querySelector('[data-role="user"]') || node.getAttribute('data-role') === 'user' || node.classList.contains('user-message') || node.closest('[data-role="user"]');
-                const isErr = node.querySelector('[role="alert"], .text-red-500, .bg-red-500') || node.classList.contains('error');
-                const text = (node.innerText || '').trim();
-                if (text && text.length > 0 && !msgs.some(m => m.text === text)) {
-                  msgs.push({
-                    id: 'desktop_msg_' + idx,
-                    sender: isUser ? 'user' : 'ai',
-                    role: isUser ? 'user' : 'assistant',
-                    text: text,
-                    isError: !!isErr,
-                    timestamp: Date.now()
-                  });
-                }
-              });
+              if (!info || !info.name) {
+                let projName = '';
+                const projEl = document.querySelector('[data-project-name], header [data-component="breadcrumb"], header h1');
+                if (projEl && projEl.innerText) projName = projEl.innerText.trim();
+                if (!projName && document.title) projName = document.title.replace(/\\s*[-—|].*$/, '').trim();
+                info = { name: projName || '', dir: '' };
+              }
+
+              if (!msgs || msgs.length === 0) {
+                const parts = document.querySelectorAll('[data-component="user-message"], [data-component="text-part"], [data-component="reasoning-part"], [data-slot="diagnostic"]');
+                msgs = [];
+                parts.forEach((el, idx) => {
+                  const comp = el.getAttribute('data-component');
+                  const isUser = comp === 'user-message';
+                  const isReasoning = comp === 'reasoning-part';
+                  const isDiag = el.getAttribute('data-slot') === 'diagnostic';
+                  const text = (el.textContent || el.innerText || '').trim();
+                  if (text) {
+                    msgs.push({
+                      id: 'desktop_msg_' + idx,
+                      role: isUser ? 'user' : 'assistant',
+                      sender: isUser ? 'user' : 'ai',
+                      content: text,
+                      text: text,
+                      isReasoning: isReasoning,
+                      isError: isDiag,
+                      ts: Date.now()
+                    });
+                  }
+                });
+              }
 
               let user = null;
               if (window.api?.auth?.getUser) {
                 user = window.api.auth.getUser();
               }
 
-              return { projectName, messages: msgs, user };
+              return { info, msgs, user };
             } catch (err) {
               return null;
             }
           })()
         `);
 
-        if (desktopState) {
-          if (desktopState.projectName) {
-            mobileChatStore.chats[0].title = desktopState.projectName + " (Desktop Session)";
+        if (desktopData) {
+          if (desktopData.info && desktopData.info.name) {
+            mobileChatStore.project_name = desktopData.info.name;
+            mobileChatStore.project_dir = desktopData.info.dir || cwd;
+            mobileChatStore.chats[0].title = desktopData.info.name;
           }
-          if (desktopState.user && desktopState.user.email) {
-            mobileChatStore.host_user.displayName = desktopState.user.name || desktopState.user.displayName || "spider_m4";
-            mobileChatStore.host_user.email = desktopState.user.email || "thenwho130@gmail.com";
+          if (desktopData.user && desktopData.user.email) {
+            mobileChatStore.host_user.displayName = desktopData.user.name || desktopData.user.displayName || "spider_m4";
+            mobileChatStore.host_user.email = desktopData.user.email || "thenwho130@gmail.com";
           }
-          if (Array.isArray(desktopState.messages) && desktopState.messages.length > 0) {
-            mobileChatStore.chats[0].messages = desktopState.messages;
+          if (Array.isArray(desktopData.msgs) && desktopData.msgs.length > 0) {
+            mobileChatStore.chats[0].messages = desktopData.msgs;
             mobileChatStore.revision++;
           }
         }
       } catch (e) {}
+    }
+
+    if (!mobileChatStore.project_name) {
+      mobileChatStore.project_name = folderName;
+      mobileChatStore.project_dir = cwd;
+      mobileChatStore.chats[0].title = folderName;
     }
 
     res.setHeader("Content-Type", "application/json")
@@ -376,9 +411,11 @@ export async function setupMobileRemoteRoutes(req: any, res: any, mainWin: Brows
         const activeChat = mobileChatStore.chats.find((c: any) => c.id === mobileChatStore.active_chat_id) || mobileChatStore.chats[0]
         activeChat.messages.push({
           id: "msg_user_" + Date.now(),
-          sender: "user",
           role: "user",
+          sender: "user",
+          content: prompt,
           text: prompt,
+          ts: Date.now(),
           timestamp: Date.now(),
         })
         mobileChatStore.revision++
@@ -390,25 +427,21 @@ export async function setupMobileRemoteRoutes(req: any, res: any, mainWin: Brows
           await mainWin.webContents.executeJavaScript(`
             (function(text) {
               try {
+                if (window.__spiderDesktopBridge__) {
+                  const ok = window.__spiderDesktopBridge__.submitPrompt(text);
+                  return { success: ok, bridge: true };
+                }
+                window.dispatchEvent(new CustomEvent('spider-remote-prompt', { detail: text }));
                 const editor = document.querySelector('[contenteditable="true"]');
                 if (editor) {
-                  editor.focus();
-                  document.execCommand('insertText', false, text);
+                  editor.textContent = text;
                   editor.dispatchEvent(new Event('input', { bubbles: true }));
-                  editor.dispatchEvent(new Event('change', { bubbles: true }));
-
                   setTimeout(() => {
                     const submitBtn = document.querySelector('button[data-action="prompt-submit"], form button[type="submit"]');
-                    if (submitBtn && !submitBtn.disabled) {
-                      submitBtn.click();
-                    } else {
-                      const form = editor.closest('form');
-                      if (form && form.requestSubmit) form.requestSubmit();
-                    }
-                  }, 50);
-                  return { success: true };
+                    if (submitBtn) submitBtn.click();
+                  }, 80);
                 }
-                return { success: false, reason: "No editor" };
+                return { success: true };
               } catch (e) {
                 return { success: false, error: e.message };
               }
@@ -419,7 +452,13 @@ export async function setupMobileRemoteRoutes(req: any, res: any, mainWin: Brows
 
       res.setHeader("Content-Type", "application/json")
       res.writeHead(200)
-      res.end(JSON.stringify({ status: "success", received: prompt, revision: mobileChatStore.revision }))
+      res.end(JSON.stringify({
+        status: "success",
+        received: prompt,
+        project_name: mobileChatStore.project_name,
+        project_dir: mobileChatStore.project_dir,
+        revision: mobileChatStore.revision
+      }))
     } catch (err: any) {
       res.setHeader("Content-Type", "application/json")
       res.writeHead(400)
