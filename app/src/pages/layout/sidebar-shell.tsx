@@ -329,7 +329,7 @@ export const SidebarContent = (props: {
                   {usage.planName()}
                 </span>
               </div>
-              <div class="truncate text-[11px]" style={{ color: "#18181b" }}>{displayEmail()}</div>
+              <div class="truncate text-[11px]" style={{ color: "var(--text-weak)" }}>{displayEmail()}</div>
             </div>
 
             <div
@@ -348,11 +348,11 @@ export const SidebarContent = (props: {
             <div
               class="absolute bottom-[calc(100%+8px)] left-3 right-3 z-50 p-3 shadow-2xl backdrop-blur-xl"
               style={{
-                background: "linear-gradient(175deg, #18181c 0%, #0c0c0e 100%)",
-                border: "1px solid rgba(212, 175, 55, 0.35)",
+                "background-color": "var(--surface-base)",
+                border: "1px solid var(--surface-weaker)",
                 "border-radius": "22px",
-                "box-shadow": "0 24px 60px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 255, 255, 0.05), 0 0 24px rgba(212, 175, 55, 0.15)",
-                color: "#FFFFFF",
+                "box-shadow": "0 18px 50px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--surface-weaker)",
+                color: "var(--text-base)",
               }}
             >
               {/* Header inside popup */}
@@ -377,10 +377,10 @@ export const SidebarContent = (props: {
                   {initial()}
                 </div>
                 <div class="min-w-0 flex-1">
-                  <div class="truncate text-[13px] font-semibold text-white">
+                  <div class="truncate text-[13px] font-semibold" style={{ color: "var(--text-base)" }}>
                     {displayName()}
                   </div>
-                  <div class="truncate text-[11px]" style={{ color: "rgba(255, 255, 255, 0.6)" }}>
+                  <div class="truncate text-[11px]" style={{ color: "var(--text-weak)" }}>
                     {displayEmail()}
                   </div>
                 </div>
@@ -517,33 +517,27 @@ export const SidebarContent = (props: {
                 <span style={{ "font-size": "13px", color: "#FFF0B8" }}>↗</span>
               </button>
 
-              <div class="my-1.5 h-px" style={{ "background-color": "rgba(255, 255, 255, 0.08)" }} />
+              <div class="my-1.5 h-px" style={{ "background-color": "var(--surface-weaker)" }} />
 
               {/* Navigation Actions */}
               <button
                 type="button"
                 class="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-[13px] transition"
-                style={{ color: "#E4E4E7" }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = "rgba(255, 255, 255, 0.08)"
-                  e.currentTarget.style.color = "#FFFFFF"
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = "transparent"
-                  e.currentTarget.style.color = "#E4E4E7"
-                }}
+                style={{ color: "var(--text-base)" }}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "var(--surface-weak)")}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
                 onClick={() => {
                   setProfileOpen(false)
                   props.onOpenSettings()
                 }}>
                 <div class="flex items-center gap-2.5">
-                  <Icon name="settings-gear" size="small" style={{ color: "rgba(255, 255, 255, 0.65)" }} />
+                  <Icon name="settings-gear" size="small" style={{ color: "var(--text-weak)" }} />
                   <span>Settings</span>
                 </div>
                 <Show when={props.settingsKeybind()}>
                   <kbd
                     class="rounded px-1.5 py-0.5 text-[10px] font-mono"
-                    style={{ "background-color": "rgba(255, 255, 255, 0.1)", color: "rgba(255, 255, 255, 0.85)" }}
+                    style={{ "background-color": "var(--surface-weaker)", color: "var(--text-weak)" }}
                   >
                     {props.settingsKeybind()}
                   </kbd>
@@ -553,37 +547,31 @@ export const SidebarContent = (props: {
               <button
                 type="button"
                 class="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] transition"
-                style={{ color: "#E4E4E7" }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = "rgba(255, 255, 255, 0.08)"
-                  e.currentTarget.style.color = "#FFFFFF"
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = "transparent"
-                  e.currentTarget.style.color = "#E4E4E7"
-                }}
+                style={{ color: "var(--text-base)" }}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "var(--surface-weak)")}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
                 onClick={() => {
                   setProfileOpen(false)
                   props.onOpenHelp()
                 }}>
-                <Icon name="help" size="small" style={{ color: "rgba(255, 255, 255, 0.65)" }} />
+                <Icon name="help" size="small" style={{ color: "var(--text-weak)" }} />
                 <span>Help & Documentation</span>
               </button>
 
-              <div class="my-1.5 h-px" style={{ "background-color": "rgba(255, 255, 255, 0.08)" }} />
+              <div class="my-1.5 h-px" style={{ "background-color": "var(--surface-weaker)" }} />
 
               {/* Danger Actions */}
               <button
                 type="button"
                 class="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] transition"
-                style={{ color: "#E4E4E7" }}
+                style={{ color: "var(--text-base)" }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = "rgba(239, 68, 68, 0.15)"
+                  e.currentTarget.style.backgroundColor = "rgba(239, 68, 68, 0.1)"
                   e.currentTarget.style.color = "#ef4444"
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.backgroundColor = "transparent"
-                  e.currentTarget.style.color = "#E4E4E7"
+                  e.currentTarget.style.color = "var(--text-base)"
                 }}
                 onClick={() => {
                   setProfileOpen(false)

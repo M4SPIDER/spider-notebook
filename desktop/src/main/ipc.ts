@@ -1,3 +1,17 @@
+import { networkInterfaces } from "node:os"
+
+export function getLocalNetworkIp(): string {
+  const nets = networkInterfaces()
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name] ?? []) {
+      if (net.family === "IPv4" && !net.internal) {
+        return net.address
+      }
+    }
+  }
+  return "127.0.0.1"
+}
+
 import { execFile } from "node:child_process"
 import { existsSync } from "node:fs"
 import { stat } from "node:fs/promises"
@@ -50,6 +64,16 @@ export function registerIpcHandlers(deps: Deps) {
 
   ipcMain.handle("kill-sidecar", () => deps.killSidecar())
   ipcMain.handle("await-initialization", () => deps.awaitInitialization())
+  ipcMain.handle("get-remote-info", () => {
+    const ip = getLocalNetworkIp()
+    return {
+      ip,
+      port: 4098,
+      pin: "SPIDER-8492",
+      url: `http://${ip}:4098/remote`,
+      active: true,
+    }
+  })
   ipcMain.handle("consume-initial-deep-links", () => deps.consumeInitialDeepLinks())
   ipcMain.handle("get-default-server-url", () => deps.getDefaultServerUrl())
   ipcMain.handle("set-default-server-url", (_event: IpcMainInvokeEvent, url: string | null) =>

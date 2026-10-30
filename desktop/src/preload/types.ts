@@ -40,7 +40,16 @@ export type FatalRendererError = {
   os?: string
 }
 
+export type RemoteInfo = {
+  ip: string
+  port: number
+  pin: string
+  url: string
+  active: boolean
+}
+
 export type ElectronAPI = {
+  getRemoteInfo: () => Promise<RemoteInfo>
   killSidecar: () => Promise<void>
   installCli: () => Promise<string>
   awaitInitialization: () => Promise<ServerReadyData>
