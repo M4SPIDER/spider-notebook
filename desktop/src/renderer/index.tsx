@@ -325,48 +325,57 @@ render(() => {
     menuTrigger = (id) => cmd.trigger(id)
 
     const theme = useTheme()
-    const prompt = usePrompt()
-    const layout = useLayout()
+
+    createEffect(() => {
+      theme.themeId()
+      theme.mode()
+      const bg = getComputedStyle(document.documentElement).getPropertyValue("--background-base").trim()
+      if (bg) {
+        void window.api.setBackgroundColor(bg)
+      }
+    })
 
     // Expose Spider Remote Desktop Bridge for mobile pairing, prompt execution & reply sync
     ;(window as any).__spiderDesktopBridge__ = {
       getProjectInfo: () => {
         try {
-          const projects = layout.projects()
-          const p = projects[0]
-          const dir = p?.worktree || ''
-          const name = p?.name || (dir ? dir.split(/[\\/]/).pop() : '') || 'spider-notebook'
-          return {
-            name: name,
-            dir: dir,
-            projects: projects.map(x => ({ name: x.name, dir: x.worktree }))
+          let name = ''
+          const projEl = document.querySelector('[data-project-name], header [data-component="breadcrumb"], header h1, header h2') as HTMLElement | null
+          if (projEl && projEl.innerText) name = projEl.innerText.trim()
+          if (!name && document.title) {
+            name = document.title.replace(/\s*[-—|].*$/, '').trim()
           }
+          return { name: name || 'spider-notebook' }
         } catch (e) {
-          return { name: 'spider-notebook', dir: '', projects: [] }
+          return { name: 'spider-notebook' }
         }
       },
       submitPrompt: (text: string) => {
         try {
           if (!text || !text.trim()) return false
           const cleanText = text.trim()
-          prompt.set([{ type: "text", content: cleanText, start: 0, end: cleanText.length }], cleanText.length)
-
           const editor = document.querySelector('[contenteditable="true"]') as HTMLElement | null
           if (editor) {
-            editor.textContent = cleanText
+            editor.focus()
+            document.execCommand('selectAll', false)
+            document.execCommand('insertText', false, cleanText)
+            editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: cleanText }))
             editor.dispatchEvent(new Event('input', { bubbles: true }))
-          }
+            editor.dispatchEvent(new Event('change', { bubbles: true }))
 
-          setTimeout(() => {
-            const submitBtn = document.querySelector('button[data-action="prompt-submit"], form button[type="submit"]') as HTMLButtonElement | null
-            if (submitBtn && !submitBtn.disabled) {
-              submitBtn.click()
-            } else {
-              const form = editor?.closest('form')
-              if (form && form.requestSubmit) form.requestSubmit()
-            }
-          }, 80)
-          return true
+            setTimeout(() => {
+              editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }))
+              const submitBtn = document.querySelector('button[data-action="prompt-submit"], form button[type="submit"]') as HTMLButtonElement | null
+              if (submitBtn && !submitBtn.disabled) {
+                submitBtn.click()
+              } else {
+                const form = editor.closest('form')
+                if (form && form.requestSubmit) form.requestSubmit()
+              }
+            }, 80)
+            return true
+          }
+          return false
         } catch (e) {
           return false
         }
@@ -408,15 +417,6 @@ render(() => {
       }
       window.addEventListener('spider-remote-prompt', handleRemotePrompt)
       onCleanup(() => window.removeEventListener('spider-remote-prompt', handleRemotePrompt))
-    })
-
-    createEffect(() => {
-      theme.themeId()
-      theme.mode()
-      const bg = getComputedStyle(document.documentElement).getPropertyValue("--background-base").trim()
-      if (bg) {
-        void window.api.setBackgroundColor(bg)
-      }
     })
 
     return null
