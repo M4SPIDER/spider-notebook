@@ -121,8 +121,77 @@ export async function setupMobileRemoteRoutes(req: any, res: any, mainWin: Brows
     return true
   }
 
-  // 4. Spider AI Remote Chats GET
+  // 3b. Spider AI Remote Toggle
+  if (pathname === "/api/remote/toggle") {
+    res.setHeader("Content-Type", "application/json")
+    res.writeHead(200)
+    res.end(JSON.stringify({ enabled: true, active: true }))
+    return true
+  }
+
+  // 4. Spider AI Remote Chats GET (Real-time sync with desktop project & session)
   if (pathname === "/api/remote/chats" && method === "GET") {
+    if (mainWin && !mainWin.isDestroyed()) {
+      try {
+        const desktopState = await mainWin.webContents.executeJavaScript(`
+          (function() {
+            try {
+              let projectName = '';
+              const title = document.title || '';
+              if (title && !title.includes('Untitled')) {
+                projectName = title.replace(/\\s*[-—|].*$/, '').trim();
+              }
+              const projEl = document.querySelector('[data-project-name], header [data-component="breadcrumb"], header h1, header h2');
+              if (projEl && projEl.innerText) {
+                projectName = projEl.innerText.trim();
+              }
+
+              const messageNodes = document.querySelectorAll('[data-component="message-part"], [data-component="message"], article');
+              const msgs = [];
+              messageNodes.forEach((node, idx) => {
+                const isUser = node.querySelector('[data-role="user"]') || node.getAttribute('data-role') === 'user' || node.classList.contains('user-message') || node.closest('[data-role="user"]');
+                const isErr = node.querySelector('[role="alert"], .text-red-500, .bg-red-500') || node.classList.contains('error');
+                const text = (node.innerText || '').trim();
+                if (text && text.length > 0 && !msgs.some(m => m.text === text)) {
+                  msgs.push({
+                    id: 'desktop_msg_' + idx,
+                    sender: isUser ? 'user' : 'ai',
+                    role: isUser ? 'user' : 'assistant',
+                    text: text,
+                    isError: !!isErr,
+                    timestamp: Date.now()
+                  });
+                }
+              });
+
+              let user = null;
+              if (window.api?.auth?.getUser) {
+                user = window.api.auth.getUser();
+              }
+
+              return { projectName, messages: msgs, user };
+            } catch (err) {
+              return null;
+            }
+          })()
+        `);
+
+        if (desktopState) {
+          if (desktopState.projectName) {
+            mobileChatStore.chats[0].title = desktopState.projectName + " (Desktop Session)";
+          }
+          if (desktopState.user && desktopState.user.email) {
+            mobileChatStore.host_user.displayName = desktopState.user.name || desktopState.user.displayName || "spider_m4";
+            mobileChatStore.host_user.email = desktopState.user.email || "thenwho130@gmail.com";
+          }
+          if (Array.isArray(desktopState.messages) && desktopState.messages.length > 0) {
+            mobileChatStore.chats[0].messages = desktopState.messages;
+            mobileChatStore.revision++;
+          }
+        }
+      } catch (e) {}
+    }
+
     res.setHeader("Content-Type", "application/json")
     res.writeHead(200)
     res.end(JSON.stringify(mobileChatStore))
@@ -301,7 +370,19 @@ export async function setupMobileRemoteRoutes(req: any, res: any, mainWin: Brows
     for await (const chunk of req) body += chunk
     try {
       const parsed = JSON.parse(body)
-      const prompt = parsed.prompt || ""
+      const prompt = (parsed.prompt || "").trim()
+
+      if (prompt) {
+        const activeChat = mobileChatStore.chats.find((c: any) => c.id === mobileChatStore.active_chat_id) || mobileChatStore.chats[0]
+        activeChat.messages.push({
+          id: "msg_user_" + Date.now(),
+          sender: "user",
+          role: "user",
+          text: prompt,
+          timestamp: Date.now(),
+        })
+        mobileChatStore.revision++
+      }
 
       if (mainWin && !mainWin.isDestroyed()) {
         mainWin.webContents.send("remote-prompt", prompt)
@@ -313,12 +394,24 @@ export async function setupMobileRemoteRoutes(req: any, res: any, mainWin: Brows
                 if (editor) {
                   editor.focus();
                   document.execCommand('insertText', false, text);
-                  const submitBtn = document.querySelector('button[data-action="prompt-submit"], form button[type="submit"]');
-                  if (submitBtn && !submitBtn.disabled) {
-                    submitBtn.click();
-                  }
+                  editor.dispatchEvent(new Event('input', { bubbles: true }));
+                  editor.dispatchEvent(new Event('change', { bubbles: true }));
+
+                  setTimeout(() => {
+                    const submitBtn = document.querySelector('button[data-action="prompt-submit"], form button[type="submit"]');
+                    if (submitBtn && !submitBtn.disabled) {
+                      submitBtn.click();
+                    } else {
+                      const form = editor.closest('form');
+                      if (form && form.requestSubmit) form.requestSubmit();
+                    }
+                  }, 50);
+                  return { success: true };
                 }
-              } catch (e) {}
+                return { success: false, reason: "No editor" };
+              } catch (e) {
+                return { success: false, error: e.message };
+              }
             })(${JSON.stringify(prompt)})
           `)
         } catch {}
@@ -326,7 +419,7 @@ export async function setupMobileRemoteRoutes(req: any, res: any, mainWin: Brows
 
       res.setHeader("Content-Type", "application/json")
       res.writeHead(200)
-      res.end(JSON.stringify({ status: "success", received: prompt }))
+      res.end(JSON.stringify({ status: "success", received: prompt, revision: mobileChatStore.revision }))
     } catch (err: any) {
       res.setHeader("Content-Type", "application/json")
       res.writeHead(400)

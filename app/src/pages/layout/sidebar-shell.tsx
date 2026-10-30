@@ -331,7 +331,7 @@ export const SidebarContent = (props: {
                   {usage.planName()}
                 </span>
               </div>
-              <div class="truncate text-[11px]" style={{ color: "var(--text-weak)" }}>{displayEmail()}</div>
+              <div class="truncate text-[11px]" style={{ color: isDark() ? "#9CA3AF" : "#374151" }}>{displayEmail()}</div>
             </div>
 
             <div
@@ -350,8 +350,8 @@ export const SidebarContent = (props: {
             <div
               class="absolute bottom-[calc(100%+8px)] left-3 right-3 z-50 p-3 shadow-2xl backdrop-blur-xl"
               style={{
-                "background-color": isDark() ? "#121214" : "var(--surface-base)",
-                border: isDark() ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid var(--surface-weaker)",
+                "background-color": isDark() ? "#121214" : "#FFFFFF",
+                border: isDark() ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid rgba(0, 0, 0, 0.12)",
                 "border-radius": "22px",
                 "box-shadow": isDark()
                   ? "0 18px 50px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.08)"
@@ -384,7 +384,7 @@ export const SidebarContent = (props: {
                   <div class="truncate text-[13px] font-semibold" style={{ color: "var(--text-base)" }}>
                     {displayName()}
                   </div>
-                  <div class="truncate text-[11px]" style={{ color: "var(--text-weak)" }}>
+                  <div class="truncate text-[11px]" style={{ color: isDark() ? "#9CA3AF" : "#374151" }}>
                     {displayEmail()}
                   </div>
                 </div>
