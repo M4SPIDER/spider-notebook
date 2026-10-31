@@ -173,6 +173,16 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     }
 
     const defaultModel = () => {
+      // Free models priority
+      const glm = { providerID: "m4spider", modelID: "glm-5.3-flash" }
+      if (validModel(glm)) return glm
+      const nemotron = { providerID: "m4spider", modelID: "nvidia/nemotron-3.5-super-vl:free" }
+      if (validModel(nemotron)) return nemotron
+      const qwen = { providerID: "m4spider", modelID: "qwen-3.7-flash" }
+      if (validModel(qwen)) return qwen
+      const muse = { providerID: "m4spider", modelID: "muse-spark-1.3-contributor" }
+      if (validModel(muse)) return muse
+      // Ultra tier (₹799+) Auto Mode
       const spiderAuto = { providerID: "m4spider", modelID: "spider-auto" }
       if (validModel(spiderAuto)) return spiderAuto
       const defaults = providers.default()

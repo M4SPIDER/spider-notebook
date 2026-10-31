@@ -190,12 +190,10 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
       if (!ok) {
         for (const [key, value] of Object.entries(input.models)) {
           const FREE_MODELS = new Set([
-            "spider-auto",
-            "auto",
-            "deepseek-v4-flash-free",
-            "mimo-v2.5-free",
-            "x-preview-f-free",
-            "muse-spark-1.2-contributor-free",
+            "glm-5.3-flash",
+            "nvidia/nemotron-3.5-super-vl:free",
+            "qwen-3.7-flash",
+            "muse-spark-1.3-contributor",
           ])
           if (FREE_MODELS.has(key)) continue
           delete input.models[key]
@@ -1331,33 +1329,209 @@ export const layer = Layer.effect(
         const bridge = yield* EffectBridge.make()
         const cfg = yield* config.get()
         const modelsDev = yield* modelsDevSvc.get()
-        const autoModel = {
-          id: "spider-auto",
-          name: "M4 Spider Auto Mode",
-          description: "Intelligent auto-router that automatically selects the best model for each task with optimal reasoning, speed, and latency",
-          family: "m4spider",
-          attachment: true,
-          reasoning: true,
-          reasoning_options: [{ type: "effort", values: ["low", "medium", "high"] }],
-          tool_call: true,
-          structured_output: true,
-          temperature: true,
-          knowledge: "2026-03",
-          release_date: "2026-03-01",
-          last_updated: "2026-10-31",
-          modalities: { input: ["text", "image"], output: ["text"] },
-          open_weights: false,
-          limit: { context: 200000, output: 128000 },
-          status: "active",
-          provider: { api: "https://opencode.ai/inference/openai/v1" },
-          cost: { input: 0, output: 0, cache_read: 0 },
-          canonical_model_id: "deepseek-v4-flash-free",
-        }
-        const autoAlias = { ...autoModel, id: "auto", name: "M4 Spider Auto Mode" }
-
-        // Remove opencode completely
         delete modelsDev["opencode"]
-
+        const m4ModelsCatalog = {
+  "glm-5.3-flash": {
+    "id": "glm-5.3-flash",
+    "name": "GLM 5.3 Flash",
+    "description": "Next-gen multimodal architecture delivering lightning-fast multi-step reasoning, massive 1M context understanding, ultra-fast token synthesis, and advanced agentic workflows.",
+    "family": "m4spider",
+    "attachment": true,
+    "reasoning": true,
+    "tool_call": true,
+    "structured_output": true,
+    "temperature": true,
+    "knowledge": "2026-03",
+    "release_date": "2026-03-01",
+    "last_updated": "2026-10-31",
+    "modalities": {
+      "input": [
+        "text",
+        "image"
+      ],
+      "output": [
+        "text"
+      ]
+    },
+    "open_weights": false,
+    "limit": {
+      "context": 1000000,
+      "output": 128000
+    },
+    "status": "active",
+    "provider": {
+      "api": "https://opencode.ai/inference/openai/v1"
+    },
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cache_read": 0
+    },
+    "canonical_model_id": "glm-5.3-flash"
+  },
+  "nvidia/nemotron-3.5-super-vl:free": {
+    "id": "nvidia/nemotron-3.5-super-vl:free",
+    "name": "NVIDIA: Nemotron 3.5 Super VL (free)",
+    "description": "NVIDIA's flagship Nemotron multimodal architecture engineered with massive 1M context window, high-precision visual deduction, complex multi-step reasoning, and free tier accessibility.",
+    "family": "m4spider",
+    "attachment": true,
+    "reasoning": true,
+    "tool_call": true,
+    "structured_output": true,
+    "temperature": true,
+    "knowledge": "2026-03",
+    "release_date": "2026-03-01",
+    "last_updated": "2026-10-31",
+    "modalities": {
+      "input": [
+        "text",
+        "image"
+      ],
+      "output": [
+        "text"
+      ]
+    },
+    "open_weights": false,
+    "limit": {
+      "context": 1000000,
+      "output": 128000
+    },
+    "status": "active",
+    "provider": {
+      "api": "https://opencode.ai/inference/openai/v1"
+    },
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cache_read": 0
+    },
+    "canonical_model_id": "nvidia/nemotron-3.5-super-vl:free"
+  },
+  "qwen-3.7-flash": {
+    "id": "qwen-3.7-flash",
+    "name": "Qwen 3.7 Flash",
+    "description": "Next-generation lightning-fast multimodal reasoning engine designed for real-time document analysis, vision synthesis, and agentic workflows powered by Alibaba Cloud.",
+    "family": "m4spider",
+    "attachment": true,
+    "reasoning": true,
+    "tool_call": true,
+    "structured_output": true,
+    "temperature": true,
+    "knowledge": "2026-03",
+    "release_date": "2026-03-01",
+    "last_updated": "2026-10-31",
+    "modalities": {
+      "input": [
+        "text",
+        "image"
+      ],
+      "output": [
+        "text"
+      ]
+    },
+    "open_weights": false,
+    "limit": {
+      "context": 1000000,
+      "output": 128000
+    },
+    "status": "active",
+    "provider": {
+      "api": "https://opencode.ai/inference/openai/v1"
+    },
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cache_read": 0
+    },
+    "canonical_model_id": "qwen-3.7-flash"
+  },
+  "muse-spark-1.3-contributor": {
+    "id": "muse-spark-1.3-contributor",
+    "name": "Meta Muse 1.3",
+    "description": "Flagship cognitive architecture built for multi-step scientific analysis, complex problem decomposition, multimodal reasoning, and deep research synthesis.",
+    "family": "m4spider",
+    "attachment": true,
+    "reasoning": true,
+    "tool_call": true,
+    "structured_output": true,
+    "temperature": true,
+    "knowledge": "2026-03",
+    "release_date": "2026-03-01",
+    "last_updated": "2026-10-31",
+    "modalities": {
+      "input": [
+        "text",
+        "image"
+      ],
+      "output": [
+        "text"
+      ]
+    },
+    "open_weights": false,
+    "limit": {
+      "context": 1000000,
+      "output": 128000
+    },
+    "status": "active",
+    "provider": {
+      "api": "https://opencode.ai/inference/openai/v1"
+    },
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cache_read": 0
+    },
+    "canonical_model_id": "muse-spark-1.3-contributor"
+  },
+  "spider-auto": {
+    "id": "spider-auto",
+    "name": "M4 Spider Auto Mode",
+    "description": "Intelligent auto-router that automatically selects the best model for each task with optimal reasoning, speed, and latency (Ultra plan ₹799+ exclusive).",
+    "family": "m4spider",
+    "attachment": true,
+    "reasoning": true,
+    "reasoning_options": [
+      {
+        "type": "effort",
+        "values": [
+          "low",
+          "medium",
+          "high"
+        ]
+      }
+    ],
+    "tool_call": true,
+    "structured_output": true,
+    "temperature": true,
+    "knowledge": "2026-03",
+    "release_date": "2026-03-01",
+    "last_updated": "2026-10-31",
+    "modalities": {
+      "input": [
+        "text",
+        "image"
+      ],
+      "output": [
+        "text"
+      ]
+    },
+    "open_weights": false,
+    "limit": {
+      "context": 1000000,
+      "output": 128000
+    },
+    "status": "active",
+    "provider": {
+      "api": "https://opencode.ai/inference/openai/v1"
+    },
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cache_read": 0
+    },
+    "canonical_model_id": "deepseek-v4-flash-free"
+  }
+};
         modelsDev["m4spider"] = {
           id: "m4spider",
           name: "M4 Spider",
@@ -1365,12 +1539,16 @@ export const layer = Layer.effect(
           npm: "@ai-sdk/openai-compatible",
           api: "https://opencode.ai/inference/openai/v1",
           models: {
-            "spider-auto": autoModel as any,
-            "auto": autoAlias as any,
-          },
+            ...m4ModelsCatalog,
+            auto: { ...m4ModelsCatalog["spider-auto"], id: "auto" }
+          } as any,
         } as any
 
         const catalog = mapValues(modelsDev, fromModelsDevProvider)
+        delete catalog["opencode"]
+        if (catalog["m4spider"]) {
+          catalog["m4spider"].name = "M4 Spider"
+        }
         delete catalog["opencode"]
         if (catalog["m4spider"]) {
           catalog["m4spider"].name = "M4 Spider"
