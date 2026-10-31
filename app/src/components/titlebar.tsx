@@ -577,7 +577,7 @@ export function Titlebar(props: { update?: TitlebarUpdate }) {
                   />
                 </div>
               </Show>
-              <Show when={!mac()}>
+              <Show when={!mac() && !windows() && !linux()}>
                 <div class="md:hidden w-[48px] shrink-0 flex items-center justify-center">
                   <IconButton
                     icon="sidebar"

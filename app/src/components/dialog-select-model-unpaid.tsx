@@ -5,7 +5,7 @@ import { List, type ListRef } from "@m4spider/ui/list"
 import { ProviderIcon } from "@m4spider/ui/provider-icon"
 import { Tag } from "@m4spider/ui/tag"
 import { Tooltip } from "@m4spider/ui/tooltip"
-import { type Component, Show } from "solid-js"
+import { type Component, Show, createMemo } from "solid-js"
 import { useLocal } from "@/context/local"
 import { popularProviders, useProviders } from "@/hooks/use-providers"
 import { ModelTooltip } from "./model-tooltip"
@@ -37,6 +37,20 @@ export const DialogSelectModelUnpaid: Component<{ model?: ModelState }> = (props
     listRef?.onKeyDown(e)
   }
 
+  const freeModels = createMemo(() =>
+    model.list().filter((m) => {
+      if (m.provider.id === "m4spider") {
+        return (
+          m.id === "glm-5.3-flash" ||
+          m.id === "nvidia/nemotron-3.5-super-vl:free" ||
+          m.id === "qwen-3.7-flash" ||
+          m.id === "muse-spark-1.3-contributor"
+        )
+      }
+      return (!m.cost || m.cost.input === 0) && m.id !== "spider-auto" && m.id !== "auto"
+    }),
+  )
+
   return (
     <Dialog
       title={language.t("dialog.model.select.title")}
@@ -47,7 +61,7 @@ export const DialogSelectModelUnpaid: Component<{ model?: ModelState }> = (props
         <List
           class="px-3 [&_[data-slot=list-scroll]]:overflow-visible"
           ref={(ref) => (listRef = ref)}
-          items={model.list}
+          items={freeModels}
           current={model.current()}
           key={(x) => `${x.provider.id}:${x.id}`}
           itemWrapper={(item, node) => (

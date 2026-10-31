@@ -654,7 +654,7 @@ export const layer = Layer.effect(
       if (isChinaOrLegacyBlocked(model.providerID)) {
         model = {
           providerID: ProviderV2.ID.make("m4spider"),
-          modelID: ModelV2.ID.make("spider-auto"),
+          modelID: ModelV2.ID.make("glm-5.3-flash"),
         }
       }
       const same = ag.model && model.providerID === ag.model.providerID && model.modelID === ag.model.modelID

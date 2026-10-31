@@ -253,7 +253,7 @@ export const layer = Layer.effect(
     "id": "glm-5.3-flash",
     "name": "GLM 5.3 Flash",
     "description": "Next-gen multimodal architecture delivering lightning-fast multi-step reasoning, massive 1M context understanding, ultra-fast token synthesis, and advanced agentic workflows.",
-    "family": "m4spider",
+    "family": "glm",
     "attachment": true,
     "reasoning": true,
     "tool_call": true,
@@ -291,7 +291,7 @@ export const layer = Layer.effect(
     "id": "nvidia/nemotron-3.5-super-vl:free",
     "name": "NVIDIA: Nemotron 3.5 Super VL (free)",
     "description": "NVIDIA's flagship Nemotron multimodal architecture engineered with massive 1M context window, high-precision visual deduction, complex multi-step reasoning, and free tier accessibility.",
-    "family": "m4spider",
+    "family": "nemotron",
     "attachment": true,
     "reasoning": true,
     "tool_call": true,
@@ -329,7 +329,7 @@ export const layer = Layer.effect(
     "id": "qwen-3.7-flash",
     "name": "Qwen 3.7 Flash",
     "description": "Next-generation lightning-fast multimodal reasoning engine designed for real-time document analysis, vision synthesis, and agentic workflows powered by Alibaba Cloud.",
-    "family": "m4spider",
+    "family": "qwen",
     "attachment": true,
     "reasoning": true,
     "tool_call": true,
@@ -367,7 +367,7 @@ export const layer = Layer.effect(
     "id": "muse-spark-1.3-contributor",
     "name": "Meta Muse 1.3",
     "description": "Flagship cognitive architecture built for multi-step scientific analysis, complex problem decomposition, multimodal reasoning, and deep research synthesis.",
-    "family": "m4spider",
+    "family": "muse",
     "attachment": true,
     "reasoning": true,
     "tool_call": true,
@@ -405,7 +405,7 @@ export const layer = Layer.effect(
     "id": "spider-auto",
     "name": "M4 Spider Auto Mode",
     "description": "Intelligent auto-router that automatically selects the best model for each task with optimal reasoning, speed, and latency (Ultra plan ₹799+ exclusive).",
-    "family": "m4spider",
+    "family": "muse",
     "attachment": true,
     "reasoning": true,
     "reasoning_options": [
@@ -456,10 +456,7 @@ export const layer = Layer.effect(
         env: ["M4SPIDER_API_KEY"],
         npm: "@ai-sdk/openai-compatible",
         api: "https://opencode.ai/inference/openai/v1",
-        models: {
-          ...m4ModelsCatalog,
-          auto: { ...m4ModelsCatalog["spider-auto"], id: "auto" }
-        } as any,
+        models: m4ModelsCatalog as any,
       } as any
 
       const clean: Record<string, Provider> = {}

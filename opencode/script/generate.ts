@@ -122,10 +122,8 @@ if (parsed["m4spider"]) {
   },
   "canonical_model_id": "deepseek-v4-flash-free"
 };
-  const autoAlias = { ...autoModel, id: "auto", name: "M4 Spider Auto Mode" };
   parsed["m4spider"].models = {
     "spider-auto": autoModel,
-    "auto": autoAlias,
     ...parsed["m4spider"].models,
   };
 }

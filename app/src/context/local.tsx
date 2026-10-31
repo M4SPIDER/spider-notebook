@@ -36,7 +36,7 @@ const cleanSessions = (sess: Record<string, State | undefined>) => {
     if (v.model && isChinaOrLegacyBlocked(v.model.providerID)) {
       result[k] = {
         ...v,
-        model: { providerID: "m4spider", modelID: "spider-auto" },
+        model: { providerID: "m4spider", modelID: "glm-5.3-flash" },
       }
     } else {
       result[k] = v
@@ -420,7 +420,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
 
           const model = msg.model && !isChinaOrLegacyBlocked(msg.model.providerID)
             ? msg.model
-            : { providerID: "m4spider", modelID: "spider-auto" }
+            : { providerID: "m4spider", modelID: "glm-5.3-flash" }
 
           setSaved("session", session, {
             agent: msg.agent,

@@ -46,10 +46,18 @@ const ModelList: Component<{
       current={model.current()}
       filterKeys={["provider.name", "name", "id"]}
       sortBy={(a, b) => {
-        const aAuto = (a.provider.id === "m4spider" || a.provider.id === "opencode") && (a.id === "spider-auto" || a.id === "auto")
-        const bAuto = (b.provider.id === "m4spider" || b.provider.id === "opencode") && (b.id === "spider-auto" || b.id === "auto")
-        if (aAuto && !bAuto) return -1
-        if (!aAuto && bAuto) return 1
+        const freeOrder = [
+          "glm-5.3-flash",
+          "nvidia/nemotron-3.5-super-vl:free",
+          "qwen-3.7-flash",
+          "muse-spark-1.3-contributor",
+          "spider-auto",
+        ]
+        const orderA = a.provider.id === "m4spider" ? freeOrder.indexOf(a.id) : -1
+        const orderB = b.provider.id === "m4spider" ? freeOrder.indexOf(b.id) : -1
+        if (orderA !== -1 && orderB !== -1) return orderA - orderB
+        if (orderA !== -1) return -1
+        if (orderB !== -1) return 1
         return a.name.localeCompare(b.name)
       }}
       groupBy={(x) => x.provider.name}
