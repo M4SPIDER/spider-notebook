@@ -10,7 +10,6 @@ import { SettingsProviders } from "./settings-providers"
 import { SettingsModels } from "./settings-models"
 import { SettingsServers } from "./settings-servers"
 import { SettingsLicenses } from "./settings-licenses"
-import { SettingsRemoteControl } from "./settings-remote-control"
 
 export const DialogSettings: Component = () => {
   const language = useLanguage()
@@ -41,10 +40,6 @@ export const DialogSettings: Component = () => {
                     <Tabs.Trigger value="licenses">
                       <Icon name="checklist" />
                       {language.t("settings.tab.licenses")}
-                    </Tabs.Trigger>
-                    <Tabs.Trigger value="remote">
-                      <Icon name="globe" />
-                      Phone Control
                     </Tabs.Trigger>
                   </div>
                 </div>
@@ -87,9 +82,6 @@ export const DialogSettings: Component = () => {
         </Tabs.Content>
         <Tabs.Content value="licenses" class="no-scrollbar">
           <SettingsLicenses />
-        </Tabs.Content>
-        <Tabs.Content value="remote" class="no-scrollbar">
-          <SettingsRemoteControl />
         </Tabs.Content>
       </Tabs>
     </Dialog>

@@ -49,8 +49,6 @@ export type RemoteInfo = {
 }
 
 export type ElectronAPI = {
-  getRemoteInfo: () => Promise<RemoteInfo>
-  setRemoteEnabled: (enabled: boolean) => Promise<RemoteInfo>
   killSidecar: () => Promise<void>
   installCli: () => Promise<string>
   awaitInitialization: () => Promise<ServerReadyData>
@@ -113,7 +111,6 @@ export type ElectronAPI = {
   openBrowserFullscreen: (url?: string) => void
   setThemeId: (themeId: string) => Promise<void>
   onOpenBrowserPanel: (cb: (url: string) => void) => () => void
-  onRemotePrompt?: (cb: (prompt: string) => void) => () => void
   adBlocker: {
     getEnabled: () => Promise<boolean>
     setEnabled: (enabled: boolean) => Promise<void>

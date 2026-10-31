@@ -1,4 +1,3 @@
-import { setupMobileRemoteRoutes } from "./mobile-remote"
 import { randomUUID } from "node:crypto"
 import { mkdirSync, rmSync } from "node:fs"
 import * as http from "node:http"
@@ -347,30 +346,7 @@ const main = Effect.gen(function* () {
     const wins = BrowserWindow.getAllWindows()
     const mainWin = wins.find(w => !w.isDestroyed() && w.getTitle().includes("M4 Spider")) ?? wins[0] ?? null
 
-    // Setup mobile remote routes (GET / or /remote, GET /api/screenshot)
-    if (await setupMobileRemoteRoutes(req, res, mainWin)) {
-      return
-    }
 
-    if (req.url === "/api/prompt" && req.method === "POST") {
-      let body = ""
-      for await (const chunk of req) body += chunk
-      try {
-        const parsed = JSON.parse(body)
-        if (mainWin) {
-          mainWin.webContents.send("remote-prompt", parsed.prompt || "")
-        }
-        res.setHeader("Content-Type", "application/json")
-        res.writeHead(200)
-        res.end(JSON.stringify({ status: "success", received: parsed.prompt }))
-        return
-      } catch (err: any) {
-        res.setHeader("Content-Type", "application/json")
-        res.writeHead(400)
-        res.end(JSON.stringify({ error: err.message }))
-        return
-      }
-    }
 
     res.setHeader("Content-Type", "application/json")
     let body = ""
@@ -423,16 +399,9 @@ const main = Effect.gen(function* () {
       res.end(JSON.stringify({ error: e?.message ?? String(e) }))
     }
   })
-    const startBridgeServer = (bindAll: boolean) => {
-    try { browserBridge.close() } catch {}
-    const host = bindAll ? "0.0.0.0" : "127.0.0.1"
-    browserBridge.listen(BROWSER_BRIDGE_PORT, host, () => {
-      writeLog("browser-bridge", "started", { port: BROWSER_BRIDGE_PORT, host })
-    })
-  }
-
-  (globalThis as any).__rebindBridge__ = startBridgeServer
-  startBridgeServer(false)
+    browserBridge.listen(BROWSER_BRIDGE_PORT, "127.0.0.1", () => {
+    writeLog("browser-bridge", "started", { port: BROWSER_BRIDGE_PORT, host: "127.0.0.1" })
+  })
   browserBridge.unref()
 
   void updater.start()

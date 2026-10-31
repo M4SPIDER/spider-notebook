@@ -11,8 +11,6 @@ const updaterHandler = (_: unknown, state: UpdaterState) => {
 }
 
 const api: ElectronAPI = {
-  getRemoteInfo: () => ipcRenderer.invoke("get-remote-info"),
-  setRemoteEnabled: (enabled: boolean) => ipcRenderer.invoke("set-remote-enabled", enabled),
   killSidecar: () => ipcRenderer.invoke("kill-sidecar"),
   installCli: () => ipcRenderer.invoke("install-cli"),
   awaitInitialization: () => ipcRenderer.invoke("await-initialization"),
@@ -122,11 +120,6 @@ const api: ElectronAPI = {
   openExternal: (url: string) => ipcRenderer.send("open-external", url),
   openBrowserFullscreen: (url?: string) => ipcRenderer.invoke("open-browser-fullscreen", url),
   setThemeId: (themeId: string) => ipcRenderer.invoke("set-theme-id", themeId),
-  onRemotePrompt: (cb: (prompt: string) => void) => {
-    const handler = (_: unknown, prompt: string) => cb(prompt)
-    ipcRenderer.on("remote-prompt", handler)
-    return () => ipcRenderer.removeListener("remote-prompt", handler)
-  },
   onOpenBrowserPanel: (cb: (url: string) => void) => {
     const handler = (_: unknown, url: string) => cb(url)
     ipcRenderer.on("open-browser-panel", handler)
@@ -154,7 +147,3 @@ const api: ElectronAPI = {
 }
 
 contextBridge.exposeInMainWorld("api", api)
-
-ipcRenderer.on("remote-prompt", (_: unknown, prompt: string) => {
-  window.dispatchEvent(new CustomEvent("spider-remote-prompt", { detail: prompt }))
-})
