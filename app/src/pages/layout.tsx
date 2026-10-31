@@ -2289,34 +2289,7 @@ export default function Layout(props: ParentProps) {
           )}
         </Show>
 
-        <div
-          class="shrink-0 px-3 py-3"
-          classList={{
-            hidden: store.gettingStartedDismissed || !(providers.all().size > 0 && providers.paid().length === 0),
-          }}
-        >
-          <div class="rounded-xl bg-background-base shadow-xs-border-base" data-component="getting-started">
-            <div class="p-3 flex flex-col gap-6">
-              <div class="flex flex-col gap-2">
-                <div class="text-14-medium text-text-strong">{language.t("sidebar.gettingStarted.title")}</div>
-                <div class="text-14-regular text-text-base" style={{ "line-height": "var(--line-height-normal)" }}>
-                  {language.t("sidebar.gettingStarted.line1")}
-                </div>
-                <div class="text-14-regular text-text-base" style={{ "line-height": "var(--line-height-normal)" }}>
-                  {language.t("sidebar.gettingStarted.line2")}
-                </div>
-              </div>
-              <div data-component="getting-started-actions">
-                <Button size="large" icon="plus-small" onClick={connectProvider}>
-                  {language.t("command.provider.connect")}
-                </Button>
-                <Button size="large" variant="ghost" onClick={() => setStore("gettingStartedDismissed", true)}>
-                  {language.t("toast.update.action.notYet")}
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
+
       </div>
     )
   }
@@ -2395,7 +2368,7 @@ export default function Layout(props: ParentProps) {
                 aria-label={language.t("sidebar.nav.projectsAndSessions")}
                 data-component="sidebar-nav-desktop"
                 classList={{
-                  "hidden xl:block": true,
+                  "hidden md:block": true,
                   "absolute inset-y-0 left-0": true,
                   "z-20": true,
                   "invisible pointer-events-none": !sidebarExpanded(),
@@ -2419,7 +2392,7 @@ export default function Layout(props: ParentProps) {
 
               <Show when={layout.sidebar.opened()}>
                 <div
-                  class="hidden xl:block absolute inset-y-0 z-30 w-0 overflow-visible"
+                  class="hidden md:block absolute inset-y-0 z-30 w-0 overflow-visible"
                   style={{ left: `${side()}px` }}
                   onPointerDown={() => setState("sizing", true)}
                 >
@@ -2439,11 +2412,11 @@ export default function Layout(props: ParentProps) {
               </Show>
 
               <div
-                class="hidden xl:block pointer-events-none absolute top-0 right-0 z-0 border-t border-border-weaker-base"
+                class="hidden md:block pointer-events-none absolute top-0 right-0 z-0 border-t border-border-weaker-base"
                 style={{ left: "calc(4rem + 12px)" }}
               />
 
-              <div class="xl:hidden">
+              <div class="md:hidden">
                 <div
                   classList={{
                     "fixed inset-x-0 top-10 bottom-0 z-40 transition-opacity duration-200": true,
@@ -2471,7 +2444,7 @@ export default function Layout(props: ParentProps) {
               <div
                 classList={{
                   "absolute inset-0": true,
-                  "xl:inset-y-0 xl:right-0 xl:left-[var(--main-left)]": true,
+                  "md:inset-y-0 md:right-0 md:left-[var(--main-left)]": true,
                   "z-10": true,
                   "transition-[left] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[left] motion-reduce:transition-none":
                     !state.sizing,
@@ -2500,7 +2473,7 @@ export default function Layout(props: ParentProps) {
 
               <div
                 classList={{
-                  "hidden xl:flex absolute inset-y-0 left-16 z-30": true,
+                  "hidden md:flex absolute inset-y-0 left-16 z-30": true,
                   "opacity-100 translate-x-0 pointer-events-auto": state.peeked && !layout.sidebar.opened(),
                   "opacity-0 -translate-x-2 pointer-events-none": !state.peeked || layout.sidebar.opened(),
                   "transition-[opacity,transform] motion-reduce:transition-none": true,
@@ -2524,7 +2497,7 @@ export default function Layout(props: ParentProps) {
 
               <div
                 classList={{
-                  "hidden xl:block pointer-events-none absolute inset-y-0 right-0 z-25 overflow-hidden": true,
+                  "hidden md:block pointer-events-none absolute inset-y-0 right-0 z-25 overflow-hidden": true,
                   "opacity-100 translate-x-0": state.peeked && !layout.sidebar.opened(),
                   "opacity-0 -translate-x-2": !state.peeked || layout.sidebar.opened(),
                   "transition-[opacity,transform] motion-reduce:transition-none": true,

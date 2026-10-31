@@ -119,10 +119,24 @@ export function setDockIcon() {
 }
 
 export function createMainWindow() {
+  const primaryDisplay = screen.getPrimaryDisplay()
+  const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize
+
+  const defaultWidth = Math.min(1280, Math.max(screenWidth - 40, 1024))
+  const defaultHeight = Math.min(800, Math.max(screenHeight - 40, 680))
+
   const state = windowState({
-    defaultWidth: 1280,
-    defaultHeight: 800,
+    defaultWidth,
+    defaultHeight,
   })
+
+  // Prevent tiny/collapsed 580px windows from ever restoring
+  if (!state.width || state.width < 1000) {
+    state.width = defaultWidth
+  }
+  if (!state.height || state.height < 600) {
+    state.height = defaultHeight
+  }
 
   const mode = tone()
   const win = new BrowserWindow({
@@ -130,6 +144,8 @@ export function createMainWindow() {
     y: state.y,
     width: state.width,
     height: state.height,
+    minWidth: 960,
+    minHeight: 560,
     show: false,
     autoHideMenuBar: true,
     title: "M4 Spider Notebook",
@@ -203,6 +219,9 @@ export function createMainWindow() {
   wireZoom(win)
 
   win.once("ready-to-show", () => {
+    if (win.getBounds().width < 1000) {
+      win.maximize()
+    }
     win.show()
   })
 
