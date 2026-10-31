@@ -1300,12 +1300,21 @@ export const layer = Layer.effect(
         const bridge = yield* EffectBridge.make()
         const cfg = yield* config.get()
         const modelsDev = yield* modelsDevSvc.get()
-        if (modelsDev["opencode"] && !modelsDev["m4spider"]) {
-          modelsDev["m4spider"] = {
-            ...modelsDev["opencode"],
+        if (!modelsDev["m4spider"]) {
+          const base = modelsDev["opencode"] || {
             id: "m4spider",
             name: "M4 Spider AI Gateway",
-          }
+            env: ["OPENCODE_API_KEY", "M4SPIDER_API_KEY"],
+            npm: "@ai-sdk/openai-compatible",
+            api: "https://opencode.ai/inference/openai/v1",
+            models: {},
+          };
+          modelsDev["m4spider"] = {
+            ...base,
+            id: "m4spider",
+            name: "M4 Spider AI Gateway",
+            models: { ...(base.models || {}) },
+          };
         }
         if (modelsDev["m4spider"]) {
           const autoModel = {

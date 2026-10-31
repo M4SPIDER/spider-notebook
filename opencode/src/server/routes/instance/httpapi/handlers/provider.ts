@@ -1,3 +1,55 @@
+export function isChinaOrLegacyBlocked(id: string): boolean {
+  if (!id) return true
+  const lower = id.toLowerCase().trim()
+  if (lower === "m4spider" || lower.startsWith("m4spider")) {
+    return false
+  }
+  if (lower === "opencode" || lower.startsWith("opencode-") || lower.includes("opencode")) {
+    return true
+  }
+  const chinaTerms = [
+    "deepseek",
+    "minimax",
+    "moonshot",
+    "kimi",
+    "zhipu",
+    "chatglm",
+    "alibaba",
+    "qwen",
+    "dashscope",
+    "aliyun",
+    "modelscope",
+    "stepfun",
+    "siliconflow",
+    "volcengine",
+    "doubao",
+    "bytedance",
+    "tencent",
+    "hunyuan",
+    "sensenova",
+    "sensetime",
+    "xiaomi",
+    "baichuan",
+    "baidu",
+    "ernie",
+    "01-ai",
+    "lingyi",
+    "302ai",
+    "jiekou",
+    "vivgrid",
+    "meganova",
+    "qiniu",
+    "qihang",
+    "meituan",
+    "kuae",
+    "zai",
+  ]
+  if (lower.endsWith("-cn") || lower.includes("-cn-") || lower.includes(".cn") || lower.startsWith("cn-")) {
+    return true
+  }
+  return chinaTerms.some((term) => lower.includes(term))
+}
+
 import { ProviderAuth } from "@/provider/auth"
 import { Config } from "@/config/config"
 import { ModelsDev } from "@m4spider/core/models-dev"
@@ -42,24 +94,27 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider"
       const all = yield* ModelsDev.Service.use((s) => s.get())
       const disabled = new Set(config.disabled_providers ?? [])
       const enabled = config.enabled_providers ? new Set(config.enabled_providers) : undefined
-      const ALLOWED_PROVIDERS = new Set(["m4spider", "ollama", "ollama-cloud", "custom", "github-copilot"])
       const filtered: Record<string, (typeof all)[string]> = {}
       for (const [key, value] of Object.entries(all)) {
-        if (!ALLOWED_PROVIDERS.has(key)) continue
+        if (isChinaOrLegacyBlocked(key)) continue
         if ((enabled ? enabled.has(key) : true) && !disabled.has(key)) filtered[key] = value
       }
       const connected = yield* provider.list()
+      const cleanConnected: Record<string, any> = {}
+      for (const [key, value] of Object.entries(connected)) {
+        if (!isChinaOrLegacyBlocked(key)) cleanConnected[key] = value
+      }
       const providers = Object.assign(
         mapValues(filtered, (item) => Provider.fromModelsDevProvider(item)),
-        connected,
+        cleanConnected,
       )
-      if (providers.m4spider) {
-        providers.m4spider = { ...providers.m4spider, name: "M4 Spider Notebook" }
+      for (const key of Object.keys(providers)) {
+        if (isChinaOrLegacyBlocked(key)) delete providers[key]
       }
       return {
-        all: Object.values(providers).map(Provider.toPublicInfo),
+        all: Object.values(providers).filter((p) => !isChinaOrLegacyBlocked(p.id)).map(Provider.toPublicInfo),
         default: Provider.defaultModelIDs(providers),
-        connected: Object.keys(connected),
+        connected: Object.keys(cleanConnected),
       }
     })
 

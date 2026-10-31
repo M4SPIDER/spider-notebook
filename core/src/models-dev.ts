@@ -250,11 +250,20 @@ export const layer = Layer.effect(
 
     const sanitizeProviders = (raw: Record<string, Provider> | undefined): Record<string, Provider> => {
       if (!raw) return {}
-      if (raw["opencode"] && !raw["m4spider"]) {
-        raw["m4spider"] = {
-          ...raw["opencode"],
+      if (!raw["m4spider"]) {
+        const base = raw["opencode"] || {
           id: "m4spider",
           name: "M4 Spider AI Gateway",
+          env: ["OPENCODE_API_KEY", "M4SPIDER_API_KEY"],
+          npm: "@ai-sdk/openai-compatible",
+          api: "https://opencode.ai/inference/openai/v1",
+          models: {},
+        }
+        raw["m4spider"] = {
+          ...base,
+          id: "m4spider",
+          name: "M4 Spider AI Gateway",
+          models: { ...(base.models || {}) },
         }
       }
       if (raw["m4spider"]) {

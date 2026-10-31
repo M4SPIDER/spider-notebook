@@ -173,6 +173,8 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     }
 
     const defaultModel = () => {
+      const spiderAuto = { providerID: "m4spider", modelID: "spider-auto" }
+      if (validModel(spiderAuto)) return spiderAuto
       const defaults = providers.default()
       for (const provider of providers.connected()) {
         const configured = defaults[provider.id]
