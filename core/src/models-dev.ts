@@ -271,21 +271,14 @@ export const layer = Layer.effect(
       }
       const autoAlias = { ...autoModel, id: "auto", name: "M4 Spider Auto Mode" }
 
-      // OpenCode provider has all its models + M4 Spider Auto Mode
-      if (raw["opencode"]) {
-        raw["opencode"].name = "OpenCode"
-        raw["opencode"].models = {
-          "spider-auto": autoModel as any,
-          "auto": autoAlias as any,
-          ...raw["opencode"].models,
-        }
-      }
+      // Completely remove opencode
+      delete raw["opencode"]
 
-      // M4 Spider provider has ONLY M4 Spider Auto Mode (does NOT have 50 models!)
+      // M4 Spider provider has ONLY M4 Spider Auto Mode
       raw["m4spider"] = {
         id: "m4spider",
         name: "M4 Spider",
-        env: ["M4SPIDER_API_KEY", "OPENCODE_API_KEY"],
+        env: ["M4SPIDER_API_KEY"],
         npm: "@ai-sdk/openai-compatible",
         api: "https://opencode.ai/inference/openai/v1",
         models: {

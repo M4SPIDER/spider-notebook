@@ -1355,18 +1355,13 @@ export const layer = Layer.effect(
         }
         const autoAlias = { ...autoModel, id: "auto", name: "M4 Spider Auto Mode" }
 
-        if (modelsDev["opencode"]) {
-          modelsDev["opencode"].name = "OpenCode"
-          modelsDev["opencode"].models = {
-            "spider-auto": autoModel as any,
-            "auto": autoAlias as any,
-            ...modelsDev["opencode"].models,
-          }
-        }
+        // Remove opencode completely
+        delete modelsDev["opencode"]
+
         modelsDev["m4spider"] = {
           id: "m4spider",
           name: "M4 Spider",
-          env: ["M4SPIDER_API_KEY", "OPENCODE_API_KEY"],
+          env: ["M4SPIDER_API_KEY"],
           npm: "@ai-sdk/openai-compatible",
           api: "https://opencode.ai/inference/openai/v1",
           models: {
@@ -1376,6 +1371,10 @@ export const layer = Layer.effect(
         } as any
 
         const catalog = mapValues(modelsDev, fromModelsDevProvider)
+        delete catalog["opencode"]
+        if (catalog["m4spider"]) {
+          catalog["m4spider"].name = "M4 Spider"
+        }
         if (catalog["opencode"]) {
           catalog["opencode"].name = "OpenCode"
         }

@@ -4,7 +4,8 @@ export function isChinaOrLegacyBlocked(id: string): boolean {
   if (lower === "m4spider" || lower.startsWith("m4spider")) {
     return false
   }
-  if (lower === "opencode" || lower === "m4spider") return false
+  if (lower === "m4spider" || lower.startsWith("m4spider")) return false
+  if (lower === "opencode" || lower.startsWith("opencode-") || lower.includes("opencode")) return true
   const chinaTerms = [
     "deepseek",
     "minimax",
@@ -56,7 +57,6 @@ import { createMemo } from "solid-js"
 
 // Providers shown in the desktop UI "popular" section.
 export const popularProviders = [
-  "opencode",
   "m4spider",
   "anthropic",
   "github-copilot",

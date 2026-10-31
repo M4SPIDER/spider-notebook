@@ -4,7 +4,8 @@ export function isChinaOrLegacyBlocked(id: string): boolean {
   if (lower === "m4spider" || lower.startsWith("m4spider")) {
     return false
   }
-  if (lower === "opencode" || lower === "m4spider") return false
+  if (lower === "m4spider" || lower.startsWith("m4spider")) return false
+  if (lower === "opencode" || lower.startsWith("opencode-") || lower.includes("opencode")) return true
   const chinaTerms = [
     "deepseek",
     "minimax",
