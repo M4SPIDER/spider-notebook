@@ -1,9 +1,9 @@
 import { describe, expect } from "bun:test"
 import { Effect, Layer } from "effect"
-import { CommandV2 } from "@opencode-ai/core/command"
-import { Location } from "@opencode-ai/core/location"
-import { CommandPlugin } from "@opencode-ai/core/plugin/command"
-import { AbsolutePath } from "@opencode-ai/core/schema"
+import { CommandV2 } from "@m4spider/core/command"
+import { Location } from "@m4spider/core/location"
+import { CommandPlugin } from "@m4spider/core/plugin/command"
+import { AbsolutePath } from "@m4spider/core/schema"
 import { location } from "../fixture/location"
 import { testEffect } from "../lib/effect"
 

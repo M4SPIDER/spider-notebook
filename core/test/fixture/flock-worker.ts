@@ -1,5 +1,5 @@
 import fs from "fs/promises"
-import { Flock } from "@opencode-ai/core/util/flock"
+import { Flock } from "@m4spider/core/util/flock"
 
 type Msg = {
   key: string

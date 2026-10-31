@@ -1,4 +1,4 @@
-import type { VcsFileDiff } from "@opencode-ai/sdk/v2"
+import type { VcsFileDiff } from "@m4spider/sdk/v2"
 
 const DB_NAME = "opencode-vcs-cache"
 const DB_VERSION = 1

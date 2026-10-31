@@ -1,12 +1,12 @@
 interface ImportMetaEnv {
-  readonly OPENCODE_CHANNEL: string
+  readonly M4SPIDER_CHANNEL: string
 }
 
 interface ImportMeta {
   readonly env: ImportMetaEnv
 }
 
-declare module "virtual:opencode-server" {
+declare module "virtual:m4spider-server" {
   export namespace Server {
     export const listen: typeof import("../../../opencode/dist/types/src/node").Server.listen
     export type Listener = import("../../../opencode/dist/types/src/node").Server.Listener

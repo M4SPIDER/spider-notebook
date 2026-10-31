@@ -1,5 +1,5 @@
-import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { AppProcess } from "@opencode-ai/core/process"
+import { LayerNode } from "@m4spider/core/effect/layer-node"
+import { AppProcess } from "@m4spider/core/process"
 import { Effect, Layer, Context, Stream } from "effect"
 import { ChildProcess } from "effect/unstable/process"
 

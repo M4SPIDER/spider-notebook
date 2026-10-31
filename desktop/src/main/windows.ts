@@ -1,6 +1,6 @@
 import windowState from "electron-window-state"
-import { resolveThemeVariant } from "@opencode-ai/ui/theme/resolve"
-import type { DesktopTheme } from "@opencode-ai/ui/theme/types"
+import { resolveThemeVariant } from "@m4spider/ui/theme/resolve"
+import type { DesktopTheme } from "@m4spider/ui/theme/types"
 import pureWhiteThemeJson from "../../../ui/src/theme/themes/pure-white.json"
 import { app, BrowserWindow, dialog, net, nativeImage, nativeTheme, protocol, screen } from "electron"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"

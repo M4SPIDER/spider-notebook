@@ -7,10 +7,10 @@
 // so your last-used variant sticks. Cycling (ctrl+t) updates both the active
 // variant and the persisted file.
 import path from "path"
-import { FSUtil } from "@opencode-ai/core/fs-util"
+import { FSUtil } from "@m4spider/core/fs-util"
 import { Context, Effect, Layer } from "effect"
 import { makeRuntime } from "@/effect/run-service"
-import { Global } from "@opencode-ai/core/global"
+import { Global } from "@m4spider/core/global"
 import { isRecord } from "@/util/record"
 import { createSession, sessionVariant, type RunSession, type SessionMessages } from "./session.shared"
 import type { RunInput, RunProvider } from "./types"

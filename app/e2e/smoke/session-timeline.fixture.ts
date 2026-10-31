@@ -23,7 +23,7 @@ const words = [
 
 const sourceID = "ses_smoke_source"
 const targetID = "ses_smoke_target"
-const directory = "C:/OpenCode/SmokeProject"
+const directory = "C:/M4Spider/SmokeProject"
 const projectID = "proj_smoke_timeline"
 const model = { providerID: "opencode", modelID: "claude-opus-4-6", variant: "max" }
 

@@ -1,5 +1,5 @@
 {
-  "name": "@opencode-ai/app",
+  "name": "@m4spider/app",
   "version": "3.0.0",
   "description": "",
   "type": "module",
@@ -45,9 +45,9 @@
   },
   "dependencies": {
     "@kobalte/core": "catalog:",
-    "@opencode-ai/core": "workspace:*",
-    "@opencode-ai/sdk": "workspace:*",
-    "@opencode-ai/ui": "workspace:*",
+    "@m4spider/core": "workspace:*",
+    "@m4spider/sdk": "workspace:*",
+    "@m4spider/ui": "workspace:*",
     "@sentry/solid": "catalog:",
     "@shikijs/transformers": "3.9.2",
     "@solid-primitives/active-element": "2.1.3",

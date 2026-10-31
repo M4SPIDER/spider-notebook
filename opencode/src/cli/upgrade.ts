@@ -1,8 +1,8 @@
 import { Config } from "@/config/config"
 import { AppRuntime } from "@/effect/app-runtime"
-import { Flag } from "@opencode-ai/core/flag/flag"
+import { Flag } from "@m4spider/core/flag/flag"
 import { Installation } from "@/installation"
-import { InstallationVersion } from "@opencode-ai/core/installation/version"
+import { InstallationVersion } from "@m4spider/core/installation/version"
 import { GlobalBus } from "@/bus/global"
 
 export async function upgrade() {

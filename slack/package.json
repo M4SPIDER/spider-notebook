@@ -1,5 +1,5 @@
 {
-  "name": "@opencode-ai/slack",
+  "name": "@m4spider/slack",
   "version": "3.0.0",
   "type": "module",
   "license": "MIT",
@@ -8,7 +8,7 @@
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
-    "@opencode-ai/sdk": "workspace:*",
+    "@m4spider/sdk": "workspace:*",
     "@slack/bolt": "^3.17.1"
   },
   "devDependencies": {

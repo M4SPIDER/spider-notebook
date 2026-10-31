@@ -1,5 +1,5 @@
-import { useFilteredList } from "@opencode-ai/ui/hooks"
-import { getDirectory, getFilename } from "@opencode-ai/core/util/path"
+import { useFilteredList } from "@m4spider/ui/hooks"
+import { getDirectory, getFilename } from "@m4spider/core/util/path"
 import { createSignal, For, onMount, Show, splitProps, type JSX } from "solid-js"
 import { Button } from "./button"
 import { FileIcon } from "./file-icon"

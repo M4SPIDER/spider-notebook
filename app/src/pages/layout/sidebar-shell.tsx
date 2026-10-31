@@ -7,14 +7,14 @@ import {
   type DragEvent,
 } from "@thisbeyond/solid-dnd"
 import { ConstrainDragXAxis } from "@/utils/solid-dnd"
-import { Icon } from "@opencode-ai/ui/icon"
-import { IconButton } from "@opencode-ai/ui/icon-button"
-import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
+import { Icon } from "@m4spider/ui/icon"
+import { IconButton } from "@m4spider/ui/icon-button"
+import { Tooltip, TooltipKeybind } from "@m4spider/ui/tooltip"
 import { type LocalProject } from "@/context/layout"
 import { toggleBrowser, openBrowserWithUrl } from "@/context/browser-panel"
 import { useSpiderUsage } from "@/context/spider-usage"
 import { useAuth } from "@/context/auth"
-import { useTheme } from "@opencode-ai/ui/theme/context"
+import { useTheme } from "@m4spider/ui/theme/context"
 
 const AVATAR_PALETTE = [
   "#2563EB", // Royal Blue

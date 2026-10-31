@@ -1,6 +1,6 @@
 import { createEffect, createSignal, For, on, onCleanup, onMount, Show } from "solid-js"
-import { Icon } from "@opencode-ai/ui/icon"
-import { IconButton } from "@opencode-ai/ui/icon-button"
+import { Icon } from "@m4spider/ui/icon"
+import { IconButton } from "@m4spider/ui/icon-button"
 import { browserOpen, browserWidth, consumePendingUrl, pendingUrl, setBrowserWidth } from "@/context/browser-panel"
 
 type Tab = {

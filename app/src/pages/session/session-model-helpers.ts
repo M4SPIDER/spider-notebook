@@ -1,4 +1,4 @@
-import type { UserMessage } from "@opencode-ai/sdk/v2"
+import type { UserMessage } from "@m4spider/sdk/v2"
 import { isChinaOrOpencode } from "@/hooks/use-providers"
 
 type Local = {

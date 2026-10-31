@@ -1,5 +1,5 @@
 import { Component, createSignal, Show } from "solid-js"
-import { useAuth } from "@opencode-ai/app/context/auth"
+import { useAuth } from "@m4spider/app/context/auth"
 
 type LoginPageProps = {
   onLogin: () => void

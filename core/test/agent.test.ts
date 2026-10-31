@@ -1,9 +1,9 @@
 import { describe, expect } from "bun:test"
 import { Effect, Exit, Scope } from "effect"
-import { AgentV2 } from "@opencode-ai/core/agent"
-import { Location } from "@opencode-ai/core/location"
-import { AgentPlugin } from "@opencode-ai/core/plugin/agent"
-import { AbsolutePath } from "@opencode-ai/core/schema"
+import { AgentV2 } from "@m4spider/core/agent"
+import { Location } from "@m4spider/core/location"
+import { AgentPlugin } from "@m4spider/core/plugin/agent"
+import { AbsolutePath } from "@m4spider/core/schema"
 import { location } from "./fixture/location"
 import { testEffect } from "./lib/effect"
 

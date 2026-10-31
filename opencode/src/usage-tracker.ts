@@ -1,6 +1,6 @@
 import fs from "fs/promises"
 import path from "path"
-import { Global } from "@opencode-ai/core/global"
+import { Global } from "@m4spider/core/global"
 
 const LIMIT = 200
 const WINDOW_MS = 2 * 60 * 60 * 1000

@@ -1,4 +1,4 @@
-import { Credential } from "@opencode-ai/core/credential"
+import { Credential } from "@m4spider/core/credential"
 import { Schema } from "effect"
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
 

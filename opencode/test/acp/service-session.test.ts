@@ -10,9 +10,9 @@ import type {
   SessionConfigSelectOption,
   SetSessionConfigOptionResponse,
 } from "@agentclientprotocol/sdk"
-import type { OpencodeClient } from "@opencode-ai/sdk/v2"
-import { ProviderV2 } from "@opencode-ai/core/provider"
-import { ModelV2 } from "@opencode-ai/core/model"
+import type { OpencodeClient } from "@m4spider/sdk/v2"
+import { ProviderV2 } from "@m4spider/core/provider"
+import { ModelV2 } from "@m4spider/core/model"
 import { Effect } from "effect"
 import * as ACPService from "@/acp/service"
 import * as ACPError from "@/acp/error"

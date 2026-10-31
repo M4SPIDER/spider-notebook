@@ -1,5 +1,5 @@
-import type { WorkspaceV2 } from "@opencode-ai/core/workspace"
-import { Flag } from "@opencode-ai/core/flag/flag"
+import type { WorkspaceV2 } from "@m4spider/core/workspace"
+import { Flag } from "@m4spider/core/flag/flag"
 import { Effect, Scope } from "effect"
 
 /**

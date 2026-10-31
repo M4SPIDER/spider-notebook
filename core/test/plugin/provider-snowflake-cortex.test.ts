@@ -1,8 +1,8 @@
 import { describe, expect, it as bun_it } from "bun:test"
 import { Effect } from "effect"
-import { PluginV2 } from "@opencode-ai/core/plugin"
-import { SnowflakeCortexPlugin, cortexFetch } from "@opencode-ai/core/plugin/provider/snowflake-cortex"
-import { ProviderPlugins } from "@opencode-ai/core/plugin/provider"
+import { PluginV2 } from "@m4spider/core/plugin"
+import { SnowflakeCortexPlugin, cortexFetch } from "@m4spider/core/plugin/provider/snowflake-cortex"
+import { ProviderPlugins } from "@m4spider/core/plugin/provider"
 import { expectPluginRegistered, it, model, withEnv } from "./provider-helper"
 
 describe("SnowflakeCortexPlugin", () => {

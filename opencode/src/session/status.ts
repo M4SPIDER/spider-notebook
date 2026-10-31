@@ -1,10 +1,10 @@
-import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { LayerNode } from "@m4spider/core/effect/layer-node"
 import { InstanceState } from "@/effect/instance-state"
 import { SessionID } from "./schema"
-import { NonNegativeInt } from "@opencode-ai/core/schema"
+import { NonNegativeInt } from "@m4spider/core/schema"
 import { Effect, Layer, Context, Schema } from "effect"
 import { EventV2Bridge } from "@/event-v2-bridge"
-import { EventV2 } from "@opencode-ai/core/event"
+import { EventV2 } from "@m4spider/core/event"
 
 export const Info = Schema.Union([
   Schema.Struct({

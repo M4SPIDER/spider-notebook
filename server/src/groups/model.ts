@@ -1,5 +1,5 @@
-import { ModelV2 } from "@opencode-ai/core/model"
-import { Location } from "@opencode-ai/core/location"
+import { ModelV2 } from "@m4spider/core/model"
+import { Location } from "@m4spider/core/location"
 import { Schema } from "effect"
 import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi"
 import { ServiceUnavailableError } from "../errors"

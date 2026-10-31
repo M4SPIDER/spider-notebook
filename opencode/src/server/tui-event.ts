@@ -1,6 +1,6 @@
 import { SessionID } from "@/session/schema"
-import { PositiveInt } from "@opencode-ai/core/schema"
-import { EventV2 } from "@opencode-ai/core/event"
+import { PositiveInt } from "@m4spider/core/schema"
+import { EventV2 } from "@m4spider/core/event"
 import { Effect, Schema } from "effect"
 
 const DEFAULT_TOAST_DURATION = 5000

@@ -13,9 +13,9 @@ import {
   ServerConnection,
   useCommand,
   useWslServers,
-} from "@opencode-ai/app"
-import { openBrowserWithUrl } from "@opencode-ai/app/context/browser-panel"
-import type { UpdaterState } from "@opencode-ai/app/updater"
+} from "@m4spider/app"
+import { openBrowserWithUrl } from "@m4spider/app/context/browser-panel"
+import type { UpdaterState } from "@m4spider/app/updater"
 import * as Sentry from "@sentry/solid"
 import type { AsyncStorage } from "@solid-primitives/storage"
 import { MemoryRouter } from "@solidjs/router"
@@ -26,12 +26,12 @@ import { initI18n, t } from "./i18n"
 import { initializationData, initializationReady } from "./initialization"
 import { resetZoom, setPinchZoomEnabled, webviewZoom, zoomIn, zoomOut } from "./webview-zoom"
 import { availableStartupServer, readyWslConnections } from "./wsl/connections"
-import { AuthProvider, useAuth } from "@opencode-ai/app/context/auth"
+import { AuthProvider, useAuth } from "@m4spider/app/context/auth"
 import { LoginPage } from "./login"
 import { maskSensitiveText } from "./privacy-filter"
 import "./styles.css"
 
-import { useTheme } from "@opencode-ai/ui/theme/context"
+import { useTheme } from "@m4spider/ui/theme/context"
 
 const root = document.getElementById("root")
 if (import.meta.env.DEV && !(root instanceof HTMLElement)) {
@@ -53,7 +53,7 @@ if (import.meta.env.VITE_SENTRY_DSN) {
         (i) =>
           i.name !== "Breadcrumbs" &&
           !(
-            import.meta.env.OPENCODE_CHANNEL === "prod" &&
+            import.meta.env.M4SPIDER_CHANNEL === "prod" &&
             (i.name === "GlobalHandlers" || i.name === "BrowserApiErrors")
           ),
       )
@@ -66,13 +66,13 @@ void initI18n()
 const [updaterState, setUpdaterState] = createSignal<UpdaterState>({ status: "disabled" })
 void window.api.updater.subscribe(setUpdaterState)
 
-const deepLinkEvent = "opencode:deep-link"
+const deepLinkEvent = "m4spider:deep-link"
 
 const emitDeepLinks = (urls: string[]) => {
   if (urls.length === 0) return
-  window.__OPENCODE__ ??= {}
-  const pending = window.__OPENCODE__.deepLinks ?? []
-  window.__OPENCODE__.deepLinks = [...pending, ...urls]
+  window.__M4SPIDER__ ??= {}
+  const pending = window.__M4SPIDER__.deepLinks ?? []
+  window.__M4SPIDER__.deepLinks = [...pending, ...urls]
   window.dispatchEvent(new CustomEvent(deepLinkEvent, { detail: { urls } }))
 }
 
@@ -286,7 +286,7 @@ listenForDeepLinks()
 render(() => {
   const platform = createPlatform()
   const loadLocale = async () => {
-    const current = await platform.storage?.("opencode.global.dat").getItem("language")
+    const current = await platform.storage?.("m4spider.global.dat").getItem("language")
     const legacy = current ? undefined : await platform.storage?.().getItem("language.v1")
     const raw = current ?? legacy
     if (!raw) return

@@ -13,7 +13,7 @@ import pkg from "../package.json"
 import { ServerConnection } from "./context/server"
 // Dev badge override moved into index.css to avoid vite import resolution issues
 
-const DEFAULT_SERVER_URL_KEY = "opencode.settings.dat:defaultServerUrl"
+const DEFAULT_SERVER_URL_KEY = "m4spider.settings.dat:defaultServerUrl"
 
 const getLocale = () => {
   if (typeof navigator !== "object") return "en" as const
@@ -177,7 +177,7 @@ if (import.meta.env.VITE_SENTRY_DSN) {
     integrations: (integrations) => {
       return integrations.filter(
         (i) =>
-          i.name !== "Breadcrumbs" && !(import.meta.env.OPENCODE_CHANNEL === "prod" && i.name === "GlobalHandlers"),
+          i.name !== "Breadcrumbs" && !(import.meta.env.M4SPIDER_CHANNEL === "prod" && i.name === "GlobalHandlers"),
       )
     },
   })

@@ -25,7 +25,7 @@ describe("RuntimeFlags", () => {
             OPENCODE_PURE: "true",
             OPENCODE_DISABLE_DEFAULT_PLUGINS: "true",
             OPENCODE_AUTO_SHARE: "true",
-            OPENCODE_DISABLE_EMBEDDED_WEB_UI: "true",
+            M4SPIDER_DISABLE_EMBEDDED_WEB_UI: "true",
             OPENCODE_DISABLE_EXTERNAL_SKILLS: "true",
             OPENCODE_DISABLE_LSP_DOWNLOAD: "true",
             OPENCODE_EXPERIMENTAL: "true",
@@ -33,7 +33,7 @@ describe("RuntimeFlags", () => {
             OPENCODE_ENABLE_PARALLEL: "true",
             OPENCODE_ENABLE_EXPERIMENTAL_MODELS: "true",
             OPENCODE_ENABLE_QUESTION_TOOL: "true",
-            OPENCODE_CLIENT: "desktop",
+            M4SPIDER_CLIENT: "desktop",
           }),
         ),
       )
@@ -186,9 +186,9 @@ describe("RuntimeFlags", () => {
     }),
   )
 
-  it.effect("experimentalIconDiscovery reads OPENCODE_EXPERIMENTAL_ICON_DISCOVERY", () =>
+  it.effect("experimentalIconDiscovery reads M4SPIDER_EXPERIMENTAL_ICON_DISCOVERY", () =>
     Effect.gen(function* () {
-      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ OPENCODE_EXPERIMENTAL_ICON_DISCOVERY: "true" })))
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ M4SPIDER_EXPERIMENTAL_ICON_DISCOVERY: "true" })))
 
       expect(flags.experimentalIconDiscovery).toBe(true)
     }),
@@ -208,7 +208,7 @@ describe("RuntimeFlags", () => {
         Effect.provide(
           fromConfig({
             OPENCODE_EXPERIMENTAL: "true",
-            OPENCODE_EXPERIMENTAL_ICON_DISCOVERY: "false",
+            M4SPIDER_EXPERIMENTAL_ICON_DISCOVERY: "false",
           }),
         ),
       )
@@ -325,7 +325,7 @@ describe("RuntimeFlags", () => {
               OPENCODE_EXPERIMENTAL: "true",
               OPENCODE_ENABLE_EXA: "true",
               OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS: "1234",
-              OPENCODE_CLIENT: "desktop",
+              M4SPIDER_CLIENT: "desktop",
             }),
           ),
         ),

@@ -1,2 +1,2 @@
-export * from "@opencode-ai/tui/util/locale"
-export { Locale } from "@opencode-ai/tui/util/locale"
+export * from "@m4spider/tui/util/locale"
+export { Locale } from "@m4spider/tui/util/locale"

@@ -1,9 +1,9 @@
 import { expect, test, type Page } from "@playwright/test"
-import { base64Encode } from "@opencode-ai/core/util/encode"
+import { base64Encode } from "@m4spider/core/util/encode"
 import { mockOpenCodeServer } from "../utils/mock-server"
 import { expectAppVisible } from "../utils/waits"
 
-const directory = "C:/OpenCode/PromptThinkingLevelRegression"
+const directory = "C:/M4Spider/PromptThinkingLevelRegression"
 const projectID = "proj_prompt_thinking_level_regression"
 const sessionID = "ses_prompt_thinking_level_regression"
 

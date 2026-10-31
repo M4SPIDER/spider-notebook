@@ -1,4 +1,4 @@
-export const deepLinkEvent = "opencode:deep-link"
+export const deepLinkEvent = "m4spider:deep-link"
 
 const parseUrl = (input: string) => {
   if (!input.startsWith("opencode://")) return
@@ -37,14 +37,14 @@ export const collectNewSessionDeepLinks = (urls: string[]) =>
   urls.map(parseNewSessionDeepLink).filter((link): link is { directory: string; prompt?: string } => !!link)
 
 type OpenCodeWindow = Window & {
-  __OPENCODE__?: {
+  __M4SPIDER__?: {
     deepLinks?: string[]
   }
 }
 
 export const drainPendingDeepLinks = (target: OpenCodeWindow) => {
-  const pending = target.__OPENCODE__?.deepLinks ?? []
+  const pending = target.__M4SPIDER__?.deepLinks ?? []
   if (pending.length === 0) return []
-  if (target.__OPENCODE__) target.__OPENCODE__.deepLinks = []
+  if (target.__M4SPIDER__) target.__M4SPIDER__.deepLinks = []
   return pending
 }

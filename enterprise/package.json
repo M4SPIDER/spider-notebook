@@ -1,5 +1,5 @@
 {
-  "name": "@opencode-ai/enterprise",
+  "name": "@m4spider/enterprise",
   "version": "3.0.0",
   "private": true,
   "type": "module",
@@ -13,8 +13,8 @@
     "shell-prod": "sst shell --target Teams --stage production"
   },
   "dependencies": {
-    "@opencode-ai/core": "workspace:*",
-    "@opencode-ai/ui": "workspace:*",
+    "@m4spider/core": "workspace:*",
+    "@m4spider/ui": "workspace:*",
     "aws4fetch": "^1.0.20",
     "@pierre/diffs": "catalog:",
     "@solidjs/router": "catalog:",

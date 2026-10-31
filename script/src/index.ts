@@ -19,13 +19,13 @@ if (!semver.satisfies(process.versions.bun, expectedBunVersionRange)) {
 }
 
 const env = {
-  OPENCODE_CHANNEL: process.env["OPENCODE_CHANNEL"],
+  M4SPIDER_CHANNEL: process.env["M4SPIDER_CHANNEL"],
   OPENCODE_BUMP: process.env["OPENCODE_BUMP"],
   OPENCODE_VERSION: process.env["OPENCODE_VERSION"],
   OPENCODE_RELEASE: process.env["OPENCODE_RELEASE"],
 }
 const CHANNEL = await (async () => {
-  if (env.OPENCODE_CHANNEL) return env.OPENCODE_CHANNEL
+  if (env.M4SPIDER_CHANNEL) return env.M4SPIDER_CHANNEL
   if (env.OPENCODE_BUMP) return "latest"
   if (env.OPENCODE_VERSION && !env.OPENCODE_VERSION.startsWith("0.0.0-")) return "latest"
   const branch = await $`git -C ${repoRoot} branch --show-current`

@@ -1,9 +1,9 @@
 import { describe, expect } from "bun:test"
 import { Effect, Layer } from "effect"
 import { FetchHttpClient } from "effect/unstable/http"
-import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
-import { FSUtil } from "@opencode-ai/core/fs-util"
-import { EffectFlock } from "@opencode-ai/core/util/effect-flock"
+import { CrossSpawnSpawner } from "@m4spider/core/cross-spawn-spawner"
+import { FSUtil } from "@m4spider/core/fs-util"
+import { EffectFlock } from "@m4spider/core/util/effect-flock"
 import path from "path"
 import { pathToFileURL } from "url"
 import { EventV2Bridge } from "../../src/event-v2-bridge"
@@ -17,8 +17,8 @@ import { testEffect } from "../lib/effect"
 import { AccountTest } from "../fake/account"
 import { AuthTest } from "../fake/auth"
 import { NpmTest } from "../fake/npm"
-import { ProviderV2 } from "@opencode-ai/core/provider"
-import { ModelV2 } from "@opencode-ai/core/model"
+import { ProviderV2 } from "@m4spider/core/provider"
+import { ModelV2 } from "@m4spider/core/model"
 
 const configLayer = Config.layer.pipe(
   Layer.provide(EffectFlock.defaultLayer),

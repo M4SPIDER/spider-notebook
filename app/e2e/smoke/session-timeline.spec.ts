@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test"
-import { base64Encode } from "@opencode-ai/core/util/encode"
+import { base64Encode } from "@m4spider/core/util/encode"
 import { fixture, pageMessages } from "./session-timeline.fixture"
 import { trackPageErrors, expectNoSmokeErrors } from "../utils/errors"
 import { mockOpenCodeServer } from "../utils/mock-server"
@@ -69,7 +69,7 @@ async function configureSmokePage(page: Page, directory: string) {
 
   await page.addInitScript((directory) => {
     localStorage.setItem(
-      "opencode.global.dat:server",
+      "m4spider.global.dat:server",
       JSON.stringify({
         projects: {
           local: [{ worktree: directory, expanded: true }],

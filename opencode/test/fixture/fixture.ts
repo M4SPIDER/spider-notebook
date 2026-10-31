@@ -1,12 +1,12 @@
 import { $ } from "bun"
-import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
+import { ConfigV1 } from "@m4spider/core/v1/config/config"
 import * as fs from "fs/promises"
 import os from "os"
 import path from "path"
 import { Effect, Context, Layer } from "effect"
 import type * as PlatformError from "effect/PlatformError"
 import type * as Scope from "effect/Scope"
-import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
+import { CrossSpawnSpawner } from "@m4spider/core/cross-spawn-spawner"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import type { Config } from "@/config/config"
 import { InstanceRef } from "../../src/effect/instance-ref"
@@ -78,7 +78,7 @@ type TmpDirOptions<T> = {
   dispose?: (dir: string) => Promise<T>
 }
 export async function tmpdir<T>(options?: TmpDirOptions<T>) {
-  const dirpath = sanitizePath(path.join(os.tmpdir(), "opencode-test-" + Math.random().toString(36).slice(2)))
+  const dirpath = sanitizePath(path.join(os.tmpdir(), "m4spider-test-" + Math.random().toString(36).slice(2)))
   await fs.mkdir(dirpath, { recursive: true })
   if (options?.git) {
     await $`git init`.cwd(dirpath).quiet()
@@ -122,7 +122,7 @@ export function tmpdirScoped<E = never, R = never>(options?: {
 }) {
   return Effect.gen(function* () {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-    const dirpath = sanitizePath(path.join(os.tmpdir(), "opencode-test-" + Math.random().toString(36).slice(2)))
+    const dirpath = sanitizePath(path.join(os.tmpdir(), "m4spider-test-" + Math.random().toString(36).slice(2)))
     yield* Effect.promise(() => fs.mkdir(dirpath, { recursive: true }))
     const dir = sanitizePath(yield* Effect.promise(() => fs.realpath(dirpath)))
 

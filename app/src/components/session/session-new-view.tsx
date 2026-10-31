@@ -1,7 +1,7 @@
 import { createMemo } from "solid-js"
 import { useSync } from "@/context/sync"
 import { useSDK } from "@/context/sdk"
-import { getFilename } from "@opencode-ai/core/util/path"
+import { getFilename } from "@m4spider/core/util/path"
 
 const MAIN_WORKTREE = "main"
 const CREATE_WORKTREE = "create"

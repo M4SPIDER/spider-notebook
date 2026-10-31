@@ -1,7 +1,7 @@
 import { Effect } from "effect"
 import { effectCmd } from "../effect-cmd"
 import { withNetworkOptions, resolveNetworkOptions } from "../network"
-import { Flag } from "@opencode-ai/core/flag/flag"
+import { Flag } from "@m4spider/core/flag/flag"
 
 export const ServeCommand = effectCmd({
   command: "serve",
@@ -12,7 +12,7 @@ export const ServeCommand = effectCmd({
   instance: false,
   handler: Effect.fn("Cli.serve")(function* (args) {
     const { Server } = yield* Effect.promise(() => import("../../server/server"))
-    if (!Flag.OPENCODE_SERVER_PASSWORD) {
+    if (!Flag.M4SPIDER_SERVER_PASSWORD) {
       console.log("Warning: M4SPIDER_SERVER_PASSWORD is not set; server is unsecured.")
     }
     const opts = yield* resolveNetworkOptions(args)

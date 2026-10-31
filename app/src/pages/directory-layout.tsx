@@ -1,6 +1,6 @@
-import { DataProvider } from "@opencode-ai/ui/context"
+import { DataProvider } from "@m4spider/ui/context"
 import { showToast } from "@/utils/toast"
-import { base64Encode } from "@opencode-ai/core/util/encode"
+import { base64Encode } from "@m4spider/core/util/encode"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { createEffect, createMemo, createResource, type ParentProps, Show } from "solid-js"
 import { useLanguage } from "@/context/language"

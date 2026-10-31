@@ -10,12 +10,12 @@ import {
   type TuiPluginStatus,
   type TuiSlotPlugin,
   type TuiTheme,
-} from "@opencode-ai/plugin/tui"
+} from "@m4spider/plugin/tui"
 import path from "path"
 import { fileURLToPath } from "url"
 import { TuiConfig } from "@/config/tui"
-import { errorData, errorMessage } from "@opencode-ai/tui/util/error"
-import { isRecord } from "@opencode-ai/tui/util/record"
+import { errorData, errorMessage } from "@m4spider/tui/util/error"
+import { isRecord } from "@m4spider/tui/util/record"
 import { resolveHostAttentionSoundPaths } from "@/config/tui-host-attention"
 import {
   readPackageThemes,
@@ -28,20 +28,20 @@ import {
 import { PluginLoader } from "@/plugin/loader"
 import { PluginMeta } from "@/plugin/meta"
 import { installPlugin as installModulePlugin, patchPluginConfig, readPluginManifest } from "@/plugin/install"
-import { hasTheme, upsertTheme } from "@opencode-ai/tui/context/theme"
-import { Global } from "@opencode-ai/core/global"
+import { hasTheme, upsertTheme } from "@m4spider/tui/context/theme"
+import { Global } from "@m4spider/core/global"
 import { Filesystem } from "@/util/filesystem"
 import { Process } from "@/util/process"
-import { Flock } from "@opencode-ai/core/util/flock"
-import { Flag } from "@opencode-ai/core/flag/flag"
+import { Flock } from "@m4spider/core/util/flock"
+import { Flag } from "@m4spider/core/flag/flag"
 import { internalTuiPlugins, type InternalTuiPlugin } from "./internal"
-import type { HostPluginApi, HostSlots } from "@opencode-ai/tui/plugin/slots"
+import type { HostPluginApi, HostSlots } from "@m4spider/tui/plugin/slots"
 import { ConfigPlugin } from "@/config/plugin"
-import { ConfigPluginV1 } from "@opencode-ai/core/v1/config/plugin"
-import { createCommandShim } from "@opencode-ai/tui/plugin/command-shim"
+import { ConfigPluginV1 } from "@m4spider/core/v1/config/plugin"
+import { createCommandShim } from "@m4spider/tui/plugin/command-shim"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Effect } from "effect"
-import { createPluginRuntime, type PluginRuntime, type TuiPluginHost } from "@opencode-ai/tui/plugin/runtime"
+import { createPluginRuntime, type PluginRuntime, type TuiPluginHost } from "@m4spider/tui/plugin/runtime"
 
 ensureRuntimePluginSupport({ additional: keymapRuntimeModules })
 

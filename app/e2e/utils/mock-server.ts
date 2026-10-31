@@ -29,7 +29,7 @@ export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
       config: config.directory,
       worktree: config.directory,
       directory: config.directory,
-      home: "C:/OpenCode",
+      home: "C:/M4Spider",
     },
     "/project": [config.project],
     "/project/current": config.project,
