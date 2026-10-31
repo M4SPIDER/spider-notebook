@@ -130,20 +130,21 @@ function getWorkspaceDir(): string {
 
 function getMobileWebDir(): string {
   const candidates = [
-    path.join(__dirname, "../../resources/mobile-web"),
     path.join(process.resourcesPath || "", "mobile-web"),
     path.join(process.resourcesPath || "", "resources/mobile-web"),
+    path.join(__dirname, "../../resources/mobile-web"),
     path.join(__dirname, "../resources/mobile-web"),
-    "C:/Users/vvvr8/Downloads/packages/packages/desktop/resources/mobile-web",
-    "C:/Users/vvvr8/Downloads/spider-notebook-3.0.1-source/desktop/resources/mobile-web",
-    "C:/Users/vvvr8/Downloads/spider-ai-main/spider-ai-main/dist",
+    path.normalize("C:/Users/vvvr8/Downloads/packages/packages/desktop/resources/mobile-web"),
+    path.normalize("C:/Users/vvvr8/Downloads/spider-notebook-3.0.1-source/desktop/resources/mobile-web"),
+    path.normalize("C:/Users/vvvr8/Downloads/spider-ai-main/spider-ai-main/dist"),
   ]
   for (const dir of candidates) {
-    if (fs.existsSync(dir) && fs.existsSync(path.join(dir, "index.html"))) {
-      return dir
+    const norm = path.normalize(dir)
+    if (fs.existsSync(norm) && fs.existsSync(path.join(norm, "index.html"))) {
+      return norm
     }
   }
-  return "C:/Users/vvvr8/Downloads/spider-ai-main/spider-ai-main/dist"
+  return path.normalize("C:/Users/vvvr8/Downloads/spider-ai-main/spider-ai-main/dist")
 }
 
 const MIME_MAP: Record<string, string> = {
@@ -665,7 +666,7 @@ export async function setupMobileRemoteRoutes(req: any, res: any, mainWin: Brows
 
   // 10. Static File Serving from spider-ai dist (Pure Spider UI as it is)
   if (method === "GET") {
-    const webDir = getMobileWebDir()
+    const webDir = path.normalize(getMobileWebDir())
     let relativePath = pathname === "/" || pathname === "/remote" ? "/index.html" : pathname
     if (relativePath.startsWith("/remote/")) {
       relativePath = relativePath.replace("/remote", "")
