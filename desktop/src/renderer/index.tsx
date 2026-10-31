@@ -339,22 +339,43 @@ render(() => {
     ;(window as any).__spiderDesktopBridge__ = {
       getProjectInfo: () => {
         try {
+          const winObj = (window as any).__activeSpiderProject__
+          if (winObj && winObj.name && winObj.name !== 'spider-notebook') {
+            return winObj
+          }
+          const htmlDir = document.documentElement.getAttribute('data-active-directory') || ''
+          const htmlName = document.documentElement.getAttribute('data-active-project-name') || ''
+          if (htmlName && htmlName !== 'spider-notebook') {
+            return { name: htmlName, dir: htmlDir }
+          }
           let name = ''
           const projEl = document.querySelector('[data-project-name], header [data-component="breadcrumb"], header h1, header h2') as HTMLElement | null
           if (projEl && projEl.innerText) name = projEl.innerText.trim()
           if (!name && document.title) {
-            name = document.title.replace(/\s*[-—|].*$/, '').trim()
+            const t = document.title.replace(/\s*[-—|].*$/, '').trim()
+            if (t && t !== 'M4 Spider Notebook') name = t
           }
-          return { name: name || 'spider-notebook' }
+          const folderName = htmlDir ? htmlDir.split(/[\\/]/).filter(Boolean).pop() : ''
+          return { name: name || folderName || 'spider-notebook', dir: htmlDir }
         } catch (e) {
-          return { name: 'spider-notebook' }
+          return { name: 'spider-notebook', dir: '' }
         }
       },
       submitPrompt: (text: string) => {
         try {
           if (!text || !text.trim()) return false
           const cleanText = text.trim()
-          const editor = document.querySelector('[contenteditable="true"]') as HTMLElement | null
+          let editor = document.querySelector('[contenteditable="true"]') as HTMLElement | null
+          if (!editor) {
+            const newBtn = document.querySelector('button[data-action="session-new"], [aria-label*="New session"]') as HTMLButtonElement | null
+            if (newBtn) {
+              newBtn.click()
+              setTimeout(() => {
+                (window as any).__spiderDesktopBridge__?.submitPrompt(cleanText)
+              }, 120)
+              return true
+            }
+          }
           if (editor) {
             editor.focus()
             document.execCommand('selectAll', false)
@@ -412,11 +433,15 @@ render(() => {
 
     onMount(() => {
       const handleRemotePrompt = (e: any) => {
-        const text = e.detail || ''
+        const text = (typeof e === 'string' ? e : e?.detail) || ''
         if (text) (window as any).__spiderDesktopBridge__?.submitPrompt(text)
       }
       window.addEventListener('spider-remote-prompt', handleRemotePrompt)
-      onCleanup(() => window.removeEventListener('spider-remote-prompt', handleRemotePrompt))
+      const unsub = (window as any).api?.onRemotePrompt?.(handleRemotePrompt)
+      onCleanup(() => {
+        window.removeEventListener('spider-remote-prompt', handleRemotePrompt)
+        unsub?.()
+      })
     })
 
     return null

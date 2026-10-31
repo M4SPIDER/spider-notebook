@@ -592,6 +592,30 @@ export default function Layout(props: ParentProps) {
     }
   })
 
+  // Sync active project and workspace directory to DOM & window bridge for remote control
+  createEffect(() => {
+    const dir = currentDir()
+    const proj = currentProject()
+    const list = layout.projects.list()
+    const last = server.projects.last()
+    const activeDir = dir || proj?.worktree || last || list[0]?.worktree || ""
+    const activeName = proj?.name || (activeDir ? activeDir.split(/[\\/]/).filter(Boolean).pop() : "") || "spider-notebook"
+
+    if (typeof document !== "undefined") {
+      document.documentElement.setAttribute("data-active-directory", activeDir)
+      document.documentElement.setAttribute("data-active-project-name", activeName)
+      if (activeName && activeName !== "spider-notebook") {
+        document.title = `${activeName} — M4 Spider Notebook`
+      }
+    }
+    if (typeof window !== "undefined") {
+      ;(window as any).__activeSpiderProject__ = {
+        name: activeName,
+        dir: activeDir,
+      }
+    }
+  })
+
   const currentSessions = createMemo(() => {
     const now = Date.now()
     const dirs = visibleSessionDirs()

@@ -6,14 +6,122 @@ import { promisify } from "node:util"
 
 const execAsync = promisify(exec)
 
+function getSavedWorkspace(): { name: string; dir: string } | null {
+  try {
+    const appData = process.env.APPDATA || ""
+    const appDirs = ["ai.m4spider.desktop", "ai.m4spider.desktop.dev", "ai.m4spidernotebook", "ai.opencode.desktop"]
+    for (const dir of appDirs) {
+      const p = path.join(appData, dir, "opencode.global.dat")
+      if (fs.existsSync(p)) {
+        try {
+          const raw = JSON.parse(fs.readFileSync(p, "utf8"))
+          if (raw.server) {
+            const s = typeof raw.server === "string" ? JSON.parse(raw.server) : raw.server
+            const last = s?.lastProject?.local || s?.projects?.local?.[0]?.worktree
+            if (last && fs.existsSync(last)) {
+              return { name: path.basename(last) || "spider-notebook", dir: last }
+            }
+          }
+          if (raw.tabs) {
+            const tabs = typeof raw.tabs === "string" ? JSON.parse(raw.tabs) : raw.tabs
+            if (Array.isArray(tabs)) {
+              for (const t of tabs) {
+                if (t?.directory && fs.existsSync(t.directory)) {
+                  return { name: path.basename(t.directory) || "spider-notebook", dir: t.directory }
+                }
+                if (t?.dirBase64) {
+                  try {
+                    const dec = Buffer.from(t.dirBase64, "base64").toString("utf8")
+                    if (dec && fs.existsSync(dec)) {
+                      return { name: path.basename(dec) || "spider-notebook", dir: dec }
+                    }
+                  } catch {}
+                }
+              }
+            }
+          }
+        } catch {}
+      }
+    }
+  } catch {}
+  return null
+}
+
+function getAllSavedProjects(): Array<{ name: string; dir: string }> {
+  const result: Array<{ name: string; dir: string }> = []
+  const seen = new Set<string>()
+  try {
+    const appData = process.env.APPDATA || ""
+    const appDirs = ["ai.m4spider.desktop", "ai.m4spider.desktop.dev", "ai.m4spidernotebook", "ai.opencode.desktop"]
+    for (const dir of appDirs) {
+      const p = path.join(appData, dir, "opencode.global.dat")
+      if (fs.existsSync(p)) {
+        try {
+          const raw = JSON.parse(fs.readFileSync(p, "utf8"))
+          if (raw.server) {
+            const s = typeof raw.server === "string" ? JSON.parse(raw.server) : raw.server
+            const list = s?.projects?.local || []
+            for (const item of list) {
+              const wt = item?.worktree
+              if (wt && fs.existsSync(wt) && !seen.has(wt)) {
+                seen.add(wt)
+                result.push({ name: path.basename(wt), dir: wt })
+              }
+            }
+          }
+          if (raw.tabs) {
+            const tabs = typeof raw.tabs === "string" ? JSON.parse(raw.tabs) : raw.tabs
+            if (Array.isArray(tabs)) {
+              for (const t of tabs) {
+                const d = t?.directory
+                if (d && fs.existsSync(d) && !seen.has(d)) {
+                  seen.add(d)
+                  result.push({ name: path.basename(d), dir: d })
+                }
+                if (t?.dirBase64) {
+                  try {
+                    const dec = Buffer.from(t.dirBase64, "base64").toString("utf8")
+                    if (dec && fs.existsSync(dec)) {
+                      seen.add(dec)
+                      result.push({ name: path.basename(dec), dir: dec })
+                    }
+                  } catch {}
+                }
+              }
+            }
+          }
+        } catch {}
+      }
+    }
+  } catch {}
+
+  const defaults = [
+    "C:/Users/vvvr8/Downloads/game engine",
+    "C:/Users/vvvr8/Downloads/spider-notebook-3.0.1-source",
+    "C:/Users/vvvr8/Downloads/packages/packages",
+    "C:/Users/vvvr8/Downloads/google",
+  ]
+  for (const def of defaults) {
+    if (fs.existsSync(def) && !seen.has(def)) {
+      seen.add(def)
+      result.push({ name: path.basename(def), dir: def })
+    }
+  }
+  return result
+}
+
 function getWorkspaceDir(): string {
+  const saved = getSavedWorkspace()
+  if (saved && saved.dir) return saved.dir
+
   const candidates = [
+    "C:/Users/vvvr8/Downloads/game engine",
     "C:/Users/vvvr8/Downloads/spider-notebook-3.0.1-source",
     "C:/Users/vvvr8/Downloads/packages/packages",
     process.cwd(),
   ]
   for (const dir of candidates) {
-    if (fs.existsSync(dir) && fs.existsSync(path.join(dir, ".git"))) {
+    if (fs.existsSync(dir)) {
       return dir
     }
   }
@@ -64,8 +172,8 @@ let mobileChatStore: {
   project_dir: string
   chats: Array<{ id: string; title: string; createdAt: number; messages: any[] }>
 } = {
-  project_name: "spider-notebook",
-  project_dir: "",
+  project_name: (getSavedWorkspace()?.name || "game engine"),
+  project_dir: (getSavedWorkspace()?.dir || ""),
   revision: 1,
   host_user: {
     uid: "m4_spider_user",
@@ -110,14 +218,47 @@ export async function setupMobileRemoteRoutes(req: any, res: any, mainWin: Brows
 
   // 2. Spider AI Remote Info API
   if (pathname === "/api/remote/info") {
-    const cwd = getWorkspaceDir()
-    const folderName = path.basename(cwd)
+    const saved = getSavedWorkspace()
+    const cwd = saved?.dir || getWorkspaceDir()
+    const folderName = saved?.name || path.basename(cwd) || "game engine"
+
+    if (mainWin && !mainWin.isDestroyed()) {
+      try {
+        const liveInfo = await mainWin.webContents.executeJavaScript(`
+          (function() {
+            try {
+              if (window.__spiderDesktopBridge__) {
+                return window.__spiderDesktopBridge__.getProjectInfo();
+              }
+              const d = document.documentElement.getAttribute('data-active-directory');
+              const n = document.documentElement.getAttribute('data-active-project-name');
+              if (n || d) return { name: n || '', dir: d || '' };
+            } catch(e) {}
+            return null;
+          })()
+        `);
+        if (liveInfo) {
+          if (liveInfo.name && liveInfo.name !== "spider-notebook") {
+            mobileChatStore.project_name = liveInfo.name;
+          }
+          if (liveInfo.dir) {
+            mobileChatStore.project_dir = liveInfo.dir;
+          }
+        }
+      } catch (e) {}
+    }
+
+    if (!mobileChatStore.project_name || mobileChatStore.project_name === "spider-notebook") {
+      mobileChatStore.project_name = folderName;
+      mobileChatStore.project_dir = cwd;
+    }
+
     res.setHeader("Content-Type", "application/json")
     res.writeHead(200)
     res.end(JSON.stringify({
       status: "active",
       device_name: "M4 Spider Notebook (Desktop)",
-      project_name: mobileChatStore.project_name || folderName,
+      project_name: mobileChatStore.project_name,
       project_dir: mobileChatStore.project_dir || cwd,
       active: true,
       port: 4098,
@@ -144,8 +285,9 @@ export async function setupMobileRemoteRoutes(req: any, res: any, mainWin: Brows
 
   // 4. Spider AI Remote Chats GET (Real-time sync with desktop project & session)
   if (pathname === "/api/remote/chats" && method === "GET") {
-    const cwd = getWorkspaceDir()
-    const folderName = path.basename(cwd)
+    const saved = getSavedWorkspace()
+    const cwd = saved?.dir || getWorkspaceDir()
+    const folderName = saved?.name || path.basename(cwd) || "game engine"
 
     if (mainWin && !mainWin.isDestroyed()) {
       try {
@@ -159,12 +301,10 @@ export async function setupMobileRemoteRoutes(req: any, res: any, mainWin: Brows
                 msgs = window.__spiderDesktopBridge__.getMessages();
               }
 
-              if (!info || !info.name) {
-                let projName = '';
-                const projEl = document.querySelector('[data-project-name], header [data-component="breadcrumb"], header h1');
-                if (projEl && projEl.innerText) projName = projEl.innerText.trim();
-                if (!projName && document.title) projName = document.title.replace(/\\s*[-—|].*$/, '').trim();
-                info = { name: projName || '', dir: '' };
+              if (!info || !info.name || info.name === 'spider-notebook') {
+                const d = document.documentElement.getAttribute('data-active-directory') || '';
+                const n = document.documentElement.getAttribute('data-active-project-name') || '';
+                if (n) info = { name: n, dir: d };
               }
 
               if (!msgs || msgs.length === 0) {
@@ -204,7 +344,7 @@ export async function setupMobileRemoteRoutes(req: any, res: any, mainWin: Brows
         `);
 
         if (desktopData) {
-          if (desktopData.info && desktopData.info.name) {
+          if (desktopData.info && desktopData.info.name && desktopData.info.name !== "spider-notebook") {
             mobileChatStore.project_name = desktopData.info.name;
             mobileChatStore.project_dir = desktopData.info.dir || cwd;
             mobileChatStore.chats[0].title = desktopData.info.name;
@@ -221,7 +361,7 @@ export async function setupMobileRemoteRoutes(req: any, res: any, mainWin: Brows
       } catch (e) {}
     }
 
-    if (!mobileChatStore.project_name) {
+    if (!mobileChatStore.project_name || mobileChatStore.project_name === "spider-notebook") {
       mobileChatStore.project_name = folderName;
       mobileChatStore.project_dir = cwd;
       mobileChatStore.chats[0].title = folderName;
@@ -230,6 +370,62 @@ export async function setupMobileRemoteRoutes(req: any, res: any, mainWin: Brows
     res.setHeader("Content-Type", "application/json")
     res.writeHead(200)
     res.end(JSON.stringify(mobileChatStore))
+    return true
+  }
+
+  // 4b. List all available PC projects for mobile client
+  if (pathname === "/api/remote/projects" && method === "GET") {
+    const list = getAllSavedProjects()
+    res.setHeader("Content-Type", "application/json")
+    res.writeHead(200)
+    res.end(JSON.stringify({
+      active: {
+        name: mobileChatStore.project_name,
+        dir: mobileChatStore.project_dir,
+      },
+      projects: list,
+    }))
+    return true
+  }
+
+  // 4c. Switch active project from mobile client
+  if (pathname === "/api/remote/projects/switch" && method === "POST") {
+    let body = ""
+    for await (const chunk of req) body += chunk
+    try {
+      const data = JSON.parse(body)
+      const targetDir = data.directory || data.dir || ""
+      if (targetDir && fs.existsSync(targetDir)) {
+        const targetName = path.basename(targetDir)
+        mobileChatStore.project_name = targetName
+        mobileChatStore.project_dir = targetDir
+        mobileChatStore.chats[0].title = targetName
+
+        if (mainWin && !mainWin.isDestroyed()) {
+          mainWin.webContents.send("deep-link", [targetDir])
+          const slug = Buffer.from(targetDir).toString("base64")
+          await mainWin.webContents.executeJavaScript(`
+            (function() {
+              try {
+                window.location.hash = '/${slug}/session';
+                window.dispatchEvent(new CustomEvent('spider-open-project', { detail: ${JSON.stringify(targetDir)} }));
+              } catch(e) {}
+            })()
+          `)
+        }
+        res.setHeader("Content-Type", "application/json")
+        res.writeHead(200)
+        res.end(JSON.stringify({ status: "success", project_name: targetName, project_dir: targetDir }))
+        return true
+      }
+      res.setHeader("Content-Type", "application/json")
+      res.writeHead(400)
+      res.end(JSON.stringify({ error: "Directory not found on host PC" }))
+    } catch (e) {
+      res.setHeader("Content-Type", "application/json")
+      res.writeHead(400)
+      res.end(JSON.stringify({ error: e.message }))
+    }
     return true
   }
 
