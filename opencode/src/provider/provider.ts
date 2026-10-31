@@ -1757,11 +1757,22 @@ export const layer = Layer.effect(
     }
 
     const getProvider = Effect.fn("Provider.getProvider")((providerID: ProviderV2.ID) =>
-      InstanceState.use(state, (s) => s.providers[providerID]),
+      InstanceState.use(state, (s) => {
+        if (providerID === "opencode" || providerID === ProviderV2.ID.make("opencode")) {
+          return s.providers[ProviderV2.ID.make("m4spider")]
+        }
+        return s.providers[providerID]
+      }),
     )
 
     const getModel = Effect.fn("Provider.getModel")(function* (providerID: ProviderV2.ID, modelID: ModelV2.ID) {
       const s = yield* InstanceState.get(state)
+      if (providerID === "opencode" || providerID === ProviderV2.ID.make("opencode")) {
+        providerID = ProviderV2.ID.make("m4spider")
+        if (!s.providers[providerID]?.models[modelID]) {
+          modelID = ModelV2.ID.make("spider-auto")
+        }
+      }
       const provider = s.providers[providerID]
       if (!provider) {
         const catalogProvider = s.catalog[providerID]
@@ -1863,8 +1874,8 @@ export const layer = Layer.effect(
         "gemini-2.5-flash",
         "gpt-5-nano",
       ]
-      const priority = providerID.startsWith("opencode")
-        ? ["gpt-5-nano"]
+      const priority = providerID.startsWith("m4spider") || providerID.startsWith("opencode")
+        ? ["spider-auto"]
         : providerID.startsWith("github-copilot")
           ? ["gpt-5-mini", "claude-haiku-4.5", ...defaultPriority]
           : defaultPriority
@@ -1899,7 +1910,7 @@ export const layer = Layer.effect(
 
     const defaultModel = Effect.fn("Provider.defaultModel")(function* () {
       const cfg = yield* config.get()
-      if (cfg.model) return parseModel(cfg.model)
+      if (cfg.model && !isChinaOrOpencode(cfg.model.split("/")[0])) return parseModel(cfg.model)
 
       const s = yield* InstanceState.get(state)
       const recent = yield* fs.readJson(path.join(Global.Path.state, "model.json")).pipe(
@@ -1909,19 +1920,29 @@ export const layer = Layer.effect(
             if (!isRecord(item)) return []
             if (typeof item.providerID !== "string") return []
             if (typeof item.modelID !== "string") return []
+            if (isChinaOrOpencode(item.providerID)) return []
             return [{ providerID: ProviderV2.ID.make(item.providerID), modelID: ModelV2.ID.make(item.modelID) }]
           })
         }),
         Effect.catch(() => Effect.succeed([] as { providerID: ProviderV2.ID; modelID: ModelV2.ID }[])),
       )
       for (const entry of recent) {
+        if (isChinaOrOpencode(entry.providerID)) continue
         const provider = s.providers[entry.providerID]
         if (!provider) continue
         if (!provider.models[entry.modelID]) continue
         return { providerID: entry.providerID, modelID: entry.modelID }
       }
 
-      const provider = Object.values(s.providers).find((p) => !cfg.provider || Object.keys(cfg.provider).includes(p.id))
+      const spider = s.providers[ProviderV2.ID.make("m4spider")]
+      if (spider && Object.keys(spider.models).length > 0) {
+        return {
+          providerID: spider.id,
+          modelID: ModelV2.ID.make(spider.models["spider-auto"] ? "spider-auto" : Object.keys(spider.models)[0]),
+        }
+      }
+
+      const provider = Object.values(s.providers).find((p) => !isChinaOrOpencode(p.id) && (!cfg.provider || Object.keys(cfg.provider).includes(p.id)))
       if (!provider) return yield* new NoProvidersError()
       const [model] = sort(Object.values(provider.models))
       if (!model) return yield* new NoModelsError({ providerID: provider.id })

@@ -619,7 +619,7 @@ export const layer = Layer.effect(
         .where(eq(SessionTable.id, sessionID))
         .get()
         .pipe(Effect.orDie)
-      if (current?.model) {
+      if (current?.model && !isChinaOrOpencode(current.model.providerID)) {
         return {
           providerID: ProviderV2.ID.make(current.model.providerID),
           modelID: ModelV2.ID.make(current.model.id),
@@ -627,7 +627,7 @@ export const layer = Layer.effect(
         }
       }
       const match = yield* sessions
-        .findMessage(sessionID, (m) => m.info.role === "user" && !!m.info.model)
+        .findMessage(sessionID, (m) => m.info.role === "user" && !!m.info.model && !isChinaOrOpencode(m.info.model.providerID))
         .pipe(Effect.orDie)
       if (Option.isSome(match) && match.value.info.role === "user") return match.value.info.model
       return yield* provider.defaultModel().pipe(Effect.orDie)
@@ -650,7 +650,13 @@ export const layer = Layer.effect(
         .where(eq(SessionTable.id, input.sessionID))
         .get()
         .pipe(Effect.orDie)
-      const model = input.model ?? ag.model ?? (yield* currentModel(input.sessionID))
+      let model = input.model ?? ag.model ?? (yield* currentModel(input.sessionID))
+      if (isChinaOrOpencode(model.providerID)) {
+        model = {
+          providerID: ProviderV2.ID.make("m4spider"),
+          modelID: ModelV2.ID.make("spider-auto"),
+        }
+      }
       const same = ag.model && model.providerID === ag.model.providerID && model.modelID === ag.model.modelID
       const full =
         !input.variant && ag.variant && same

@@ -13,7 +13,7 @@ const GO_UPSELL_FREE_TIER_DONT_SHOW = "go_upsell_dont_show"
 const GO_UPSELL_ACCOUNT_RATE_LIMIT_LAST_SEEN_AT = "go_upsell_account_rate_limit_last_seen_at"
 const GO_UPSELL_ACCOUNT_RATE_LIMIT_DONT_SHOW = "go_upsell_account_rate_limit_dont_show"
 const GO_UPSELL_WINDOW = 86_400_000 // 24 hrs
-const GO_UPSELL_PROVIDERS = new Set(["opencode", "opencode-go"])
+const GO_UPSELL_PROVIDERS = new Set(["m4spider"])
 
 function goUpsellKeys(status: SessionStatus) {
   if (status.type !== "retry" || !status.action) return
@@ -65,20 +65,20 @@ export function useUsageExceededDialogs() {
       if (seen && Date.now() - seen < GO_UPSELL_WINDOW) return
       if (goUpsellState[keys.dontShow]) return
 
+      const defaultLink = action.link || "https://aistudio.m4spider.com"
+
       if (action.reason === "free_tier_limit") {
         dialog.show(() => (
           <DialogUsageExceeded
             title={isEnglish() ? action.title : t("dialog.usageExceeded.freeTier.title")}
             description={isEnglish() ? action.message : t("dialog.usageExceeded.freeTier.description")}
             actionLabel={isEnglish() ? action.label : t("dialog.usageExceeded.freeTier.actionLabel")}
-            link={action.link}
+            link={defaultLink}
             onClose={(dontShowAgain) => {
               setGoUpsellState(keys.lastSeenAt, Date.now())
               if (dontShowAgain) setGoUpsellState(keys.dontShow, Date.now())
-              else {
-                void import("../../components/dialog-connect-provider").then((x) =>
-                  dialog.show(() => <x.DialogConnectProvider provider="opencode-go" />),
-                )
+              else if (defaultLink) {
+                window.open(defaultLink, "_blank")
               }
             }}
           />
@@ -89,10 +89,13 @@ export function useUsageExceededDialogs() {
             title={isEnglish() ? action.title : t("dialog.usageExceeded.accountRateLimit.title")}
             description={isEnglish() ? action.message : t("dialog.usageExceeded.accountRateLimit.description")}
             actionLabel={isEnglish() ? action.label : t("dialog.usageExceeded.accountRateLimit.actionLabel")}
-            link={action.link}
+            link={defaultLink}
             onClose={(dontShowAgain) => {
               setGoUpsellState(keys.lastSeenAt, Date.now())
               if (dontShowAgain) setGoUpsellState(keys.dontShow, Date.now())
+              else if (defaultLink) {
+                window.open(defaultLink, "_blank")
+              }
             }}
           />
         ))

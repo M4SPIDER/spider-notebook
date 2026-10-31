@@ -4,7 +4,7 @@ import { useParams } from "@solidjs/router"
 import { batch, createEffect, createMemo } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useModels } from "@/context/models"
-import { useProviders } from "@/hooks/use-providers"
+import { useProviders, isChinaOrOpencode } from "@/hooks/use-providers"
 import { Persist, persisted } from "@/utils/persist"
 import { cycleModelVariant, getConfiguredAgentVariant, resolveModelVariant } from "./model-variant"
 import { useSDK } from "./sdk"
@@ -29,6 +29,22 @@ const handoff = new Map<string, State>()
 
 const handoffKey = (scope: ServerScope, dir: string, id: string) => ScopedKey.from(scope, dir, id)
 
+const cleanSessions = (sess: Record<string, State | undefined>) => {
+  const result: Record<string, State | undefined> = {}
+  for (const [k, v] of Object.entries(sess)) {
+    if (!v) continue
+    if (v.model && isChinaOrOpencode(v.model.providerID)) {
+      result[k] = {
+        ...v,
+        model: { providerID: "m4spider", modelID: "spider-auto" },
+      }
+    } else {
+      result[k] = v
+    }
+  }
+  return result
+}
+
 const migrate = (value: unknown) => {
   if (!value || typeof value !== "object") return { session: {} }
 
@@ -37,11 +53,11 @@ const migrate = (value: unknown) => {
     pick?: Record<string, State | undefined>
   }
 
-  if (item.session && typeof item.session === "object") return { session: item.session }
+  if (item.session && typeof item.session === "object") return { session: cleanSessions(item.session) }
   if (!item.pick || typeof item.pick !== "object") return { session: {} }
 
   return {
-    session: Object.fromEntries(Object.entries(item.pick).filter(([key]) => key !== WORKSPACE_KEY)),
+    session: cleanSessions(Object.fromEntries(Object.entries(item.pick).filter(([key]) => key !== WORKSPACE_KEY))),
   }
 }
 
@@ -390,9 +406,13 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           if (saved.session[session] !== undefined) return
           if (handoff.has(handoffKey(serverSDK.scope, sdk.directory, session))) return
 
+          const model = msg.model && !isChinaOrOpencode(msg.model.providerID)
+            ? msg.model
+            : { providerID: "m4spider", modelID: "spider-auto" }
+
           setSaved("session", session, {
             agent: msg.agent,
-            model: msg.model,
+            model,
             variant: msg.model?.variant ?? null,
           })
         },
