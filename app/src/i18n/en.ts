@@ -103,7 +103,7 @@ export const dict = {
   "dialog.provider.tag.recommended": "Recommended",
   "dialog.provider.opencode.note": "Curated models including Spider AI Flash, Spider AI V1 and more",
   "dialog.provider.opencode.tagline": "M4 Spider optimized models",
-  "dialog.provider.opencodeGo.tagline": "M4 Spider subscription",
+  "dialog.provider.M4 Spider.tagline": "M4 Spider subscription",
   "dialog.provider.anthropic.note": "Direct access to Claude models, including Pro and Max",
   "dialog.provider.copilot.note": "AI models for coding assistance via GitHub Copilot",
   "dialog.provider.openai.note": "GPT models for fast, capable general AI tasks",
@@ -555,7 +555,7 @@ export const dict = {
   "error.chain.responseBody": "Response body:\n{{body}}",
   "error.chain.didYouMean": "Did you mean: {{suggestions}}",
   "error.chain.modelNotFound": "Model not found: {{provider}}/{{model}}",
-  "error.chain.checkConfig": "Check your config (opencode.json) provider/model names",
+  "error.chain.checkConfig": "Check your config (spider-notebook.json) provider/model names",
   "error.chain.mcpFailed": 'MCP server "{{name}}" failed. Note, M4 Spider does not support MCP authentication yet.',
   "error.chain.providerAuthFailed": "Provider authentication failed ({{provider}}): {{message}}",
   "error.chain.providerInitFailed":
