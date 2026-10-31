@@ -3,7 +3,7 @@ import { Component, ComponentProps, createMemo, JSX, Show, ValidComponent } from
 import { createStore } from "solid-js/store"
 import { useLocal } from "@/context/local"
 import { useDialog } from "@m4spider/ui/context/dialog"
-import { popularProviders } from "@/hooks/use-providers"
+import { popularProviders, isChinaOrLegacyBlocked } from "@/hooks/use-providers"
 import { Button } from "@m4spider/ui/button"
 import { IconButton } from "@m4spider/ui/icon-button"
 import { Tag } from "@m4spider/ui/tag"
@@ -31,6 +31,7 @@ const ModelList: Component<{
   const models = createMemo(() =>
     model
       .list()
+      .filter((m) => !isChinaOrLegacyBlocked(m.provider.id))
       .filter((m) => model.visible({ modelID: m.id, providerID: m.provider.id }))
       .filter((m) => (props.provider ? m.provider.id === props.provider : true)),
   )
@@ -44,7 +45,13 @@ const ModelList: Component<{
       items={models}
       current={model.current()}
       filterKeys={["provider.name", "name", "id"]}
-      sortBy={(a, b) => a.name.localeCompare(b.name)}
+      sortBy={(a, b) => {
+        const aAuto = a.provider.id === "m4spider" && (a.id === "spider-auto" || a.id === "auto")
+        const bAuto = b.provider.id === "m4spider" && (b.id === "spider-auto" || b.id === "auto")
+        if (aAuto && !bAuto) return -1
+        if (!aAuto && bAuto) return 1
+        return a.name.localeCompare(b.name)
+      }}
       groupBy={(x) => x.provider.name}
       sortGroupsBy={(a, b) => {
         const aProvider = a.items[0].provider.id

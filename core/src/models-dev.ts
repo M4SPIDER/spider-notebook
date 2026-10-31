@@ -11,6 +11,58 @@ import { EventV2 } from "./event"
 import { LayerNode } from "./effect/layer-node"
 import { httpClient } from "./effect/layer-node-platform"
 
+export function isChinaOrLegacyBlocked(id: string): boolean {
+  if (!id) return true
+  const lower = id.toLowerCase().trim()
+  if (lower === "m4spider" || lower.startsWith("m4spider")) {
+    return false
+  }
+  if (lower === "opencode" || lower.startsWith("opencode-") || lower.includes("opencode")) {
+    return true
+  }
+  const chinaTerms = [
+    "deepseek",
+    "minimax",
+    "moonshot",
+    "kimi",
+    "zhipu",
+    "chatglm",
+    "alibaba",
+    "qwen",
+    "dashscope",
+    "aliyun",
+    "modelscope",
+    "stepfun",
+    "siliconflow",
+    "volcengine",
+    "doubao",
+    "bytedance",
+    "tencent",
+    "hunyuan",
+    "sensenova",
+    "sensetime",
+    "xiaomi",
+    "baichuan",
+    "baidu",
+    "ernie",
+    "01-ai",
+    "lingyi",
+    "302ai",
+    "jiekou",
+    "vivgrid",
+    "meganova",
+    "qiniu",
+    "qihang",
+    "meituan",
+    "kuae",
+    "zai",
+  ]
+  if (lower.endsWith("-cn") || lower.includes("-cn-") || lower.includes(".cn") || lower.startsWith("cn-")) {
+    return true
+  }
+  return chinaTerms.some((term) => lower.includes(term))
+}
+
 export const CatalogModelStatus = Schema.Literals(["alpha", "beta", "deprecated"])
 export type CatalogModelStatus = typeof CatalogModelStatus.Type
 
@@ -196,11 +248,85 @@ export const layer = Layer.effect(
       return text
     })
 
+    const sanitizeProviders = (raw: Record<string, Provider> | undefined): Record<string, Provider> => {
+      if (!raw) return {}
+      if (raw["opencode"] && !raw["m4spider"]) {
+        raw["m4spider"] = {
+          ...raw["opencode"],
+          id: "m4spider",
+          name: "M4 Spider AI Gateway",
+        }
+      }
+      if (raw["m4spider"]) {
+        const autoModel = {
+  "id": "spider-auto",
+  "name": "M4 Spider Auto Mode",
+  "description": "Intelligent auto-router that automatically selects the best model for each task with optimal reasoning, speed, and latency",
+  "family": "m4spider",
+  "attachment": true,
+  "reasoning": true,
+  "reasoning_options": [
+    {
+      "type": "effort",
+      "values": [
+        "low",
+        "medium",
+        "high"
+      ]
+    }
+  ],
+  "tool_call": true,
+  "structured_output": true,
+  "temperature": true,
+  "knowledge": "2026-03",
+  "release_date": "2026-03-01",
+  "last_updated": "2026-10-31",
+  "modalities": {
+    "input": [
+      "text",
+      "image"
+    ],
+    "output": [
+      "text"
+    ]
+  },
+  "open_weights": false,
+  "limit": {
+    "context": 200000,
+    "output": 128000
+  },
+  "status": "active",
+  "provider": {
+    "api": "https://opencode.ai/inference/openai/v1"
+  },
+  "cost": {
+    "input": 0,
+    "output": 0,
+    "cache_read": 0
+  },
+  "canonical_model_id": "deepseek-v4-flash-free"
+};
+        const autoAlias = { ...autoModel, id: "auto", name: "M4 Spider Auto Mode" };
+        raw["m4spider"].models = {
+          "spider-auto": autoModel as any,
+          "auto": autoAlias as any,
+          ...raw["m4spider"].models,
+        };
+      }
+      const clean: Record<string, Provider> = {}
+      for (const [key, provider] of Object.entries(raw)) {
+        if (!isChinaOrLegacyBlocked(key)) {
+          clean[key] = provider
+        }
+      }
+      return clean
+    }
+
     const populate = Effect.gen(function* () {
       const fromDisk = yield* loadFromDisk
-      if (fromDisk) return fromDisk
+      if (fromDisk) return sanitizeProviders(fromDisk)
       const snapshot = yield* loadSnapshot
-      if (snapshot) return snapshot
+      if (snapshot) return sanitizeProviders(snapshot)
       if (Flag.M4SPIDER_DISABLE_MODELS_FETCH) return {}
       // Flock is cross-process: concurrent m4spider CLIs can race on this cache file.
       const text = yield* Effect.scoped(
@@ -209,7 +335,7 @@ export const layer = Layer.effect(
           return yield* fetchAndWrite()
         }),
       )
-      return JSON.parse(text) as Record<string, Provider>
+      return sanitizeProviders(JSON.parse(text) as Record<string, Provider>)
     }).pipe(Effect.withSpan("ModelsDev.populate"), Effect.orDie)
 
     const [cachedGet, invalidate] = yield* Effect.cachedInvalidateWithTTL(populate, Duration.infinity)

@@ -109,13 +109,21 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       return map
     })
 
-    const list = createMemo(() =>
-      available().map((m) => ({
+    const list = createMemo(() => {
+      const items = available().map((m) => ({
         ...m,
         name: m.name.replace("(latest)", "").trim(),
         latest: m.name.includes("(latest)"),
-      })),
-    )
+      }))
+      items.sort((a, b) => {
+        const aAuto = a.provider.id === "m4spider" && (a.id === "spider-auto" || a.id === "auto")
+        const bAuto = b.provider.id === "m4spider" && (b.id === "spider-auto" || b.id === "auto")
+        if (aAuto && !bAuto) return -1
+        if (!aAuto && bAuto) return 1
+        return 0
+      })
+      return items
+    })
 
     const find = (key: ModelKey) => list().find((m) => m.id === key.modelID && m.provider.id === key.providerID)
 
@@ -133,6 +141,7 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       const state = visibility().get(key)
       if (state === "hide") return false
       if (state === "show") return true
+      if (model.providerID === "m4spider" && (model.modelID === "spider-auto" || model.modelID === "auto")) return true
       if (latestSet().has(key)) return true
       const date = release().get(key)
       if (!date?.isValid) return true
