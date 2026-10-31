@@ -14,11 +14,8 @@ import { httpClient } from "./effect/layer-node-platform"
 export function isChinaOrLegacyBlocked(id: string): boolean {
   if (!id) return true
   const lower = id.toLowerCase().trim()
-  if (lower === "m4spider" || lower.startsWith("m4spider")) {
+  if (lower === "opencode" || lower === "m4spider") {
     return false
-  }
-  if (lower === "opencode" || lower.startsWith("opencode-") || lower.includes("opencode")) {
-    return true
   }
   const chinaTerms = [
     "deepseek",
@@ -250,78 +247,53 @@ export const layer = Layer.effect(
 
     const sanitizeProviders = (raw: Record<string, Provider> | undefined): Record<string, Provider> => {
       if (!raw) return {}
-      if (!raw["m4spider"]) {
-        const base = raw["opencode"] || {
-          id: "m4spider",
-          name: "M4 Spider AI Gateway",
-          env: ["OPENCODE_API_KEY", "M4SPIDER_API_KEY"],
-          npm: "@ai-sdk/openai-compatible",
-          api: "https://opencode.ai/inference/openai/v1",
-          models: {},
-        }
-        raw["m4spider"] = {
-          ...base,
-          id: "m4spider",
-          name: "M4 Spider AI Gateway",
-          models: { ...(base.models || {}) },
-        }
+      const autoModel = {
+        id: "spider-auto",
+        name: "M4 Spider Auto Mode",
+        description: "Intelligent auto-router that automatically selects the best model for each task with optimal reasoning, speed, and latency",
+        family: "m4spider",
+        attachment: true,
+        reasoning: true,
+        reasoning_options: [{ type: "effort", values: ["low", "medium", "high"] }],
+        tool_call: true,
+        structured_output: true,
+        temperature: true,
+        knowledge: "2026-03",
+        release_date: "2026-03-01",
+        last_updated: "2026-10-31",
+        modalities: { input: ["text", "image"], output: ["text"] },
+        open_weights: false,
+        limit: { context: 200000, output: 128000 },
+        status: "active",
+        provider: { api: "https://opencode.ai/inference/openai/v1" },
+        cost: { input: 0, output: 0, cache_read: 0 },
+        canonical_model_id: "deepseek-v4-flash-free",
       }
-      if (raw["m4spider"]) {
-        const autoModel = {
-  "id": "spider-auto",
-  "name": "M4 Spider Auto Mode",
-  "description": "Intelligent auto-router that automatically selects the best model for each task with optimal reasoning, speed, and latency",
-  "family": "m4spider",
-  "attachment": true,
-  "reasoning": true,
-  "reasoning_options": [
-    {
-      "type": "effort",
-      "values": [
-        "low",
-        "medium",
-        "high"
-      ]
-    }
-  ],
-  "tool_call": true,
-  "structured_output": true,
-  "temperature": true,
-  "knowledge": "2026-03",
-  "release_date": "2026-03-01",
-  "last_updated": "2026-10-31",
-  "modalities": {
-    "input": [
-      "text",
-      "image"
-    ],
-    "output": [
-      "text"
-    ]
-  },
-  "open_weights": false,
-  "limit": {
-    "context": 200000,
-    "output": 128000
-  },
-  "status": "active",
-  "provider": {
-    "api": "https://opencode.ai/inference/openai/v1"
-  },
-  "cost": {
-    "input": 0,
-    "output": 0,
-    "cache_read": 0
-  },
-  "canonical_model_id": "deepseek-v4-flash-free"
-};
-        const autoAlias = { ...autoModel, id: "auto", name: "M4 Spider Auto Mode" };
-        raw["m4spider"].models = {
+      const autoAlias = { ...autoModel, id: "auto", name: "M4 Spider Auto Mode" }
+
+      // OpenCode provider has all its models + M4 Spider Auto Mode
+      if (raw["opencode"]) {
+        raw["opencode"].name = "OpenCode"
+        raw["opencode"].models = {
           "spider-auto": autoModel as any,
           "auto": autoAlias as any,
-          ...raw["m4spider"].models,
-        };
+          ...raw["opencode"].models,
+        }
       }
+
+      // M4 Spider provider has ONLY M4 Spider Auto Mode (does NOT have 50 models!)
+      raw["m4spider"] = {
+        id: "m4spider",
+        name: "M4 Spider",
+        env: ["M4SPIDER_API_KEY", "OPENCODE_API_KEY"],
+        npm: "@ai-sdk/openai-compatible",
+        api: "https://opencode.ai/inference/openai/v1",
+        models: {
+          "spider-auto": autoModel as any,
+          "auto": autoAlias as any,
+        },
+      } as any
+
       const clean: Record<string, Provider> = {}
       for (const [key, provider] of Object.entries(raw)) {
         if (!isChinaOrLegacyBlocked(key)) {

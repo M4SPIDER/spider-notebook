@@ -173,6 +173,8 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     }
 
     const defaultModel = () => {
+      const spiderAutoOC = { providerID: "opencode", modelID: "spider-auto" }
+      if (validModel(spiderAutoOC)) return spiderAutoOC
       const spiderAuto = { providerID: "m4spider", modelID: "spider-auto" }
       if (validModel(spiderAuto)) return spiderAuto
       const defaults = providers.default()

@@ -14,7 +14,7 @@ import { ModelTooltip } from "./model-tooltip"
 import { useLanguage } from "@/context/language"
 
 const isFree = (provider: string, cost: { input: number } | undefined) =>
-  provider === "m4spider" && (!cost || cost.input === 0)
+  (provider === "m4spider" || provider === "opencode") && (!cost || cost.input === 0)
 
 type ModelState = ReturnType<typeof useLocal>["model"]
 
@@ -46,8 +46,8 @@ const ModelList: Component<{
       current={model.current()}
       filterKeys={["provider.name", "name", "id"]}
       sortBy={(a, b) => {
-        const aAuto = a.provider.id === "m4spider" && (a.id === "spider-auto" || a.id === "auto")
-        const bAuto = b.provider.id === "m4spider" && (b.id === "spider-auto" || b.id === "auto")
+        const aAuto = (a.provider.id === "m4spider" || a.provider.id === "opencode") && (a.id === "spider-auto" || a.id === "auto")
+        const bAuto = (b.provider.id === "m4spider" || b.provider.id === "opencode") && (b.id === "spider-auto" || b.id === "auto")
         if (aAuto && !bAuto) return -1
         if (!aAuto && bAuto) return 1
         return a.name.localeCompare(b.name)

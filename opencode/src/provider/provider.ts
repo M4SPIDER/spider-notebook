@@ -176,6 +176,37 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
           },
         },
       }),
+    opencode: Effect.fnUntraced(function* (input: Info) {
+      const env = yield* dep.env()
+      const hasKey = iife(() => {
+        if (input.env.some((item) => env[item])) return true
+        return false
+      })
+      const ok =
+        hasKey ||
+        Boolean(yield* dep.auth(input.id)) ||
+        Boolean((yield* dep.config()).provider?.["opencode"]?.options?.apiKey)
+
+      if (!ok) {
+        for (const [key, value] of Object.entries(input.models)) {
+          const FREE_MODELS = new Set([
+            "spider-auto",
+            "auto",
+            "deepseek-v4-flash-free",
+            "mimo-v2.5-free",
+            "x-preview-f-free",
+            "muse-spark-1.2-contributor-free",
+          ])
+          if (FREE_MODELS.has(key)) continue
+          delete input.models[key]
+        }
+      }
+
+      return {
+        autoload: Object.keys(input.models).length > 0,
+        options: ok ? {} : { apiKey: "public" },
+      }
+    }),
     m4spider: Effect.fnUntraced(function* (input: Info) {
       const env = yield* dep.env()
       const hasKey = iife(() => {
@@ -1300,79 +1331,57 @@ export const layer = Layer.effect(
         const bridge = yield* EffectBridge.make()
         const cfg = yield* config.get()
         const modelsDev = yield* modelsDevSvc.get()
-        if (!modelsDev["m4spider"]) {
-          const base = modelsDev["opencode"] || {
-            id: "m4spider",
-            name: "M4 Spider AI Gateway",
-            env: ["OPENCODE_API_KEY", "M4SPIDER_API_KEY"],
-            npm: "@ai-sdk/openai-compatible",
-            api: "https://opencode.ai/inference/openai/v1",
-            models: {},
-          };
-          modelsDev["m4spider"] = {
-            ...base,
-            id: "m4spider",
-            name: "M4 Spider AI Gateway",
-            models: { ...(base.models || {}) },
-          };
+        const autoModel = {
+          id: "spider-auto",
+          name: "M4 Spider Auto Mode",
+          description: "Intelligent auto-router that automatically selects the best model for each task with optimal reasoning, speed, and latency",
+          family: "m4spider",
+          attachment: true,
+          reasoning: true,
+          reasoning_options: [{ type: "effort", values: ["low", "medium", "high"] }],
+          tool_call: true,
+          structured_output: true,
+          temperature: true,
+          knowledge: "2026-03",
+          release_date: "2026-03-01",
+          last_updated: "2026-10-31",
+          modalities: { input: ["text", "image"], output: ["text"] },
+          open_weights: false,
+          limit: { context: 200000, output: 128000 },
+          status: "active",
+          provider: { api: "https://opencode.ai/inference/openai/v1" },
+          cost: { input: 0, output: 0, cache_read: 0 },
+          canonical_model_id: "deepseek-v4-flash-free",
         }
-        if (modelsDev["m4spider"]) {
-          const autoModel = {
-  "id": "spider-auto",
-  "name": "M4 Spider Auto Mode",
-  "description": "Intelligent auto-router that automatically selects the best model for each task with optimal reasoning, speed, and latency",
-  "family": "m4spider",
-  "attachment": true,
-  "reasoning": true,
-  "reasoning_options": [
-    {
-      "type": "effort",
-      "values": [
-        "low",
-        "medium",
-        "high"
-      ]
-    }
-  ],
-  "tool_call": true,
-  "structured_output": true,
-  "temperature": true,
-  "knowledge": "2026-03",
-  "release_date": "2026-03-01",
-  "last_updated": "2026-10-31",
-  "modalities": {
-    "input": [
-      "text",
-      "image"
-    ],
-    "output": [
-      "text"
-    ]
-  },
-  "open_weights": false,
-  "limit": {
-    "context": 200000,
-    "output": 128000
-  },
-  "status": "active",
-  "provider": {
-    "api": "https://opencode.ai/inference/openai/v1"
-  },
-  "cost": {
-    "input": 0,
-    "output": 0,
-    "cache_read": 0
-  },
-  "canonical_model_id": "deepseek-v4-flash-free"
-};
-          const autoAlias = { ...autoModel, id: "auto", name: "M4 Spider Auto Mode" };
-          modelsDev["m4spider"].models = {
+        const autoAlias = { ...autoModel, id: "auto", name: "M4 Spider Auto Mode" }
+
+        if (modelsDev["opencode"]) {
+          modelsDev["opencode"].name = "OpenCode"
+          modelsDev["opencode"].models = {
             "spider-auto": autoModel as any,
             "auto": autoAlias as any,
-            ...modelsDev["m4spider"].models,
-          };
+            ...modelsDev["opencode"].models,
+          }
         }
+        modelsDev["m4spider"] = {
+          id: "m4spider",
+          name: "M4 Spider",
+          env: ["M4SPIDER_API_KEY", "OPENCODE_API_KEY"],
+          npm: "@ai-sdk/openai-compatible",
+          api: "https://opencode.ai/inference/openai/v1",
+          models: {
+            "spider-auto": autoModel as any,
+            "auto": autoAlias as any,
+          },
+        } as any
+
         const catalog = mapValues(modelsDev, fromModelsDevProvider)
+        if (catalog["opencode"]) {
+          catalog["opencode"].name = "OpenCode"
+        }
+        if (catalog["m4spider"]) {
+          catalog["m4spider"].name = "M4 Spider"
+        }
         if (catalog["opencode"] && !catalog["m4spider"]) {
           catalog["m4spider"] = fromModelsDevProvider(modelsDev["m4spider"])
         }
@@ -1951,7 +1960,7 @@ export const layer = Layer.effect(
         "gemini-2.5-flash",
         "gpt-5-nano",
       ]
-      const priority = providerID.startsWith("m4spider") || providerID.startsWith("m4spider")
+      const priority = providerID.startsWith("m4spider") || providerID.startsWith("opencode")
         ? ["spider-auto"]
         : providerID.startsWith("github-copilot")
           ? ["gpt-5-mini", "claude-haiku-4.5", ...defaultPriority]

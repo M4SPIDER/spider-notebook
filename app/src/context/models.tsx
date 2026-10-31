@@ -116,8 +116,8 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
         latest: m.name.includes("(latest)"),
       }))
       items.sort((a, b) => {
-        const aAuto = a.provider.id === "m4spider" && (a.id === "spider-auto" || a.id === "auto")
-        const bAuto = b.provider.id === "m4spider" && (b.id === "spider-auto" || b.id === "auto")
+        const aAuto = (a.provider.id === "m4spider" || a.provider.id === "opencode") && (a.id === "spider-auto" || a.id === "auto")
+        const bAuto = (b.provider.id === "m4spider" || b.provider.id === "opencode") && (b.id === "spider-auto" || b.id === "auto")
         if (aAuto && !bAuto) return -1
         if (!aAuto && bAuto) return 1
         return 0
@@ -141,7 +141,7 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       const state = visibility().get(key)
       if (state === "hide") return false
       if (state === "show") return true
-      if (model.providerID === "m4spider" && (model.modelID === "spider-auto" || model.modelID === "auto")) return true
+      if ((model.providerID === "m4spider" || model.providerID === "opencode") && (model.modelID === "spider-auto" || model.modelID === "auto")) return true
       if (latestSet().has(key)) return true
       const date = release().get(key)
       if (!date?.isValid) return true
