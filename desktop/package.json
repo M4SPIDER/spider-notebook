@@ -4,10 +4,10 @@
   "version": "3.0.3",
   "type": "module",
   "license": "MIT",
-  "homepage": "https://opencode.ai",
+  "homepage": "https://m4spider.com",
   "author": {
     "name": "M4 Spider Notebook",
-    "email": "hello@opencode.ai"
+    "email": "hello@m4spider.com"
   },
   "scripts": {
     "typecheck": "tsgo -b",

@@ -1,13 +1,13 @@
 // @ts-nocheck
 
-import { OpenCode } from "@m4spider/core"
+import { M4 Spider } from "@m4spider/core"
 import { ReadTool } from "@m4spider/core/tools"
 
-const opencode = OpenCode.make({})
+const m4spider = M4 Spider.make({})
 
-opencode.tool.add(ReadTool)
+m4spider.tool.add(ReadTool)
 
-opencode.tool.add({
+m4spider.tool.add({
   name: "bash",
   schema: {
     type: "object",
@@ -22,13 +22,13 @@ opencode.tool.add({
   execute(input, ctx) {},
 })
 
-opencode.auth.add({
+m4spider.auth.add({
   provider: "openai",
   type: "api",
   value: process.env.OPENAI_API_KEY,
 })
 
-opencode.agent.add({
+m4spider.agent.add({
   name: "build",
   permissions: [],
   model: {
@@ -38,20 +38,20 @@ opencode.agent.add({
   },
 })
 
-const sessionID = await opencode.session.create({
+const sessionID = await m4spider.session.create({
   agent: "build",
 })
 
-opencode.subscribe((event) => {
+m4spider.subscribe((event) => {
   console.log(event)
 })
 
-await opencode.session.prompt({
+await m4spider.session.prompt({
   sessionID,
   text: "hey what is up",
 })
 
-await opencode.session.prompt({
+await m4spider.session.prompt({
   sessionID,
   text: "what is up with this",
   files: [
@@ -62,6 +62,6 @@ await opencode.session.prompt({
   ],
 })
 
-await opencode.session.wait()
+await m4spider.session.wait()
 
-console.log(await opencode.session.messages(sessionID))
+console.log(await m4spider.session.messages(sessionID))

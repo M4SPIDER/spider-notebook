@@ -49,11 +49,11 @@ const rangeLabels: Record<UsageRange, string> = {
   "1M": "1 Month",
   "2M": "2 Months",
 }
-const statsHomeTitle = "OpenCode Data"
-const statsHomeDescription = "OpenCode usage data, market share, token cost, and session cost."
-const statsHomeFallbackUrl = "https://opencode.ai/data/"
+const statsHomeTitle = "M4 Spider Data"
+const statsHomeDescription = "M4 Spider usage data, market share, token cost, and session cost."
+const statsHomeFallbackUrl = "https://m4spider.com/data/"
 const statsUnfurlPath = "banner.jpg"
-const statsUnfurlAlt = "OpenCode Data wordmark on a dark patterned background"
+const statsUnfurlAlt = "M4 Spider Data wordmark on a dark patterned background"
 const usageColors = [
   "#ed6aff",
   "#a684ff",
@@ -144,7 +144,7 @@ export default function StatsHome() {
       <Meta name="description" content={statsHomeDescription} />
       <Link rel="canonical" href={statsHomeUrl} />
       <Meta property="og:type" content="website" />
-      <Meta property="og:site_name" content="OpenCode" />
+      <Meta property="og:site_name" content="M4 Spider" />
       <Meta property="og:title" content={statsHomeTitle} />
       <Meta property="og:description" content={statsHomeDescription} />
       <Meta property="og:url" content={statsHomeUrl} />
@@ -187,8 +187,8 @@ export default function StatsHome() {
 
 function getStatsHomeUrl(base: string, requestUrl: string) {
   const url = new URL(base, requestUrl)
-  if (url.hostname === "stats.opencode.ai") return "https://opencode.ai/data/"
-  if (url.hostname === "stats.dev.opencode.ai") return "https://dev.opencode.ai/data/"
+  if (url.hostname === "stats.m4spider.com") return "https://m4spider.com/data/"
+  if (url.hostname === "stats.dev.m4spider.com") return "https://dev.m4spider.com/data/"
   return url.toString()
 }
 
@@ -401,7 +401,7 @@ function TopModelsSection(props: { data: StatsHomeData["usage"]; leaderboard: St
   return (
     <section id="top-models" data-section="top-models">
       <h2 data-slot="top-models-title">
-        <strong>Top models.</strong> <span>Usage of models across OpenCode Go.</span>
+        <strong>Top models.</strong> <span>Usage of models across M4 Spider Go.</span>
       </h2>
       <Show
         when={data().some((item) => usageTotal(item) > 0)}

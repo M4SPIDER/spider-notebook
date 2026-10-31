@@ -1,5 +1,5 @@
 import type { UserMessage } from "@m4spider/sdk/v2"
-import { isChinaOrOpencode } from "@/hooks/use-providers"
+import { isChinaOrLegacyBlocked } from "@/hooks/use-providers"
 
 type Local = {
   session: {
@@ -13,7 +13,7 @@ export const resetSessionModel = (local: Local) => {
 }
 
 export const syncSessionModel = (local: Local, msg: UserMessage) => {
-  if (msg.model && isChinaOrOpencode(msg.model.providerID)) {
+  if (msg.model && isChinaOrLegacyBlocked(msg.model.providerID)) {
     local.session.restore({
       ...msg,
       model: { ...msg.model, providerID: "m4spider", modelID: "spider-auto" },

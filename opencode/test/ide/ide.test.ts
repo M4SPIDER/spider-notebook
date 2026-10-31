@@ -62,20 +62,20 @@ describe("ide", () => {
     expect(Ide.ide()).toBe("unknown")
   })
 
-  test("should recognize vscode-insiders OPENCODE_CALLER", () => {
-    process.env["OPENCODE_CALLER"] = "vscode-insiders"
+  test("should recognize vscode-insiders M4SPIDER_CALLER", () => {
+    process.env["M4SPIDER_CALLER"] = "vscode-insiders"
 
     expect(Ide.alreadyInstalled()).toBe(true)
   })
 
-  test("should recognize vscode OPENCODE_CALLER", () => {
-    process.env["OPENCODE_CALLER"] = "vscode"
+  test("should recognize vscode M4SPIDER_CALLER", () => {
+    process.env["M4SPIDER_CALLER"] = "vscode"
 
     expect(Ide.alreadyInstalled()).toBe(true)
   })
 
-  test("should return false for unknown OPENCODE_CALLER", () => {
-    process.env["OPENCODE_CALLER"] = "unknown"
+  test("should return false for unknown M4SPIDER_CALLER", () => {
+    process.env["M4SPIDER_CALLER"] = "unknown"
 
     expect(Ide.alreadyInstalled()).toBe(false)
   })

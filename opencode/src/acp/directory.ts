@@ -49,9 +49,9 @@ export interface Interface {
   readonly variants: (snapshot: Snapshot, model: DefaultModel) => ModelVariants | undefined
 }
 
-export class Loader extends Context.Service<Loader, LoaderInterface>()("@opencode/ACPDirectoryLoader") {}
+export class Loader extends Context.Service<Loader, LoaderInterface>()("@m4spider/ACPDirectoryLoader") {}
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/ACPDirectory") {}
+export class Service extends Context.Service<Service, Interface>()("@m4spider/ACPDirectory") {}
 
 export const modelKey = (model: DefaultModel) => `${model.providerID}/${model.modelID}`
 

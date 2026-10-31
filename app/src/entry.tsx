@@ -132,7 +132,7 @@ if (!(root instanceof HTMLElement) && import.meta.env.DEV) {
 const getCurrentUrl = () => {
   if (location.hostname.includes("m4spider.ai")) return "http://localhost:4097"
   if (import.meta.env.DEV)
-    return `http://${import.meta.env.VITE_OPENCODE_SERVER_HOST ?? "localhost"}:${import.meta.env.VITE_OPENCODE_SERVER_PORT ?? "4097"}`
+    return `http://${import.meta.env.VITE_M4SPIDER_SERVER_HOST ?? "localhost"}:${import.meta.env.VITE_M4SPIDER_SERVER_PORT ?? "4097"}`
   return location.origin
 }
 

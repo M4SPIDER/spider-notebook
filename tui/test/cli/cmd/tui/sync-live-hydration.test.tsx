@@ -12,7 +12,7 @@ const session = {
   title: "race",
   time: { created: 0, updated: 0 },
   version: "1.15.13",
-  directory: "/tmp/opencode/packages/opencode",
+  directory: "/tmp/m4spider/packages/m4spider",
 }
 const assistant = {
   id: messageID,

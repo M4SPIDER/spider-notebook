@@ -4,7 +4,7 @@ import { useParams } from "@solidjs/router"
 import { batch, createEffect, createMemo } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useModels } from "@/context/models"
-import { useProviders, isChinaOrOpencode } from "@/hooks/use-providers"
+import { useProviders, isChinaOrLegacyBlocked } from "@/hooks/use-providers"
 import { Persist, persisted } from "@/utils/persist"
 import { cycleModelVariant, getConfiguredAgentVariant, resolveModelVariant } from "./model-variant"
 import { useSDK } from "./sdk"
@@ -33,7 +33,7 @@ const cleanSessions = (sess: Record<string, State | undefined>) => {
   const result: Record<string, State | undefined> = {}
   for (const [k, v] of Object.entries(sess)) {
     if (!v) continue
-    if (v.model && isChinaOrOpencode(v.model.providerID)) {
+    if (v.model && isChinaOrLegacyBlocked(v.model.providerID)) {
       result[k] = {
         ...v,
         model: { providerID: "m4spider", modelID: "spider-auto" },
@@ -406,7 +406,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           if (saved.session[session] !== undefined) return
           if (handoff.has(handoffKey(serverSDK.scope, sdk.directory, session))) return
 
-          const model = msg.model && !isChinaOrOpencode(msg.model.providerID)
+          const model = msg.model && !isChinaOrLegacyBlocked(msg.model.providerID)
             ? msg.model
             : { providerID: "m4spider", modelID: "spider-auto" }
 

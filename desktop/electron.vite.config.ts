@@ -3,7 +3,7 @@ import { defineConfig } from "electron-vite"
 import appPlugin from "@m4spider/app/vite"
 import * as fs from "node:fs/promises"
 
-const OPENCODE_SERVER_DIST = "../opencode/dist/node"
+const M4SPIDER_SERVER_DIST = "../opencode/dist/node"
 
 const channel = (() => {
   const raw = process.env.M4SPIDER_CHANNEL
@@ -44,25 +44,25 @@ export default defineConfig({
     },
     plugins: [
       {
-        name: "opencode:node-pty-narrower",
+        name: "m4spider:node-pty-narrower",
         enforce: "pre",
         resolveId(s) {
           if (s === "@lydell/node-pty") return nodePtyPkg
         },
       },
       {
-        name: "opencode:virtual-server-module",
+        name: "m4spider:virtual-server-module",
         enforce: "pre",
         resolveId(id) {
-          if (id === "virtual:m4spider-server") return this.resolve(`${OPENCODE_SERVER_DIST}/node.js`)
+          if (id === "virtual:m4spider-server") return this.resolve(`${M4SPIDER_SERVER_DIST}/node.js`)
         },
       },
       {
-        name: "opencode:copy-server-assets",
+        name: "m4spider:copy-server-assets",
         async writeBundle() {
-          for (const l of await fs.readdir(OPENCODE_SERVER_DIST)) {
+          for (const l of await fs.readdir(M4SPIDER_SERVER_DIST)) {
             if (!l.endsWith(".wasm")) continue
-            await fs.writeFile(`./out/main/chunks/${l}`, await fs.readFile(`${OPENCODE_SERVER_DIST}/${l}`))
+            await fs.writeFile(`./out/main/chunks/${l}`, await fs.readFile(`${M4SPIDER_SERVER_DIST}/${l}`))
           }
         },
       },

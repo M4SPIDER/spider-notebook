@@ -3,15 +3,15 @@ import { PluginV2 } from "../../plugin"
 import { ProviderV2 } from "../../provider"
 
 export const OpencodePlugin = PluginV2.define({
-  id: PluginV2.ID.make("opencode"),
+  id: PluginV2.ID.make("m4spider"),
   effect: Effect.gen(function* () {
     let hasKey = false
     return {
       "catalog.transform": Effect.fn(function* (evt) {
-        const item = evt.provider.get(ProviderV2.ID.opencode)
+        const item = evt.provider.get(ProviderV2.ID.m4spider)
         if (!item) return
         hasKey = Boolean(
-          process.env.OPENCODE_API_KEY ||
+          process.env.M4SPIDER_API_KEY ||
             item.provider.env.some((env) => process.env[env]) ||
             item.provider.request.body.apiKey ||
             (item.provider.enabled && item.provider.enabled.via === "credential"),

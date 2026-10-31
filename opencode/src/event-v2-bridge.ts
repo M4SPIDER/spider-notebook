@@ -12,7 +12,7 @@ import "@m4spider/core/catalog"
 import "@m4spider/core/session/event"
 import { Context, Effect, Layer } from "effect"
 
-export class Service extends Context.Service<Service, EventV2.Interface>()("@opencode/EventV2Bridge") {}
+export class Service extends Context.Service<Service, EventV2.Interface>()("@m4spider/EventV2Bridge") {}
 
 export const layer = Layer.effect(
   Service,

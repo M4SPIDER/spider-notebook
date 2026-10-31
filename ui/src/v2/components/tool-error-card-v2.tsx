@@ -21,7 +21,7 @@ function BanIcon() {
   )
 }
 
-/** duo-progress-25: faint track ring + ~25% solid arc (Figma OpenCode DS) */
+/** duo-progress-25: faint track ring + ~25% solid arc (Figma M4 Spider DS) */
 function LoaderIcon() {
   const r = 5.9
   return (

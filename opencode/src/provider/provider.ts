@@ -176,7 +176,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
           },
         },
       }),
-    opencode: Effect.fnUntraced(function* (input: Info) {
+    m4spider: Effect.fnUntraced(function* (input: Info) {
       const env = yield* dep.env()
       const hasKey = iife(() => {
         if (input.env.some((item) => env[item])) return true
@@ -185,7 +185,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
       const ok =
         hasKey ||
         Boolean(yield* dep.auth(input.id)) ||
-        Boolean((yield* dep.config()).provider?.["opencode"]?.options?.apiKey)
+        Boolean((yield* dep.config()).provider?.["m4spider"]?.options?.apiKey)
 
       if (!ok) {
         for (const [key, value] of Object.entries(input.models)) {
@@ -368,7 +368,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
           }
 
           // Region resolution precedence (highest to lowest):
-          // 1. options.region from opencode.json provider config
+          // 1. options.region from m4spider.json provider config
           // 2. defaultRegion from AWS_REGION environment variable
           // 3. Default "us-east-1" (baked into defaultRegion)
           const region = options?.region ?? defaultRegion
@@ -451,9 +451,9 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         autoload: false,
         options: {
           headers: {
-            "HTTP-Referer": "https://opencode.ai/",
-            "X-Title": "opencode",
-            "X-Source": "opencode",
+            "HTTP-Referer": "https://m4spider.com/",
+            "X-Title": "m4spider",
+            "X-Source": "m4spider",
           },
         },
       }),
@@ -462,8 +462,8 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         autoload: false,
         options: {
           headers: {
-            "HTTP-Referer": "https://opencode.ai/",
-            "X-Title": "opencode",
+            "HTTP-Referer": "https://m4spider.com/",
+            "X-Title": "m4spider",
           },
         },
       }),
@@ -472,9 +472,9 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         autoload: provider.source === "config",
         options: {
           headers: {
-            "HTTP-Referer": "https://opencode.ai/",
-            "X-Title": "opencode",
-            "X-BILLING-INVOKE-ORIGIN": "OpenCode",
+            "HTTP-Referer": "https://m4spider.com/",
+            "X-Title": "m4spider",
+            "X-BILLING-INVOKE-ORIGIN": "M4 Spider",
           },
         },
       }),
@@ -483,8 +483,8 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         autoload: false,
         options: {
           headers: {
-            "http-referer": "https://opencode.ai/",
-            "x-title": "opencode",
+            "http-referer": "https://m4spider.com/",
+            "x-title": "m4spider",
           },
         },
       }),
@@ -589,8 +589,8 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         autoload: false,
         options: {
           headers: {
-            "HTTP-Referer": "https://opencode.ai/",
-            "X-Title": "opencode",
+            "HTTP-Referer": "https://m4spider.com/",
+            "X-Title": "m4spider",
           },
         },
       }),
@@ -611,7 +611,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
       const directory = yield* InstanceState.directory
 
       const aiGatewayHeaders = {
-        "User-Agent": `opencode/${InstallationVersion} gitlab-ai-provider/${GITLAB_PROVIDER_VERSION} (${os.platform()} ${os.release()}; ${os.arch()})`,
+        "User-Agent": `m4spider/${InstallationVersion} gitlab-ai-provider/${GITLAB_PROVIDER_VERSION} (${os.platform()} ${os.release()}; ${os.arch()})`,
         "anthropic-beta": "context-1m-2025-08-07",
         ...providerConfig?.options?.aiGatewayHeaders,
       }
@@ -744,7 +744,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         options: {
           apiKey,
           headers: {
-            "User-Agent": `opencode/${InstallationVersion} cloudflare-workers-ai (${os.platform()} ${os.release()}; ${os.arch()})`,
+            "User-Agent": `m4spider/${InstallationVersion} cloudflare-workers-ai (${os.platform()} ${os.release()}; ${os.arch()})`,
           },
         },
         async getModel(sdk: any, modelID: string) {
@@ -789,7 +789,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
       if (!apiToken) {
         throw new Error(
           "CLOUDFLARE_API_TOKEN (or CF_AIG_TOKEN) is required for Cloudflare AI Gateway. " +
-            "Set it via environment variable or run `opencode auth cloudflare-ai-gateway`.",
+            "Set it via environment variable or run `m4spider auth cloudflare-ai-gateway`.",
         )
       }
 
@@ -812,7 +812,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         skipCache: input.options?.skipCache,
         collectLog: input.options?.collectLog,
         headers: {
-          "User-Agent": `opencode/${InstallationVersion} cloudflare-ai-gateway (${os.platform()} ${os.release()}; ${os.arch()})`,
+          "User-Agent": `m4spider/${InstallationVersion} cloudflare-ai-gateway (${os.platform()} ${os.release()}; ${os.arch()})`,
         },
       }
 
@@ -838,7 +838,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         autoload: false,
         options: {
           headers: {
-            "X-Cerebras-3rd-Party-Integration": "opencode",
+            "X-Cerebras-3rd-Party-Integration": "m4spider",
           },
         },
       }),
@@ -847,8 +847,8 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         autoload: false,
         options: {
           headers: {
-            "HTTP-Referer": "https://opencode.ai/",
-            "X-Title": "opencode",
+            "HTTP-Referer": "https://m4spider.com/",
+            "X-Title": "m4spider",
           },
         },
       }),
@@ -869,7 +869,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
           autoload: false,
           async getModel() {
             throw new Error(
-              `Snowflake Cortex: missing credentials (${missing}). Set via env var, opencode auth, or provider options.`,
+              `Snowflake Cortex: missing credentials (${missing}). Set via env var, m4spider auth, or provider options.`,
             )
           },
         }
@@ -1124,7 +1124,7 @@ interface State {
   varsLoaders: Record<string, CustomVarsLoader>
 }
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/Provider") {}
+export class Service extends Context.Service<Service, Interface>()("@m4spider/Provider") {}
 
 export const use = serviceUse(Service)
 
@@ -1298,9 +1298,19 @@ export const layer = Layer.effect(
         const bridge = yield* EffectBridge.make()
         const cfg = yield* config.get()
         const modelsDev = yield* modelsDevSvc.get()
+        if (modelsDev["opencode"] && !modelsDev["m4spider"]) {
+          modelsDev["m4spider"] = {
+            ...modelsDev["opencode"],
+            id: "m4spider",
+            name: "M4 Spider AI Gateway",
+          }
+        }
         const catalog = mapValues(modelsDev, fromModelsDevProvider)
-        if (catalog.opencode) {
-          catalog.opencode.name = "M4 Spider Notebook"
+        if (catalog["opencode"] && !catalog["m4spider"]) {
+          catalog["m4spider"] = fromModelsDevProvider(modelsDev["m4spider"])
+        }
+        if (catalog.m4spider) {
+          catalog.m4spider.name = "M4 Spider AI Gateway"
         }
         const database = mapValues(catalog, toPublicInfo)
 
@@ -1758,7 +1768,7 @@ export const layer = Layer.effect(
 
     const getProvider = Effect.fn("Provider.getProvider")((providerID: ProviderV2.ID) =>
       InstanceState.use(state, (s) => {
-        if (providerID === "opencode" || providerID === ProviderV2.ID.make("opencode")) {
+        if (providerID === "m4spider" || providerID === ProviderV2.ID.make("m4spider")) {
           return s.providers[ProviderV2.ID.make("m4spider")]
         }
         return s.providers[providerID]
@@ -1767,7 +1777,7 @@ export const layer = Layer.effect(
 
     const getModel = Effect.fn("Provider.getModel")(function* (providerID: ProviderV2.ID, modelID: ModelV2.ID) {
       const s = yield* InstanceState.get(state)
-      if (providerID === "opencode" || providerID === ProviderV2.ID.make("opencode")) {
+      if (providerID === "m4spider" || providerID === ProviderV2.ID.make("m4spider")) {
         providerID = ProviderV2.ID.make("m4spider")
         if (!s.providers[providerID]?.models[modelID]) {
           modelID = ModelV2.ID.make("spider-auto")
@@ -1874,7 +1884,7 @@ export const layer = Layer.effect(
         "gemini-2.5-flash",
         "gpt-5-nano",
       ]
-      const priority = providerID.startsWith("m4spider") || providerID.startsWith("opencode")
+      const priority = providerID.startsWith("m4spider") || providerID.startsWith("m4spider")
         ? ["spider-auto"]
         : providerID.startsWith("github-copilot")
           ? ["gpt-5-mini", "claude-haiku-4.5", ...defaultPriority]
@@ -1910,7 +1920,7 @@ export const layer = Layer.effect(
 
     const defaultModel = Effect.fn("Provider.defaultModel")(function* () {
       const cfg = yield* config.get()
-      if (cfg.model && !isChinaOrOpencode(cfg.model.split("/")[0])) return parseModel(cfg.model)
+      if (cfg.model && !isChinaOrLegacyBlocked(cfg.model.split("/")[0])) return parseModel(cfg.model)
 
       const s = yield* InstanceState.get(state)
       const recent = yield* fs.readJson(path.join(Global.Path.state, "model.json")).pipe(
@@ -1920,14 +1930,14 @@ export const layer = Layer.effect(
             if (!isRecord(item)) return []
             if (typeof item.providerID !== "string") return []
             if (typeof item.modelID !== "string") return []
-            if (isChinaOrOpencode(item.providerID)) return []
+            if (isChinaOrLegacyBlocked(item.providerID)) return []
             return [{ providerID: ProviderV2.ID.make(item.providerID), modelID: ModelV2.ID.make(item.modelID) }]
           })
         }),
         Effect.catch(() => Effect.succeed([] as { providerID: ProviderV2.ID; modelID: ModelV2.ID }[])),
       )
       for (const entry of recent) {
-        if (isChinaOrOpencode(entry.providerID)) continue
+        if (isChinaOrLegacyBlocked(entry.providerID)) continue
         const provider = s.providers[entry.providerID]
         if (!provider) continue
         if (!provider.models[entry.modelID]) continue
@@ -1942,7 +1952,7 @@ export const layer = Layer.effect(
         }
       }
 
-      const provider = Object.values(s.providers).find((p) => !isChinaOrOpencode(p.id) && (!cfg.provider || Object.keys(cfg.provider).includes(p.id)))
+      const provider = Object.values(s.providers).find((p) => !isChinaOrLegacyBlocked(p.id) && (!cfg.provider || Object.keys(cfg.provider).includes(p.id)))
       if (!provider) return yield* new NoProvidersError()
       const [model] = sort(Object.values(provider.models))
       if (!model) return yield* new NoModelsError({ providerID: provider.id })

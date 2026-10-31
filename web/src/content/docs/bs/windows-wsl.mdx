@@ -1,14 +1,14 @@
 ---
 title: Windows (WSL)
-description: Pokrenite OpenCode na Windowsu preko WSL-a.
+description: Pokrenite M4 Spider na Windowsu preko WSL-a.
 ---
 
 import { Steps } from "@astrojs/starlight/components"
 
-Iako OpenCode moze raditi direktno na Windowsu, preporucujemo [Windows Subsystem for Linux (WSL)](https://learn.microsoft.com/en-us/windows/wsl/install) za najbolje iskustvo. WSL daje Linux okruzenje koje glatko radi sa OpenCode funkcijama.
+Iako M4 Spider moze raditi direktno na Windowsu, preporucujemo [Windows Subsystem for Linux (WSL)](https://learn.microsoft.com/en-us/windows/wsl/install) za najbolje iskustvo. WSL daje Linux okruzenje koje glatko radi sa M4 Spider funkcijama.
 
 :::tip[Zašto WSL?]
-WSL nudi bolje performanse fajl sistema, punu terminalsku podrsku i kompatibilnost s razvojnim alatima na koje se OpenCode oslanja.
+WSL nudi bolje performanse fajl sistema, punu terminalsku podrsku i kompatibilnost s razvojnim alatima na koje se M4 Spider oslanja.
 :::
 
 ---
@@ -21,21 +21,21 @@ WSL nudi bolje performanse fajl sistema, punu terminalsku podrsku i kompatibilno
 
    Ako vec niste, [instalirajte WSL](https://learn.microsoft.com/en-us/windows/wsl/install) prema zvanicnom Microsoft vodicu.
 
-2. **Instalirajte OpenCode u WSL-u**
+2. **Instalirajte M4 Spider u WSL-u**
 
-   Kad je WSL spreman, otvorite WSL terminal i instalirajte OpenCode jednom od [metoda instalacije](/docs/).
+   Kad je WSL spreman, otvorite WSL terminal i instalirajte M4 Spider jednom od [metoda instalacije](/docs/).
 
    ```bash
-   curl -fsSL https://opencode.ai/install | bash
+   curl -fsSL https://m4spider.com/install | bash
    ```
 
-3. **Koristite OpenCode iz WSL-a**
+3. **Koristite M4 Spider iz WSL-a**
 
-   Idite u direktorij projekta (Windows fajlovima pristupate preko `/mnt/c/`, `/mnt/d/` itd.) i pokrenite OpenCode.
+   Idite u direktorij projekta (Windows fajlovima pristupate preko `/mnt/c/`, `/mnt/d/` itd.) i pokrenite M4 Spider.
 
    ```bash
    cd /mnt/c/Users/YourName/project
-   opencode
+   m4spider
    ```
 
 </Steps>
@@ -44,12 +44,12 @@ WSL nudi bolje performanse fajl sistema, punu terminalsku podrsku i kompatibilno
 
 ## Desktop aplikacija + WSL Server
 
-Ako preferirate OpenCode Desktop aplikaciju, ali zelite da server radi u WSL-u:
+Ako preferirate M4 Spider Desktop aplikaciju, ali zelite da server radi u WSL-u:
 
 1. **Pokrenite server u WSL-u** sa `--hostname 0.0.0.0` da dozvolite vanjske konekcije:
 
    ```bash
-   opencode serve --hostname 0.0.0.0 --port 4096
+   m4spider serve --hostname 0.0.0.0 --port 4096
    ```
 
 2. **Povezite Desktop aplikaciju** na `http://localhost:4096`
@@ -59,10 +59,10 @@ Ako `localhost` ne radi u vasem setupu, povezte se preko WSL IP adrese (u WSL-u:
 :::
 
 :::caution
-Kada koristite `--hostname 0.0.0.0`, postavite `OPENCODE_SERVER_PASSWORD` da zastitite server.
+Kada koristite `--hostname 0.0.0.0`, postavite `M4SPIDER_SERVER_PASSWORD` da zastitite server.
 
 ```bash
-OPENCODE_SERVER_PASSWORD=your-password opencode serve --hostname 0.0.0.0
+M4SPIDER_SERVER_PASSWORD=your-password m4spider serve --hostname 0.0.0.0
 ```
 
 :::
@@ -73,15 +73,15 @@ OPENCODE_SERVER_PASSWORD=your-password opencode serve --hostname 0.0.0.0
 
 Za najbolje web iskustvo na Windowsu:
 
-1. **Pokrenite `opencode web` u WSL terminalu** umjesto u PowerShell-u:
+1. **Pokrenite `m4spider web` u WSL terminalu** umjesto u PowerShell-u:
 
    ```bash
-   opencode web --hostname 0.0.0.0
+   m4spider web --hostname 0.0.0.0
    ```
 
-2. **Otvorite iz Windows browsera** na `http://localhost:<port>` (OpenCode ispisuje URL)
+2. **Otvorite iz Windows browsera** na `http://localhost:<port>` (M4 Spider ispisuje URL)
 
-Pokretanje `opencode web` iz WSL-a osigurava ispravan pristup fajl sistemu i terminalsku integraciju, a i dalje je dostupno iz Windows browsera.
+Pokretanje `m4spider web` iz WSL-a osigurava ispravan pristup fajl sistemu i terminalsku integraciju, a i dalje je dostupno iz Windows browsera.
 
 ---
 
@@ -97,17 +97,17 @@ Primjer:
 
 ```bash
 cd /mnt/c/Users/YourName/Documents/project
-opencode
+m4spider
 ```
 
 :::tip
-Za najgladje iskustvo, razmislite da klonirate/kopirate repo u WSL fajl sistem (npr. pod `~/code/`) i tu pokrenete OpenCode.
+Za najgladje iskustvo, razmislite da klonirate/kopirate repo u WSL fajl sistem (npr. pod `~/code/`) i tu pokrenete M4 Spider.
 :::
 
 ---
 
 ## Savjeti
 
-- Drzite OpenCode u WSL-u za projekte na Windows diskovima - pristup fajlovima je jednostavan
-- Koristite VS Code [WSL ekstenziju](https://code.visualstudio.com/docs/remote/wsl) uz OpenCode za integrisan tok rada
-- Vase OpenCode konfiguracije i sesije cuvaju se u WSL okruzenju na `~/.local/share/opencode/`
+- Drzite M4 Spider u WSL-u za projekte na Windows diskovima - pristup fajlovima je jednostavan
+- Koristite VS Code [WSL ekstenziju](https://code.visualstudio.com/docs/remote/wsl) uz M4 Spider za integrisan tok rada
+- Vase M4 Spider konfiguracije i sesije cuvaju se u WSL okruzenju na `~/.local/share/m4spider/`

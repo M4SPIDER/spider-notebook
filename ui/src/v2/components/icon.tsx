@@ -71,8 +71,8 @@ const icons = {
   },
 }
 
-const spriteID = "opencode-v2-icon-sprite"
-const symbol = (name: keyof typeof icons) => `opencode-v2-icon-${name}`
+const spriteID = "m4spider-v2-icon-sprite"
+const symbol = (name: keyof typeof icons) => `m4spider-v2-icon-${name}`
 let spriteInserted = false
 
 function ensureSprite() {

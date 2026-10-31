@@ -198,7 +198,7 @@ const main = Effect.gen(function* () {
   preferAppEnv(app.getPath("userData"))
 
   app.on("second-instance", (_event: Event, argv: string[]) => {
-    const protocolSchemes = ["m4spider://", "m4spider-dev://", "m4spider-beta://", "opencode://"]
+    const protocolSchemes = ["m4spider://", "m4spider-dev://", "m4spider-beta://", "m4spider://"]
     const urls = argv.filter((arg: string) => protocolSchemes.some((s) => arg.startsWith(s)))
     if (urls.length) {
       logger.log("deep link received via second-instance", { urls })
@@ -261,7 +261,7 @@ const main = Effect.gen(function* () {
   yield* Effect.promise(() => app.whenReady())
 
   if (!TEST_ONBOARDING) migrate()
-  // Register unique protocol per channel to avoid conflicts with OpenCode
+  // Register unique protocol per channel to avoid conflicts with M4 Spider
   const protocolSchemes: Record<string, string> = { dev: "m4spider-dev", beta: "m4spider-beta", prod: "m4spider" }
   app.setAsDefaultProtocolClient(protocolSchemes[CHANNEL] ?? "m4spider")
   registerRendererProtocol()
@@ -463,7 +463,7 @@ const main = Effect.gen(function* () {
     server = listener
     yield* Deferred.succeed(serverReady, {
       url,
-      username: "opencode",
+      username: "m4spider",
       password,
     })
 

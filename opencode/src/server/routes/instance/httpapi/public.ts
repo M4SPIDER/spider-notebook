@@ -1,5 +1,5 @@
 import { OpenApi } from "effect/unstable/httpapi"
-import { OpenCodeHttpApi } from "./api"
+import { M4SpiderHttpApi } from "./api"
 import { QueryBooleanOpenApi } from "./groups/query"
 
 type OpenApiParameter = {
@@ -75,7 +75,7 @@ const QueryParameterSchemas: Record<string, OpenApiSchema> = {
 
 const LegacyComponentDescriptions: Record<string, string> = {
   LogLevel: "Log level",
-  ServerConfig: "Server configuration for opencode serve and web commands",
+  ServerConfig: "Server configuration for m4spider serve and web commands",
   LayoutConfig: "@deprecated Always uses stretch layout.",
 }
 
@@ -447,7 +447,7 @@ function fixSelfReferencingComponents(spec: OpenApiSpec) {
     }
   }
   // Simplest fix: generate the raw spec (without transform) to get correct schemas
-  const raw: OpenApiSpec = OpenApi.fromApi(OpenCodeHttpApi)
+  const raw: OpenApiSpec = OpenApi.fromApi(M4SpiderHttpApi)
   const rawSchemas = raw.components?.schemas
   if (!rawSchemas) return
   for (const name of selfRefs) {
@@ -525,7 +525,7 @@ function normalizeParameter(param: OpenApiParameter, route: string) {
   param.schema = stripOptionalNull(param.schema)
 }
 
-export const PublicApi = OpenCodeHttpApi.annotateMerge(
+export const PublicApi = M4SpiderHttpApi.annotateMerge(
   OpenApi.annotations({
     title: "M4 spider",
     version: "1.0.0",

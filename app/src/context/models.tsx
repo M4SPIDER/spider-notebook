@@ -3,7 +3,7 @@ import { createStore } from "solid-js/store"
 import { DateTime } from "luxon"
 import { filter, firstBy, flat, groupBy, mapValues, pipe, uniqueBy, values } from "remeda"
 import { createSimpleContext } from "@m4spider/ui/context"
-import { useProviders, isChinaOrOpencode } from "@/hooks/use-providers"
+import { useProviders, isChinaOrLegacyBlocked } from "@/hooks/use-providers"
 import { Persist, persisted } from "@/utils/persist"
 
 export type ModelKey = { providerID: string; modelID: string }
@@ -32,8 +32,8 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       if (!value || typeof value !== "object") return { user: [], recent: [], variant: {} }
       const item = value as Store
       return {
-        user: (item.user ?? []).filter((u) => !isChinaOrOpencode(u.providerID)),
-        recent: (item.recent ?? []).filter((r) => !isChinaOrOpencode(r.providerID)),
+        user: (item.user ?? []).filter((u) => !isChinaOrLegacyBlocked(u.providerID)),
+        recent: (item.recent ?? []).filter((r) => !isChinaOrLegacyBlocked(r.providerID)),
         variant: item.variant ?? {},
       }
     }
@@ -53,7 +53,7 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
     const available = createMemo(() =>
       providers
         .connected()
-        .filter((p) => !isChinaOrOpencode(p.id))
+        .filter((p) => !isChinaOrLegacyBlocked(p.id))
         .flatMap((p) =>
           Object.values(p.models).map((m) => ({
             ...m,

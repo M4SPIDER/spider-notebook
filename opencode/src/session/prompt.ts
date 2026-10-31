@@ -92,7 +92,7 @@ export interface Interface {
   readonly resolvePromptParts: (template: string) => Effect.Effect<PromptInput["parts"]>
 }
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/SessionPrompt") {}
+export class Service extends Context.Service<Service, Interface>()("@m4spider/SessionPrompt") {}
 
 export const layer = Layer.effect(
   Service,
@@ -619,7 +619,7 @@ export const layer = Layer.effect(
         .where(eq(SessionTable.id, sessionID))
         .get()
         .pipe(Effect.orDie)
-      if (current?.model && !isChinaOrOpencode(current.model.providerID)) {
+      if (current?.model && !isChinaOrLegacyBlocked(current.model.providerID)) {
         return {
           providerID: ProviderV2.ID.make(current.model.providerID),
           modelID: ModelV2.ID.make(current.model.id),
@@ -627,7 +627,7 @@ export const layer = Layer.effect(
         }
       }
       const match = yield* sessions
-        .findMessage(sessionID, (m) => m.info.role === "user" && !!m.info.model && !isChinaOrOpencode(m.info.model.providerID))
+        .findMessage(sessionID, (m) => m.info.role === "user" && !!m.info.model && !isChinaOrLegacyBlocked(m.info.model.providerID))
         .pipe(Effect.orDie)
       if (Option.isSome(match) && match.value.info.role === "user") return match.value.info.model
       return yield* provider.defaultModel().pipe(Effect.orDie)
@@ -651,7 +651,7 @@ export const layer = Layer.effect(
         .get()
         .pipe(Effect.orDie)
       let model = input.model ?? ag.model ?? (yield* currentModel(input.sessionID))
-      if (isChinaOrOpencode(model.providerID)) {
+      if (isChinaOrLegacyBlocked(model.providerID)) {
         model = {
           providerID: ProviderV2.ID.make("m4spider"),
           modelID: ModelV2.ID.make("spider-auto"),

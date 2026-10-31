@@ -48,14 +48,14 @@ function RefreshIcon() {
 
 function loadFeedback(messageID: string): { liked: boolean; loved: boolean } {
   try {
-    const raw = localStorage.getItem(`opencode.feedback.${messageID}`)
+    const raw = localStorage.getItem(`m4spider.feedback.${messageID}`)
     if (raw) return JSON.parse(raw)
   } catch {}
   return { liked: false, loved: false }
 }
 
 function saveFeedback(messageID: string, data: { liked: boolean; loved: boolean }) {
-  localStorage.setItem(`opencode.feedback.${messageID}`, JSON.stringify(data))
+  localStorage.setItem(`m4spider.feedback.${messageID}`, JSON.stringify(data))
 }
 
 function buildDislikeUrl(messageID: string, feedback: string): string {

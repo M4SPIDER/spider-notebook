@@ -98,8 +98,8 @@ export const dict = {
   "dialog.provider.group.popular": "Популярные",
   "dialog.provider.group.other": "Другие",
   "dialog.provider.tag.recommended": "Рекомендуемые",
-  "dialog.provider.opencode.note": "Отобранные модели, включая Claude, GPT, Gemini и другие",
-  "dialog.provider.opencode.tagline": "Надежные оптимизированные модели",
+  "dialog.provider.m4spider.note": "Отобранные модели, включая Claude, GPT, Gemini и другие",
+  "dialog.provider.m4spider.tagline": "Надежные оптимизированные модели",
   "dialog.provider.M4 Spider.tagline": "Доступная подписка для всех",
   "dialog.provider.anthropic.note": "Прямой доступ к моделям Claude, включая Pro и Max",
   "dialog.provider.copilot.note": "ИИ-модели для помощи в кодировании через GitHub Copilot",
@@ -132,13 +132,13 @@ export const dict = {
   "provider.connect.apiKey.label": "{{provider}} API ключ",
   "provider.connect.apiKey.placeholder": "API ключ",
   "provider.connect.apiKey.required": "API ключ обязателен",
-  "provider.connect.opencodeZen.line1":
+  "provider.connect.spiderZen.line1":
     "M4 spider Zen даёт вам доступ к отобранным надёжным оптимизированным моделям для агентов программирования.",
-  "provider.connect.opencodeZen.line2":
+  "provider.connect.spiderZen.line2":
     "С одним API ключом вы получите доступ к таким моделям как Claude, GPT, Gemini, GLM и другим.",
-  "provider.connect.opencodeZen.visit.prefix": "Посетите ",
-  "provider.connect.opencodeZen.visit.link": "aistudio.m4spider.com",
-  "provider.connect.opencodeZen.visit.suffix": " чтобы получить ваш API ключ.",
+  "provider.connect.spiderZen.visit.prefix": "Посетите ",
+  "provider.connect.spiderZen.visit.link": "aistudio.m4spider.com",
+  "provider.connect.spiderZen.visit.suffix": " чтобы получить ваш API ключ.",
   "provider.connect.oauth.code.visit.prefix": "Посетите ",
   "provider.connect.oauth.code.visit.link": "эту ссылку",
   "provider.connect.oauth.code.visit.suffix":

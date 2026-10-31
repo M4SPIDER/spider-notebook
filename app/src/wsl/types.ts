@@ -54,8 +54,8 @@ export type WslJob =
   | { kind: "install-wsl"; startedAt: number }
   | { kind: "install-distro"; distro: string; startedAt: number }
   | { kind: "probe-distro"; distro: string; startedAt: number }
-  | { kind: "probe-opencode"; distro: string; startedAt: number }
-  | { kind: "install-opencode"; distro: string; startedAt: number }
+  | { kind: "probe-m4spider"; distro: string; startedAt: number }
+  | { kind: "install-m4spider"; distro: string; startedAt: number }
 
 export type WslServersState = {
   runtime: WslRuntimeCheck | null

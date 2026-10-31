@@ -38,9 +38,9 @@ import {
   type ThemePreference,
 } from "../stats-shell"
 
-const statsCanonicalBaseUrl = "https://opencode.ai/data/"
+const statsCanonicalBaseUrl = "https://m4spider.com/data/"
 const statsUnfurlPath = "banner.png"
-const statsUnfurlAlt = "OpenCode Data wordmark on a dark patterned background"
+const statsUnfurlAlt = "M4 Spider Data wordmark on a dark patterned background"
 const statsUnfurlUrl = new URL(statsUnfurlPath, statsCanonicalBaseUrl).toString()
 const modelHeaderLinks: readonly HeaderLink[] = [
   { href: "#overview", label: "Overview" },
@@ -123,8 +123,8 @@ export default function StatsModel() {
   const modelTitle = createMemo(() => `${modelName()} Data`)
   const modelDescription = createMemo(() =>
     stats()
-      ? `${modelName()} usage, rank, token mix, cost, geo breakdown, and peer data across OpenCode.`
-      : `${modelName()} model facts, limits, and OpenCode usage availability.`,
+      ? `${modelName()} usage, rank, token mix, cost, geo breakdown, and peer data across M4 Spider.`
+      : `${modelName()} model facts, limits, and M4 Spider usage availability.`,
   )
   const modelUrl = createMemo(() =>
     new URL(
@@ -153,7 +153,7 @@ export default function StatsModel() {
       <Meta name="description" content={modelDescription()} />
       <Link rel="canonical" href={modelUrl()} />
       <Meta property="og:type" content="website" />
-      <Meta property="og:site_name" content="OpenCode" />
+      <Meta property="og:site_name" content="M4 Spider" />
       <Meta property="og:title" content={modelTitle()} />
       <Meta property="og:description" content={modelDescription()} />
       <Meta property="og:url" content={modelUrl()} />
@@ -257,12 +257,12 @@ function ModelHero(props: { data: StatsModelData | null; catalog: ModelCatalogEn
           <Show
             when={props.data}
             fallback={
-              <p>Model facts from the shared model index. OpenCode usage appears once this model has activity.</p>
+              <p>Model facts from the shared model index. M4 Spider usage appears once this model has activity.</p>
             }
           >
             {(data) => (
               <p>
-                Ranked #{data().rank} across recent OpenCode token usage with {formatPercent(data().tokenShare)} of
+                Ranked #{data().rank} across recent M4 Spider token usage with {formatPercent(data().tokenShare)} of
                 observed volume.
               </p>
             )}
@@ -296,7 +296,7 @@ function ModelCatalogCallout(props: { catalog: ModelCatalogEntry | null }) {
     <div data-component="model-rank-panel">
       <span>Model Profile</span>
       <strong>{props.catalog?.releaseDate ? formatCatalogDate(props.catalog.releaseDate) : "Listed"}</strong>
-      <p>No OpenCode usage in the current data window.</p>
+      <p>No M4 Spider usage in the current data window.</p>
     </div>
   )
 }
@@ -330,7 +330,7 @@ function ModelOverview(props: { data: StatsModelData | null }) {
       <SectionTitle title="Overview" description="Recent tokens, sessions, and market position." />
       <Show
         when={props.data}
-        fallback={<ModelEmptyState title="No usage summary" description="This model has no OpenCode usage rows yet." />}
+        fallback={<ModelEmptyState title="No usage summary" description="This model has no M4 Spider usage rows yet." />}
       >
         {(data) => (
           <div data-component="model-metric-grid">

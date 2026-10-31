@@ -146,7 +146,7 @@ export const headless = {
 } satisfies Integration.OAuthImplementation
 
 function headers(contentType: string) {
-  return { "Content-Type": contentType, "User-Agent": `opencode/${InstallationVersion}` }
+  return { "Content-Type": contentType, "User-Agent": `m4spider/${InstallationVersion}` }
 }
 
 function exchange(code: string, redirect: string, pkce: Pkce) {
@@ -228,7 +228,7 @@ function authorizeURL(redirect: string, pkce: Pkce, state: string) {
     id_token_add_organizations: "true",
     codex_cli_simplified_flow: "true",
     state,
-    originator: "opencode",
+    originator: "m4spider",
   })}`
 }
 

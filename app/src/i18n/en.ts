@@ -101,8 +101,8 @@ export const dict = {
   "dialog.provider.group.popular": "Popular",
   "dialog.provider.group.other": "Other",
   "dialog.provider.tag.recommended": "Recommended",
-  "dialog.provider.opencode.note": "Curated models including Spider AI Flash, Spider AI V1 and more",
-  "dialog.provider.opencode.tagline": "M4 Spider optimized models",
+  "dialog.provider.m4spider.note": "Curated models including Spider AI Flash, Spider AI V1 and more",
+  "dialog.provider.m4spider.tagline": "M4 Spider optimized models",
   "dialog.provider.M4 Spider.tagline": "M4 Spider subscription",
   "dialog.provider.anthropic.note": "Direct access to Claude models, including Pro and Max",
   "dialog.provider.copilot.note": "AI models for coding assistance via GitHub Copilot",
@@ -135,13 +135,13 @@ export const dict = {
   "provider.connect.apiKey.label": "{{provider}} API key",
   "provider.connect.apiKey.placeholder": "API key",
   "provider.connect.apiKey.required": "API key is required",
-  "provider.connect.opencodeZen.line1":
+  "provider.connect.spiderZen.line1":
     "M4 Spider Notebook gives you access to a curated set of reliable optimized models for coding agents.",
-  "provider.connect.opencodeZen.line2":
+  "provider.connect.spiderZen.line2":
     "With a single API key you'll get access to models such as Spider AI Flash, Spider AI V1 and more.",
-  "provider.connect.opencodeZen.visit.prefix": "Visit ",
-  "provider.connect.opencodeZen.visit.link": "aistudio.m4spider.com",
-  "provider.connect.opencodeZen.visit.suffix": " to get your API key.",
+  "provider.connect.spiderZen.visit.prefix": "Visit ",
+  "provider.connect.spiderZen.visit.link": "aistudio.m4spider.com",
+  "provider.connect.spiderZen.visit.suffix": " to get your API key.",
   "provider.connect.oauth.code.visit.prefix": "Visit ",
   "provider.connect.oauth.code.visit.link": "this link",
   "provider.connect.oauth.code.visit.suffix":
@@ -356,7 +356,7 @@ export const dict = {
   "wsl.server.retryStart": "Retry start",
   "wsl.server.updating": "Updating...",
   "wsl.onboarding.step.distro": "Choose distro",
-  "wsl.onboarding.step.opencode": "M4 Spider",
+  "wsl.onboarding.step.m4spider": "M4 Spider",
   "wsl.onboarding.checkingRuntime": "Checking WSL...",
   "wsl.onboarding.restartRequired": "Windows needs a restart to finish installing WSL.",
   "wsl.onboarding.ready": "WSL is ready.",

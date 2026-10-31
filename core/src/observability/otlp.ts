@@ -35,13 +35,13 @@ function resourceAttributes() {
 
 export function resource(): { serviceName: string; serviceVersion: string; attributes: Record<string, string> } {
   return {
-    serviceName: "opencode",
+    serviceName: "m4spider",
     serviceVersion: InstallationVersion,
     attributes: {
       ...resourceAttributes(),
       "deployment.environment.name": InstallationChannel,
-      "opencode.client": Flag.M4SPIDER_CLIENT,
-      "opencode.run": runID,
+      "m4spider.client": Flag.M4SPIDER_CLIENT,
+      "m4spider.run": runID,
       "service.instance.id": runID,
     },
   }

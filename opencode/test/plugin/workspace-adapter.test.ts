@@ -100,10 +100,10 @@ describe("plugin.workspace", () => {
 
       yield* Effect.promise(() =>
         Bun.write(
-          path.join(dir, "opencode.json"),
+          path.join(dir, "m4spider.json"),
           JSON.stringify(
             {
-              $schema: "https://opencode.ai/config.json",
+              $schema: "https://m4spider.com/config.json",
               plugin: [pathToFileURL(file).href],
             },
             null,

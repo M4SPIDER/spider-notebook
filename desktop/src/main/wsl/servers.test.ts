@@ -49,7 +49,7 @@ test("clears cached distro probes when removing a WSL server", () => {
       {
         Debian: {
           distro: "Debian",
-          resolvedPath: "/home/luke/.opencode/bin/opencode",
+          resolvedPath: "/home/luke/.m4spider/bin/m4spider",
           version: "1.16.2",
           expectedVersion: "1.16.2",
           matchesDesktop: true,
@@ -107,7 +107,7 @@ test("ignores stale background M4 Spider Notebook checks after removing a WSL se
         onExit: () => undefined,
       },
       url: "http://127.0.0.1:4096",
-      username: "opencode",
+      username: "m4spider",
       password: "secret",
     }),
     testControllerOptions(),
@@ -161,7 +161,7 @@ function testControllerOptions() {
       await new Promise<void>((resolve) => {
         releaseOpencodeResolve = resolve
       })
-      return "/home/me/.opencode/bin/opencode"
+      return "/home/me/.m4spider/bin/m4spider"
     },
   }
 }

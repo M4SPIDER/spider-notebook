@@ -21,7 +21,7 @@ export interface MockServerConfig {
   events?: () => unknown[]
 }
 
-export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
+export async function mockM4SpiderServer(page: Page, config: MockServerConfig) {
   const staticRoutes: Record<string, unknown> = {
     "/provider": config.provider,
     "/path": {

@@ -1,9 +1,9 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "opencode",
+    "title": "m4spider",
     "version": "1.0.0",
-    "description": "opencode api"
+    "description": "m4spider api"
   },
   "paths": {
     "/auth/{providerID}": {
@@ -311,7 +311,7 @@
             }
           }
         },
-        "description": "Get health information about the OpenCode server.",
+        "description": "Get health information about the M4 Spider server.",
         "summary": "Get health",
         "x-codeSamples": [
           {
@@ -348,7 +348,7 @@
             }
           }
         },
-        "description": "Subscribe to global events from the OpenCode system using server-sent events.",
+        "description": "Subscribe to global events from the M4 Spider system using server-sent events.",
         "summary": "Get global events",
         "x-codeSamples": [
           {
@@ -385,7 +385,7 @@
             }
           }
         },
-        "description": "Retrieve the current global OpenCode configuration settings and preferences.",
+        "description": "Retrieve the current global M4 Spider configuration settings and preferences.",
         "summary": "Get global configuration",
         "x-codeSamples": [
           {
@@ -427,7 +427,7 @@
             }
           }
         },
-        "description": "Update global OpenCode configuration settings and preferences.",
+        "description": "Update global M4 Spider configuration settings and preferences.",
         "summary": "Update global configuration",
         "requestBody": {
           "content": {
@@ -474,7 +474,7 @@
             }
           }
         },
-        "description": "Clean up and dispose all OpenCode instances, releasing all resources.",
+        "description": "Clean up and dispose all M4 Spider instances, releasing all resources.",
         "summary": "Dispose instance",
         "x-codeSamples": [
           {
@@ -548,8 +548,8 @@
             }
           }
         },
-        "description": "Upgrade opencode to the specified version or latest if not specified.",
-        "summary": "Upgrade opencode",
+        "description": "Upgrade m4spider to the specified version or latest if not specified.",
+        "summary": "Upgrade m4spider",
         "requestBody": {
           "content": {
             "application/json": {
@@ -661,7 +661,7 @@
             }
           }
         },
-        "description": "Retrieve the current OpenCode configuration settings and preferences.",
+        "description": "Retrieve the current M4 Spider configuration settings and preferences.",
         "summary": "Get configuration",
         "x-codeSamples": [
           {
@@ -720,7 +720,7 @@
             }
           }
         },
-        "description": "Update OpenCode configuration settings and preferences.",
+        "description": "Update M4 Spider configuration settings and preferences.",
         "summary": "Update configuration",
         "requestBody": {
           "content": {
@@ -1006,7 +1006,7 @@
             }
           }
         },
-        "description": "Persist a new active Console account/org selection for the current local OpenCode state.",
+        "description": "Persist a new active Console account/org selection for the current local M4 Spider state.",
         "summary": "Switch active Console org",
         "requestBody": {
           "content": {
@@ -1558,7 +1558,7 @@
             }
           }
         },
-        "description": "Get a list of all OpenCode sessions across projects, sorted by most recently updated. Archived sessions are excluded by default.",
+        "description": "Get a list of all M4 Spider sessions across projects, sorted by most recently updated. Archived sessions are excluded by default.",
         "summary": "List sessions",
         "x-codeSamples": [
           {
@@ -2214,7 +2214,7 @@
             }
           }
         },
-        "description": "Clean up and dispose the current OpenCode instance, releasing all resources.",
+        "description": "Clean up and dispose the current M4 Spider instance, releasing all resources.",
         "summary": "Dispose instance",
         "x-codeSamples": [
           {
@@ -2268,7 +2268,7 @@
             }
           }
         },
-        "description": "Retrieve the current working directory and related path information for the OpenCode instance.",
+        "description": "Retrieve the current working directory and related path information for the M4 Spider instance.",
         "summary": "Get paths",
         "x-codeSamples": [
           {
@@ -2653,7 +2653,7 @@
             }
           }
         },
-        "description": "Get a list of all available commands in the OpenCode system.",
+        "description": "Get a list of all available commands in the M4 Spider system.",
         "summary": "List commands",
         "x-codeSamples": [
           {
@@ -2711,7 +2711,7 @@
             }
           }
         },
-        "description": "Get a list of all available AI agents in the OpenCode system.",
+        "description": "Get a list of all available AI agents in the M4 Spider system.",
         "summary": "List agents",
         "x-codeSamples": [
           {
@@ -2785,7 +2785,7 @@
             }
           }
         },
-        "description": "Get a list of all available skills in the OpenCode system.",
+        "description": "Get a list of all available skills in the M4 Spider system.",
         "summary": "List skills",
         "x-codeSamples": [
           {
@@ -3593,7 +3593,7 @@
             }
           }
         },
-        "description": "Get a list of projects that have been opened with OpenCode.",
+        "description": "Get a list of projects that have been opened with M4 Spider.",
         "summary": "List all projects",
         "x-codeSamples": [
           {
@@ -3647,7 +3647,7 @@
             }
           }
         },
-        "description": "Retrieve the currently active project that OpenCode is working with.",
+        "description": "Retrieve the currently active project that M4 Spider is working with.",
         "summary": "Get current project",
         "x-codeSamples": [
           {
@@ -4095,7 +4095,7 @@
             }
           }
         },
-        "description": "Get a list of all active pseudo-terminal (PTY) sessions managed by OpenCode.",
+        "description": "Get a list of all active pseudo-terminal (PTY) sessions managed by M4 Spider.",
         "summary": "List PTY sessions",
         "x-codeSamples": [
           {
@@ -5369,7 +5369,7 @@
             }
           }
         },
-        "description": "Get a list of all OpenCode sessions, sorted by most recently updated.",
+        "description": "Get a list of all M4 Spider sessions, sorted by most recently updated.",
         "summary": "List sessions",
         "x-codeSamples": [
           {
@@ -5428,7 +5428,7 @@
             }
           }
         },
-        "description": "Create a new OpenCode session for interacting with AI assistants and managing conversations.",
+        "description": "Create a new M4 Spider session for interacting with AI assistants and managing conversations.",
         "summary": "Create session",
         "requestBody": {
           "content": {
@@ -5621,7 +5621,7 @@
             }
           }
         },
-        "description": "Retrieve detailed information about a specific OpenCode session.",
+        "description": "Retrieve detailed information about a specific M4 Spider session.",
         "summary": "Get session",
         "x-codeSamples": [
           {
@@ -9768,7 +9768,7 @@
     },
     "/api/health": {
       "get": {
-        "tags": ["opencode HttpApi"],
+        "tags": ["m4spider HttpApi"],
         "operationId": "v2.health.get",
         "parameters": [],
         "security": [],
@@ -9824,7 +9824,7 @@
     },
     "/api/location": {
       "get": {
-        "tags": ["opencode HttpApi"],
+        "tags": ["m4spider HttpApi"],
         "operationId": "v2.location.get",
         "parameters": [
           {
@@ -9892,7 +9892,7 @@
     },
     "/api/agent": {
       "get": {
-        "tags": ["opencode HttpApi"],
+        "tags": ["m4spider HttpApi"],
         "operationId": "v2.agent.list",
         "parameters": [
           {
@@ -11937,7 +11937,7 @@
     },
     "/api/credential/{credentialID}": {
       "patch": {
-        "tags": ["opencode HttpApi"],
+        "tags": ["m4spider HttpApi"],
         "operationId": "v2.credential.update",
         "parameters": [
           {
@@ -12002,7 +12002,7 @@
         ]
       },
       "delete": {
-        "tags": ["opencode HttpApi"],
+        "tags": ["m4spider HttpApi"],
         "operationId": "v2.credential.remove",
         "parameters": [
           {
@@ -18996,7 +18996,7 @@
           }
         },
         "additionalProperties": false,
-        "description": "Server configuration for opencode serve and web commands"
+        "description": "Server configuration for m4spider serve and web commands"
       },
       "PermissionActionConfig": {
         "type": "string",
@@ -30377,15 +30377,15 @@
       "description": "Experimental HttpApi workspace routes."
     },
     {
-      "name": "opencode HttpApi",
+      "name": "m4spider HttpApi",
       "description": "Experimental HttpApi surface for selected instance routes."
     },
     {
-      "name": "opencode HttpApi",
+      "name": "m4spider HttpApi",
       "description": "Experimental HttpApi surface for selected instance routes."
     },
     {
-      "name": "opencode HttpApi",
+      "name": "m4spider HttpApi",
       "description": "Experimental HttpApi surface for selected instance routes."
     },
     {
@@ -30409,7 +30409,7 @@
       "description": "Integration discovery and authentication routes."
     },
     {
-      "name": "opencode HttpApi",
+      "name": "m4spider HttpApi",
       "description": "Experimental HttpApi surface for selected instance routes."
     },
     {

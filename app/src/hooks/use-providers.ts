@@ -49,7 +49,7 @@ export function useProviders() {
           providers().all,
           ([id]) =>
             connected.has(id) &&
-            (id !== "opencode" || Object.values(providers().all.get(id)?.models ?? {}).some((m) => m.cost?.input)),
+            (id !== "m4spider" || Object.values(providers().all.get(id)?.models ?? {}).some((m) => m.cost?.input)),
         ),
       ]
     },

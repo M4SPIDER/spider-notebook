@@ -41,7 +41,7 @@ export interface Interface {
   >
 }
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/Image") {}
+export class Service extends Context.Service<Service, Interface>()("@m4spider/Image") {}
 
 export const layer = Layer.effect(
   Service,

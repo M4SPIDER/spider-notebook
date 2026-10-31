@@ -52,7 +52,7 @@ export class LocationMiddleware extends HttpApiMiddleware.Service<
   {
     provides: LocationServices
   }
->()("@opencode/HttpApiLocation") {}
+>()("@m4spider/HttpApiLocation") {}
 
 export const LocationGroup = HttpApiGroup.make("server.location")
   .add(
@@ -73,10 +73,10 @@ export const LocationGroup = HttpApiGroup.make("server.location")
 
 function ref(request: HttpServerRequest.HttpServerRequest): Location.Ref {
   const query = new URL(request.url, "http://localhost").searchParams
-  const workspaceID = query.get("location[workspace]") || request.headers["x-opencode-workspace"]
+  const workspaceID = query.get("location[workspace]") || request.headers["x-m4spider-workspace"]
   const directory =
     query.get("location[directory]") ||
-    (request.headers["x-opencode-directory"] ? decode(request.headers["x-opencode-directory"]) : process.cwd())
+    (request.headers["x-m4spider-directory"] ? decode(request.headers["x-m4spider-directory"]) : process.cwd())
   return Location.Ref.make({
     directory: AbsolutePath.make(directory),
     workspaceID: workspaceID ? WorkspaceV2.ID.make(workspaceID) : undefined,

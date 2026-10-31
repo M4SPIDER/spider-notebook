@@ -1,7 +1,7 @@
 import { type ChildProcess, spawnSync } from "node:child_process"
 
-// Duplicated from `packages/opencode/src/util/process.ts` because the SDK cannot
-// import `opencode` without creating a cycle (`opencode` depends on `@m4spider/sdk`).
+// Duplicated from `packages/m4spider/src/util/process.ts` because the SDK cannot
+// import `m4spider` without creating a cycle (`m4spider` depends on `@m4spider/sdk`).
 export function stop(proc: ChildProcess) {
   if (proc.exitCode !== null || proc.signalCode !== null) return
   if (process.platform === "win32" && proc.pid) {

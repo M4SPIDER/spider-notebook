@@ -15,7 +15,7 @@ import { lazy } from "../util/lazy"
 import { Ignore } from "./ignore"
 import { Protected } from "./protected"
 
-declare const OPENCODE_LIBC: string | undefined
+declare const M4SPIDER_LIBC: string | undefined
 
 const SUBSCRIBE_TIMEOUT_MS = 10_000
 
@@ -31,7 +31,7 @@ export const Event = {
 
 const watcher = lazy((): typeof import("@parcel/watcher") | undefined => {
   try {
-    const libc = typeof OPENCODE_LIBC === "undefined" ? undefined : OPENCODE_LIBC
+    const libc = typeof M4SPIDER_LIBC === "undefined" ? undefined : M4SPIDER_LIBC
     const binding = require(
       `@parcel/watcher-${process.platform}-${process.arch}${process.platform === "linux" ? `-${libc || "glibc"}` : ""}`,
     )
@@ -58,7 +58,7 @@ export const hasNativeBinding = () => !!watcher()
 
 export interface Interface {}
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/v2/FileWatcher") {}
+export class Service extends Context.Service<Service, Interface>()("@m4spider/v2/FileWatcher") {}
 
 export const layer = Layer.effect(
   Service,

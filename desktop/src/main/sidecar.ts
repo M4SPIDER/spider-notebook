@@ -59,7 +59,7 @@ async function start(command: StartCommand) {
     listener = await Server.listen({
       port: command.port,
       hostname: command.hostname,
-      username: "opencode",
+      username: "m4spider",
       password: command.password,
       cors: ["oc://renderer"],
     })
@@ -82,7 +82,7 @@ async function stop() {
 
 function prepareSidecarEnv(password: string, userDataPath: string) {
   Object.assign(process.env, {
-    M4SPIDER_SERVER_USERNAME: "opencode",
+    M4SPIDER_SERVER_USERNAME: "m4spider",
     M4SPIDER_SERVER_PASSWORD: password,
     XDG_STATE_HOME: process.env.XDG_STATE_HOME ?? userDataPath,
   })

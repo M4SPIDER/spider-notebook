@@ -152,7 +152,7 @@ export function createWslServersController(
       })
       .catch((error) => {
         const message = error instanceof Error ? error.message : String(error)
-        logger?.error("wsl opencode check failed", { id, distro, message })
+        logger?.error("wsl m4spider check failed", { id, distro, message })
       })
   }
 
@@ -166,7 +166,7 @@ export function createWslServersController(
           })
           .catch((error) => {
             const message = error instanceof Error ? error.message : String(error)
-            logger?.error("wsl opencode check failed", {
+            logger?.error("wsl m4spider check failed", {
               id: item.config.id,
               distro: item.config.distro,
               message,
@@ -335,13 +335,13 @@ export function createWslServersController(
     },
 
     async probeOpencode(name: string) {
-      await runJob({ kind: "probe-opencode", distro: name, startedAt: Date.now() }, async (abort) => {
+      await runJob({ kind: "probe-m4spider", distro: name, startedAt: Date.now() }, async (abort) => {
         await refreshOpencodeCheck(name, { signal: abort.signal })
       })
     },
 
     async installOpencode(name: string) {
-      await runJob({ kind: "install-opencode", distro: name, startedAt: Date.now() }, async (abort) => {
+      await runJob({ kind: "install-m4spider", distro: name, startedAt: Date.now() }, async (abort) => {
         const result = await installWslOpencode(appVersion, name, { signal: abort.signal })
         if (result.code !== 0) {
           throw new Error(summarize(result.stderr || result.stdout) || "M4 Spider Notebook installation failed")

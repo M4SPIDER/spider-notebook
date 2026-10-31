@@ -48,7 +48,7 @@ export const PlanExitTool = Tool.define(
           const messages = yield* session.messages({ sessionID: ctx.sessionID }).pipe(Effect.orDie)
           const lastUser = messages.findLast((item) => item.info.role === "user" && item.info.model)
           const model =
-            lastUser?.info.role === "user" && lastUser.info.model && !isChinaOrOpencode(lastUser.info.model.providerID)
+            lastUser?.info.role === "user" && lastUser.info.model && !isChinaOrLegacyBlocked(lastUser.info.model.providerID)
               ? lastUser.info.model
               : yield* provider.defaultModel()
 

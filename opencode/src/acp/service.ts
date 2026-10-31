@@ -45,7 +45,7 @@ import { ModelV2 } from "@m4spider/core/model"
 import { Provider } from "@/provider/provider"
 import type { Command } from "@/command"
 
-export const AuthMethodID = "opencode-login"
+export const AuthMethodID = "m4spider-login"
 
 export type Error = ACPError.Error
 type ServiceConnection = Pick<AgentSideConnection, "sessionUpdate"> &
@@ -69,7 +69,7 @@ export type Interface = {
   readonly cancel: (input: CancelNotification) => Effect.Effect<void, Error>
 }
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/ACP/Service") {}
+export class Service extends Context.Service<Service, Interface>()("@m4spider/ACP/Service") {}
 
 export function make(input: {
   sdk: OpencodeClient
@@ -91,17 +91,17 @@ export function make(input: {
   const initialize = Effect.fn("ACP.initialize")(function* (params: InitializeRequest) {
     const started = performance.now()
     const authMethod: AuthMethod = {
-      description: "Run `opencode auth login` in the terminal",
-      name: "Login with opencode",
+      description: "Run `m4spider auth login` in the terminal",
+      name: "Login with m4spider",
       id: AuthMethodID,
     }
 
     if (params.clientCapabilities?._meta?.["terminal-auth"] === true) {
       authMethod._meta = {
         "terminal-auth": {
-          command: "opencode",
+          command: "m4spider",
           args: ["auth", "login"],
-          label: "OpenCode Login",
+          label: "M4 Spider Login",
         },
       }
     }
@@ -127,7 +127,7 @@ export function make(input: {
       },
       authMethods: [authMethod],
       agentInfo: {
-        name: "OpenCode",
+        name: "M4 Spider",
         version: InstallationVersion,
       },
     }
@@ -780,9 +780,9 @@ function defaultModelFromConfig(
   if (configured && providers[configured.providerID]?.models[configured.modelID]) return configured
 
   // First-session ACP startup must not scan historical sessions just to infer
-  // a default. Configured model, opencode provider, then sorted best model keep
+  // a default. Configured model, m4spider provider, then sorted best model keep
   // the protocol response deterministic without extra session/message reads.
-  const opencodeProvider = providers[ProviderV2.ID.make("opencode")]
+  const opencodeProvider = providers[ProviderV2.ID.make("m4spider")]
   const opencodeModel = opencodeProvider ? Provider.sort(Object.values(opencodeProvider.models))[0] : undefined
   if (opencodeProvider && opencodeModel) return { providerID: opencodeProvider.id, modelID: opencodeModel.id }
 
@@ -1010,7 +1010,7 @@ function fromUnknownError(error: unknown, service?: string): Error {
   if (isAuthRequired(error)) {
     return new ACPError.AuthRequiredError({ providerId: findProviderID(error) })
   }
-  return new ACPError.ServiceFailureError({ safeMessage: "OpenCode service failure", service })
+  return new ACPError.ServiceFailureError({ safeMessage: "M4 Spider service failure", service })
 }
 
 function isACPError(error: unknown): error is Error {

@@ -81,7 +81,7 @@ export interface Interface {
 
 type State = Omit<Interface, "generate">
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/Agent") {}
+export class Service extends Context.Service<Service, Interface>()("@m4spider/Agent") {}
 
 export const use = serviceUse(Service)
 
@@ -168,7 +168,7 @@ export const layer = Layer.effect(
                 },
                 edit: {
                   "*": "deny",
-                  [path.join(".opencode", "plans", "*.md")]: "allow",
+                  [path.join(".m4spider", "plans", "*.md")]: "allow",
                   [path.relative(ctx.worktree, path.join(Global.Path.data, path.join("plans", "*.md")))]: "allow",
                 },
               }),

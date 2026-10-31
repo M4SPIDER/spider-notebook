@@ -24,7 +24,7 @@ type PersistTarget = {
 
 const LEGACY_STORAGE = "default.dat"
 const GLOBAL_STORAGE = "m4spider.global.dat"
-const LOCAL_PREFIX = "opencode."
+const LOCAL_PREFIX = "m4spider."
 const fallback = new Map<string, boolean>()
 
 const CACHE_MAX_ENTRIES = 500

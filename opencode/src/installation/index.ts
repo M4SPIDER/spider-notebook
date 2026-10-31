@@ -51,7 +51,7 @@ export const Info = Schema.Struct({
 export type Info = Schema.Schema.Type<typeof Info>
 
 export function userAgent(client = "cli") {
-  return `opencode/${InstallationChannel}/${InstallationVersion}/${client}`
+  return `m4spider/${InstallationChannel}/${InstallationVersion}/${client}`
 }
 
 export const USER_AGENT = userAgent()
@@ -91,7 +91,7 @@ export interface Interface {
   readonly upgrade: (method: Method, target: string) => Effect.Effect<void, UpgradeFailedError>
 }
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/Installation") {}
+export class Service extends Context.Service<Service, Interface>()("@m4spider/Installation") {}
 
 export const use = serviceUse(Service)
 
@@ -135,11 +135,11 @@ export const layer: Layer.Layer<Service, never, HttpClient.HttpClient | AppProce
     )
 
     const getBrewFormula = Effect.fnUntraced(function* () {
-      const tapFormula = yield* text(["brew", "list", "--formula", "anomalyco/tap/opencode"])
-      if (tapFormula.includes("opencode")) return "anomalyco/tap/opencode"
-      const coreFormula = yield* text(["brew", "list", "--formula", "opencode"])
-      if (coreFormula.includes("opencode")) return "opencode"
-      return "opencode"
+      const tapFormula = yield* text(["brew", "list", "--formula", "anomalyco/tap/m4spider"])
+      if (tapFormula.includes("m4spider")) return "anomalyco/tap/m4spider"
+      const coreFormula = yield* text(["brew", "list", "--formula", "m4spider"])
+      if (coreFormula.includes("m4spider")) return "m4spider"
+      return "m4spider"
     })
 
     const upgradeFailure = (method: Method, result?: { code: number; stdout: string; stderr: string }) => {
@@ -156,7 +156,7 @@ export const layer: Layer.Layer<Service, never, HttpClient.HttpClient | AppProce
 
     const upgradeCurl = Effect.fnUntraced(
       function* (target: string) {
-        const response = yield* httpOk.execute(HttpClientRequest.get("https://opencode.ai/install"))
+        const response = yield* httpOk.execute(HttpClientRequest.get("https://m4spider.com/install"))
         const body = yield* response.text
         const bodyBytes = new TextEncoder().encode(body)
         const shell = yield* upgradeScriptShell()
@@ -184,7 +184,7 @@ export const layer: Layer.Layer<Service, never, HttpClient.HttpClient | AppProce
         }
       }),
       method: Effect.fn("Installation.method")(function* () {
-        if (process.execPath.includes(path.join(".opencode", "bin"))) return "curl" as Method
+        if (process.execPath.includes(path.join(".m4spider", "bin"))) return "curl" as Method
         if (process.execPath.includes(path.join(".local", "bin"))) return "curl" as Method
         const exec = process.execPath.toLowerCase()
 
@@ -193,9 +193,9 @@ export const layer: Layer.Layer<Service, never, HttpClient.HttpClient | AppProce
           { name: "yarn", command: () => text(["yarn", "global", "list"]) },
           { name: "pnpm", command: () => text(["pnpm", "list", "-g", "--depth=0"]) },
           { name: "bun", command: () => text(["bun", "pm", "ls", "-g"]) },
-          { name: "brew", command: () => text(["brew", "list", "--formula", "opencode"]) },
-          { name: "scoop", command: () => text(["scoop", "list", "opencode"]) },
-          { name: "choco", command: () => text(["choco", "list", "--limit-output", "opencode"]) },
+          { name: "brew", command: () => text(["brew", "list", "--formula", "m4spider"]) },
+          { name: "scoop", command: () => text(["scoop", "list", "m4spider"]) },
+          { name: "choco", command: () => text(["choco", "list", "--limit-output", "m4spider"]) },
         ]
 
         checks.sort((a, b) => {
@@ -209,7 +209,7 @@ export const layer: Layer.Layer<Service, never, HttpClient.HttpClient | AppProce
         for (const check of checks) {
           const output = yield* check.command()
           const installedName =
-            check.name === "brew" || check.name === "choco" || check.name === "scoop" ? "opencode" : "opencode-ai"
+            check.name === "brew" || check.name === "choco" || check.name === "scoop" ? "m4spider" : "m4spider-ai"
           if (output.includes(installedName)) {
             return check.name
           }
@@ -228,7 +228,7 @@ export const layer: Layer.Layer<Service, never, HttpClient.HttpClient | AppProce
             return info.formulae[0].versions.stable
           }
           const response = yield* httpOk.execute(
-            HttpClientRequest.get("https://formulae.brew.sh/api/formula/opencode.json").pipe(
+            HttpClientRequest.get("https://formulae.brew.sh/api/formula/m4spider.json").pipe(
               HttpClientRequest.acceptJson,
             ),
           )
@@ -239,7 +239,7 @@ export const layer: Layer.Layer<Service, never, HttpClient.HttpClient | AppProce
         if (detectedMethod === "npm" || detectedMethod === "bun" || detectedMethod === "pnpm") {
           const response = yield* httpOk.execute(
             HttpClientRequest.get(
-              `${yield* NpmConfig.registry(process.cwd())}/opencode-ai/${InstallationChannel}`,
+              `${yield* NpmConfig.registry(process.cwd())}/m4spider-ai/${InstallationChannel}`,
             ).pipe(HttpClientRequest.acceptJson),
           )
           const data = yield* HttpClientResponse.schemaBodyJson(NpmPackage)(response)
@@ -259,7 +259,7 @@ export const layer: Layer.Layer<Service, never, HttpClient.HttpClient | AppProce
         if (detectedMethod === "scoop") {
           const response = yield* httpOk.execute(
             HttpClientRequest.get(
-              "https://raw.githubusercontent.com/ScoopInstaller/Main/master/bucket/opencode.json",
+              "https://raw.githubusercontent.com/ScoopInstaller/Main/master/bucket/m4spider.json",
             ).pipe(HttpClientRequest.setHeaders({ Accept: "application/json" })),
           )
           const data = yield* HttpClientResponse.schemaBodyJson(ScoopManifest)(response)
@@ -267,7 +267,7 @@ export const layer: Layer.Layer<Service, never, HttpClient.HttpClient | AppProce
         }
 
         const response = yield* httpOk.execute(
-          HttpClientRequest.get("https://api.github.com/repos/anomalyco/opencode/releases/latest").pipe(
+          HttpClientRequest.get("https://api.github.com/repos/anomalyco/m4spider/releases/latest").pipe(
             HttpClientRequest.acceptJson,
           ),
         )
@@ -281,13 +281,13 @@ export const layer: Layer.Layer<Service, never, HttpClient.HttpClient | AppProce
             upgradeResult = yield* upgradeCurl(target)
             break
           case "npm":
-            upgradeResult = yield* run(["npm", "install", "-g", `opencode-ai@${target}`])
+            upgradeResult = yield* run(["npm", "install", "-g", `m4spider-ai@${target}`])
             break
           case "pnpm":
-            upgradeResult = yield* run(["pnpm", "install", "-g", `opencode-ai@${target}`])
+            upgradeResult = yield* run(["pnpm", "install", "-g", `m4spider-ai@${target}`])
             break
           case "bun":
-            upgradeResult = yield* run(["bun", "install", "-g", `opencode-ai@${target}`])
+            upgradeResult = yield* run(["bun", "install", "-g", `m4spider-ai@${target}`])
             break
           case "brew": {
             const formula = yield* getBrewFormula()
@@ -312,10 +312,10 @@ export const layer: Layer.Layer<Service, never, HttpClient.HttpClient | AppProce
             break
           }
           case "choco":
-            upgradeResult = yield* run(["choco", "upgrade", "opencode", `--version=${target}`, "-y"])
+            upgradeResult = yield* run(["choco", "upgrade", "m4spider", `--version=${target}`, "-y"])
             break
           case "scoop":
-            upgradeResult = yield* run(["scoop", "install", `opencode@${target}`])
+            upgradeResult = yield* run(["scoop", "install", `m4spider@${target}`])
             break
           default:
             return yield* new UpgradeFailedError({ stderr: `Unknown installation method: ${m}` })

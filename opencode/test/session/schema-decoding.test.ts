@@ -53,7 +53,7 @@ describe("Session.Info", () => {
       projectID,
       workspaceID,
       directory: "/tmp/proj",
-      path: "packages/opencode",
+      path: "packages/m4spider",
       parentID: sessionIDChild,
       summary: {
         additions: 10,
@@ -236,11 +236,11 @@ describe("SessionStatus.Info", () => {
       message: "transient",
       action: {
         reason: "free_tier_limit",
-        provider: "opencode",
+        provider: "m4spider",
         title: "Free limit reached",
-        message: "Subscribe to OpenCode Go.",
+        message: "Subscribe to M4 Spider Go.",
         label: "subscribe",
-        link: "https://opencode.ai/go",
+        link: "https://m4spider.com/go",
       },
       next: 500,
     }

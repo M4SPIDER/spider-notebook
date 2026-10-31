@@ -29,7 +29,7 @@ import { ModelV2 } from "@m4spider/core/model"
 
 const FIXTURES_DIR = path.join(import.meta.dir, "../fixtures/recordings")
 
-const zenURL = (connection: string) => `https://console.opencode.ai/proxy/connections/${connection}/v1`
+const zenURL = (connection: string) => `https://console.m4spider.com/proxy/connections/${connection}/v1`
 
 const replayOpenAIOAuth = {
   type: "oauth",
@@ -80,7 +80,7 @@ const recordOpenAIOAuth = (() => {
 })()
 
 function decodeRecordOpenAIOAuth() {
-  const value = process.env.OPENCODE_RECORD_OPENAI_AUTH
+  const value = process.env.M4SPIDER_RECORD_OPENAI_AUTH
   if (!value) return undefined
   try {
     const auth = Option.getOrUndefined(decodeAuth(JSON.parse(value)))
@@ -120,8 +120,8 @@ const RECORDED_SCENARIOS = [
     modelID: "gpt-4.1-mini",
     cassette: "session/native-openai-tool-loop",
     protocol: "openai-responses",
-    tags: ["opencode", "native", "tool-loop"],
-    canRecord: () => Boolean(envValue("OPENCODE_RECORD_OPENAI_API_KEY", "OPENAI_API_KEY")),
+    tags: ["m4spider", "native", "tool-loop"],
+    canRecord: () => Boolean(envValue("M4SPIDER_RECORD_OPENAI_API_KEY", "OPENAI_API_KEY")),
     config: (model) =>
       providerConfig({
         providerID: ProviderV2.ID.openai,
@@ -131,7 +131,7 @@ const RECORDED_SCENARIOS = [
         api: "https://api.openai.com/v1",
         model,
         options: {
-          apiKey: envValue("OPENCODE_RECORD_OPENAI_API_KEY", "OPENAI_API_KEY") ?? "fixture-openai-key",
+          apiKey: envValue("M4SPIDER_RECORD_OPENAI_API_KEY", "OPENAI_API_KEY") ?? "fixture-openai-key",
           baseURL: "https://api.openai.com/v1",
         },
       }),
@@ -143,7 +143,7 @@ const RECORDED_SCENARIOS = [
     modelID: "gpt-5.5",
     cassette: "session/native-openai-oauth-tool-loop",
     protocol: "openai-responses",
-    tags: ["opencode", "native", "oauth", "tool-loop"],
+    tags: ["m4spider", "native", "oauth", "tool-loop"],
     canRecord: () => recordOpenAIOAuth() !== undefined,
     recordAuth: recordOpenAIOAuth,
     replayAuth: replayOpenAIOAuth,
@@ -160,25 +160,25 @@ const RECORDED_SCENARIOS = [
       }),
   },
   {
-    id: "opencode-proxy",
-    name: "OpenCode proxy",
-    providerID: ProviderV2.ID.opencode,
+    id: "m4spider-proxy",
+    name: "M4 Spider proxy",
+    providerID: ProviderV2.ID.m4spider,
     modelID: "gpt-5.2-codex",
     cassette: "session/native-zen-tool-loop",
     protocol: "openai-responses",
-    tags: ["opencode", "zen", "native", "tool-loop"],
-    canRecord: () => Boolean(process.env.OPENCODE_RECORD_CONSOLE_TOKEN && process.env.OPENCODE_RECORD_ZEN_ORG_ID),
+    tags: ["m4spider", "zen", "native", "tool-loop"],
+    canRecord: () => Boolean(process.env.M4SPIDER_RECORD_CONSOLE_TOKEN && process.env.M4SPIDER_RECORD_ZEN_ORG_ID),
     config: (model) =>
       providerConfig({
-        providerID: ProviderV2.ID.opencode,
-        name: "OpenCode Zen",
-        env: ["OPENCODE_CONSOLE_TOKEN"],
+        providerID: ProviderV2.ID.m4spider,
+        name: "M4 Spider Zen",
+        env: ["M4SPIDER_CONSOLE_TOKEN"],
         npm: "@ai-sdk/openai-compatible",
-        api: zenURL(process.env.OPENCODE_RECORD_ZEN_CONNECTION ?? "fixture"),
+        api: zenURL(process.env.M4SPIDER_RECORD_ZEN_CONNECTION ?? "fixture"),
         model,
         options: {
-          apiKey: process.env.OPENCODE_RECORD_CONSOLE_TOKEN ?? "fixture-console-token",
-          headers: { "x-org-id": process.env.OPENCODE_RECORD_ZEN_ORG_ID ?? "fixture-org" },
+          apiKey: process.env.M4SPIDER_RECORD_CONSOLE_TOKEN ?? "fixture-console-token",
+          headers: { "x-org-id": process.env.M4SPIDER_RECORD_ZEN_ORG_ID ?? "fixture-org" },
         },
       }),
   },
@@ -189,8 +189,8 @@ const RECORDED_SCENARIOS = [
     modelID: "claude-haiku-4-5-20251001",
     cassette: "session/native-anthropic-tool-loop",
     protocol: "anthropic-messages",
-    tags: ["opencode", "native", "tool-loop"],
-    canRecord: () => Boolean(envValue("OPENCODE_RECORD_ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY")),
+    tags: ["m4spider", "native", "tool-loop"],
+    canRecord: () => Boolean(envValue("M4SPIDER_RECORD_ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY")),
     config: (model) =>
       providerConfig({
         providerID: ProviderV2.ID.anthropic,
@@ -200,7 +200,7 @@ const RECORDED_SCENARIOS = [
         api: "https://api.anthropic.com/v1",
         model,
         options: {
-          apiKey: envValue("OPENCODE_RECORD_ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY") ?? "fixture-anthropic-key",
+          apiKey: envValue("M4SPIDER_RECORD_ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY") ?? "fixture-anthropic-key",
           baseURL: "https://api.anthropic.com/v1",
         },
       }),
@@ -209,7 +209,7 @@ const RECORDED_SCENARIOS = [
 
 const shouldRecord = process.env.RECORD === "true"
 const selectedScenarios = new Set(
-  (envValue("OPENCODE_RECORDED_SCENARIO", "RECORDED_PROVIDER") ?? "")
+  (envValue("M4SPIDER_RECORDED_SCENARIO", "RECORDED_PROVIDER") ?? "")
     .split(",")
     .map((item) => item.trim().toLowerCase())
     .filter(Boolean),
@@ -229,7 +229,7 @@ const canRun = (scenario: RecordedScenario) =>
 
 const recordError = (scenario: RecordedScenario) =>
   scenario.id === "openai-oauth"
-    ? "Set OPENCODE_RECORD_OPENAI_AUTH to an OAuth auth JSON object in the recording environment."
+    ? "Set M4SPIDER_RECORD_OPENAI_AUTH to an OAuth auth JSON object in the recording environment."
     : `Missing recording credentials for ${scenario.name}.`
 
 const redactRecordedBody = (body: string) =>
@@ -271,7 +271,7 @@ function recordedNativeLLMLayer(scenario: RecordedScenario) {
     Layer.provide(ModelsDev.defaultLayer),
     Layer.provide(RuntimeFlags.defaultLayer),
   )
-  // Only the HTTP client is recorded; RequestExecutor and the opencode LLM stack remain real.
+  // Only the HTTP client is recorded; RequestExecutor and the m4spider LLM stack remain real.
   const metadata = {
     provider: scenario.providerID,
     protocol: scenario.protocol,
@@ -310,8 +310,8 @@ function recordedNativeLLMLayer(scenario: RecordedScenario) {
 const writeConfig = (directory: string, scenario: RecordedScenario, model: ModelsDev.Provider["models"][string]) =>
   Effect.promise(() =>
     Bun.write(
-      path.join(directory, "opencode.json"),
-      JSON.stringify({ $schema: "https://opencode.ai/config.json", ...scenario.config(model) }),
+      path.join(directory, "m4spider.json"),
+      JSON.stringify({ $schema: "https://m4spider.com/config.json", ...scenario.config(model) }),
     ),
   )
 

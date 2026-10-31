@@ -17,7 +17,7 @@ export interface Interface {
   db: DatabaseShape
 }
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/v2/storage/Database") {}
+export class Service extends Context.Service<Service, Interface>()("@m4spider/v2/storage/Database") {}
 
 export const layer = Layer.effect(
   Service,
@@ -50,8 +50,8 @@ export function path() {
     process.env.M4SPIDER_DISABLE_CHANNEL_DB === "1" ||
     process.env.M4SPIDER_DISABLE_CHANNEL_DB === "true"
   )
-    return join(Global.Path.data, "opencode.db")
-  return join(Global.Path.data, `opencode-${InstallationChannel.replace(/[^a-zA-Z0-9._-]/g, "-")}.db`)
+    return join(Global.Path.data, "m4spider.db")
+  return join(Global.Path.data, `m4spider-${InstallationChannel.replace(/[^a-zA-Z0-9._-]/g, "-")}.db`)
 }
 
 export const defaultLayer = Layer.unwrap(

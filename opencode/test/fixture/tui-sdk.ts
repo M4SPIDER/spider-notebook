@@ -1,8 +1,8 @@
 import type { GlobalEvent } from "@m4spider/sdk/v2"
 import type { EventSource } from "@m4spider/tui/context/sdk"
 
-export const worktree = "/tmp/opencode"
-export const directory = `${worktree}/packages/opencode`
+export const worktree = "/tmp/m4spider"
+export const directory = `${worktree}/packages/m4spider`
 
 export function json(data: unknown, init?: ResponseInit) {
   return new Response(JSON.stringify(data), {

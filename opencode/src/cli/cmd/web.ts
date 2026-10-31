@@ -31,8 +31,8 @@ function getNetworkIPs() {
 export const WebCommand = effectCmd({
   command: "web",
   builder: (yargs) => withNetworkOptions(yargs),
-  describe: "start opencode server and open web interface",
-  // Server loads instances per-request via x-opencode-directory header — no
+  describe: "start m4spider server and open web interface",
+  // Server loads instances per-request via x-m4spider-directory header — no
   // ambient project InstanceContext needed at startup.
   instance: false,
   handler: Effect.fn("Cli.web")(function* (args) {

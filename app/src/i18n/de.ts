@@ -94,8 +94,8 @@ export const dict = {
   "dialog.provider.group.popular": "Beliebt",
   "dialog.provider.group.other": "Andere",
   "dialog.provider.tag.recommended": "Empfohlen",
-  "dialog.provider.opencode.note": "Kuratierte Modelle inklusive Claude, GPT, Gemini und mehr",
-  "dialog.provider.opencode.tagline": "Zuverlässige, optimierte Modelle",
+  "dialog.provider.m4spider.note": "Kuratierte Modelle inklusive Claude, GPT, Gemini und mehr",
+  "dialog.provider.m4spider.tagline": "Zuverlässige, optimierte Modelle",
   "dialog.provider.M4 Spider.tagline": "Kostengünstiges Abo für alle",
   "dialog.provider.anthropic.note": "Mit Claude Pro/Max oder API-Schlüssel verbinden",
   "dialog.provider.copilot.note": "Mit Copilot oder API-Schlüssel verbinden",
@@ -124,13 +124,13 @@ export const dict = {
   "provider.connect.apiKey.label": "{{provider}} API-Schlüssel",
   "provider.connect.apiKey.placeholder": "API-Schlüssel",
   "provider.connect.apiKey.required": "API-Schlüssel ist erforderlich",
-  "provider.connect.opencodeZen.line1":
+  "provider.connect.spiderZen.line1":
     "M4 spider Zen bietet Ihnen Zugriff auf eine kuratierte Auswahl zuverlässiger, optimierter Modelle für Coding-Agenten.",
-  "provider.connect.opencodeZen.line2":
+  "provider.connect.spiderZen.line2":
     "Mit einem einzigen API-Schlüssel erhalten Sie Zugriff auf Modelle wie Claude, GPT, Gemini, GLM und mehr.",
-  "provider.connect.opencodeZen.visit.prefix": "Besuchen Sie ",
-  "provider.connect.opencodeZen.visit.link": "aistudio.m4spider.com",
-  "provider.connect.opencodeZen.visit.suffix": ", um Ihren API-Schlüssel zu erhalten.",
+  "provider.connect.spiderZen.visit.prefix": "Besuchen Sie ",
+  "provider.connect.spiderZen.visit.link": "aistudio.m4spider.com",
+  "provider.connect.spiderZen.visit.suffix": ", um Ihren API-Schlüssel zu erhalten.",
   "provider.connect.oauth.code.visit.prefix": "Besuchen Sie ",
   "provider.connect.oauth.code.visit.link": "diesen Link",
   "provider.connect.oauth.code.visit.suffix":

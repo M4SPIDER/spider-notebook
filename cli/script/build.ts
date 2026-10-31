@@ -87,11 +87,11 @@ for (const item of targets) {
       windows: {},
     },
     define: {
-      OPENCODE_VERSION: `'${Script.version}'`,
-      OPENCODE_CLI_NAME: `'${binary}'`,
-      OPENCODE_MODELS_DEV: modelsData,
+      M4SPIDER_VERSION: `'${Script.version}'`,
+      M4SPIDER_CLI_NAME: `'${binary}'`,
+      M4SPIDER_MODELS_DEV: modelsData,
       M4SPIDER_CHANNEL: `'${Script.channel}'`,
-      OPENCODE_LIBC: item.os === "linux" ? `'${item.abi ?? "glibc"}'` : "undefined",
+      M4SPIDER_LIBC: item.os === "linux" ? `'${item.abi ?? "glibc"}'` : "undefined",
       // FFF_LIBC selects the fff native lib variant: "musl" or "gnu".
       FFF_LIBC: item.os === "linux" ? `'${item.abi ?? "gnu"}'` : "undefined",
       OTUI_TREE_SITTER_WORKER_PATH:
@@ -114,7 +114,7 @@ for (const item of targets) {
         name: `@m4spider/${name}`,
         version: Script.version,
         license: "MIT",
-        repository: { type: "git", url: "git+https://github.com/anomalyco/opencode.git" },
+        repository: { type: "git", url: "git+https://github.com/anomalyco/m4spider.git" },
         os: [item.os],
         cpu: [item.arch],
       },

@@ -107,7 +107,7 @@ describe("CloudflareAIGatewayPlugin", () => {
             package: "ai-gateway-provider",
             options: {
               name: "cloudflare-ai-gateway",
-              metadata: { invoked_by: "test", project: "opencode" },
+              metadata: { invoked_by: "test", project: "m4spider" },
               cacheTtl: 300,
               cacheKey: "cache-key",
               skipCache: true,
@@ -123,13 +123,13 @@ describe("CloudflareAIGatewayPlugin", () => {
           gateway: "env-gateway",
           apiKey: "env-token",
           options: {
-            metadata: { invoked_by: "test", project: "opencode" },
+            metadata: { invoked_by: "test", project: "m4spider" },
             cacheTtl: 300,
             cacheKey: "cache-key",
             skipCache: true,
             collectLog: false,
             headers: {
-              "User-Agent": expect.stringContaining("opencode/"),
+              "User-Agent": expect.stringContaining("m4spider/"),
             },
           },
         })
@@ -152,7 +152,7 @@ describe("CloudflareAIGatewayPlugin", () => {
             options: {
               name: "cloudflare-ai-gateway",
               headers: {
-                "cf-aig-metadata": JSON.stringify({ invoked_by: "header", project: "opencode" }),
+                "cf-aig-metadata": JSON.stringify({ invoked_by: "header", project: "m4spider" }),
               },
             },
           },
@@ -160,7 +160,7 @@ describe("CloudflareAIGatewayPlugin", () => {
         )
 
         expect(aiGatewayCalls[0]?.options).toMatchObject({
-          metadata: { invoked_by: "header", project: "opencode" },
+          metadata: { invoked_by: "header", project: "m4spider" },
         })
       }),
     ),

@@ -234,7 +234,7 @@ export interface Interface {
   }
 }
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/v2/Integration") {}
+export class Service extends Context.Service<Service, Interface>()("@m4spider/v2/Integration") {}
 
 enableMapSet()
 

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import type { Configuration } from "electron-builder"
 
-const legacyDesktopEntry = "resources/linux/opencode-desktop.desktop"
+const legacyDesktopEntry = "resources/linux/m4spider-desktop.desktop"
 
 const channels = [
   { channel: "dev", appId: "ai.m4spider.desktop.dev" },
@@ -37,8 +37,8 @@ test("keeps a hidden prod launcher for old Linux pins", async () => {
   if (previous === undefined) delete process.env.M4SPIDER_CHANNEL
   else process.env.M4SPIDER_CHANNEL = previous
 
-  expect(config.deb?.fpm?.[0]).toEndWith(`${legacyDesktopEntry}=/usr/share/applications/opencode-desktop.desktop`)
-  expect(config.rpm?.fpm?.[0]).toEndWith(`${legacyDesktopEntry}=/usr/share/applications/opencode-desktop.desktop`)
+  expect(config.deb?.fpm?.[0]).toEndWith(`${legacyDesktopEntry}=/usr/share/applications/m4spider-desktop.desktop`)
+  expect(config.rpm?.fpm?.[0]).toEndWith(`${legacyDesktopEntry}=/usr/share/applications/m4spider-desktop.desktop`)
 
   const desktop = await Bun.file(legacyDesktopEntry).text()
   expect(desktop).toContain("Exec=/opt/M4 Spider Notebook/ai.m4spider.desktop %U")

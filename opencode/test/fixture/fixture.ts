@@ -84,15 +84,15 @@ export async function tmpdir<T>(options?: TmpDirOptions<T>) {
     await $`git init`.cwd(dirpath).quiet()
     await $`git config core.fsmonitor false`.cwd(dirpath).quiet()
     await $`git config commit.gpgsign false`.cwd(dirpath).quiet()
-    await $`git config user.email "test@opencode.test"`.cwd(dirpath).quiet()
+    await $`git config user.email "test@m4spider.test"`.cwd(dirpath).quiet()
     await $`git config user.name "Test"`.cwd(dirpath).quiet()
     await $`git commit --allow-empty -m "root commit ${dirpath}"`.cwd(dirpath).quiet()
   }
   if (options?.config) {
     await Bun.write(
-      path.join(dirpath, "opencode.json"),
+      path.join(dirpath, "m4spider.json"),
       JSON.stringify({
-        $schema: "https://opencode.ai/config.json",
+        $schema: "https://m4spider.com/config.json",
         ...options.config,
       }),
     )
@@ -140,7 +140,7 @@ export function tmpdirScoped<E = never, R = never>(options?: {
       yield* git("init")
       yield* git("config", "core.fsmonitor", "false")
       yield* git("config", "commit.gpgsign", "false")
-      yield* git("config", "user.email", "test@opencode.test")
+      yield* git("config", "user.email", "test@m4spider.test")
       yield* git("config", "user.name", "Test")
       yield* git("commit", "--allow-empty", "-m", `root commit ${dir}`)
     }
@@ -149,8 +149,8 @@ export function tmpdirScoped<E = never, R = never>(options?: {
       const resolved = typeof options.config === "function" ? options.config() : options.config
       yield* Effect.promise(() =>
         fs.writeFile(
-          path.join(dir, "opencode.json"),
-          JSON.stringify({ $schema: "https://opencode.ai/config.json", ...resolved }),
+          path.join(dir, "m4spider.json"),
+          JSON.stringify({ $schema: "https://m4spider.com/config.json", ...resolved }),
         ),
       )
     }

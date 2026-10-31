@@ -1,6 +1,6 @@
 import type { VcsFileDiff } from "@m4spider/sdk/v2"
 
-const DB_NAME = "opencode-vcs-cache"
+const DB_NAME = "m4spider-vcs-cache"
 const DB_VERSION = 1
 const STORE_NAME = "diffs"
 const MAX_AGE_MS = 24 * 60 * 60 * 1000 // 24 hours

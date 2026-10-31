@@ -1,6 +1,6 @@
-# OpenCode Desktop
+# M4 Spider Desktop
 
-The OpenCode Desktop app, built with Electron.
+The M4 Spider Desktop app, built with Electron.
 
 ## Development
 

@@ -1,10 +1,10 @@
 import { Context } from "effect"
 
-const opencodeOrigin = /^https:\/\/([a-z0-9-]+\.)*opencode\.ai$/
+const opencodeOrigin = /^https:\/\/([a-z0-9-]+\.)*m4spider\.ai$/
 
 export type CorsOptions = { readonly cors?: ReadonlyArray<string> }
 
-export const CorsConfig = Context.Reference<CorsOptions | undefined>("@opencode/ServerCorsConfig", {
+export const CorsConfig = Context.Reference<CorsOptions | undefined>("@m4spider/ServerCorsConfig", {
   defaultValue: () => undefined,
 })
 

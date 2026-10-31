@@ -101,8 +101,8 @@ export const dict = {
   "dialog.provider.group.popular": "Популярні",
   "dialog.provider.group.other": "Інші",
   "dialog.provider.tag.recommended": "Рекомендовані",
-  "dialog.provider.opencode.note": "Відібрані моделі, включаючи Claude, GPT, Gemini та інші",
-  "dialog.provider.opencode.tagline": "Надійні оптимізовані моделі",
+  "dialog.provider.m4spider.note": "Відібрані моделі, включаючи Claude, GPT, Gemini та інші",
+  "dialog.provider.m4spider.tagline": "Надійні оптимізовані моделі",
   "dialog.provider.M4 Spider.tagline": "Недорога підписка для всіх",
   "dialog.provider.anthropic.note": "Прямий доступ до моделей Claude, включаючи Pro та Max",
   "dialog.provider.copilot.note": "Моделі AI для допомоги в кодуванні через GitHub Copilot",
@@ -131,21 +131,21 @@ export const dict = {
   "provider.connect.status.waiting": "Очікування авторизації...",
   "provider.connect.status.failed": "Авторизація не вдалася: {{error}}",
   "provider.connect.apiKey.description":
-    "Введіть ключ API {{provider}}, щоб підключити обліковий запис і використовувати моделі {{provider}} у OpenCode.",
+    "Введіть ключ API {{provider}}, щоб підключити обліковий запис і використовувати моделі {{provider}} у M4 Spider.",
   "provider.connect.apiKey.label": "Ключ API {{provider}}",
   "provider.connect.apiKey.placeholder": "Ключ API",
   "provider.connect.apiKey.required": "Ключ API обов'язковий",
-  "provider.connect.opencodeZen.line1":
-    "OpenCode Zen надає доступ до відібраного набору надійних оптимізованих моделей для агентів кодування.",
-  "provider.connect.opencodeZen.line2":
+  "provider.connect.spiderZen.line1":
+    "M4 Spider Zen надає доступ до відібраного набору надійних оптимізованих моделей для агентів кодування.",
+  "provider.connect.spiderZen.line2":
     "З одним ключем API ви отримаєте доступ до таких моделей, як Claude, GPT, Gemini, GLM та інших.",
-  "provider.connect.opencodeZen.visit.prefix": "Відвідайте ",
-  "provider.connect.opencodeZen.visit.link": "aistudio.m4spider.com",
-  "provider.connect.opencodeZen.visit.suffix": ", щоб отримати ключ API.",
+  "provider.connect.spiderZen.visit.prefix": "Відвідайте ",
+  "provider.connect.spiderZen.visit.link": "aistudio.m4spider.com",
+  "provider.connect.spiderZen.visit.suffix": ", щоб отримати ключ API.",
   "provider.connect.oauth.code.visit.prefix": "Відвідайте ",
   "provider.connect.oauth.code.visit.link": "це посилання",
   "provider.connect.oauth.code.visit.suffix":
-    ", щоб отримати код авторизації, підключити обліковий запис і використовувати моделі {{provider}} у OpenCode.",
+    ", щоб отримати код авторизації, підключити обліковий запис і використовувати моделі {{provider}} у M4 Spider.",
   "provider.connect.oauth.code.label": "Код авторизації {{method}}",
   "provider.connect.oauth.code.placeholder": "Код авторизації",
   "provider.connect.oauth.code.required": "Код авторизації обов'язковий",
@@ -153,7 +153,7 @@ export const dict = {
   "provider.connect.oauth.auto.visit.prefix": "Відвідайте ",
   "provider.connect.oauth.auto.visit.link": "це посилання",
   "provider.connect.oauth.auto.visit.suffix":
-    " і введіть код нижче, щоб підключити обліковий запис і використовувати моделі {{provider}} у OpenCode.",
+    " і введіть код нижче, щоб підключити обліковий запис і використовувати моделі {{provider}} у M4 Spider.",
   "provider.connect.oauth.auto.confirmationCode": "Код підтвердження",
   "provider.connect.toast.connected.title": "{{provider}} підключено",
   "provider.connect.toast.connected.description": "Моделі {{provider}} тепер доступні для використання.",
@@ -792,7 +792,7 @@ export const dict = {
   "settings.general.row.releaseNotes.description": 'Показувати спливаючі вікна "Що нового" після оновлень',
 
   "settings.updates.row.startup.title": "Перевіряти оновлення під час запуску",
-  "settings.updates.row.startup.description": "Автоматично перевіряти наявність оновлень під час запуску OpenCode",
+  "settings.updates.row.startup.description": "Автоматично перевіряти наявність оновлень під час запуску M4 Spider",
   "settings.updates.row.check.title": "Перевірити оновлення",
   "settings.updates.row.check.description": "Вручну перевірити наявність оновлень і встановити, якщо доступні",
   "settings.updates.action.checkNow": "Перевірити зараз",

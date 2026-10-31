@@ -20,7 +20,7 @@ import { ProviderV2 } from "@m4spider/core/provider"
 import { ModelV2 } from "@m4spider/core/model"
 import { EventV2 } from "@m4spider/core/event"
 
-const disabled = process.env["OPENCODE_DISABLE_SHARE"] === "true" || process.env["OPENCODE_DISABLE_SHARE"] === "1"
+const disabled = process.env["M4SPIDER_DISABLE_SHARE"] === "true" || process.env["M4SPIDER_DISABLE_SHARE"] === "1"
 
 export type Api = {
   create: string
@@ -78,7 +78,7 @@ export interface Interface {
   readonly remove: (sessionID: SessionID) => Effect.Effect<void, unknown>
 }
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/ShareNext") {}
+export class Service extends Context.Service<Service, Interface>()("@m4spider/ShareNext") {}
 
 export const use = serviceUse(Service)
 

@@ -13,7 +13,7 @@ const original = {
   envPassword: process.env.M4SPIDER_SERVER_PASSWORD,
   envUsername: process.env.M4SPIDER_SERVER_USERNAME,
 }
-const auth = { username: "opencode", password: "listen-secret" }
+const auth = { username: "m4spider", password: "listen-secret" }
 const testPty = process.platform === "win32" ? test.skip : test
 
 afterEach(async () => {
@@ -66,8 +66,8 @@ async function requestTicket(
     method: "POST",
     headers: {
       authorization: authorization(),
-      "x-opencode-directory": dir,
-      ...(options?.ticketHeader === false ? {} : { "x-opencode-ticket": "1" }),
+      "x-m4spider-directory": dir,
+      ...(options?.ticketHeader === false ? {} : { "x-m4spider-ticket": "1" }),
       ...(options?.origin ? { origin: options.origin } : {}),
     },
   })
@@ -86,7 +86,7 @@ async function createCat(listener: Awaited<ReturnType<typeof startListener>>, di
     method: "POST",
     headers: {
       authorization: authorization(),
-      "x-opencode-directory": dir,
+      "x-m4spider-directory": dir,
       "content-type": "application/json",
     },
     body: JSON.stringify({ command: "/bin/cat", title: "listen-smoke" }),
@@ -171,7 +171,7 @@ describe("HttpApi Server.listen", () => {
     let stopped = false
     try {
       const response = await fetch(new URL(PtyPaths.shells, listener.url), {
-        headers: { authorization: authorization(), "x-opencode-directory": tmp.path },
+        headers: { authorization: authorization(), "x-m4spider-directory": tmp.path },
       })
       expect(response.status).toBe(200)
       expect(await response.json()).toEqual(
@@ -339,7 +339,7 @@ describe("HttpApi Server.listen", () => {
       // and cannot find a PTY registered in a project directory.
       const ambiguous = await fetch(new URL(PtyPaths.connectToken.replace(":ptyID", info.id), listener.url), {
         method: "POST",
-        headers: { authorization: authorization(), "x-opencode-ticket": "1" },
+        headers: { authorization: authorization(), "x-m4spider-ticket": "1" },
       })
       expect(ambiguous.status).toBe(404)
 
@@ -350,7 +350,7 @@ describe("HttpApi Server.listen", () => {
         ),
         {
           method: "POST",
-          headers: { authorization: authorization(), "x-opencode-ticket": "1" },
+          headers: { authorization: authorization(), "x-m4spider-ticket": "1" },
         },
       )
       expect(directoryScoped.status).toBe(200)

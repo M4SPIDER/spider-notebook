@@ -15,7 +15,7 @@ import { jsonSchema, tool as aiTool, type ModelMessage, type Tool } from "ai"
 import type { Plugin } from "@/plugin"
 import { mergeDeep } from "remeda"
 
-const USER_AGENT = `opencode/${InstallationVersion}`
+const USER_AGENT = `m4spider/${InstallationVersion}`
 
 type PrepareInput = {
   readonly user: SessionV1.User
@@ -164,7 +164,7 @@ export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: Pre
     })
   }
 
-  const opencodeProjectID = input.model.providerID.startsWith("opencode")
+  const opencodeProjectID = input.model.providerID.startsWith("m4spider")
     ? (yield* InstanceState.context).project.id
     : undefined
 
@@ -175,12 +175,12 @@ export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: Pre
     params,
     messageTransformOptions: options,
     headers: {
-      ...(input.model.providerID.startsWith("opencode")
+      ...(input.model.providerID.startsWith("m4spider")
         ? {
-            ...(opencodeProjectID ? { "x-opencode-project": opencodeProjectID } : {}),
-            "x-opencode-session": input.sessionID,
-            "x-opencode-request": input.user.id,
-            "x-opencode-client": input.flags.client,
+            ...(opencodeProjectID ? { "x-m4spider-project": opencodeProjectID } : {}),
+            "x-m4spider-session": input.sessionID,
+            "x-m4spider-request": input.user.id,
+            "x-m4spider-client": input.flags.client,
             "User-Agent": USER_AGENT,
           }
         : {

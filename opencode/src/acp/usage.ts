@@ -1,5 +1,5 @@
 import type { AgentSideConnection, Usage } from "@agentclientprotocol/sdk"
-import type { AssistantMessage as OpenCodeAssistantMessage, Message } from "@m4spider/sdk/v2"
+import type { AssistantMessage as M4 SpiderAssistantMessage, Message } from "@m4spider/sdk/v2"
 import { InstanceRef } from "@/effect/instance-ref"
 import { InstanceStore } from "@/project/instance-store"
 import { ProviderV2 } from "@m4spider/core/provider"
@@ -7,11 +7,11 @@ import { ModelV2 } from "@m4spider/core/model"
 import { Provider } from "@/provider/provider"
 import { Context, Effect, Layer, SynchronizedRef } from "effect"
 
-export type AssistantTokenCost = Pick<OpenCodeAssistantMessage, "cost" | "tokens">
+export type AssistantTokenCost = Pick<M4 SpiderAssistantMessage, "cost" | "tokens">
 
 export type AssistantMessage = AssistantTokenCost &
-  Pick<OpenCodeAssistantMessage, "role"> &
-  Partial<Pick<OpenCodeAssistantMessage, "providerID" | "modelID">>
+  Pick<M4 SpiderAssistantMessage, "role"> &
+  Partial<Pick<M4 SpiderAssistantMessage, "providerID" | "modelID">>
 
 export type SessionMessage = {
   readonly info: { readonly role: Message["role"] } | AssistantMessage
@@ -58,14 +58,14 @@ export interface Interface {
 }
 
 export class MessageLoader extends Context.Service<MessageLoader, MessageLoaderInterface>()(
-  "@opencode/ACPUsageMessageLoader",
+  "@m4spider/ACPUsageMessageLoader",
 ) {}
 
 export class ContextLimitLoader extends Context.Service<ContextLimitLoader, ContextLimitLoaderInterface>()(
-  "@opencode/ACPUsageContextLimitLoader",
+  "@m4spider/ACPUsageContextLimitLoader",
 ) {}
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/ACPUsage") {}
+export class Service extends Context.Service<Service, Interface>()("@m4spider/ACPUsage") {}
 
 export function messageLoaderFromSDK(sdk: SDK): MessageLoaderInterface {
   return MessageLoader.of({

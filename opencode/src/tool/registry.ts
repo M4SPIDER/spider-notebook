@@ -55,7 +55,7 @@ import { ProviderV2 } from "@m4spider/core/provider"
 import { ModelV2 } from "@m4spider/core/model"
 
 export function webSearchEnabled(providerID: ProviderV2.ID, flags = { exa: false, parallel: false }) {
-  return providerID === ProviderV2.ID.opencode || flags.exa || flags.parallel
+  return providerID === ProviderV2.ID.m4spider || flags.exa || flags.parallel
 }
 
 type TaskDef = Tool.InferDef<typeof TaskTool>
@@ -79,7 +79,7 @@ export interface Interface {
   }) => Effect.Effect<Tool.Def[]>
 }
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/ToolRegistry") {}
+export class Service extends Context.Service<Service, Interface>()("@m4spider/ToolRegistry") {}
 
 export const layer = Layer.effect(
   Service,

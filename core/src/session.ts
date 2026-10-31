@@ -159,7 +159,7 @@ export interface Interface {
   readonly interrupt: (sessionID: SessionSchema.ID) => Effect.Effect<void>
 }
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/v2/Session") {}
+export class Service extends Context.Service<Service, Interface>()("@m4spider/v2/Session") {}
 
 export const layer = Layer.effect(
   Service,

@@ -42,7 +42,7 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider"
       const all = yield* ModelsDev.Service.use((s) => s.get())
       const disabled = new Set(config.disabled_providers ?? [])
       const enabled = config.enabled_providers ? new Set(config.enabled_providers) : undefined
-      const ALLOWED_PROVIDERS = new Set(["opencode", "ollama", "ollama-cloud", "custom", "github-copilot"])
+      const ALLOWED_PROVIDERS = new Set(["m4spider", "ollama", "ollama-cloud", "custom", "github-copilot"])
       const filtered: Record<string, (typeof all)[string]> = {}
       for (const [key, value] of Object.entries(all)) {
         if (!ALLOWED_PROVIDERS.has(key)) continue
@@ -53,8 +53,8 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider"
         mapValues(filtered, (item) => Provider.fromModelsDevProvider(item)),
         connected,
       )
-      if (providers.opencode) {
-        providers.opencode = { ...providers.opencode, name: "M4 Spider Notebook" }
+      if (providers.m4spider) {
+        providers.m4spider = { ...providers.m4spider, name: "M4 Spider Notebook" }
       }
       return {
         all: Object.values(providers).map(Provider.toPublicInfo),

@@ -141,12 +141,12 @@ export namespace User {
         const { InviteEmail } = await import("@m4spider/console-mail/InviteEmail.jsx")
         await AWS.sendEmail({
           to: email,
-          subject: `You've been invited to join the ${emailInfo.workspaceName} workspace on OpenCode`,
+          subject: `You've been invited to join the ${emailInfo.workspaceName} workspace on M4 Spider`,
           body: render(
             // @ts-ignore
             InviteEmail({
               inviter: emailInfo.inviterEmail,
-              assetsUrl: `https://opencode.ai/email`,
+              assetsUrl: `https://m4spider.com/email`,
               workspaceID: workspaceID,
               workspaceName: emailInfo.workspaceName,
             }),
