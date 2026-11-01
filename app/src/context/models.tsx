@@ -1,3 +1,4 @@
+import { useSpiderUsage } from "@/context/spider-usage"
 import { createMemo } from "solid-js"
 import { createStore } from "solid-js/store"
 import { DateTime } from "luxon"
@@ -27,6 +28,7 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
   gate: false,
   init: () => {
     const providers = useProviders()
+    const usage = useSpiderUsage()
 
     const migrate = (value: unknown): Store => {
       if (!value || typeof value !== "object") return { user: [], recent: [], variant: {} }
@@ -121,10 +123,9 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       const items = available()
         .filter((m) => {
           if (m.provider.id === "m4spider" || m.provider.id === "opencode") {
-            const isPaid = providers.paid().some((p) => p[0] === m.provider.id)
-            if (!isPaid) {
-              // On Free tier, ONLY M4 Spider Auto Mode is visible!
-              // Free users should NOT see the underlying models!
+            // UNTIL ₹799 (Free, Starter ₹299, Pro ₹499), users CANNOT see individual models!
+            // Only Ultra (₹799+) and above have access to see and choose individual models.
+            if (!usage.canSeeModels()) {
               return m.id === "spider-auto" || m.id === "auto"
             }
           }
@@ -166,7 +167,10 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
         if (model.modelID === "spider-auto" || model.modelID === "auto") {
           return true
         }
-        return false
+        // Until ₹799 they should NOT see or enable individual models
+        if (!usage.canSeeModels()) {
+          return false
+        }
       }
       if (latestSet().has(key)) return true
       const date = release().get(key)
