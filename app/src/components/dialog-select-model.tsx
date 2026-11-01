@@ -47,11 +47,11 @@ const ModelList: Component<{
       filterKeys={["provider.name", "name", "id"]}
       sortBy={(a, b) => {
         const freeOrder = [
+          "spider-auto",
           "glm-5.3-flash",
           "nvidia/nemotron-3.5-super-vl:free",
           "qwen-3.7-flash",
           "muse-spark-1.3-contributor",
-          "spider-auto",
         ]
         const orderA = a.provider.id === "m4spider" ? freeOrder.indexOf(a.id) : -1
         const orderB = b.provider.id === "m4spider" ? freeOrder.indexOf(b.id) : -1

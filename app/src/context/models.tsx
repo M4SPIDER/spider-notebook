@@ -110,19 +110,31 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
     })
 
     const freeOrder = [
+      "spider-auto",
       "glm-5.3-flash",
       "nvidia/nemotron-3.5-super-vl:free",
       "qwen-3.7-flash",
       "muse-spark-1.3-contributor",
-      "spider-auto",
     ]
 
     const list = createMemo(() => {
-      const items = available().map((m) => ({
-        ...m,
-        name: m.name.replace("(latest)", "").trim(),
-        latest: m.name.includes("(latest)"),
-      }))
+      const items = available()
+        .filter((m) => {
+          if (m.provider.id === "m4spider" || m.provider.id === "opencode") {
+            const isPaid = providers.paid().some((p) => p[0] === m.provider.id)
+            if (!isPaid) {
+              // On Free tier, ONLY M4 Spider Auto Mode is visible!
+              // Free users should NOT see the underlying models!
+              return m.id === "spider-auto" || m.id === "auto"
+            }
+          }
+          return true
+        })
+        .map((m) => ({
+          ...m,
+          name: m.name.replace("(latest)", "").trim(),
+          latest: m.name.includes("(latest)"),
+        }))
       items.sort((a, b) => {
         const orderA = a.provider.id === "m4spider" ? freeOrder.indexOf(a.id) : -1
         const orderB = b.provider.id === "m4spider" ? freeOrder.indexOf(b.id) : -1
@@ -150,18 +162,11 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       const state = visibility().get(key)
       if (state === "hide") return false
       if (state === "show") return true
-      if (model.providerID === "m4spider") {
-        if (
-          model.modelID === "glm-5.3-flash" ||
-          model.modelID === "nvidia/nemotron-3.5-super-vl:free" ||
-          model.modelID === "qwen-3.7-flash" ||
-          model.modelID === "muse-spark-1.3-contributor"
-        ) {
+      if (model.providerID === "m4spider" || model.providerID === "opencode") {
+        if (model.modelID === "spider-auto" || model.modelID === "auto") {
           return true
         }
-        if (model.modelID === "spider-auto" || model.modelID === "auto") {
-          return false
-        }
+        return false
       }
       if (latestSet().has(key)) return true
       const date = release().get(key)

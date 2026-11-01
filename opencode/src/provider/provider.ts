@@ -189,13 +189,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
 
       if (!ok) {
         for (const [key, value] of Object.entries(input.models)) {
-          const FREE_MODELS = new Set([
-            "glm-5.3-flash",
-            "nvidia/nemotron-3.5-super-vl:free",
-            "qwen-3.7-flash",
-            "muse-spark-1.3-contributor",
-          ])
-          if (FREE_MODELS.has(key)) continue
+          if (key === "spider-auto") continue
           delete input.models[key]
         }
       }
@@ -218,13 +212,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
 
       if (!ok) {
         for (const [key, value] of Object.entries(input.models)) {
-          const FREE_MODELS = new Set([
-            "glm-5.3-flash",
-            "nvidia/nemotron-3.5-super-vl:free",
-            "qwen-3.7-flash",
-            "muse-spark-1.3-contributor",
-          ])
-          if (FREE_MODELS.has(key)) continue
+          if (key === "spider-auto") continue
           delete input.models[key]
         }
       }
@@ -2194,11 +2182,9 @@ export const layer = Layer.effect(
 
       const spider = s.providers[ProviderV2.ID.make("m4spider")]
       if (spider && Object.keys(spider.models).length > 0) {
-        const preferred = spider.models["glm-5.3-flash"]
-          ? "glm-5.3-flash"
-          : spider.models["spider-auto"]
-            ? "spider-auto"
-            : Object.keys(spider.models)[0]
+        const preferred = spider.models["spider-auto"]
+          ? "spider-auto"
+          : Object.keys(spider.models)[0]
         return {
           providerID: spider.id,
           modelID: ModelV2.ID.make(preferred),

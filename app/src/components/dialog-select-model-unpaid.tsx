@@ -40,14 +40,9 @@ export const DialogSelectModelUnpaid: Component<{ model?: ModelState }> = (props
   const freeModels = createMemo(() =>
     model.list().filter((m) => {
       if (m.provider.id === "m4spider") {
-        return (
-          m.id === "glm-5.3-flash" ||
-          m.id === "nvidia/nemotron-3.5-super-vl:free" ||
-          m.id === "qwen-3.7-flash" ||
-          m.id === "muse-spark-1.3-contributor"
-        )
+        return m.id === "spider-auto"
       }
-      return (!m.cost || m.cost.input === 0) && m.id !== "spider-auto" && m.id !== "auto"
+      return (!m.cost || m.cost.input === 0)
     }),
   )
 

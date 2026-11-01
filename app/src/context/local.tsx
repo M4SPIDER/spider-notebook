@@ -36,7 +36,7 @@ const cleanSessions = (sess: Record<string, State | undefined>) => {
     if (v.model && isChinaOrLegacyBlocked(v.model.providerID)) {
       result[k] = {
         ...v,
-        model: { providerID: "m4spider", modelID: "glm-5.3-flash" },
+        model: { providerID: "m4spider", modelID: "spider-auto" },
       }
     } else {
       result[k] = v
@@ -173,7 +173,9 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     }
 
     const defaultModel = () => {
-      // Free models priority
+      // On Free tier, Auto Mode is the only active model
+      const spiderAuto = { providerID: "m4spider", modelID: "spider-auto" }
+      if (validModel(spiderAuto)) return spiderAuto
       const glm = { providerID: "m4spider", modelID: "glm-5.3-flash" }
       if (validModel(glm)) return glm
       const nemotron = { providerID: "m4spider", modelID: "nvidia/nemotron-3.5-super-vl:free" }
@@ -182,9 +184,6 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       if (validModel(qwen)) return qwen
       const muse = { providerID: "m4spider", modelID: "muse-spark-1.3-contributor" }
       if (validModel(muse)) return muse
-      // Ultra tier (₹799+) Auto Mode
-      const spiderAuto = { providerID: "m4spider", modelID: "spider-auto" }
-      if (validModel(spiderAuto)) return spiderAuto
       const defaults = providers.default()
       for (const provider of providers.connected()) {
         const configured = defaults[provider.id]
@@ -420,7 +419,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
 
           const model = msg.model && !isChinaOrLegacyBlocked(msg.model.providerID)
             ? msg.model
-            : { providerID: "m4spider", modelID: "glm-5.3-flash" }
+            : { providerID: "m4spider", modelID: "spider-auto" }
 
           setSaved("session", session, {
             agent: msg.agent,

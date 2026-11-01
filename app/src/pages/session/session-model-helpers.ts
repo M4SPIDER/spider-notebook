@@ -16,7 +16,7 @@ export const syncSessionModel = (local: Local, msg: UserMessage) => {
   if (msg.model && isChinaOrLegacyBlocked(msg.model.providerID)) {
     local.session.restore({
       ...msg,
-      model: { ...msg.model, providerID: "m4spider", modelID: "glm-5.3-flash" },
+      model: { ...msg.model, providerID: "m4spider", modelID: "spider-auto" },
     })
     return
   }

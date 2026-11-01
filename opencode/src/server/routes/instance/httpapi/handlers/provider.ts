@@ -110,6 +110,10 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider"
       for (const key of Object.keys(providers)) {
         if (isChinaOrLegacyBlocked(key)) delete providers[key]
       }
+      const spiderProv = cleanConnected["m4spider"] ?? cleanConnected["opencode"]
+      if (spiderProv && providers["m4spider"]) {
+        providers["m4spider"].models = spiderProv.models
+      }
       return {
         all: Object.values(providers).filter((p) => !isChinaOrLegacyBlocked(p.id)).map(Provider.toPublicInfo),
         default: Provider.defaultModelIDs(providers),
