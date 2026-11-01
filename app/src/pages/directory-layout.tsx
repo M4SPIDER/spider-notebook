@@ -6,6 +6,7 @@ import { createEffect, createMemo, createResource, type ParentProps, Show } from
 import { useLanguage } from "@/context/language"
 import { LocalProvider } from "@/context/local"
 import { SDKProvider } from "@/context/sdk"
+import { useServerSync } from "@/context/server-sync"
 import { useSync } from "@/context/sync"
 import { decode64 } from "@/utils/base64"
 import { Schema } from "effect"
@@ -56,11 +57,12 @@ export default function Layout(props: ParentProps) {
   const params = useParams()
   const language = useLanguage()
   const navigate = useNavigate()
+  const serverSync = useServerSync()
   let invalid = ""
 
   const resolved = createMemo(() => {
-    if (!params.dir) return ""
-    return decodeDirectory(params.dir) ?? ""
+    if (!params.dir) return serverSync.data.path.directory || serverSync.data.path.home || ""
+    return decodeDirectory(params.dir) ?? serverSync.data.path.directory ?? serverSync.data.path.home ?? ""
   })
 
   createEffect(() => {

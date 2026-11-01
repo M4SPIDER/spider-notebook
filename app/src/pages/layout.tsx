@@ -145,7 +145,7 @@ export default function Layout(props: ParentProps) {
     return {
       slug,
       store,
-      dir: store[0].path.directory || dir,
+      dir: store[0].path.directory || dir || serverSync.data.path.directory || serverSync.data.path.home || "",
     }
   })
   const currentDir = createMemo(() => route().dir)
@@ -2314,7 +2314,8 @@ export default function Layout(props: ParentProps) {
       onOpenProject={chooseProject}
       onNewChat={() => {
         setState("archived", false)
-        navigateWithSidebarReset(`/${base64Encode(currentDir())}/session`)
+        const dir = currentDir() || serverSync.data.path.directory || serverSync.data.path.home || ""
+        navigateWithSidebarReset(`/${base64Encode(dir)}/session`)
       }}
       onSearchChats={() => {
         setState("archived", false)

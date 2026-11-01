@@ -30,7 +30,7 @@ import { CommandProvider } from "@/context/command"
 import { CommentsProvider } from "@/context/comments"
 import { FileProvider } from "@/context/file"
 import { ServerSDKProvider } from "@/context/server-sdk"
-import { ServerSyncProvider } from "@/context/server-sync"
+import { ServerSyncProvider, useServerSync } from "@/context/server-sync"
 import { GlobalProvider } from "@/context/global"
 import { HighlightsProvider } from "@/context/highlights"
 import { LanguageProvider, type Locale, useLanguage } from "@/context/language"
@@ -55,12 +55,13 @@ const HomeRoute = Object.assign(
     const server = useServer()
     const tabs = useTabs()
     const layout = useLayout()
+    const serverSync = useServerSync()
     const [navigated, setNavigated] = createSignal(false)
 
     createEffect(() => {
       if (!tabs.ready() || navigated()) return
       const projects = layout.projects.list()
-      const directory = projects[0]?.worktree
+      const directory = projects[0]?.worktree || serverSync.data.path.directory || serverSync.data.path.home
       if (!directory) return
       setNavigated(true)
       tabs.newDraft({ server: server.key, directory })
