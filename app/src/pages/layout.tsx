@@ -492,7 +492,7 @@ export default function Layout(props: ParentProps) {
   }
 
   const currentProject = createMemo(() => {
-    const directory = currentDir()
+    const directory = currentDir() || serverSync.data.path.directory || serverSync.data.path.home
     if (!directory) return
     const key = pathKey(directory)
 
@@ -506,13 +506,22 @@ export default function Layout(props: ParentProps) {
 
     const [child] = serverSync.child(directory, { bootstrap: false })
     const id = child.project
-    if (!id) return
+    if (id) {
+      const meta = serverSync.data.project.find((p) => p.id === id)
+      const root = meta?.worktree
+      if (root) {
+        const found = projects.find((p) => p.worktree === root)
+        if (found) return found
+      }
+    }
 
-    const meta = serverSync.data.project.find((p) => p.id === id)
-    const root = meta?.worktree
-    if (!root) return
-
-    return projects.find((p) => p.worktree === root)
+    return {
+      id: directory,
+      worktree: directory,
+      name: getFilename(directory) || directory,
+      sandboxes: [],
+      vcs: undefined,
+    } as unknown as LocalProject
   })
 
   const [autoselecting] = createResource(async () => {
@@ -524,8 +533,9 @@ export default function Layout(props: ParentProps) {
     const last = server.projects.last()
 
     if (list.length === 0) {
-      if (!last) return
-      await openProject(last, true)
+      const target = last || serverSync.data.path.directory || serverSync.data.path.home
+      if (!target) return
+      await openProject(target, true)
     } else {
       const next = list.find((project) => project.worktree === last) ?? list[0]
       if (!next) return

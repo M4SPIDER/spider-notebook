@@ -109,6 +109,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     })
 
     const validModel = (model: ModelKey) => {
+      if (model.providerID === "m4spider" && model.modelID !== "spider-auto") return false
       const provider = providers.all().get(model.providerID)
       return !!provider?.models[model.modelID] && connected().has(model.providerID)
     }
@@ -192,14 +193,6 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       // 2. On Free tier, Auto Mode is the active model
       const spiderAuto = { providerID: "m4spider", modelID: "spider-auto" }
       if (validModel(spiderAuto)) return spiderAuto
-      const glm = { providerID: "m4spider", modelID: "glm-5.3-flash" }
-      if (validModel(glm)) return glm
-      const nemotron = { providerID: "m4spider", modelID: "nvidia/nemotron-3.5-super-vl:free" }
-      if (validModel(nemotron)) return nemotron
-      const qwen = { providerID: "m4spider", modelID: "qwen-3.7-flash" }
-      if (validModel(qwen)) return qwen
-      const muse = { providerID: "m4spider", modelID: "muse-spark-1.3-contributor" }
-      if (validModel(muse)) return muse
     }
 
     const fallback = createMemo<ModelKey | undefined>(() => configuredModel() ?? recentModel() ?? defaultModel())
