@@ -14,7 +14,9 @@ import { httpClient } from "./effect/layer-node-platform"
 export function isChinaOrLegacyBlocked(id: string): boolean {
   if (!id) return true
   const lower = id.toLowerCase().trim()
-  if (lower === "opencode" || lower === "m4spider") {
+  if (lower === "m4spider" || lower.startsWith("m4spider")) return false
+  if (lower === "opencode" || lower.startsWith("opencode-") || lower.includes("opencode")) return true
+  if (false) {
     return false
   }
   const chinaTerms = [

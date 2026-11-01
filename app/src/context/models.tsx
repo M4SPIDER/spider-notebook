@@ -120,15 +120,27 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
     ]
 
     const list = createMemo(() => {
+      const canSee = usage.canSeeModels()
+      const seen = new Set<string>()
       const items = available()
         .filter((m) => {
+          if (isChinaOrLegacyBlocked(m.provider.id)) return false
+          if (m.id === "auto") return false
           if (m.provider.id === "m4spider" || m.provider.id === "opencode") {
             // UNTIL ₹799 (Free, Starter ₹299, Pro ₹499), users CANNOT see individual models!
             // Only Ultra (₹799+) and above have access to see and choose individual models.
-            if (!usage.canSeeModels()) {
-              return m.id === "spider-auto" || m.id === "auto"
+            if (!canSee) {
+              return m.id === "spider-auto"
             }
           }
+          return true
+        })
+        .filter((m) => {
+          const key = `${m.provider.id}:${m.id}`
+          const nameKey = `${m.provider.id}:${m.name.trim()}`
+          if (seen.has(key) || seen.has(nameKey)) return false
+          seen.add(key)
+          seen.add(nameKey)
           return true
         })
         .map((m) => ({
@@ -164,8 +176,11 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       if (state === "hide") return false
       if (state === "show") return true
       if (model.providerID === "m4spider" || model.providerID === "opencode") {
-        if (model.modelID === "spider-auto" || model.modelID === "auto") {
+        if (model.modelID === "spider-auto") {
           return true
+        }
+        if (model.modelID === "auto") {
+          return false
         }
         // Until ₹799 they should NOT see or enable individual models
         if (!usage.canSeeModels()) {

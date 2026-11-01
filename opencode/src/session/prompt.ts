@@ -64,6 +64,25 @@ import { LLMEvent } from "@m4spider/llm"
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
 
+function isChinaOrLegacyBlocked(id: string): boolean {
+  if (!id) return true
+  const lower = id.toLowerCase().trim()
+  if (lower === "m4spider" || lower.startsWith("m4spider")) return false
+  if (lower === "opencode" || lower.startsWith("opencode-") || lower.includes("opencode")) return true
+  const chinaTerms = [
+    "deepseek", "minimax", "moonshot", "kimi", "zhipu", "chatglm", "alibaba", "qwen",
+    "dashscope", "aliyun", "modelscope", "stepfun", "siliconflow", "volcengine", "doubao",
+    "bytedance", "tencent", "hunyuan", "sensenova", "sensetime", "xiaomi", "baichuan",
+    "baidu", "ernie", "01-ai", "lingyi", "302ai", "jiekou", "vivgrid", "meganova",
+    "qiniu", "qihang", "meituan", "kuae", "zai",
+  ]
+  if (lower.endsWith("-cn") || lower.includes("-cn-") || lower.includes(".cn") || lower.startsWith("cn-")) {
+    return true
+  }
+  return chinaTerms.some((term) => lower.includes(term))
+}
+
+
 const decodeMessageInfo = Schema.decodeUnknownExit(SessionV1.Info)
 const decodeMessagePart = Schema.decodeUnknownExit(SessionV1.Part)
 

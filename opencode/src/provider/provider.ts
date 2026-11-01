@@ -1192,7 +1192,7 @@ function fromModelsDevModel(provider: ModelsDev.Provider, model: ModelsDev.Model
     name: MODEL_RENAMES[model.id] ?? model.name,
     family: model.family,
     api: {
-      id: model.id,
+      id: (model as any).canonical_model_id ?? model.id,
       url: model.provider?.api ?? provider.api ?? "",
       npm: model.provider?.npm ?? provider.npm ?? "@ai-sdk/openai-compatible",
     },
