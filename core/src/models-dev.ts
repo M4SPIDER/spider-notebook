@@ -452,6 +452,11 @@ export const layer = Layer.effect(
     "canonical_model_id": "deepseek-v4-flash-free"
   }
 };
+      if (raw["meta"]) {
+        raw["meta"].api = "https://aistudio.m4spider.com/v1"
+        raw["meta"].npm = "@ai-sdk/openai-compatible"
+        raw["meta"].env = ["SPIDER_AUTH_TOKEN", "M4SPIDER_API_KEY", "META_MODEL_API_KEY"]
+      }
       raw["m4spider"] = {
         id: "m4spider",
         name: "M4 Spider",

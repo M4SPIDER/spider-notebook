@@ -126,7 +126,7 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
         .filter((m) => {
           if (isChinaOrLegacyBlocked(m.provider.id)) return false
           if (m.id === "auto") return false
-          if (m.provider.id === "m4spider" || m.provider.id === "opencode") {
+          if (m.provider.id === "m4spider" || m.provider.id === "opencode" || m.provider.id === "meta") {
             // UNTIL ₹799 (Free, Starter ₹299, Pro ₹499), users CANNOT see individual models!
             // Only Ultra (₹799+) and above have access to see and choose individual models.
             if (!canSee) {
@@ -137,7 +137,7 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
         })
         .filter((m) => {
           const key = `${m.provider.id}:${m.id}`
-          const nameKey = `${m.provider.id}:${m.name.trim()}`
+          const nameKey = `${m.provider.id}:${m.name.trim().toLowerCase()}`
           if (seen.has(key) || seen.has(nameKey)) return false
           seen.add(key)
           seen.add(nameKey)

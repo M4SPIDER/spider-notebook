@@ -199,6 +199,24 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         options: ok ? {} : { apiKey: "public" },
       }
     }),
+        meta: Effect.fnUntraced(function* (input: Info) {
+      const env = yield* dep.env()
+      const auth = yield* dep.auth("m4spider")
+      const metaAuth = yield* dep.auth("meta")
+      const token =
+        env["SPIDER_AUTH_TOKEN"] ||
+        (auth && auth.type === "api" ? auth.key : undefined) ||
+        env["M4SPIDER_API_KEY"] ||
+        (metaAuth && metaAuth.type === "api" ? metaAuth.key : undefined)
+
+      return {
+        autoload: Object.keys(input.models).length > 0,
+        options: {
+          baseURL: "https://aistudio.m4spider.com/v1",
+          apiKey: token || "public",
+        },
+      }
+    }),
     m4spider: Effect.fnUntraced(function* (input: Info) {
       const env = yield* dep.env()
       const auth = yield* dep.auth(input.id)
@@ -1549,7 +1567,7 @@ export const layer = Layer.effect(
           catalog["m4spider"] = fromModelsDevProvider(modelsDev["m4spider"])
         }
         if (catalog.m4spider) {
-          catalog.m4spider.name = "M4 Spider AI Gateway"
+          catalog.m4spider.name = "M4 Spider"
         }
         const database = mapValues(catalog, toPublicInfo)
 
@@ -2007,7 +2025,10 @@ export const layer = Layer.effect(
 
     const getProvider = Effect.fn("Provider.getProvider")((providerID: ProviderV2.ID) =>
       InstanceState.use(state, (s) => {
-        if (providerID === "m4spider" || providerID === ProviderV2.ID.make("m4spider")) {
+        if (providerID === "meta" || providerID === ProviderV2.ID.make("meta")) {
+        providerID = ProviderV2.ID.make("m4spider")
+      }
+      if (providerID === "m4spider" || providerID === ProviderV2.ID.make("m4spider")) {
           return s.providers[ProviderV2.ID.make("m4spider")]
         }
         return s.providers[providerID]
@@ -2016,7 +2037,7 @@ export const layer = Layer.effect(
 
     const getModel = Effect.fn("Provider.getModel")(function* (providerID: ProviderV2.ID, modelID: ModelV2.ID) {
       const s = yield* InstanceState.get(state)
-      if (providerID === "m4spider" || providerID === ProviderV2.ID.make("m4spider")) {
+      if (providerID === "meta" || providerID === ProviderV2.ID.make("meta") || providerID === "m4spider" || providerID === ProviderV2.ID.make("m4spider")) {
         providerID = ProviderV2.ID.make("m4spider")
         if (!s.providers[providerID]?.models[modelID]) {
           modelID = ModelV2.ID.make("spider-auto")
@@ -2046,6 +2067,9 @@ export const layer = Layer.effect(
 
     const getLanguage = Effect.fn("Provider.getLanguage")(function* (model: Model) {
       const s = yield* InstanceState.get(state)
+      if (model.providerID === "meta" || model.providerID === ProviderV2.ID.make("meta")) {
+        model = { ...model, providerID: ProviderV2.ID.make("m4spider") }
+      }
       const envs = yield* env.all()
       const key = `${model.providerID}/${model.id}`
       if (s.models.has(key)) return s.models.get(key)!

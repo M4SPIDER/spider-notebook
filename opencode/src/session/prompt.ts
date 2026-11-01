@@ -670,12 +670,12 @@ export const layer = Layer.effect(
         .get()
         .pipe(Effect.orDie)
       let model = input.model ?? ag.model ?? (yield* currentModel(input.sessionID))
-      if (isChinaOrLegacyBlocked(model.providerID)) {
-        model = {
-          providerID: ProviderV2.ID.make("m4spider"),
-          modelID: ModelV2.ID.make("spider-auto"),
+      if (model.providerID === "meta" || model.providerID === ProviderV2.ID.make("meta") || isChinaOrLegacyBlocked(model.providerID)) {
+          model = {
+            providerID: ProviderV2.ID.make("m4spider"),
+            modelID: model.modelID && model.modelID !== "auto" ? model.modelID : ModelV2.ID.make("spider-auto"),
+          }
         }
-      }
       const same = ag.model && model.providerID === ag.model.providerID && model.modelID === ag.model.modelID
       const full =
         !input.variant && ag.variant && same
