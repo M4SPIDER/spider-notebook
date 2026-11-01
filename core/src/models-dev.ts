@@ -280,7 +280,7 @@ export const layer = Layer.effect(
     },
     "status": "active",
     "provider": {
-      "api": "https://opencode.ai/inference/openai/v1"
+      "api": "https://aistudio.m4spider.com/v1"
     },
     "cost": {
       "input": 0,
@@ -318,7 +318,7 @@ export const layer = Layer.effect(
     },
     "status": "active",
     "provider": {
-      "api": "https://opencode.ai/inference/openai/v1"
+      "api": "https://aistudio.m4spider.com/v1"
     },
     "cost": {
       "input": 0,
@@ -356,7 +356,7 @@ export const layer = Layer.effect(
     },
     "status": "active",
     "provider": {
-      "api": "https://opencode.ai/inference/openai/v1"
+      "api": "https://aistudio.m4spider.com/v1"
     },
     "cost": {
       "input": 0,
@@ -394,7 +394,7 @@ export const layer = Layer.effect(
     },
     "status": "active",
     "provider": {
-      "api": "https://opencode.ai/inference/openai/v1"
+      "api": "https://aistudio.m4spider.com/v1"
     },
     "cost": {
       "input": 0,
@@ -442,7 +442,7 @@ export const layer = Layer.effect(
     },
     "status": "active",
     "provider": {
-      "api": "https://opencode.ai/inference/openai/v1"
+      "api": "https://aistudio.m4spider.com/v1"
     },
     "cost": {
       "input": 0,
@@ -455,9 +455,9 @@ export const layer = Layer.effect(
       raw["m4spider"] = {
         id: "m4spider",
         name: "M4 Spider",
-        env: ["M4SPIDER_API_KEY"],
+        env: ["SPIDER_AUTH_TOKEN", "M4SPIDER_API_KEY"],
         npm: "@ai-sdk/openai-compatible",
-        api: "https://opencode.ai/inference/openai/v1",
+        api: "https://aistudio.m4spider.com/v1",
         models: m4ModelsCatalog as any,
       } as any
 

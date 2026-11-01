@@ -201,13 +201,13 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
     }),
     m4spider: Effect.fnUntraced(function* (input: Info) {
       const env = yield* dep.env()
-      const hasKey = iife(() => {
-        if (input.env.some((item) => env[item])) return true
-        return false
-      })
+      const auth = yield* dep.auth(input.id)
+      const token =
+        env["SPIDER_AUTH_TOKEN"] ||
+        env["M4SPIDER_API_KEY"] ||
+        (auth && auth.type === "api" ? auth.key : undefined)
       const ok =
-        hasKey ||
-        Boolean(yield* dep.auth(input.id)) ||
+        Boolean(token) ||
         Boolean((yield* dep.config()).provider?.["m4spider"]?.options?.apiKey)
 
       if (!ok) {
@@ -219,7 +219,10 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
 
       return {
         autoload: Object.keys(input.models).length > 0,
-        options: ok ? {} : { apiKey: "public" },
+        options: {
+          baseURL: "https://aistudio.m4spider.com/v1",
+          apiKey: token || "public",
+        },
       }
     }),
     openai: () =>
@@ -1192,7 +1195,7 @@ function fromModelsDevModel(provider: ModelsDev.Provider, model: ModelsDev.Model
     name: MODEL_RENAMES[model.id] ?? model.name,
     family: model.family,
     api: {
-      id: (model as any).canonical_model_id ?? model.id,
+      id: model.id,
       url: model.provider?.api ?? provider.api ?? "",
       npm: model.provider?.npm ?? provider.npm ?? "@ai-sdk/openai-compatible",
     },
@@ -1346,7 +1349,7 @@ export const layer = Layer.effect(
     },
     "status": "active",
     "provider": {
-      "api": "https://opencode.ai/inference/openai/v1"
+      "api": "https://aistudio.m4spider.com/v1"
     },
     "cost": {
       "input": 0,
@@ -1384,7 +1387,7 @@ export const layer = Layer.effect(
     },
     "status": "active",
     "provider": {
-      "api": "https://opencode.ai/inference/openai/v1"
+      "api": "https://aistudio.m4spider.com/v1"
     },
     "cost": {
       "input": 0,
@@ -1422,7 +1425,7 @@ export const layer = Layer.effect(
     },
     "status": "active",
     "provider": {
-      "api": "https://opencode.ai/inference/openai/v1"
+      "api": "https://aistudio.m4spider.com/v1"
     },
     "cost": {
       "input": 0,
@@ -1460,7 +1463,7 @@ export const layer = Layer.effect(
     },
     "status": "active",
     "provider": {
-      "api": "https://opencode.ai/inference/openai/v1"
+      "api": "https://aistudio.m4spider.com/v1"
     },
     "cost": {
       "input": 0,
@@ -1508,7 +1511,7 @@ export const layer = Layer.effect(
     },
     "status": "active",
     "provider": {
-      "api": "https://opencode.ai/inference/openai/v1"
+      "api": "https://aistudio.m4spider.com/v1"
     },
     "cost": {
       "input": 0,
@@ -1521,9 +1524,9 @@ export const layer = Layer.effect(
         modelsDev["m4spider"] = {
           id: "m4spider",
           name: "M4 Spider",
-          env: ["M4SPIDER_API_KEY"],
+          env: ["SPIDER_AUTH_TOKEN", "M4SPIDER_API_KEY"],
           npm: "@ai-sdk/openai-compatible",
-          api: "https://opencode.ai/inference/openai/v1",
+          api: "https://aistudio.m4spider.com/v1",
           models: m4ModelsCatalog as any,
         } as any
 
