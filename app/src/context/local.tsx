@@ -173,19 +173,10 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     }
 
     const defaultModel = () => {
-      // On Free tier, Auto Mode is the only active model
-      const spiderAuto = { providerID: "m4spider", modelID: "spider-auto" }
-      if (validModel(spiderAuto)) return spiderAuto
-      const glm = { providerID: "m4spider", modelID: "glm-5.3-flash" }
-      if (validModel(glm)) return glm
-      const nemotron = { providerID: "m4spider", modelID: "nvidia/nemotron-3.5-super-vl:free" }
-      if (validModel(nemotron)) return nemotron
-      const qwen = { providerID: "m4spider", modelID: "qwen-3.7-flash" }
-      if (validModel(qwen)) return qwen
-      const muse = { providerID: "m4spider", modelID: "muse-spark-1.3-contributor" }
-      if (validModel(muse)) return muse
+      // 1. Prioritize user-connected external providers (e.g. Meta, OpenAI, Anthropic, Google, Groq, OpenRouter, Mistral, Ollama)
       const defaults = providers.default()
       for (const provider of providers.connected()) {
+        if (provider.id === "m4spider" || provider.id === "opencode") continue
         const configured = defaults[provider.id]
         if (configured) {
           const model = { providerID: provider.id, modelID: configured }
@@ -197,6 +188,18 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
         const model = { providerID: provider.id, modelID: first.id }
         if (validModel(model)) return model
       }
+
+      // 2. On Free tier, Auto Mode is the active model
+      const spiderAuto = { providerID: "m4spider", modelID: "spider-auto" }
+      if (validModel(spiderAuto)) return spiderAuto
+      const glm = { providerID: "m4spider", modelID: "glm-5.3-flash" }
+      if (validModel(glm)) return glm
+      const nemotron = { providerID: "m4spider", modelID: "nvidia/nemotron-3.5-super-vl:free" }
+      if (validModel(nemotron)) return nemotron
+      const qwen = { providerID: "m4spider", modelID: "qwen-3.7-flash" }
+      if (validModel(qwen)) return qwen
+      const muse = { providerID: "m4spider", modelID: "muse-spark-1.3-contributor" }
+      if (validModel(muse)) return muse
     }
 
     const fallback = createMemo<ModelKey | undefined>(() => configuredModel() ?? recentModel() ?? defaultModel())

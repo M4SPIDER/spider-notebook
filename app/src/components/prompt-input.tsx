@@ -1342,7 +1342,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
 
   const modelControlState = createMemo<ComposerModelControlState>(() => ({
     loading: providersLoading(),
-    paid: providers.paid().length > 0,
+    paid: providers.paid().length > 0 || providers.connected().some((p) => p.id !== "m4spider" && p.id !== "opencode"),
     title: language.t("command.model.choose"),
     keybind: command.keybind("model.choose"),
     model: local.model,
@@ -1906,7 +1906,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                           style={providersShouldFadeIn() ? { animation: "fade-in 0.3s" } : undefined}
                         >
                           <Show
-                            when={providers.paid().length > 0}
+                            when={providers.paid().length > 0 || providers.connected().some((p) => p.id !== "m4spider" && p.id !== "opencode")}
                             fallback={
                               <TooltipKeybind
                                 placement="top"
