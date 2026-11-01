@@ -2025,10 +2025,7 @@ export const layer = Layer.effect(
 
     const getProvider = Effect.fn("Provider.getProvider")((providerID: ProviderV2.ID) =>
       InstanceState.use(state, (s) => {
-        if (providerID === "meta" || providerID === ProviderV2.ID.make("meta")) {
-        providerID = ProviderV2.ID.make("m4spider")
-      }
-      if (providerID === "m4spider" || providerID === ProviderV2.ID.make("m4spider")) {
+        if (providerID === "m4spider" || providerID === ProviderV2.ID.make("m4spider")) {
           return s.providers[ProviderV2.ID.make("m4spider")]
         }
         return s.providers[providerID]
@@ -2037,7 +2034,7 @@ export const layer = Layer.effect(
 
     const getModel = Effect.fn("Provider.getModel")(function* (providerID: ProviderV2.ID, modelID: ModelV2.ID) {
       const s = yield* InstanceState.get(state)
-      if (providerID === "meta" || providerID === ProviderV2.ID.make("meta") || providerID === "m4spider" || providerID === ProviderV2.ID.make("m4spider")) {
+      if (providerID === "m4spider" || providerID === ProviderV2.ID.make("m4spider")) {
         providerID = ProviderV2.ID.make("m4spider")
         if (!s.providers[providerID]?.models[modelID]) {
           modelID = ModelV2.ID.make("spider-auto")
@@ -2067,9 +2064,7 @@ export const layer = Layer.effect(
 
     const getLanguage = Effect.fn("Provider.getLanguage")(function* (model: Model) {
       const s = yield* InstanceState.get(state)
-      if (model.providerID === "meta" || model.providerID === ProviderV2.ID.make("meta")) {
-        model = { ...model, providerID: ProviderV2.ID.make("m4spider") }
-      }
+      
       const envs = yield* env.all()
       const key = `${model.providerID}/${model.id}`
       if (s.models.has(key)) return s.models.get(key)!

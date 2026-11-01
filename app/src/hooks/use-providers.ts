@@ -59,11 +59,14 @@ import { createMemo } from "solid-js"
 export const popularProviders = [
   "m4spider",
   "anthropic",
-  "github-copilot",
   "openai",
   "google",
+  "meta",
+  "groq",
   "openrouter",
+  "github-copilot",
   "ollama",
+  "mistral",
   "vercel",
 ]
 const popularProviderSet = new Set(popularProviders)
