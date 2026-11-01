@@ -205,6 +205,7 @@ const main = Effect.gen(function* () {
       emitDeepLinks(urls)
     }
     if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
       mainWindow.show()
       mainWindow.focus()
     }

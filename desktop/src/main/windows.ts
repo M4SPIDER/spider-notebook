@@ -225,6 +225,16 @@ export function createMainWindow() {
     win.show()
   })
 
+  // Failsafe: Ensure window is visible even if ready-to-show event is delayed or missed
+  setTimeout(() => {
+    if (!win.isDestroyed() && !win.isVisible()) {
+      if (win.getBounds().width < 1000) {
+        win.maximize()
+      }
+      win.show()
+    }
+  }, 1000)
+
   return win
 }
 
