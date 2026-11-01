@@ -5,12 +5,63 @@ export const Mark = (props: { class?: string }) => {
     <svg
       data-component="logo-mark"
       classList={{ [props.class ?? ""]: !!props.class }}
-      viewBox="0 0 16 20"
+      viewBox="0 0 64 64"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
     >
-      <path data-slot="logo-logo-mark-shadow" d="M12 16H4V8H12V16Z" fill="var(--icon-weak-base)" />
-      <path data-slot="logo-logo-mark-o" d="M12 4H4V16H12V4ZM16 20H0V0H16V20Z" fill="var(--icon-strong-base)" />
+      {/* Spider Legs Shadow */}
+      <g stroke="var(--icon-weak-base)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" transform="translate(0, 2)">
+        <path d="M26 22 L16 10 L12 18" />
+        <path d="M38 22 L48 10 L52 18" />
+        <path d="M24 28 L10 24 L6 34" />
+        <path d="M40 28 L54 24 L58 34" />
+        <path d="M24 34 L12 40 L8 50" />
+        <path d="M40 34 L52 40 L56 50" />
+        <path d="M26 40 L18 52 L22 60" />
+        <path d="M38 40 L46 52 L42 60" />
+      </g>
+      {/* Spider Legs */}
+      <g stroke="var(--icon-strong-base)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M26 22 L16 10 L12 18" />
+        <path d="M38 22 L48 10 L52 18" />
+        <path d="M24 28 L10 24 L6 34" />
+        <path d="M40 28 L54 24 L58 34" />
+        <path d="M24 34 L12 40 L8 50" />
+        <path d="M40 34 L52 40 L56 50" />
+        <path d="M26 40 L18 52 L22 60" />
+        <path d="M38 40 L46 52 L42 60" />
+      </g>
+      {/* Shadow Body */}
+      <path
+        d="M29 20 L32 16 L35 20 L33 24 L31 24 Z"
+        fill="var(--icon-weak-base)"
+      />
+      <path
+        d="M27 25 L32 22 L37 25 L39 32 L32 34 L25 32 Z"
+        fill="var(--icon-weak-base)"
+      />
+      <path
+        d="M25 35 L32 33 L39 35 L42 45 C42 52 36 57 32 60 C28 57 22 52 22 45 Z"
+        fill="var(--icon-weak-base)"
+      />
+      {/* Main Body */}
+      <path
+        d="M29 18 L32 14 L35 18 L33 22 L31 22 Z"
+        fill="var(--icon-strong-base)"
+      />
+      <path
+        d="M27 23 L32 20 L37 23 L39 30 L32 32 L25 30 Z"
+        fill="var(--icon-strong-base)"
+      />
+      <path
+        d="M25 33 L32 31 L39 33 L42 43 C42 50 36 55 32 58 C28 55 22 50 22 43 Z"
+        fill="var(--icon-strong-base)"
+      />
+      {/* M4 Badge in Abdomen */}
+      <g fill="var(--background-base, #18181b)">
+        <path d="M26.5 38 H28.5 L30 41 L31.5 38 H33.5 V45 H32 V41.5 L30.5 44 H29.5 L28 41.5 V45 H26.5 Z" />
+        <path d="M34.5 38 H36 V42 H37.5 V43.2 H36 V45 H34.5 V43.2 H33 V42.2 L34.5 38 Z M34.5 42 V40.2 L33.8 42 Z" />
+      </g>
     </svg>
   )
 }
@@ -21,12 +72,63 @@ export const Splash = (props: Pick<ComponentProps<"svg">, "ref" | "class">) => {
       ref={props.ref}
       data-component="logo-splash"
       classList={{ [props.class ?? ""]: !!props.class }}
-      viewBox="0 0 80 100"
+      viewBox="0 0 64 64"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
     >
-      <path d="M60 80H20V40H60V80Z" fill="var(--icon-base)" />
-      <path d="M60 20H20V80H60V20ZM80 100H0V0H80V100Z" fill="var(--icon-strong-base)" />
+      {/* Spider Legs Shadow */}
+      <g stroke="var(--icon-weak-base)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" transform="translate(0, 2)">
+        <path d="M26 22 L16 10 L12 18" />
+        <path d="M38 22 L48 10 L52 18" />
+        <path d="M24 28 L10 24 L6 34" />
+        <path d="M40 28 L54 24 L58 34" />
+        <path d="M24 34 L12 40 L8 50" />
+        <path d="M40 34 L52 40 L56 50" />
+        <path d="M26 40 L18 52 L22 60" />
+        <path d="M38 40 L46 52 L42 60" />
+      </g>
+      {/* Spider Legs */}
+      <g stroke="var(--icon-strong-base)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M26 22 L16 10 L12 18" />
+        <path d="M38 22 L48 10 L52 18" />
+        <path d="M24 28 L10 24 L6 34" />
+        <path d="M40 28 L54 24 L58 34" />
+        <path d="M24 34 L12 40 L8 50" />
+        <path d="M40 34 L52 40 L56 50" />
+        <path d="M26 40 L18 52 L22 60" />
+        <path d="M38 40 L46 52 L42 60" />
+      </g>
+      {/* Shadow Body */}
+      <path
+        d="M29 20 L32 16 L35 20 L33 24 L31 24 Z"
+        fill="var(--icon-weak-base)"
+      />
+      <path
+        d="M27 25 L32 22 L37 25 L39 32 L32 34 L25 32 Z"
+        fill="var(--icon-weak-base)"
+      />
+      <path
+        d="M25 35 L32 33 L39 35 L42 45 C42 52 36 57 32 60 C28 57 22 52 22 45 Z"
+        fill="var(--icon-weak-base)"
+      />
+      {/* Main Body */}
+      <path
+        d="M29 18 L32 14 L35 18 L33 22 L31 22 Z"
+        fill="var(--icon-strong-base)"
+      />
+      <path
+        d="M27 23 L32 20 L37 23 L39 30 L32 32 L25 30 Z"
+        fill="var(--icon-strong-base)"
+      />
+      <path
+        d="M25 33 L32 31 L39 33 L42 43 C42 50 36 55 32 58 C28 55 22 50 22 43 Z"
+        fill="var(--icon-strong-base)"
+      />
+      {/* M4 Badge in Abdomen */}
+      <g fill="var(--background-base, #18181b)">
+        <path d="M26.5 38 H28.5 L30 41 L31.5 38 H33.5 V45 H32 V41.5 L30.5 44 H29.5 L28 41.5 V45 H26.5 Z" />
+        <path d="M34.5 38 H36 V42 H37.5 V43.2 H36 V45 H34.5 V43.2 H33 V42.2 L34.5 38 Z M34.5 42 V40.2 L33.8 42 Z" />
+      </g>
     </svg>
   )
 }
